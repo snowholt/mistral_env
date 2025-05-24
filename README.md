@@ -19,20 +19,15 @@ This framework provides a scalable, professional-grade interface for running inf
 
 ## Installation
 
-### Basic Setup (Transformers)
+### Setup
 
 ```bash
 # Run the setup script
-./scripts/setup.sh
+chmod +x setup_mistral.sh
+./setup_mistral.sh
 ```
 
-### vLLM Setup (Optional, for better performance)
-
-After running the basic setup, you can add vLLM support:
-
-```bash
-./scripts/setup_vllm.sh
-```
+The setup script will guide you through the installation process and ask if you want to install with vLLM support (recommended for better performance).
 
 ### Authenticate with Hugging Face (required for the model):
 
@@ -46,41 +41,41 @@ Follow the prompts and enter your Hugging Face token from https://huggingface.co
 
 ### Quick Start
 
-After installation, you can use the framework with the included scripts:
+After installation, you can use the framework with the provided command-line tools:
 
 ```bash
 # Activate the virtual environment
 source venv/bin/activate
 
 # Test the model with a simple prompt
-./scripts/test_model.py
+mistral-test
 
 # Start an interactive chat session
-./scripts/chat.py
+mistral-chat
 
 # Run benchmarks
-./scripts/benchmark.py
+mistral-benchmark
 ```
 
 ### Command-line Options
 
-All scripts support command-line options for customization:
+All commands support command-line options for customization:
 
 ```bash
 # Use a different model
-./scripts/chat.py --model mistralai/Mixtral-8x7B-Instruct-v0.1
+mistral-chat --model mistralai/Mixtral-8x7B-Instruct-v0.1
 
 # Use vLLM backend with AWQ quantization
-./scripts/chat.py --engine vllm --quantization awq
+mistral-chat --engine vllm --quantization awq
 
 # Run benchmarks with custom parameters
-./scripts/benchmark.py --input-lengths 10,100,500 --output-length 100
+mistral-benchmark --input-lengths 10,100,500 --output-length 100
 ```
 
-Use `--help` with any script to see all available options:
+Use `--help` with any command to see all available options:
 
 ```bash
-./scripts/chat.py --help
+mistral-chat --help
 ```
 
 ### Configuration Files
