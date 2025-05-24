@@ -8,6 +8,7 @@ This framework provides a scalable, professional-grade interface for running inf
 - **Flexible Quantization**: Support for 4-bit/8-bit quantization with Transformers and AWQ/SqueezeLLM with vLLM
 - **Interactive Chat**: Real-time streaming chat interface with conversation history
 - **Benchmarking Tools**: Measure loading time, inference speed, and memory usage
+- **Model Registry**: Manage multiple model configurations and easily switch between them
 - **Modular Design**: Clean separation of components for easy maintenance and extension
 - **Configuration Management**: Use JSON config files or command-line parameters
 
@@ -55,6 +56,33 @@ mistral-chat
 
 # Run benchmarks
 mistral-benchmark
+
+# Manage model configurations
+mistral-models list
+```
+
+### Model Registry
+
+The framework includes a model registry to manage multiple model configurations:
+
+```bash
+# List all available models
+mistral-models list
+
+# Add a new model configuration
+mistral-models add --name "mistral-7b" --model-id "mistralai/Mistral-7B-Instruct-v0.2" --engine transformers --quantization 4bit
+
+# Show details of a specific model
+mistral-models show mistral-7b
+
+# Set a model as default
+mistral-models set-default mistral-7b
+
+# Use a specific model for benchmarking
+mistral-benchmark --model-name mistral-7b
+
+# Save current benchmark configuration to registry
+mistral-benchmark --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --quantization 8bit --save-model
 ```
 
 ### Command-line Options
@@ -102,11 +130,13 @@ mistral_inference/
 │   ├── __init__.py
 │   ├── benchmark_cli.py         # CLI for benchmarking
 │   ├── chat_cli.py              # CLI for interactive chat
+│   ├── model_manager_cli.py     # CLI for model configuration management
 │   └── test_cli.py              # CLI for testing
 ├── config/                      # Configuration management
 │   ├── __init__.py
 │   ├── config_manager.py        # Configuration dataclasses
-│   └── default_config.json      # Default configuration
+│   ├── default_config.json      # Default configuration
+│   └── model_registry.json      # Model registry storage
 ├── core/                        # Core components
 │   ├── __init__.py
 │   ├── model_factory.py         # Factory for creating models
@@ -139,6 +169,7 @@ This framework is primarily designed for Mistral AI models but should work with 
 - **mistralai/Mistral-Small-3.1-24B-Instruct-2503**: Works with 4-bit quantization on 24GB GPUs
 - **mistralai/Mixtral-8x7B-Instruct-v0.1**: Works with vLLM AWQ quantization on ≥16GB GPUs
 - **mistralai/Mistral-7B-Instruct-v0.2**: Works on ≥8GB GPUs
+- **TinyLlama/TinyLlama-1.1B-Chat-v1.0**: Works on low-memory systems (≥4GB GPUs)
 
 ## Quantization Details
 

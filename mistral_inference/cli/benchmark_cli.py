@@ -21,53 +21,82 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Benchmark Mistral model")
     
-    parser.add_argument(
+    # Model selection
+    model_group = parser.add_argument_group("Model Selection")
+    model_group.add_argument(
         "--model",
         type=str,
-        default="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
-        help="Model ID to use (default: mistralai/Mistral-Small-3.1-24B-Instruct-2503)",
+        help="Model ID to use (e.g., mistralai/Mistral-Small-3.1-24B-Instruct-2503)",
     )
     
-    parser.add_argument(
+    model_group.add_argument(
+        "--model-name",
+        type=str,
+        help="Name of model from the registry to use",
+    )
+    
+    model_group.add_argument(
+        "--list-models",
+        action="store_true",
+        help="List all available models in the registry"
+    )
+    
+    # Model configuration
+    config_group = parser.add_argument_group("Model Configuration")
+    config_group.add_argument(
         "--engine", 
         type=str, 
         choices=["transformers", "vllm"], 
-        default="transformers",
-        help="Inference engine to use (default: transformers)"
+        help="Inference engine to use"
     )
     
-    parser.add_argument(
+    config_group.add_argument(
         "--quantization",
         type=str,
         choices=["4bit", "8bit", "awq", "squeezellm", "none"],
-        default="4bit",
-        help="Quantization method (default: 4bit)",
+        help="Quantization method",
     )
     
-    parser.add_argument(
+    # Benchmark settings
+    benchmark_group = parser.add_argument_group("Benchmark Settings")
+    benchmark_group.add_argument(
         "--input-lengths", 
         type=str, 
         default="10,100,1000",
         help="Comma-separated list of input token lengths to test (default: 10,100,1000)"
     )
     
-    parser.add_argument(
+    benchmark_group.add_argument(
         "--output-length",
         type=int,
         default=200,
         help="Number of output tokens to generate (default: 200)",
     )
     
+    # Configuration
     parser.add_argument(
         "--config",
         type=str,
+        default=str(Path(__file__).parent.parent / "config" / "default_config.json"),
         help="Path to a JSON configuration file",
+    )
+
+    parser.add_argument(
+        "--models-file",
+        type=str,
+        help="Path to the models registry file",
     )
     
     parser.add_argument(
         "--output-file",
         type=str,
         help="Path to save benchmark results as JSON",
+    )
+    
+    parser.add_argument(
+        "--save-model",
+        action="store_true",
+        help="Save the current model configuration to the registry"
     )
     
     return parser.parse_args()
@@ -84,9 +113,77 @@ def create_prompts(input_lengths: List[int]) -> Dict[int, str]:
     return prompts
 
 
+def list_available_models(config: AppConfig):
+    """List all available models in the registry."""
+    print("\n===== Available Models =====")
+    models = config.model_registry.list_models()
+    default_model = config.model_registry.default_model
+    
+    for i, model_name in enumerate(models, 1):
+        model = config.model_registry.get_model(model_name)
+        default_mark = " (default)" if model_name == default_model else ""
+        print(f"{i}. {model_name}{default_mark}")
+        print(f"   - ID: {model.model_id}")
+        print(f"   - Engine: {model.engine_type}")
+        print(f"   - Quantization: {model.quantization or 'None'}")
+        if model.description:
+            print(f"   - Description: {model.description}")
+        print()
+
+
 def main():
     """Main entry point for the benchmark CLI."""
     args = parse_arguments()
+    
+    # Load configuration
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error(f"Configuration file not found: {config_path}")
+        sys.exit(1)
+    
+    config = AppConfig.load_from_file(config_path)
+    
+    # Set custom models file if provided
+    if args.models_file:
+        config.models_file = args.models_file
+    
+    # Load model registry
+    config.load_model_registry()
+    
+    # If requested to list models, do that and exit
+    if args.list_models:
+        list_available_models(config)
+        sys.exit(0)
+    
+    # If a model name is provided, try to load from registry
+    if args.model_name:
+        if not config.switch_model(args.model_name):
+            logger.error(f"Model '{args.model_name}' not found in registry.")
+            print("\nAvailable models:")
+            for name in config.model_registry.list_models():
+                print(f"- {name}")
+            sys.exit(1)
+    
+    # If direct model ID is provided, update configuration
+    if args.model:
+        config.model.model_id = args.model
+    
+    # Update other model parameters if provided
+    if args.engine:
+        config.model.engine_type = args.engine
+    
+    if args.quantization:
+        config.model.quantization = None if args.quantization == "none" else args.quantization
+    
+    # Save model to registry if requested
+    if args.save_model:
+        # Create a unique name if none exists
+        if config.model.name == "default":
+            model_short_name = config.model.model_id.split("/")[-1].lower()
+            config.model.name = f"{model_short_name}-{config.model.quantization or 'fp16'}"
+        
+        config.add_model_config(config.model)
+        print(f"Model '{config.model.name}' saved to registry.")
     
     # Parse input lengths
     try:
@@ -94,25 +191,6 @@ def main():
     except ValueError:
         logger.error("Invalid input lengths. Should be comma-separated integers.")
         sys.exit(1)
-    
-    # Load configuration
-    config = None
-    if args.config:
-        config_path = Path(args.config)
-        if not config_path.exists():
-            logger.error(f"Configuration file not found: {config_path}")
-            sys.exit(1)
-        
-        config = AppConfig.load_from_file(config_path)
-    else:
-        # Create configuration from arguments
-        model_config = ModelConfig(
-            model_id=args.model,
-            engine_type=args.engine,
-            quantization=None if args.quantization == "none" else args.quantization,
-        )
-        
-        config = AppConfig(model=model_config)
     
     # Print benchmark information
     gpu_info = get_gpu_info()

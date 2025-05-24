@@ -23,6 +23,7 @@ setup(
             "mistral-chat=mistral_inference.cli.chat_cli:main",
             "mistral-test=mistral_inference.cli.test_cli:main",
             "mistral-benchmark=mistral_inference.cli.benchmark_cli:main",
+            "mistral-models=mistral_inference.cli.model_manager_cli:main",
         ],
     },
     classifiers=[

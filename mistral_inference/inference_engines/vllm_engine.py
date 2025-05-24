@@ -40,6 +40,18 @@ class VLLMEngine(ModelInterface):
         if self.config.quantization in ["awq", "squeezellm"]:
             quantization = self.config.quantization
         
+        # Special handling for Mistral3 models
+        model_id_lower = self.config.model_id.lower()
+        mistral_model_params = {}
+        if "mistral3" in model_id_lower or ("mistral" in model_id_lower and "3" in model_id_lower):
+            logger.info("Setting Mistral3-specific parameters for vLLM")
+            mistral_model_params = {
+                "tokenizer_mode": "mistral",
+                "config_format": "mistral",
+                "load_format": "mistral",
+                "trust_remote_code": True
+            }
+        
         # Load model with vLLM
         self.model = LLM(
             model=self.config.model_id,
@@ -47,6 +59,7 @@ class VLLMEngine(ModelInterface):
             tensor_parallel_size=self.config.tensor_parallel_size,
             gpu_memory_utilization=self.config.gpu_memory_utilization,
             max_model_len=8192,  # Allow for longer conversations
+            **mistral_model_params
         )
         
         loading_time = time.time() - start_time
