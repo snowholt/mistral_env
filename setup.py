@@ -24,6 +24,7 @@ setup(
             "mistral-test=mistral_inference.cli.test_cli:main",
             "mistral-benchmark=mistral_inference.cli.benchmark_cli:main",
             "mistral-models=mistral_inference.cli.model_manager_cli:main",
+            "mistral-manage=mistral_inference.cli.model_management_cli:main",
         ],
     },
     classifiers=[

@@ -61,9 +61,20 @@ class ModelRegistry:
         """Get a model configuration by name."""
         return self.models.get(name)
     
-    def remove_model(self, name: str) -> bool:
-        """Remove a model configuration by name."""
+    def remove_model(self, name: str, clear_cache: bool = False) -> bool:
+        """Remove a model configuration by name and optionally clear its cache."""
         if name in self.models:
+            model_config = self.models[name]
+            
+            # Clear cache if requested
+            if clear_cache:
+                try:
+                    from ..core.model_manager import ModelManager
+                    model_manager = ModelManager()
+                    model_manager.clear_model_cache(model_config.model_id)
+                except Exception as e:
+                    logger.warning(f"Failed to clear cache for model '{name}': {e}")
+            
             del self.models[name]
             # If we remove the default model, set a new default if possible
             if name == self.default_model and self.models:

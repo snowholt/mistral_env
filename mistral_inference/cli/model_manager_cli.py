@@ -55,6 +55,7 @@ def parse_arguments():
     # Remove model
     remove_parser = subparsers.add_parser("remove", help="Remove a model configuration")
     remove_parser.add_argument("name", help="Name of the model to remove")
+    remove_parser.add_argument("--clear-cache", action="store_true", help="Also clear model cache from disk")
     
     # Set default model
     default_parser = subparsers.add_parser("set-default", help="Set default model")
@@ -190,15 +191,21 @@ def update_model(config: AppConfig, args):
     return True
 
 
-def remove_model(config: AppConfig, name: str):
+def remove_model(config: AppConfig, args):
     """Remove a model configuration."""
+    name = args.name
+    clear_cache = getattr(args, 'clear_cache', False)
+    
     if name == config.model_registry.default_model:
         print(f"Cannot remove default model '{name}'. Set another model as default first.")
         return False
     
-    if config.model_registry.remove_model(name):
+    if config.model_registry.remove_model(name, clear_cache=clear_cache):
         config.save_model_registry()
-        print(f"Model '{name}' removed from registry.")
+        if clear_cache:
+            print(f"Model '{name}' removed from registry and cache cleared.")
+        else:
+            print(f"Model '{name}' removed from registry.")
         return True
     else:
         print(f"Model '{name}' not found in registry.")
@@ -255,7 +262,7 @@ def main():
             return 1
     
     elif args.command == "remove":
-        if not remove_model(config, args.name):
+        if not remove_model(config, args):
             return 1
     
     elif args.command == "set-default":
