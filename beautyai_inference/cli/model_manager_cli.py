@@ -32,7 +32,7 @@ def parse_arguments():
     # Add model
     add_parser = subparsers.add_parser("add", help="Add a new model configuration")
     add_parser.add_argument("--name", required=True, help="Name for the model configuration")
-    add_parser.add_argument("--model-id", required=True, help="Model ID (e.g., mistralai/Mistral-7B-v0.1)")
+    add_parser.add_argument("--model-id", required=True, help="Model ID (e.g., Qwen/Qwen3-14B)")
     add_parser.add_argument("--engine", choices=["transformers", "vllm"], default="transformers", 
                            help="Inference engine (default: transformers)")
     add_parser.add_argument("--quantization", choices=["4bit", "8bit", "awq", "squeezellm", "none"], 
@@ -44,7 +44,7 @@ def parse_arguments():
     # Update model
     update_parser = subparsers.add_parser("update", help="Update an existing model configuration")
     update_parser.add_argument("name", help="Name of the model to update")
-    update_parser.add_argument("--model-id", help="Model ID (e.g., mistralai/Mistral-7B-v0.1)")
+    update_parser.add_argument("--model-id", help="Model ID (e.g., Qwen/Qwen3-14B)")
     update_parser.add_argument("--engine", choices=["transformers", "vllm"], help="Inference engine")
     update_parser.add_argument("--quantization", choices=["4bit", "8bit", "awq", "squeezellm", "none"], 
                               help="Quantization method")

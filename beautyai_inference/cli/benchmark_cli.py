@@ -26,7 +26,7 @@ def parse_arguments():
     model_group.add_argument(
         "--model",
         type=str,
-        help="Model ID to use (e.g., mistralai/Mistral-Small-3.1-24B-Instruct-2503)",
+        help="Model ID to use (e.g., Qwen/Qwen3-14B)",
     )
     
     model_group.add_argument(
