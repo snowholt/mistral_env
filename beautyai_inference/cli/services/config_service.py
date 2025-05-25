@@ -45,17 +45,18 @@ class ConfigService(BaseService):
         
         # Display global configuration
         print("\n=== Global Configuration ===")
-        print(f"Config File:     {self.app_config.config_file}")
+        print(f"Config File:     {self.config_file_path or 'Default (none specified)'}")
         print(f"Models File:     {self.app_config.models_file}")
-        print(f"Default Model:   {self.app_config.default_model_name or 'None'}")
+        print(f"Default Model:   {self.app_config.model_registry.default_model or 'None'}")
         print(f"Cache Directory: {self.app_config.cache_dir}")
         
         # Display all other configuration
-        config_dict = self.app_config.get_config()
+        config_dict = self.app_config.to_dict()
         if config_dict:
-            print("\n=== Custom Configuration ===")
-            for key, value in config_dict.items():
-                if key not in ["models", "default_model"]:
+            print("\n=== Current Model Configuration ===")
+            model_config = config_dict.get("model", {})
+            for key, value in model_config.items():
+                if key not in ["name", "description"]:  # Skip metadata fields
                     print(f"{key}: {value}")
         
         print()
@@ -96,8 +97,8 @@ class ConfigService(BaseService):
         
         try:
             # Create backup of current config
-            config_file = self.app_config.config_file
-            if os.path.exists(config_file):
+            config_file = self.config_file_path
+            if config_file and os.path.exists(config_file):
                 backup_file = f"{config_file}.backup"
                 with open(config_file, "r") as f_in:
                     with open(backup_file, "w") as f_out:
@@ -105,20 +106,20 @@ class ConfigService(BaseService):
                 print(f"Created backup of current config at {backup_file}")
             
             # Reset to defaults (but keep models)
-            models = self.app_config.get_models()
-            default_model = self.app_config.default_model_name
+            models = self.app_config.model_registry.models
+            default_model = self.app_config.model_registry.default_model
             
             self.app_config.reset_to_defaults()
             
             # Restore models
             for name, model in models.items():
-                self.app_config.add_model(model)
+                self.app_config.add_model_config(model)
             
             if default_model:
-                self.app_config.set_default_model(default_model)
+                self.app_config.model_registry.set_default_model(default_model)
                 
             self.app_config.save_config()
-            self.app_config.save_models()
+            self.app_config.save_model_registry()
             
             print(f"Configuration reset to defaults. Models have been preserved.")
             
@@ -173,7 +174,7 @@ class ConfigService(BaseService):
             models_valid = True
             model_errors = []
             
-            for model_name, model_config in self.app_config.get_models().items():
+            for model_name, model_config in self.app_config.model_registry.models.items():
                 try:
                     model_dict = model_config.to_dict()
                     model_result = self._validate_model_config(model_dict)
@@ -208,8 +209,8 @@ class ConfigService(BaseService):
                     })
             
             # Check if default model exists in registry
-            default_model = self.app_config.default_model_name
-            if default_model and default_model not in self.app_config.get_models():
+            default_model = self.app_config.model_registry.default_model
+            if default_model and default_model not in self.app_config.model_registry.models:
                 validation_result["valid"] = False
                 validation_result["errors"].append(f"Default model '{default_model}' not found in model registry")
             
@@ -219,8 +220,8 @@ class ConfigService(BaseService):
                 
                 # Show summary information
                 print(f"\n=== Configuration Summary ===")
-                print(f"Total models: {len(self.app_config.get_models())}")
-                print(f"Default model: {self.app_config.default_model_name}")
+                print(f"Total models: {len(self.app_config.model_registry.models)}")
+                print(f"Default model: {self.app_config.model_registry.default_model}")
                 print(f"Log level: {self.app_config.log_level}")
                 print(f"Cache directory: {self.app_config.cache_dir or 'Default'}")
                 
@@ -294,7 +295,7 @@ class ConfigService(BaseService):
             label_suffix = f"_{backup_label}" if backup_label else ""
             
             # Backup main configuration
-            config_file = self.app_config.config_file
+            config_file = self.config_file_path or "default_config.json"
             config_backup = backup_path / f"config{label_suffix}_{timestamp}.json"
             
             if os.path.exists(config_file):
@@ -560,12 +561,12 @@ class ConfigService(BaseService):
             
             # Save migrated config
             self.app_config.save_config()
-            self.app_config.save_models()
+            self.app_config.save_model_registry()
             
             # Validate the migrated configuration
             print("\nValidating migrated configuration...")
             validation_args = argparse.Namespace()
-            validation_args.config = self.app_config.config_file
+            validation_args.config = self.config_file_path
             validation_args.models_file = self.app_config.models_file
             validation_result = self.validate_config(validation_args)
             
@@ -600,10 +601,24 @@ class ConfigService(BaseService):
         config_file = getattr(args, "config", None)
         models_file = getattr(args, "models_file", None)
         
-        self.app_config = AppConfig(
-            config_file=config_file,
-            models_file=models_file
-        )
+        # Store the config file path for reference
+        self.config_file_path = config_file
+        
+        if config_file:
+            # Load configuration from file
+            self.app_config = AppConfig.load_from_file(config_file)
+            # Override models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        else:
+            # Create default configuration
+            self.app_config = AppConfig()
+            # Set models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        
+        # Load model registry
+        self.app_config.load_model_registry()
 
     def _get_config_schema(self) -> Dict[str, Any]:
         """
@@ -847,7 +862,7 @@ class ConfigService(BaseService):
             migration_issues.append("Convert 'max_length' to 'max_new_tokens'")
             
         # Check model registry format as well
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         for name, model in models.items():
             model_dict = model.to_dict()
             
@@ -927,7 +942,7 @@ class ConfigService(BaseService):
         
         # Migrate model registry
         if hasattr(self.app_config, "model_registry") and self.app_config.model_registry:
-            for name, model in self.app_config.get_models().items():
+            for name, model in self.app_config.model_registry.models.items():
                 model_dict = model.to_dict()
                 
                 # Add model architecture if missing

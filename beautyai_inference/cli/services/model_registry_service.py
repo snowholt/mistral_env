@@ -23,12 +23,12 @@ class ModelRegistryService(BaseService):
         """List all models in the registry."""
         self._load_config(args)
         
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         if not models:
             print("No models found in registry.")
             return
             
-        default_model = self.app_config.default_model_name
+        default_model = self.app_config.model_registry.default_model
         
         print("\n{:<15} {:<30} {:<15} {:<10} {:<10}".format(
             "MODEL NAME", "MODEL ID", "ENGINE", "QUANT", "DEFAULT"))
@@ -50,7 +50,7 @@ class ModelRegistryService(BaseService):
         self._load_config(args)
         
         name = args.name
-        if name in self.app_config.get_models():
+        if name in self.app_config.model_registry.models:
             print(f"Error: Model with name '{name}' already exists. Use 'update' to modify.")
             return 1
         
@@ -63,12 +63,11 @@ class ModelRegistryService(BaseService):
             description=args.description
         )
         
-        self.app_config.add_model(model_config)
-        self.app_config.save_models()
+        self.app_config.add_model_config(model_config)
         
         if args.default:
-            self.app_config.set_default_model(name)
-            self.app_config.save_models()
+            self.app_config.model_registry.set_default_model(name)
+            self.app_config.save_model_registry()
             print(f"Added model '{name}' to registry and set as default.")
         else:
             print(f"Added model '{name}' to registry.")
@@ -78,14 +77,14 @@ class ModelRegistryService(BaseService):
         self._load_config(args)
         
         name = args.name
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         
         if name not in models:
             print(f"Error: Model '{name}' not found in registry.")
             return 1
             
         model = models[name]
-        is_default = name == self.app_config.default_model_name
+        is_default = name == self.app_config.model_registry.default_model
         
         print(f"\nModel: {name} {'(default)' if is_default else ''}")
         print("-" * 40)
@@ -110,7 +109,7 @@ class ModelRegistryService(BaseService):
         self._load_config(args)
         
         name = args.name
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         
         if name not in models:
             print(f"Error: Model '{name}' not found in registry.")
@@ -134,12 +133,13 @@ class ModelRegistryService(BaseService):
         if args.description:
             model.description = args.description
         
-        self.app_config.update_model(name, model)
-        self.app_config.save_models()
+        # Update the model in the registry
+        self.app_config.model_registry.add_model(model)  # This will overwrite existing
+        self.app_config.save_model_registry()
         
         if args.default:
-            self.app_config.set_default_model(name)
-            self.app_config.save_models()
+            self.app_config.model_registry.set_default_model(name)
+            self.app_config.save_model_registry()
             print(f"Updated model '{name}' and set as default.")
         else:
             print(f"Updated model '{name}'.")
@@ -149,18 +149,18 @@ class ModelRegistryService(BaseService):
         self._load_config(args)
         
         name = args.name
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         
         if name not in models:
             print(f"Error: Model '{name}' not found in registry.")
             return 1
         
-        if name == self.app_config.default_model_name:
+        if name == self.app_config.model_registry.default_model:
             print(f"Warning: Removing default model '{name}'.")
-            self.app_config.default_model_name = None
+            self.app_config.model_registry.default_model = None
             
-        self.app_config.remove_model(name)
-        self.app_config.save_models()
+        self.app_config.model_registry.remove_model(name)
+        self.app_config.save_model_registry()
         print(f"Removed model '{name}' from registry.")
     
     def set_default_model(self, args):
@@ -168,14 +168,14 @@ class ModelRegistryService(BaseService):
         self._load_config(args)
         
         name = args.name
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         
         if name not in models:
             print(f"Error: Model '{name}' not found in registry.")
             return 1
             
-        self.app_config.set_default_model(name)
-        self.app_config.save_models()
+        self.app_config.model_registry.set_default_model(name)
+        self.app_config.save_model_registry()
         print(f"Set '{name}' as the default model.")
     
     def _load_config(self, args):
@@ -183,7 +183,18 @@ class ModelRegistryService(BaseService):
         config_file = getattr(args, "config", None)
         models_file = getattr(args, "models_file", None)
         
-        self.app_config = AppConfig(
-            config_file=config_file,
-            models_file=models_file
-        )
+        if config_file:
+            # Load configuration from file
+            self.app_config = AppConfig.load_from_file(config_file)
+            # Override models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        else:
+            # Create default configuration
+            self.app_config = AppConfig()
+            # Set models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        
+        # Load model registry
+        self.app_config.load_model_registry()

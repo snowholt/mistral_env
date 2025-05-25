@@ -17,6 +17,7 @@ class BaseService(ABC):
     def __init__(self):
         self.config: Optional[AppConfig] = None
         self.config_data: Dict[str, Any] = {}
+        self.config_file_path: Optional[str] = None
         self.logger = logging.getLogger(self.__class__.__name__)
     
     def configure(self, config_data: Dict[str, Any]):
@@ -25,6 +26,7 @@ class BaseService(ABC):
         
         # Load application configuration
         config_file = config_data.get('config_file')
+        self.config_file_path = config_file
         if config_file:
             config_path = Path(config_file)
             if config_path.exists():

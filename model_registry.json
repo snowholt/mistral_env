@@ -1,0 +1,22 @@
+{
+  "default_model": "default",
+  "models": {
+    "default": {
+      "model_id": "Qwen/Qwen3-14B",
+      "engine_type": "transformers",
+      "quantization": "4bit",
+      "dtype": "float16",
+      "max_new_tokens": 512,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "do_sample": true,
+      "gpu_memory_utilization": 0.9,
+      "tensor_parallel_size": 1,
+      "name": "default",
+      "description": null,
+      "model_architecture": "causal_lm",
+      "documentation": null,
+      "custom_generation_params": null
+    }
+  }
+}

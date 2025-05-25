@@ -764,7 +764,7 @@ system <msg>    - Set a system message
         model_name = getattr(args, "model_name", None)
         if not self.app_config:
             self._load_config(args)
-        models = self.app_config.get_models()
+        models = self.app_config.model_registry.models
         
         # Case 1: Using a model from registry
         if model_name:
@@ -778,7 +778,7 @@ system <msg>    - Set a system message
         
         # If no model_id specified, use default model from registry
         if not model_id:
-            default_model_name = self.app_config.default_model_name
+            default_model_name = self.app_config.model_registry.default_model
             if not default_model_name or default_model_name not in models:
                 print(f"Error: No model specified and no valid default model set.")
                 return None, None
@@ -815,9 +815,20 @@ system <msg>    - Set a system message
         config_file = getattr(args, "config", None)
         models_file = getattr(args, "models_file", None)
         
-        self.app_config = AppConfig(
-            config_file=config_file,
-            models_file=models_file
-        )
+        if config_file:
+            # Load configuration from file
+            self.app_config = AppConfig.load_from_file(config_file)
+            # Override models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        else:
+            # Create default configuration
+            self.app_config = AppConfig()
+            # Set models file if specified
+            if models_file:
+                self.app_config.models_file = models_file
+        
+        # Load model registry
+        self.app_config.load_model_registry()
         
         return self.app_config
