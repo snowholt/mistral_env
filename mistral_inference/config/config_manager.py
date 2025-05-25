@@ -26,6 +26,25 @@ class ModelConfig:
     tensor_parallel_size: int = 1  # For vLLM
     name: str = "default"  # Friendly name for the model configuration
     description: Optional[str] = None  # Optional description of the model configuration
+    model_architecture: str = "causal_lm"  # 'causal_lm' or 'seq2seq_lm'
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert model configuration to a dictionary."""
+        return {
+            "model_id": self.model_id,
+            "engine_type": self.engine_type,
+            "quantization": self.quantization,
+            "dtype": self.dtype,
+            "max_new_tokens": self.max_new_tokens,
+            "temperature": self.temperature,
+            "top_p": self.top_p,
+            "do_sample": self.do_sample,
+            "gpu_memory_utilization": self.gpu_memory_utilization,
+            "tensor_parallel_size": self.tensor_parallel_size,
+            "name": self.name,
+            "description": self.description,
+            "model_architecture": self.model_architecture,
+        }
 
 
 @dataclass
@@ -76,13 +95,16 @@ class ModelRegistry:
     
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "ModelRegistry":
-        """Create a registry from a dictionary."""
+        """Create registry from a dictionary."""
         registry = cls()
         registry.default_model = data.get("default_model", "default")
         
         models_dict = data.get("models", {})
         for name, model_data in models_dict.items():
-            model_config = ModelConfig(**model_data)
+            # Ensure the name in the model matches the key
+            model_data_copy = model_data.copy()
+            model_data_copy["name"] = name
+            model_config = ModelConfig(**model_data_copy)
             registry.models[name] = model_config
             
         return registry
@@ -165,6 +187,7 @@ class AppConfig:
                 "tensor_parallel_size": self.model.tensor_parallel_size,
                 "name": self.model.name,
                 "description": self.model.description,
+                "model_architecture": self.model.model_architecture,
             },
             "cache_dir": self.cache_dir,
             "log_level": self.log_level,

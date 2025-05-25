@@ -1,11 +1,12 @@
 # Mistral Inference Framework
 
-This framework provides a scalable, professional-grade interface for running inference with Mistral AI models. It supports both Hugging Face Transformers and vLLM inference backends, with various quantization options to optimize for different hardware requirements.
+This framework provides a scalable, professional-grade interface for running inference with various language models. It supports both Hugging Face Transformers and vLLM inference backends, with various quantization options to optimize for different hardware requirements.
 
 ## Features
 
 - **Multiple Inference Backends**: Use either Hugging Face Transformers (default) or vLLM for optimized inference
 - **Flexible Quantization**: Support for 4-bit/8-bit quantization with Transformers and AWQ/SqueezeLLM with vLLM
+- **Multiple Model Architectures**: Support for both causal language models (e.g., Qwen, Mistral, Llama) and sequence-to-sequence models (e.g., T5, Flan-T5)
 - **Interactive Chat**: Real-time streaming chat interface with conversation history
 - **Benchmarking Tools**: Measure loading time, inference speed, and memory usage
 - **Model Registry**: Manage multiple model configurations and easily switch between them
@@ -84,6 +85,36 @@ mistral-benchmark --model-name mistral-7b
 # Save current benchmark configuration to registry
 mistral-benchmark --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --quantization 8bit --save-model
 ```
+
+## Supported Model Architectures
+
+The framework supports two main types of model architectures:
+
+### Causal Language Models (CLMs)
+
+Causal language models like Qwen, Mistral, Llama, and GPT-style models are best suited for conversational AI and text generation tasks. These models predict the next token in a sequence and are trained with a causal attention mask.
+
+Example models:
+- Qwen/Qwen3-14B (default)
+- mistralai/Mistral-7B-Instruct-v0.2
+- meta-llama/Llama-2-7b-chat-hf
+
+### Sequence-to-Sequence Models (Seq2Seq)
+
+Sequence-to-sequence models like T5, Flan-T5, and BART are designed for transforming an input sequence into an output sequence. They excel at tasks like translation, summarization, and question-answering.
+
+Example models:
+- google/flan-t5-base
+- google/flan-t5-xl
+
+**Note**: vLLM backend only supports causal language models. For sequence-to-sequence models, the system will automatically use the Transformers backend.
+
+### Model Selection Tips
+
+- For chat and general text generation: Use causal language models (the default)
+- For specific transformation tasks: Use sequence-to-sequence models with targeted prompts
+- For large language models: Enable quantization (4bit or 8bit) to reduce memory usage
+- For fastest inference: Use vLLM backend with compatible models
 
 ### Command-line Options
 

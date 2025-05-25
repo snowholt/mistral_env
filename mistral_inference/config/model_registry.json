@@ -13,7 +13,8 @@
       "gpu_memory_utilization": 0.9,
       "tensor_parallel_size": 1,
       "name": "qwen3-model",
-      "description": "Qwen3 14B model (4-bit quantized)"
+      "description": "Qwen3 14B model (4-bit quantized)",
+      "model_architecture": "causal_lm"
     }
   }
 }

@@ -21,6 +21,17 @@ class ModelFactory:
         engine_type = model_config.engine_type.lower()
         model_id = model_config.model_id.lower()
         
+        # Detect model architecture type for special handling
+        model_architecture = "causal_lm"  # Default assumption
+        
+        # Check for sequence-to-sequence models
+        if "t5" in model_id or "byt5" in model_id or "bart" in model_id or "pegasus" in model_id:
+            model_architecture = "seq2seq_lm"
+            logger.info(f"Detected a sequence-to-sequence model: {model_config.model_id}")
+            
+        # Update model config with detected architecture
+        model_config.model_architecture = model_architecture
+        
         # Special case for Mistral3 models
         if "mistral" in model_id and "3" in model_id:
             logger.info(f"Detected a Mistral3 model: {model_config.model_id}")
@@ -37,6 +48,11 @@ class ModelFactory:
             return TransformersEngine(model_config)
         
         elif engine_type == "vllm":
+            # vLLM only supports causal LMs, so warn if trying to use with seq2seq
+            if model_architecture == "seq2seq_lm":
+                logger.warning(f"vLLM does not support sequence-to-sequence models like {model_config.model_id}. Falling back to TransformersEngine.")
+                return TransformersEngine(model_config)
+                
             logger.info(f"Creating VLLMEngine for model: {model_config.model_id}")
             try:
                 return VLLMEngine(model_config)

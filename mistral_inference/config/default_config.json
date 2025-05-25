@@ -1,6 +1,6 @@
 {
   "model": {
-    "model_id": "mistralai/Mistral-Small-3.1-24B-Instruct-2503",
+    "model_id": "Qwen/Qwen3-14B",
     "engine_type": "transformers",
     "quantization": "4bit",
     "dtype": "float16",
@@ -9,8 +9,11 @@
     "top_p": 0.95,
     "do_sample": true,
     "gpu_memory_utilization": 0.9,
-    "tensor_parallel_size": 1
+    "tensor_parallel_size": 1,
+    "name": "qwen3-model",
+    "description": "Qwen3 14B model (4-bit quantized)"
   },
   "cache_dir": null,
-  "log_level": "INFO"
+  "log_level": "INFO",
+  "models_file": "model_registry.json"
 }

@@ -10,6 +10,7 @@ import os
 
 from transformers import (
     AutoModelForCausalLM,
+    AutoModelForSeq2SeqLM,
     AutoTokenizer,
     BitsAndBytesConfig,
     pipeline,
@@ -95,7 +96,7 @@ class TransformersEngine(ModelInterface):
         }
         dtype = dtype_map.get(self.config.dtype, torch.float16)
         
-        # Load tokenizer with trust_remote_code=True and Mistral-specific settings
+        # Load tokenizer with trust_remote_code=True and model-specific settings
         tokenizer_kwargs = {
             "trust_remote_code": True,
         }
@@ -146,62 +147,86 @@ class TransformersEngine(ModelInterface):
             )
             logger.info(f"Detected model configuration: {config.__class__.__name__}")
             
-            # Try different loading approaches in sequence
-            loading_methods = [
-                # Method 1: Standard loading with trust_remote_code
-                lambda: AutoModelForCausalLM.from_pretrained(
+            # Choose the right model class based on the architecture
+            architecture = getattr(self.config, 'model_architecture', 'causal_lm')
+            
+            # For sequence-to-sequence models, use AutoModelForSeq2SeqLM
+            if architecture == 'seq2seq_lm':
+                logger.info(f"Loading as a sequence-to-sequence model: {self.config.model_id}")
+                self.model = AutoModelForSeq2SeqLM.from_pretrained(
                     self.config.model_id,
                     config=config,
-                    quantization_config=quantization_config,
                     device_map="auto",
                     trust_remote_code=True,
                     torch_dtype=dtype,
-                ),
+                )
+            # For causal language models, use AutoModelForCausalLM with original methods
+            else:
+                logger.info(f"Loading as a causal language model: {self.config.model_id}")
                 
-                # Method 2: Loading with specific mistral format settings
-                lambda: AutoModelForCausalLM.from_pretrained(
-                    self.config.model_id,
-                    quantization_config=quantization_config,
-                    device_map="auto", 
-                    trust_remote_code=True,
-                    torch_dtype=dtype,
-                    load_format="mistral",
-                    tokenizer_mode="mistral",
-                )
-            ]
-            
-            # Try each loading method until one succeeds
-            last_error = None
-            for i, load_method in enumerate(loading_methods):
-                try:
-                    logger.info(f"Trying model loading method {i+1}...")
-                    self.model = load_method()
-                    logger.info(f"Model loaded successfully using method {i+1}")
-                    break
-                except Exception as e:
-                    last_error = e
-                    logger.warning(f"Method {i+1} failed: {e}")
-            
-            # If all methods failed, try a last resort approach
-            if self.model is None:
-                logger.warning("All standard loading methods failed, trying last resort approach")
-                self.model = AutoModelForCausalLM.from_pretrained(
-                    self.config.model_id,
-                    quantization_config=quantization_config,
-                    device_map="auto",
-                    trust_remote_code=True,
-                    torch_dtype=dtype,
-                    revision="main",
-                    use_safetensors=True,
-                    offload_folder="offload"
-                )
+                # Try different loading approaches in sequence
+                loading_methods = [
+                    # Method 1: Standard loading with trust_remote_code
+                    lambda: AutoModelForCausalLM.from_pretrained(
+                        self.config.model_id,
+                        config=config,
+                        quantization_config=quantization_config,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        torch_dtype=dtype,
+                    ),
+                    
+                    # Method 2: Loading with specific mistral format settings
+                    lambda: AutoModelForCausalLM.from_pretrained(
+                        self.config.model_id,
+                        quantization_config=quantization_config,
+                        device_map="auto", 
+                        trust_remote_code=True,
+                        torch_dtype=dtype,
+                        load_format="mistral",
+                        tokenizer_mode="mistral",
+                    )
+                ]
+                
+                # Try each loading method until one succeeds
+                last_error = None
+                for i, load_method in enumerate(loading_methods):
+                    try:
+                        logger.info(f"Trying model loading method {i+1}...")
+                        self.model = load_method()
+                        logger.info(f"Model loaded successfully using method {i+1}")
+                        break
+                    except Exception as e:
+                        last_error = e
+                        logger.warning(f"Method {i+1} failed: {e}")
+                
+                # If all methods failed, try a last resort approach
+                if self.model is None:
+                    logger.warning("All standard loading methods failed, trying last resort approach")
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        self.config.model_id,
+                        quantization_config=quantization_config,
+                        device_map="auto",
+                        trust_remote_code=True,
+                        torch_dtype=dtype,
+                        revision="main",
+                        use_safetensors=True,
+                        offload_folder="offload"
+                    )
         except Exception as e:
             logger.error(f"Failed to load model: {e}")
             raise RuntimeError(f"Failed to load model '{self.config.model_id}'. Original error: {e}")
         
-        # Create generator pipeline
+        # Create generator pipeline with appropriate task based on architecture
+        pipeline_task = "text-generation"
+        if getattr(self.config, 'model_architecture', 'causal_lm') == 'seq2seq_lm':
+            pipeline_task = "text2text-generation"
+            logger.info(f"Using text2text-generation pipeline for sequence-to-sequence model")
+        else:
+            logger.info(f"Using text-generation pipeline for causal language model")
+            
         self.generator = pipeline(
-            "text-generation",
+            pipeline_task,
             model=self.model,
             tokenizer=self.tokenizer,
             max_new_tokens=self.config.max_new_tokens,
@@ -224,39 +249,108 @@ class TransformersEngine(ModelInterface):
         top_p = kwargs.get("top_p", self.config.top_p)
         do_sample = kwargs.get("do_sample", self.config.do_sample)
         
-        # Format prompt
-        formatted_prompt = self.tokenizer.apply_chat_template([
-            {"role": "user", "content": prompt}
-        ], tokenize=False)
+        architecture = getattr(self.config, 'model_architecture', 'causal_lm')
         
-        # Generate response
-        response = self.generator(
-            formatted_prompt,
-            max_new_tokens=max_new_tokens,
-            temperature=temperature,
-            top_p=top_p,
-            do_sample=do_sample,
-        )[0]["generated_text"]
-        
-        # Extract assistant's reply
-        assistant_reply = response.split("[/INST]")[-1].strip()
-        return assistant_reply
+        # Handle differently based on model architecture
+        if architecture == 'seq2seq_lm':
+            # For seq2seq models, just use the prompt directly
+            formatted_prompt = prompt
+            
+            # Generate response
+            response = self.generator(
+                formatted_prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=do_sample,
+            )[0]["generated_text"]
+            
+            return response
+        else:
+            # For causal LMs, format with chat template
+            try:
+                # Try using chat template first
+                formatted_prompt = self.tokenizer.apply_chat_template([
+                    {"role": "user", "content": prompt}
+                ], tokenize=False)
+            except (AttributeError, NotImplementedError):
+                # Fallback for models without chat templates
+                formatted_prompt = f"User: {prompt}\nAssistant:"
+            
+            # Generate response
+            response = self.generator(
+                formatted_prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                do_sample=do_sample,
+            )[0]["generated_text"]
+            
+            # Extract assistant's reply
+            if "[/INST]" in response:
+                assistant_reply = response.split("[/INST]")[-1].strip()
+            elif "Assistant:" in response:
+                assistant_reply = response.split("Assistant:")[-1].strip()
+            else:
+                # For models that just continue the text
+                assistant_reply = response[len(formatted_prompt):].strip()
+                
+            return assistant_reply
     
     def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
         """Format a conversation for the model."""
-        return self.tokenizer.apply_chat_template(messages, tokenize=False)
+        architecture = getattr(self.config, 'model_architecture', 'causal_lm')
+        
+        if architecture == 'seq2seq_lm':
+            # For seq2seq models, just use the last user message as the input
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    return msg.get("content", "")
+            return ""  # Fallback to empty if no user message found
+        else:
+            # For causal LMs, use the chat template
+            try:
+                return self.tokenizer.apply_chat_template(messages, tokenize=False)
+            except (AttributeError, NotImplementedError):
+                # Fallback for models without chat templates
+                formatted = ""
+                for msg in messages:
+                    role = msg.get("role", "")
+                    content = msg.get("content", "")
+                    if role == "user":
+                        formatted += f"User: {content}\n"
+                    elif role == "assistant":
+                        formatted += f"Assistant: {content}\n"
+                    else:
+                        formatted += f"{role}: {content}\n"
+                formatted += "Assistant:"
+                return formatted
     
-    def _extract_last_reply(self, response: str) -> str:
+    def _extract_last_reply(self, response: str, formatted_prompt: str) -> str:
         """Extract the last reply from a conversation."""
-        parts = response.split("[/INST]")
-        if len(parts) > 1:
-            last_part = parts[-1]
-            last_exchanges = last_part.split("<s>")
-            assistant_reply = last_exchanges[-1].strip()
-            if assistant_reply.startswith("[ASST]"):
-                assistant_reply = assistant_reply[len("[ASST]"):].strip()
-            return assistant_reply
-        return "Error: Could not parse the response"
+        architecture = getattr(self.config, 'model_architecture', 'causal_lm')
+        
+        if architecture == 'seq2seq_lm':
+            # For seq2seq models, just return the entire response
+            return response
+        
+        # For causal LMs
+        if "[/INST]" in response:
+            parts = response.split("[/INST]")
+            if len(parts) > 1:
+                last_part = parts[-1]
+                last_exchanges = last_part.split("<s>")
+                assistant_reply = last_exchanges[-1].strip()
+                if assistant_reply.startswith("[ASST]"):
+                    assistant_reply = assistant_reply[len("[ASST]"):].strip()
+                return assistant_reply
+        elif "Assistant:" in response:
+            parts = response.split("Assistant:")
+            if len(parts) > 1:
+                return parts[-1].strip()
+        
+        # Fallback: return everything after the prompt
+        return response[len(formatted_prompt):].strip() if response.startswith(formatted_prompt) else response
     
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Generate a response in a conversation."""
@@ -276,7 +370,7 @@ class TransformersEngine(ModelInterface):
         )[0]["generated_text"]
         
         # Extract assistant's reply
-        return self._extract_last_reply(response)
+        return self._extract_last_reply(response, formatted_prompt)
     
     def chat_stream(self, messages: List[Dict[str, str]], callback=None, **kwargs) -> str:
         """Stream a chat response token by token."""
@@ -285,11 +379,35 @@ class TransformersEngine(ModelInterface):
         
         # Format conversation
         formatted_prompt = self._format_conversation(messages)
+        architecture = getattr(self.config, 'model_architecture', 'causal_lm')
         
         # Create inputs
         inputs = self.tokenizer(formatted_prompt, return_tensors="pt").to("cuda")
         
-        # Create streamer
+        # For seq2seq models, we need to handle the streaming differently
+        if architecture == 'seq2seq_lm':
+            # Simple implementation for seq2seq (non-streaming)
+            logger.info("Streaming not fully supported for sequence-to-sequence models")
+            
+            # Generate directly
+            outputs = self.model.generate(
+                inputs.input_ids,
+                max_new_tokens=kwargs.get("max_new_tokens", self.config.max_new_tokens),
+                temperature=kwargs.get("temperature", self.config.temperature),
+                top_p=kwargs.get("top_p", self.config.top_p),
+                do_sample=kwargs.get("do_sample", self.config.do_sample),
+            )
+            
+            # Decode the output
+            decoded_output = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+            
+            # Call the callback with the entire output if provided
+            if callback:
+                callback(decoded_output)
+            
+            return decoded_output
+            
+        # Create streamer for causal LMs
         streamer = TextIteratorStreamer(
             self.tokenizer, skip_prompt=True, skip_special_tokens=True
         )
@@ -323,10 +441,15 @@ class TransformersEngine(ModelInterface):
         if not self.model or not self.tokenizer:
             self.load_model()
         
+        architecture = getattr(self.config, 'model_architecture', 'causal_lm')
+        
         # Prepare inputs
-        formatted_prompt = self.tokenizer.apply_chat_template([
-            {"role": "user", "content": prompt}
-        ], tokenize=False)
+        if architecture == 'seq2seq_lm':
+            formatted_prompt = prompt
+        else:
+            formatted_prompt = self.tokenizer.apply_chat_template([
+                {"role": "user", "content": prompt}
+            ], tokenize=False)
         
         inputs = self.tokenizer(formatted_prompt, return_tensors="pt").to("cuda")
         input_len = inputs.input_ids.shape[1]
@@ -367,6 +490,7 @@ class TransformersEngine(ModelInterface):
             "inference_time": inference_time,
             "tokens_per_second": tokens_per_second,
             "memory_stats": self.get_memory_stats(),
+            "model_architecture": architecture
         }
     
     def get_memory_stats(self) -> Dict[str, float]:
