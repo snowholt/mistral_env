@@ -13,9 +13,9 @@ This report provides a detailed analysis of the Mistral model setup project foun
 - Virtual environment: Created and populated with necessary packages
 
 ### Files in the Project
-1. `test_mistral.py`: A script to test the basic functionality of the model
-2. `chat_mistral.py`: An interactive chat interface for the model
-3. `benchmark_mistral.py`: A script to benchmark model loading and inference speed
+1. `test_beautyAi.py`: A script to test the basic functionality of the model
+2. `chat_beautyAi.py`: An interactive chat interface for the model
+3. `benchmark_beautyAi.py`: A script to benchmark model loading and inference speed
 4. `setup.sh`: A setup script that creates a virtual environment and installs required packages
 5. `README.md`: Documentation with installation and usage instructions
 
@@ -24,7 +24,7 @@ This report provides a detailed analysis of the Mistral model setup project foun
 
 2. **Model Compatibility**: After updating the model name, we encountered an error with the transformers library:
    ```
-   ValueError: Unrecognized configuration class <class 'transformers.models.mistral3.configuration_mistral3.Mistral3Config'> for this kind of AutoModel: AutoModelForCausalLM.
+   ValueError: Unrecognized configuration class <class 'transformers.models.mistral3.configuration_beautyAi3.Mistral3Config'> for this kind of AutoModel: AutoModelForCausalLM.
    ```
    
 3. **Library Versions**: We updated the transformers library to the latest development version from GitHub, but compatibility issues may still exist.

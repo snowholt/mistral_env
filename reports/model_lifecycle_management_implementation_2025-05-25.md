@@ -32,7 +32,7 @@ Successfully implemented a comprehensive model lifecycle management system that 
 - **Safe Default Handling**: Prevents removing default model without setting a new one
 
 ### 3. Model Management CLI (`mistral_inference/cli/model_management_cli.py`)
-New command-line interface: `mistral-manage`
+New command-line interface: `beautyAi-manage`
 
 **Available Commands:**
 - `list-loaded`: List all loaded models in memory
@@ -43,39 +43,39 @@ New command-line interface: `mistral-manage`
 - `clear-cache <model_name>`: Clear model cache from disk
 
 ### 4. Enhanced Model Manager CLI (`mistral_inference/cli/model_manager_cli.py`)
-- **Enhanced remove Command**: Added `--clear-cache` flag to `mistral-models remove`
+- **Enhanced remove Command**: Added `--clear-cache` flag to `beautyAi-models remove`
 - **Integrated Cache Clearing**: When removing a model, optionally clear its cache
 
 ### 5. Updated Setup Configuration (`setup.py`)
-- Added new entry point: `mistral-manage` for model lifecycle management
+- Added new entry point: `beautyAi-manage` for model lifecycle management
 
 ## Usage Examples
 
 ### Memory Management
 ```bash
 # Check current memory status
-mistral-manage status
+beautyAi-manage status
 
 # Load a model into memory
-mistral-manage load qwen3-model
+beautyAi-manage load qwen3-model
 
 # Check what models are loaded
-mistral-manage list-loaded
+beautyAi-manage list-loaded
 
 # Unload a specific model
-mistral-manage unload qwen3-model
+beautyAi-manage unload qwen3-model
 
 # Unload all models
-mistral-manage unload-all
+beautyAi-manage unload-all
 ```
 
 ### Cache Management
 ```bash
 # Clear cache for a specific model
-mistral-manage clear-cache qwen3-model
+beautyAi-manage clear-cache qwen3-model
 
 # Remove model from registry and clear cache
-mistral-models remove my-model --clear-cache
+beautyAi-models remove my-model --clear-cache
 ```
 
 ## Technical Details
@@ -115,7 +115,7 @@ mistral-models remove my-model --clear-cache
 ✅ **Thread Safety**: No race conditions observed in testing  
 
 ### Model Loading Test
-⚠️ **Large Model Loading**: Default model (Mistral-Small-3.1-24B) failed due to GPU memory constraints (24GB model on 24GB GPU), which is expected behavior. This demonstrates the need for the memory management features.
+⚠️ **Large Model Loading**: Default model (beautyAi-Small-3.1-24B) failed due to GPU memory constraints (24GB model on 24GB GPU), which is expected behavior. This demonstrates the need for the memory management features.
 
 ## Files Modified/Created
 

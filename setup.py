@@ -1,7 +1,7 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="mistral-inference",
+    name="beautyAiinference",
     version="1.0.0",
     description="A modular framework for inference with Mistral AI models",
     author="Lumi AI",
@@ -20,11 +20,11 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "mistral-chat=mistral_inference.cli.chat_cli:main",
-            "mistral-test=mistral_inference.cli.test_cli:main",
-            "mistral-benchmark=mistral_inference.cli.benchmark_cli:main",
-            "mistral-models=mistral_inference.cli.model_manager_cli:main",
-            "mistral-manage=mistral_inference.cli.model_management_cli:main",
+            "beautyAichat=beautyAi_interface.cli.chat_cli:main",
+            "beautyAitest=beautyAi_interface.cli.test_cli:main",
+            "beautyAibenchmark=beautyAi_interface.cli.benchmark_cli:main",
+            "beautyAimodels=beautyAi_interface.cli.model_manager_cli:main",
+            "beautyAimanage=beautyAi_interface.cli.model_management_cli:main",
         ],
     },
     classifiers=[
