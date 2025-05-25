@@ -65,6 +65,8 @@ class UnifiedCLI:
                 'chat': self.inference_service.start_chat,
                 'test': self.inference_service.run_test,
                 'benchmark': self.inference_service.run_benchmark,
+                'save-session': self.inference_service.save_session,
+                'load-session': self.inference_service.load_session,
             },
             'config': {
                 'show': self.config_service.show_config,
@@ -234,6 +236,9 @@ class UnifiedCLI:
                                 help='Quantization method')
         chat_parser.add_argument('--temperature', type=float, default=0.7, help='Sampling temperature')
         chat_parser.add_argument('--max-tokens', type=int, default=1024, help='Maximum tokens to generate')
+        chat_parser.add_argument('--top-p', type=float, help='Top-p sampling parameter')
+        chat_parser.add_argument('--top-k', type=int, help='Top-k sampling parameter')
+        chat_parser.add_argument('--repetition-penalty', type=float, help='Repetition penalty')
         
         # Test interface
         test_parser = run_subparsers.add_parser('test', help='Run model test')
@@ -242,6 +247,9 @@ class UnifiedCLI:
         test_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Inference engine')
         test_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
                                 help='Quantization method')
+        test_parser.add_argument('--prompt', help='Test prompt')
+        test_parser.add_argument('--temperature', type=float, help='Sampling temperature')
+        test_parser.add_argument('--max-tokens', type=int, help='Maximum tokens to generate')
         
         # Benchmark interface
         benchmark_parser = run_subparsers.add_parser('benchmark', help='Run performance benchmark')
@@ -254,9 +262,22 @@ class UnifiedCLI:
                                      help='Comma-separated input lengths')
         benchmark_parser.add_argument('--output-length', type=int, default=200,
                                      help='Output length for benchmark')
+        benchmark_parser.add_argument('--num-runs', type=int, default=3,
+                                     help='Number of benchmark runs per input length')
         benchmark_parser.add_argument('--output-file', help='Save results to file')
-        benchmark_parser.add_argument('--save-model', action='store_true',
-                                     help='Save model configuration to registry')
+        
+        # Session management - save current session
+        save_session_parser = run_subparsers.add_parser('save-session', help='Save chat session to file')
+        save_session_parser.add_argument('--session-id', help='Session ID to save')
+        save_session_parser.add_argument('--output-file', help='Output file path')
+        
+        # Session management - load saved session
+        load_session_parser = run_subparsers.add_parser('load-session', help='Load chat session from file')
+        load_session_parser.add_argument('--input-file', required=True, help='Session file to load')
+        load_session_parser.add_argument('--model-name', help='Override model name')
+        load_session_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Override inference engine')
+        load_session_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
+                                       help='Override quantization method')
 
     def _add_config_commands(self, subparsers):
         """Add configuration management commands."""
@@ -301,6 +322,8 @@ Examples:
   beautyai run chat --model-name my-qwen
   beautyai run test --model Qwen/Qwen3-14B
   beautyai run benchmark --model-name my-qwen --output-file results.json
+  beautyai run save-session --output-file session.json
+  beautyai run load-session --input-file session.json
   
   # Configuration management
   beautyai config show
