@@ -23,8 +23,8 @@ def parse_arguments():
     parser.add_argument(
         "--model",
         type=str,
-        default="mistralai/Mistral-Small-3.1-24B-Instruct-2503",
-        help="Model ID to use (default: mistralai/Mistral-Small-3.1-24B-Instruct-2503)",
+        default="Qwen/Qwen3-14B",
+        help="Model ID to use (default: Qwen/Qwen3-14B)",
     )
     
     parser.add_argument(

@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class ModelConfig:
     """Configuration for a model."""
-    model_id: str = "mistralai/Mistral-Small-3.1-24B-Instruct-2503"
+    model_id: str = "Qwen/Qwen3-14B"
     engine_type: str = "transformers"  # 'transformers' or 'vllm'
     quantization: Optional[str] = "4bit"  # '4bit', '8bit', 'awq', 'squeezellm', 'none', or None
     dtype: str = "float16"
@@ -27,6 +27,8 @@ class ModelConfig:
     name: str = "default"  # Friendly name for the model configuration
     description: Optional[str] = None  # Optional description of the model configuration
     model_architecture: str = "causal_lm"  # 'causal_lm' or 'seq2seq_lm'
+    documentation: Optional[Dict[str, str]] = None  # Documentation for the model configuration
+    custom_generation_params: Optional[Dict[str, Any]] = None  # Custom generation parameters
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert model configuration to a dictionary."""
@@ -44,6 +46,8 @@ class ModelConfig:
             "name": self.name,
             "description": self.description,
             "model_architecture": self.model_architecture,
+            "documentation": self.documentation,
+            "custom_generation_params": self.custom_generation_params,
         }
 
 

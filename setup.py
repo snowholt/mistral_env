@@ -20,11 +20,11 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "beautyaichat=beautyai_interface.cli.chat_cli:main",
-            "beautyaitest=beautyai_interface.cli.test_cli:main",
-            "beautyaibenchmark=beautyai_interface.cli.benchmark_cli:main",
-            "beautyaimodels=beautyai_interface.cli.model_manager_cli:main",
-            "beautyaimanage=beautyai_interface.cli.model_management_cli:main",
+            "beautyai-chat=beautyai_inference.cli.chat_cli:main",
+            "beautyai-test=beautyai_inference.cli.test_cli:main",
+            "beautyai-benchmark=beautyai_inference.cli.benchmark_cli:main",
+            "beautyai-models=beautyai_inference.cli.model_manager_cli:main",
+            "beautyai-manage=beautyai_inference.cli.model_management_cli:main",
         ],
     },
     classifiers=[

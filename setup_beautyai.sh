@@ -5,7 +5,7 @@ set -e  # Exit on error
 
 VENV_DIR="venv"
 
-echo "=== Mistral Inference Framework Setup ==="
+echo "=== BeautyAI Inference Framework Setup ==="
 echo "This script will create a virtual environment and install required packages."
 
 # Check if Python is installed
@@ -57,7 +57,7 @@ if [ $? -eq 0 ]; then
     echo ""
     echo "===== Setup completed successfully! ====="
     echo ""
-    echo "To use the Mistral Inference Framework:"
+    echo "To use the BeautyAI Inference Framework:"
     echo "1. Activate the environment:   source $VENV_DIR/bin/activate"
     echo "2. Run the test script:        beautyai-test"
     echo "3. Run the chat interface:     beautyai-chat"

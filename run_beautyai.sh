@@ -12,5 +12,5 @@ python -c "import torch; print(f'PyTorch version: {torch.__version__}')"
 python -c "import transformers; print(f'Transformers version: {transformers.__version__}')"
 python -c "import bitsandbytes; print(f'BitsAndBytes version: {bitsandbytes.__version__}')"
 
-# Run the application with 4-bit quantization
-python -m mistral_inference.cli.test_cli --engine transformers --quantization 4bit
+# Run the application with Qwen3-14B model from our registry (which is the default)
+python -m beautyai_inference.cli.test_cli --model-name qwen3-model --engine transformers --quantization 4bit
