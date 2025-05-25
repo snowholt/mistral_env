@@ -1,7 +1,7 @@
 # BeautyAI Inference Framework - Structure Optimization Report
 
 **Date:** May 24, 2025  
-**Author:** GitHub Copilot
+**Author:** Lumina
 
 ## Analysis and Changes Made
 

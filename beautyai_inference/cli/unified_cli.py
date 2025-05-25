@@ -10,13 +10,13 @@ This unified CLI consolidates all functionality from:
 - beautyai-benchmark (performance benchmarking)
 
 Usage:
-    beautyai-manage model list                 # List models in registry
-    beautyai-manage model add --name my-model  # Add model to registry
-    beautyai-manage system load my-model       # Load model into memory
-    beautyai-manage run chat                   # Start interactive chat
-    beautyai-manage run test                   # Run model test
-    beautyai-manage run benchmark              # Run performance benchmark
-    beautyai-manage config show                # Show current configuration
+    beautyai model list                 # List models in registry
+    beautyai model add --name my-model  # Add model to registry
+    beautyai system load my-model       # Load model into memory
+    beautyai run chat                   # Start interactive chat
+    beautyai run test                   # Run model test
+    beautyai run benchmark              # Run performance benchmark
+    beautyai config show                # Show current configuration
 """
 import argparse
 import sys
@@ -76,7 +76,7 @@ class UnifiedCLI:
     def create_parser(self) -> argparse.ArgumentParser:
         """Create the main argument parser with all subcommands."""
         parser = argparse.ArgumentParser(
-            prog='beautyai-manage',
+            prog='beautyai',
             description='Unified CLI for BeautyAI model management and inference',
             formatter_class=argparse.RawDescriptionHelpFormatter,
             epilog=self._get_help_examples()
@@ -287,31 +287,31 @@ class UnifiedCLI:
         return """
 Examples:
   # Model registry management
-  beautyai-manage model list
-  beautyai-manage model add --name my-qwen --model-id Qwen/Qwen3-14B
-  beautyai-manage model show my-qwen
-  beautyai-manage model set-default my-qwen
+  beautyai model list
+  beautyai model add --name my-qwen --model-id Qwen/Qwen3-14B
+  beautyai model show my-qwen
+  beautyai model set-default my-qwen
   
   # System lifecycle management
-  beautyai-manage system load my-qwen
-  beautyai-manage system status
-  beautyai-manage system unload my-qwen
+  beautyai system load my-qwen
+  beautyai system status
+  beautyai system unload my-qwen
   
   # Inference operations
-  beautyai-manage run chat --model-name my-qwen
-  beautyai-manage run test --model Qwen/Qwen3-14B
-  beautyai-manage run benchmark --model-name my-qwen --output-file results.json
+  beautyai run chat --model-name my-qwen
+  beautyai run test --model Qwen/Qwen3-14B
+  beautyai run benchmark --model-name my-qwen --output-file results.json
   
   # Configuration management
-  beautyai-manage config show
-  beautyai-manage config set default_engine vllm
+  beautyai config show
+  beautyai config set default_engine vllm
 
 For backward compatibility, old commands still work:
-  beautyai-models list        -> beautyai-manage model list
-  beautyai-manage load model  -> beautyai-manage system load model
-  beautyai-chat              -> beautyai-manage run chat
-  beautyai-test              -> beautyai-manage run test
-  beautyai-benchmark         -> beautyai-manage run benchmark
+  beautyai-models list        -> beautyai model list
+  beautyai-manage load model  -> beautyai system load model
+  beautyai-chat              -> beautyai run chat
+  beautyai-test              -> beautyai run test
+  beautyai-benchmark         -> beautyai run benchmark
 """
 
     def route_command(self, args: argparse.Namespace) -> int:

@@ -3,6 +3,8 @@
 **Date**: May 25, 2025  
 **Project**: BeautyAI Inference Framework  
 **Feature**: Model Lifecycle Management System
+**Author:** Lumina
+
 
 ## Summary
 

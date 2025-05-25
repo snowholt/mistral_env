@@ -1,6 +1,6 @@
 # BeautyAI Setup Project Report
 **Date:** May 24, 2025
-**Author:** GitHub Copilot
+**Author:** Lumina
 
 ## Project Overview
 This report provides a detailed analysis of the BeautyAI model setup project found in `/home/lumi/beautyai/`. The project aims to run the Mistral-Small-3.1-24B-Instruct-2503 model on an NVIDIA RTX 4090 GPU using appropriate quantization techniques to fit the model within the available VRAM.

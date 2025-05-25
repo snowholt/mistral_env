@@ -25,6 +25,7 @@ setup(
             "beautyai-benchmark=beautyai_inference.cli.benchmark_cli:main",
             "beautyai-models=beautyai_inference.cli.model_manager_cli:main",
             "beautyai-manage=beautyai_inference.cli.model_management_cli:main",
+            "beautyai=beautyai_inference.cli.unified_cli:main",
         ],
     },
     classifiers=[
