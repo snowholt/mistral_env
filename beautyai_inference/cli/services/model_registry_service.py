@@ -30,15 +30,14 @@ class ModelRegistryService(BaseService):
             
         default_model = self.app_config.model_registry.default_model
         
-        print("\n{:<15} {:<30} {:<15} {:<10} {:<10}".format(
-            "MODEL NAME", "MODEL ID", "ENGINE", "QUANT", "DEFAULT"))
-        print("-" * 80)
+        print("\n{:<40} {:<18} {:<12} {:<10}".format(
+            "MODEL NAME", "ENGINE", "QUANT", "DEFAULT"))
+        print("-" * 85)
         
         for name, model in models.items():
             is_default = "✓" if name == default_model else ""
-            print("{:<15} {:<30} {:<15} {:<10} {:<10}".format(
+            print("{:<40} {:<18} {:<12} {:<10}".format(
                 name, 
-                model.model_id, 
                 model.engine_type, 
                 model.quantization or "none",
                 is_default
