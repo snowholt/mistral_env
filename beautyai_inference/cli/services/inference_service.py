@@ -822,8 +822,18 @@ system <msg>    - Set a system message
             if models_file:
                 self.app_config.models_file = models_file
         else:
-            # Create default configuration
-            self.app_config = AppConfig()
+            # Load default configuration from file
+            from pathlib import Path
+            default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
+            if default_config_path.exists():
+                self.app_config = AppConfig.load_from_file(default_config_path)
+                # Ensure the models_file path is absolute for the default config
+                if self.app_config.models_file and not Path(self.app_config.models_file).is_absolute():
+                    config_dir = Path(__file__).parent.parent.parent / "config"
+                    self.app_config.models_file = str(config_dir / "model_registry.json")
+            else:
+                # Fallback to empty configuration
+                self.app_config = AppConfig()
             # Set models file if specified
             if models_file:
                 self.app_config.models_file = models_file

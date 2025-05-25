@@ -39,6 +39,10 @@ class BaseService(ABC):
             default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
             if default_config_path.exists():
                 self.config = AppConfig.load_from_file(default_config_path)
+                # Ensure the models_file path is absolute for the default config
+                if self.config.models_file and not Path(self.config.models_file).is_absolute():
+                    config_dir = Path(__file__).parent.parent.parent / "config"
+                    self.config.models_file = str(config_dir / "model_registry.json")
             else:
                 self.logger.warning("No configuration file found, using minimal configuration")
                 from ...config.config_manager import ModelConfig
