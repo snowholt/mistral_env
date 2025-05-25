@@ -15,5 +15,5 @@
   },
   "cache_dir": null,
   "log_level": "INFO",
-  "models_file": "mistral_inference/config/model_registry.json"
+  "models_file": "beautyai_inference/config/model_registry.json"
 }

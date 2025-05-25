@@ -1,9 +1,9 @@
 from setuptools import setup, find_packages
 
 setup(
-    name="beautyAiinference",
+    name="beautyaiinference",
     version="1.0.0",
-    description="A modular framework for inference with Mistral AI models",
+    description="A modular framework for inference with Arabic AI models",
     author="Lumi AI",
     packages=find_packages(),
     python_requires=">=3.10",
@@ -20,11 +20,11 @@ setup(
     },
     entry_points={
         "console_scripts": [
-            "beautyAichat=beautyAi_interface.cli.chat_cli:main",
-            "beautyAitest=beautyAi_interface.cli.test_cli:main",
-            "beautyAibenchmark=beautyAi_interface.cli.benchmark_cli:main",
-            "beautyAimodels=beautyAi_interface.cli.model_manager_cli:main",
-            "beautyAimanage=beautyAi_interface.cli.model_management_cli:main",
+            "beautyaichat=beautyai_interface.cli.chat_cli:main",
+            "beautyaitest=beautyai_interface.cli.test_cli:main",
+            "beautyaibenchmark=beautyai_interface.cli.benchmark_cli:main",
+            "beautyaimodels=beautyai_interface.cli.model_manager_cli:main",
+            "beautyaimanage=beautyai_interface.cli.model_management_cli:main",
         ],
     },
     classifiers=[

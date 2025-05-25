@@ -1,7 +1,7 @@
 """
-Mistral Inference Package
+BeautyAI Inference Package
 
-A modular framework for running inference with Mistral AI models.
+A modular framework for running inference with Arabic AI models.
 Supports both native Hugging Face Transformers and vLLM backends.
 """
 

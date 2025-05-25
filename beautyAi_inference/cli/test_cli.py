@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Test CLI for running inference with Mistral models.
+Test CLI for running inference with BeautyAI models.
 """
 import argparse
 import logging
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Test Mistral model inference")
+    parser = argparse.ArgumentParser(description="Test BeautyAI model inference")
     
     parser.add_argument(
         "--model",

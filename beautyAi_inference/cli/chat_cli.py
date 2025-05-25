@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Chat CLI for interactive conversation with Mistral models.
+Chat CLI for interactive conversation with BeautyAI models.
 """
 import argparse
 import logging
@@ -17,7 +17,7 @@ logger = logging.getLogger(__name__)
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Chat with Mistral model")
+    parser = argparse.ArgumentParser(description="Chat with BeautyAI model")
     
     parser.add_argument(
         "--model",

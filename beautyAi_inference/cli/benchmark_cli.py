@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Benchmark CLI for measuring performance of Mistral models.
+Benchmark CLI for measuring performance of BeautyAI models.
 """
 import argparse
 import logging
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 def parse_arguments():
     """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description="Benchmark Mistral model")
+    parser = argparse.ArgumentParser(description="Benchmark BeautyAI model")
     
     # Model selection
     model_group = parser.add_argument_group("Model Selection")
@@ -108,7 +108,7 @@ def create_prompts(input_lengths: List[int]) -> Dict[int, str]:
     for length in input_lengths:
         # Create a prompt with approximately the specified number of tokens
         words_needed = max(1, length // 2)  # Roughly 2 tokens per word
-        prompt = "I am a language model trained by Mistral AI. " * words_needed
+        prompt = "I am a language model trained by BeautyAI AI. " * words_needed
         prompts[length] = prompt
     return prompts
 
@@ -201,7 +201,7 @@ def main():
     device_name = gpu_info["device_name"]
     vram_gb = gpu_info["total_memory"]
     
-    print(f"===== Mistral Model Benchmark =====")
+    print(f"===== BeautyAI Model Benchmark =====")
     print(f"Model: {config.model.model_id}")
     print(f"Engine: {config.model.engine_type}")
     print(f"GPU: {device_name} ({vram_gb:.2f} GB VRAM)")

@@ -25,8 +25,8 @@ This framework provides a scalable, professional-grade interface for running inf
 
 ```bash
 # Run the setup script
-chmod +x setup_mistral.sh
-./setup_mistral.sh
+chmod +x setup_beautyai.sh
+./setup_beautyai.sh
 ```
 
 The setup script will guide you through the installation process and ask if you want to install with vLLM support (recommended for better performance).
@@ -50,16 +50,16 @@ After installation, you can use the framework with the provided command-line too
 source venv/bin/activate
 
 # Test the model with a simple prompt
-mistral-test
+beautyai-test
 
 # Start an interactive chat session
-mistral-chat
+beautyai-chat
 
 # Run benchmarks
-mistral-benchmark
+beautyai-benchmark
 
 # Manage model configurations
-mistral-models list
+beautyai-models list
 ```
 
 ### Model Registry
@@ -68,22 +68,22 @@ The framework includes a model registry to manage multiple model configurations:
 
 ```bash
 # List all available models
-mistral-models list
+beautyai-models list
 
 # Add a new model configuration
-mistral-models add --name "mistral-7b" --model-id "mistralai/Mistral-7B-Instruct-v0.2" --engine transformers --quantization 4bit
+beautyai-models add --name "mistral-7b" --model-id "mistralai/Mistral-7B-Instruct-v0.2" --engine transformers --quantization 4bit
 
 # Show details of a specific model
-mistral-models show mistral-7b
+beautyai-models show mistral-7b
 
 # Set a model as default
-mistral-models set-default mistral-7b
+beautyai-models set-default mistral-7b
 
 # Use a specific model for benchmarking
-mistral-benchmark --model-name mistral-7b
+beautyai-benchmark --model-name mistral-7b
 
 # Save current benchmark configuration to registry
-mistral-benchmark --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --quantization 8bit --save-model
+beautyai-benchmark --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --quantization 8bit --save-model
 ```
 
 ## Supported Model Architectures
@@ -122,19 +122,19 @@ All commands support command-line options for customization:
 
 ```bash
 # Use a different model
-mistral-chat --model mistralai/Mixtral-8x7B-Instruct-v0.1
+beautyai-chat --model mistralai/Mixtral-8x7B-Instruct-v0.1
 
 # Use vLLM backend with AWQ quantization
-mistral-chat --engine vllm --quantization awq
+beautyai-chat --engine vllm --quantization awq
 
 # Run benchmarks with custom parameters
-mistral-benchmark --input-lengths 10,100,500 --output-length 100
+beautyai-benchmark --input-lengths 10,100,500 --output-length 100
 ```
 
 Use `--help` with any command to see all available options:
 
 ```bash
-mistral-chat --help
+beautyai-chat --help
 ```
 
 ### Configuration Files
@@ -143,7 +143,7 @@ You can also use JSON configuration files for more complex setups:
 
 ```bash
 # Create a custom configuration file
-cp mistral_inference/config/default_config.json my_config.json
+cp beautyai_inference/config/default_config.json my_config.json
 
 # Edit the file to customize settings
 nano my_config.json
@@ -155,7 +155,7 @@ nano my_config.json
 ## Project Structure
 
 ```
-mistral_inference/
+beautyai_inference/
 ├── __init__.py                  # Package initialization
 ├── cli/                         # Command-line interfaces
 │   ├── __init__.py
