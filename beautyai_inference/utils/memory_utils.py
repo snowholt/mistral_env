@@ -22,16 +22,60 @@ def get_gpu_info() -> Dict[str, Any]:
         return {"is_available": False}
 
 
-def get_gpu_memory_stats() -> Dict[str, float]:
-    """Get GPU memory usage statistics."""
-    if torch.cuda.is_available():
-        return {
-            "allocated_gb": torch.cuda.memory_allocated() / 1024**3,
-            "reserved_gb": torch.cuda.memory_reserved() / 1024**3,
-            "max_allocated_gb": torch.cuda.max_memory_allocated() / 1024**3,
-        }
-    else:
-        return {}
+def get_gpu_memory_stats() -> List[Dict[str, Any]]:
+    """
+    Get detailed GPU memory usage statistics for all available GPUs.
+    
+    Returns:
+        List[Dict[str, Any]]: List of dictionaries with memory stats for each GPU
+    """
+    stats = []
+    
+    if not torch.cuda.is_available():
+        return stats
+        
+    # Get stats for each GPU
+    for i in range(torch.cuda.device_count()):
+        device_props = torch.cuda.get_device_properties(i)
+        total_memory = device_props.total_memory
+        
+        # Memory in bytes
+        memory_allocated = torch.cuda.memory_allocated(i)
+        memory_reserved = torch.cuda.memory_reserved(i)
+        memory_free = total_memory - memory_allocated
+        
+        # Calculate percentages
+        memory_used_percent = (memory_allocated / total_memory) * 100 if total_memory > 0 else 0
+        
+        # Get GPU utilization (only on NVIDIA with nvidia-smi)
+        gpu_utilization = 0
+        try:
+            import subprocess
+            result = subprocess.run(
+                ['nvidia-smi', f'--query-gpu=utilization.gpu', '--format=csv,noheader,nounits', '-i', str(i)],
+                capture_output=True,
+                text=True
+            )
+            gpu_utilization = float(result.stdout.strip())
+        except:
+            pass
+            
+        # Add to stats list
+        stats.append({
+            "index": i,
+            "name": device_props.name,
+            "total_memory": total_memory,
+            "memory_used": memory_allocated,
+            "memory_reserved": memory_reserved,
+            "memory_free": memory_free,
+            "memory_total_mb": total_memory / (1024**2),
+            "memory_used_mb": memory_allocated / (1024**2),
+            "memory_free_mb": memory_free / (1024**2),
+            "memory_used_percent": memory_used_percent,
+            "gpu_utilization": gpu_utilization
+        })
+    
+    return stats
 
 
 def get_system_memory_stats() -> Dict[str, float]:
