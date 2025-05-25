@@ -72,6 +72,10 @@ class UnifiedCLI:
                 'show': self.config_service.show_config,
                 'set': self.config_service.set_config,
                 'reset': self.config_service.reset_config,
+                'validate': self.config_service.validate_config,
+                'backup': self.config_service.backup_config,
+                'restore': self.config_service.restore_config,
+                'migrate': self.config_service.migrate_config,
             },
         }
 
@@ -302,6 +306,31 @@ class UnifiedCLI:
         # Reset configuration
         reset_parser = config_subparsers.add_parser('reset', help='Reset to default configuration')
         reset_parser.add_argument('--confirm', action='store_true', help='Confirm reset')
+        
+        # Validate configuration
+        validate_parser = config_subparsers.add_parser('validate', help='Validate configuration against schema')
+        
+        # Backup configuration
+        backup_parser = config_subparsers.add_parser('backup', help='Backup configuration files')
+        backup_parser.add_argument('--backup-dir', help='Directory to store backups (default: backups)')
+        backup_parser.add_argument('--label', help='Label to identify this backup')
+        backup_parser.add_argument('--compress', action='store_true', help='Create compressed archive of backups')
+        backup_parser.add_argument('--keep-count', type=int, help='Keep only N most recent backups')
+        
+        # Restore configuration
+        restore_parser = config_subparsers.add_parser('restore', help='Restore configuration from backup')
+        restore_parser.add_argument('config_file', help='Configuration file to restore from')
+        restore_parser.add_argument('--models-file', help='Models file to restore from')
+        restore_parser.add_argument('--target-config', help='Target configuration file (defaults to current)')
+        restore_parser.add_argument('--no-validate', dest='validate', action='store_false', 
+                                   help='Skip validation after restore')
+        restore_parser.add_argument('--auto-migrate', action='store_true', 
+                                   help='Automatically migrate if restored config is outdated')
+        
+        # Migrate configuration
+        migrate_parser = config_subparsers.add_parser('migrate', help='Migrate configuration to new format')
+        migrate_parser.add_argument('--verbose', action='store_true', help='Show detailed migration steps')
+        migrate_parser.add_argument('--backup', action='store_true', help='Create backup before migration')
 
     def _get_help_examples(self) -> str:
         """Get help examples for the CLI."""
@@ -328,6 +357,10 @@ Examples:
   # Configuration management
   beautyai config show
   beautyai config set default_engine vllm
+  beautyai config validate
+  beautyai config backup --backup-dir my_backups
+  beautyai config restore backups/config_20250525_120000.json
+  beautyai config migrate --verbose
 
 For backward compatibility, old commands still work:
   beautyai-models list        -> beautyai model list
