@@ -1,0 +1,22 @@
+"""
+BeautyAI Services Package.
+
+This package contains all core business logic services organized by functionality:
+- base: Common service functionality and base classes
+- model: Model management services (registry, lifecycle, validation)
+- inference: Inference services (chat, test, benchmark, session)
+- config: Configuration services (config, validation, migration, backup)
+- system: System services (memory, cache, status)
+
+The service layer is designed to be CLI-agnostic and API-ready for future
+web service integration.
+"""
+
+# Import base service class for easy access
+from .base.base_service import BaseService
+
+__all__ = [
+    "BaseService",
+]
+
+__version__ = "1.0.0"

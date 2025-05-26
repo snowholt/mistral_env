@@ -1,7 +1,7 @@
 """
 Service classes package for unified CLI.
 """
-from .base_service import BaseService
+from ...services.base.base_service import BaseService
 from .model_registry_service import ModelRegistryService
 from .lifecycle_service import LifecycleService
 from .inference_service import InferenceService

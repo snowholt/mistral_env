@@ -10,7 +10,7 @@ import sys
 from typing import Dict, Any, Optional, List, Tuple
 from tqdm import tqdm
 
-from .base_service import BaseService
+from ...services.base.base_service import BaseService
 from ...config.config_manager import AppConfig, ModelConfig
 from ...core.model_manager import ModelManager
 from ...utils.memory_utils import get_gpu_memory_stats, format_size

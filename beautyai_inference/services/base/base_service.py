@@ -1,5 +1,9 @@
 """
-Base service class for unified CLI services.
+Base service class for BeautyAI services.
+
+This module provides the foundational BaseService class that all other services
+inherit from. It handles common functionality like configuration loading,
+error handling, and logging setup.
 """
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
@@ -12,7 +16,13 @@ logger = logging.getLogger(__name__)
 
 
 class BaseService(ABC):
-    """Base class for all CLI services."""
+    """
+    Base class for all BeautyAI services.
+    
+    Provides common functionality for configuration management, error handling,
+    and logging that all services need. This class is designed to be CLI-agnostic
+    and suitable for use in future API endpoints.
+    """
     
     def __init__(self):
         self.config: Optional[AppConfig] = None
@@ -21,7 +31,13 @@ class BaseService(ABC):
         self.logger = logging.getLogger(self.__class__.__name__)
     
     def configure(self, config_data: Dict[str, Any]):
-        """Configure the service with global settings."""
+        """
+        Configure the service with global settings.
+        
+        Args:
+            config_data: Dictionary containing configuration options including
+                        config_file path and models_file path
+        """
         self.config_data = config_data
         
         # Load application configuration
@@ -35,7 +51,7 @@ class BaseService(ABC):
                 self.logger.error(f"Configuration file not found: {config_path}")
                 raise FileNotFoundError(f"Configuration file not found: {config_path}")
         else:
-            # Use default configuration
+            # Use default configuration - updated path for new structure
             default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
             if default_config_path.exists():
                 self.config = AppConfig.load_from_file(default_config_path)
@@ -60,7 +76,16 @@ class BaseService(ABC):
             self.logger.warning(f"Could not load model registry: {e}")
     
     def _handle_error(self, error: Exception, message: str) -> int:
-        """Handle service errors consistently."""
+        """
+        Handle service errors consistently.
+        
+        Args:
+            error: The exception that occurred
+            message: User-friendly error message
+            
+        Returns:
+            int: Error exit code (1)
+        """
         self.logger.error(f"{message}: {error}")
         if self.config_data.get('verbose'):
             import traceback
@@ -69,6 +94,14 @@ class BaseService(ABC):
         return 1
     
     def _success_message(self, message: str) -> int:
-        """Print success message and return success code."""
+        """
+        Print success message and return success code.
+        
+        Args:
+            message: Success message to display
+            
+        Returns:
+            int: Success exit code (0)
+        """
         print(message)
         return 0

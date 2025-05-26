@@ -8,7 +8,7 @@ import json
 from typing import Dict, Any, Optional, List, Tuple, Callable, Generator, Iterator
 from pathlib import Path
 
-from .base_service import BaseService
+from ...services.base.base_service import BaseService
 from ...config.config_manager import AppConfig, ModelConfig
 from ...core.model_factory import ModelFactory
 from ...core.model_manager import ModelManager

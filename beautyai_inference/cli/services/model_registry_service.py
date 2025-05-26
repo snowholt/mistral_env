@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 
-from .base_service import BaseService
+from ...services.base.base_service import BaseService
 from ...config.config_manager import AppConfig, ModelConfig
 
 logger = logging.getLogger(__name__)
