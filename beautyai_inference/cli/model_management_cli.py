@@ -43,7 +43,7 @@ The 'beautyai-model-management' command is deprecated and will be removed in a f
 
 Please use the new unified CLI instead:
   OLD: beautyai-model-management [options]
-  NEW: beautyai manage lifecycle [options]
+  NEW: beautyai system [options]
 
 All arguments and functionality remain the same.
 For more information, run: beautyai --help
@@ -51,10 +51,15 @@ For more information, run: beautyai --help
 This warning can be suppressed by setting BEAUTYAI_SUPPRESS_WARNINGS=1
 """
     
-    if not sys.environ.get("BEAUTYAI_SUPPRESS_WARNINGS"):
+    try:
+        suppress_warnings = sys.environ.get("BEAUTYAI_SUPPRESS_WARNINGS")
+    except AttributeError:
+        suppress_warnings = False
+        
+    if not suppress_warnings:
         print(warning_msg, file=sys.stderr)
         warnings.warn(
-            "beautyai-model-management is deprecated. Use 'beautyai manage lifecycle' instead.",
+            "beautyai-model-management is deprecated. Use 'beautyai system' instead.",
             DeprecationWarning,
             stacklevel=2
         )
@@ -117,25 +122,24 @@ def main():
     # Show deprecation warning
     show_deprecation_warning()
     
-    # Redirect to unified CLI
+    # Redirect to unified CLI using subprocess
     try:
-        from .unified_cli import main as unified_main
+        import subprocess
         
-        # Modify sys.argv to match unified CLI format
-        # Convert: beautyai-model-management [args] -> beautyai manage lifecycle [args]
-        original_argv = sys.argv.copy()
-        sys.argv = ["beautyai", "manage", "lifecycle"] + sys.argv[1:]
+        # Create the new command: beautyai system [args]
+        new_cmd = ["beautyai", "system"] + sys.argv[1:]
         
-        # Call the unified CLI
-        return unified_main()
+        # Execute the unified CLI command
+        process = subprocess.run(new_cmd, check=True)
+        sys.exit(process.returncode)
         
+    except subprocess.CalledProcessError as e:
+        # Handle command failure
+        sys.exit(e.returncode)
     except Exception as e:
         # Fallback to original implementation if unified CLI fails
         logger.warning(f"Failed to redirect to unified CLI: {e}")
         logger.info("Falling back to legacy implementation...")
-        
-        # Restore original argv
-        sys.argv = original_argv
         
         # Execute legacy implementation
         return _legacy_main()

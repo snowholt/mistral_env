@@ -51,7 +51,12 @@ For more information, run: beautyai --help
 This warning can be suppressed by setting BEAUTYAI_SUPPRESS_WARNINGS=1
 """
     
-    if not sys.environ.get("BEAUTYAI_SUPPRESS_WARNINGS"):
+    try:
+        suppress_warnings = sys.environ.get("BEAUTYAI_SUPPRESS_WARNINGS")
+    except AttributeError:
+        suppress_warnings = False
+    
+    if not suppress_warnings:
         print(warning_msg, file=sys.stderr)
         warnings.warn(
             "beautyai-chat is deprecated. Use 'beautyai run chat' instead.",
@@ -109,25 +114,24 @@ def main():
     # Show deprecation warning
     show_deprecation_warning()
     
-    # Redirect to unified CLI by calling the chat function directly
+    # Redirect to unified CLI using subprocess
     try:
-        from .unified_cli import main as unified_main
+        import subprocess
         
-        # Modify sys.argv to match unified CLI format
-        # Convert: beautyai-chat [args] -> beautyai run chat [args]
-        original_argv = sys.argv.copy()
-        sys.argv = ["beautyai", "run", "chat"] + sys.argv[1:]
+        # Create the new command: beautyai run chat [args]
+        new_cmd = ["beautyai", "run", "chat"] + sys.argv[1:]
         
-        # Call the unified CLI
-        unified_main()
+        # Execute the unified CLI command
+        process = subprocess.run(new_cmd, check=True)
+        sys.exit(process.returncode)
         
+    except subprocess.CalledProcessError as e:
+        # Handle command failure
+        sys.exit(e.returncode)
     except Exception as e:
-        # Fallback to original implementation if unified CLI fails
+        # Fallback to original implementation if redirection fails
         logger.warning(f"Failed to redirect to unified CLI: {e}")
         logger.info("Falling back to legacy implementation...")
-        
-        # Restore original argv
-        sys.argv = original_argv
         
         # Execute legacy implementation
         _legacy_main()

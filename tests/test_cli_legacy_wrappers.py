@@ -110,14 +110,14 @@ class TestLegacyCLIWrappers(unittest.TestCase):
     def test_model_manager_cli_redirection(self, mock_run, mock_log_usage):
         """Test that model manager CLI redirects to unified CLI."""
         # Set up
-        sys.argv = ["beautyai-models", "list"]
+        sys.argv = ["beautyai-model-manager", "list"]
         
         # Call the main function with exit suppressed
         with self.assertRaises(SystemExit):
             model_manager_main()
         
         # Assert
-        mock_log_usage.assert_called_once_with("beautyai-models", ["list"])
+        mock_log_usage.assert_called_once_with("beautyai-model-manager", ["list"])
         mock_run.assert_called_once()
         # Get the run call arguments
         args, kwargs = mock_run.call_args
@@ -132,14 +132,14 @@ class TestLegacyCLIWrappers(unittest.TestCase):
     def test_model_management_cli_redirection(self, mock_run, mock_log_usage):
         """Test that model management CLI redirects to unified CLI."""
         # Set up
-        sys.argv = ["beautyai-manage", "load", "test-model"]
+        sys.argv = ["beautyai-model-management", "load", "test-model"]
         
         # Call the main function with exit suppressed
         with self.assertRaises(SystemExit):
             model_management_main()
         
         # Assert
-        mock_log_usage.assert_called_once_with("beautyai-manage", ["load", "test-model"])
+        mock_log_usage.assert_called_once_with("beautyai-model-management", ["load", "test-model"])
         mock_run.assert_called_once()
         # Get the run call arguments
         args, kwargs = mock_run.call_args

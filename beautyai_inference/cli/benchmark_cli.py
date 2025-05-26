@@ -139,25 +139,24 @@ def main():
     # Show deprecation warning
     show_deprecation_warning()
     
-    # Redirect to unified CLI
+    # Redirect to unified CLI using subprocess
     try:
-        from .unified_cli import main as unified_main
+        import subprocess
         
-        # Modify sys.argv to match unified CLI format
-        # Convert: beautyai-benchmark [args] -> beautyai run benchmark [args]
-        original_argv = sys.argv.copy()
-        sys.argv = ["beautyai", "run", "benchmark"] + sys.argv[1:]
+        # Create the new command: beautyai run benchmark [args]
+        new_cmd = ["beautyai", "run", "benchmark"] + sys.argv[1:]
         
-        # Call the unified CLI
-        return unified_main()
+        # Execute the unified CLI command
+        process = subprocess.run(new_cmd, check=True)
+        sys.exit(process.returncode)
         
+    except subprocess.CalledProcessError as e:
+        # Handle command failure
+        sys.exit(e.returncode)
     except Exception as e:
         # Fallback to original implementation if unified CLI fails
         logger.warning(f"Failed to redirect to unified CLI: {e}")
         logger.info("Falling back to legacy implementation...")
-        
-        # Restore original argv
-        sys.argv = original_argv
         
         # Execute legacy implementation
         return _legacy_main()

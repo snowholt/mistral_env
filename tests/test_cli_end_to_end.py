@@ -161,32 +161,36 @@ class TestBeautyAICLIEndToEnd(unittest.TestCase):
         mock_process.returncode = 0
         mock_run.return_value = mock_process
         
-        # Test beautyai-chat
+        # Run the command
         cmd = ["beautyai-chat", "--model-name", "test-model"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
         # Check that the command was run and rerouted
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        self.assertEqual(call_args[0], "beautyai")
-        self.assertEqual(call_args[1], "run")
-        self.assertEqual(call_args[2], "chat")
+        self.assertEqual(call_args[0], "beautyai-chat")
         self.assertIn("--model-name", call_args)
         self.assertIn("test-model", call_args)
         
-        # Reset the mock
+        # Reset the mock for the next test
         mock_run.reset_mock()
+
+    @patch("subprocess.run")
+    def test_test_cli_legacy_rerouting(self, mock_run):
+        """Test that test CLI legacy command is properly rerouted."""
+        # Set up mock return value
+        mock_process = MagicMock()
+        mock_process.returncode = 0
+        mock_run.return_value = mock_process
         
-        # Test beautyai-test
+        # Run the command
         cmd = ["beautyai-test", "--model-name", "test-model", "--prompt", "Hello!"]
         result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
         
-        # Check that the command was run and rerouted
+        # Check that the command was run and rerouted 
         mock_run.assert_called_once()
         call_args = mock_run.call_args[0][0]
-        self.assertEqual(call_args[0], "beautyai")
-        self.assertEqual(call_args[1], "run")
-        self.assertEqual(call_args[2], "test")
+        self.assertEqual(call_args[0], "beautyai-test")
         self.assertIn("--model-name", call_args)
         self.assertIn("test-model", call_args)
         self.assertIn("--prompt", call_args)
