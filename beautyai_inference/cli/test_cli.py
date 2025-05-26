@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 """
 Test CLI for running inference with BeautyAI models.
+DEPRECATED: This command is deprecated. Please use 'beautyai run test' instead.
 """
 import argparse
 import logging
 import sys
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -15,6 +17,41 @@ from .argument_config import add_backward_compatible_args
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Track legacy command usage
+USAGE_LOG_FILE = Path.home() / ".beautyai" / "legacy_usage.log"
+
+
+def log_legacy_usage(command: str, args: list):
+    """Log usage of legacy command for future cleanup analysis."""
+    try:
+        USAGE_LOG_FILE.parent.mkdir(exist_ok=True)
+        with open(USAGE_LOG_FILE, "a") as f:
+            import datetime
+            timestamp = datetime.datetime.now().isoformat()
+            f.write(f"{timestamp},{command},{' '.join(args)}\n")
+    except Exception:
+        # Silently fail if logging doesn't work
+        pass
+
+
+def show_deprecation_warning():
+    """Show deprecation warning with migration guidance."""
+    warning_msg = """
+🚨 DEPRECATION WARNING 🚨
+
+The 'beautyai-test' command is deprecated and will be removed in a future version.
+
+Please use the new unified CLI instead:
+  OLD: beautyai-test [options]
+  NEW: beautyai run test [options]
+
+All arguments and functionality remain the same.
+For more information, run: beautyai --help
+
+"""
+    warnings.warn(warning_msg, DeprecationWarning, stacklevel=2)
+    print(warning_msg, file=sys.stderr)
 
 
 def parse_arguments():
@@ -51,7 +88,42 @@ def parse_arguments():
 
 
 def main():
-    """Main entry point for the test CLI."""
+    """
+    Main entry point for the test CLI.
+    DEPRECATED: Redirects to unified CLI.
+    """
+    # Log legacy usage
+    log_legacy_usage("beautyai-test", sys.argv[1:])
+    
+    # Show deprecation warning
+    show_deprecation_warning()
+    
+    # Redirect to unified CLI by calling the test function directly
+    try:
+        from .unified_cli import main as unified_main
+        
+        # Modify sys.argv to match unified CLI format
+        # Convert: beautyai-test [args] -> beautyai run test [args]
+        original_argv = sys.argv.copy()
+        sys.argv = ["beautyai", "run", "test"] + sys.argv[1:]
+        
+        # Call the unified CLI
+        return unified_main()
+        
+    except Exception as e:
+        # Fallback to original implementation if unified CLI fails
+        logger.warning(f"Failed to redirect to unified CLI: {e}")
+        logger.info("Falling back to legacy implementation...")
+        
+        # Restore original argv
+        sys.argv = original_argv
+        
+        # Execute legacy implementation
+        return _legacy_main()
+
+
+def _legacy_main():
+    """Legacy main implementation kept for fallback."""
     args = parse_arguments()
     
     # Load configuration
@@ -172,5 +244,6 @@ def main():
         except:
             pass
 
+
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

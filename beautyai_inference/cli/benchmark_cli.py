@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 Benchmark CLI for measuring performance of BeautyAI models.
+DEPRECATED: This command is deprecated. Please use 'beautyai run benchmark' instead.
 """
 import argparse
 import logging
 import sys
 import json
+import warnings
 from pathlib import Path
 from typing import Dict, Any, List
 
@@ -16,6 +18,41 @@ from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Track legacy command usage
+USAGE_LOG_FILE = Path.home() / ".beautyai" / "legacy_usage.log"
+
+
+def log_legacy_usage(command: str, args: list):
+    """Log usage of legacy command for future cleanup analysis."""
+    try:
+        USAGE_LOG_FILE.parent.mkdir(exist_ok=True)
+        with open(USAGE_LOG_FILE, "a") as f:
+            import datetime
+            timestamp = datetime.datetime.now().isoformat()
+            f.write(f"{timestamp},{command},{' '.join(args)}\n")
+    except Exception:
+        # Silently fail if logging doesn't work
+        pass
+
+
+def show_deprecation_warning():
+    """Show deprecation warning with migration guidance."""
+    warning_msg = """
+🚨 DEPRECATION WARNING 🚨
+
+The 'beautyai-benchmark' command is deprecated and will be removed in a future version.
+
+Please use the new unified CLI instead:
+  OLD: beautyai-benchmark [options]
+  NEW: beautyai run benchmark [options]
+
+All arguments and functionality remain the same.
+For more information, run: beautyai --help
+
+"""
+    warnings.warn(warning_msg, DeprecationWarning, stacklevel=2)
+    print(warning_msg, file=sys.stderr)
 
 
 def parse_arguments():
@@ -93,6 +130,34 @@ def list_available_models(config: AppConfig):
 
 def main():
     """Main entry point for the benchmark CLI."""
+    # Show deprecation warning
+    show_deprecation_warning()
+    
+    # Log legacy usage
+    log_legacy_usage("beautyai-benchmark", sys.argv[1:])
+    
+    # Try to redirect to unified CLI
+    try:
+        import subprocess
+        import os
+        
+        # Prepare arguments for unified CLI: 'beautyai run benchmark [original_args]'
+        unified_args = ["beautyai", "run", "benchmark"] + sys.argv[1:]
+        
+        # Check if unified CLI is available
+        result = subprocess.run(["which", "beautyai"], capture_output=True)
+        if result.returncode == 0:
+            # Execute unified CLI and exit with its return code
+            exit_code = subprocess.call(unified_args)
+            sys.exit(exit_code)
+        else:
+            print("⚠️  Unified CLI not found, falling back to legacy implementation...")
+    
+    except Exception as e:
+        print(f"⚠️  Failed to redirect to unified CLI: {e}")
+        print("Falling back to legacy implementation...")
+    
+    # Legacy implementation fallback
     args = parse_arguments()
     
     # Load configuration

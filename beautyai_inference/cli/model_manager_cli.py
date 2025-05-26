@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """
 CLI tool for managing model configurations.
+DEPRECATED: This command is deprecated. Please use 'beautyai manage models' instead.
 """
 import argparse
 import sys
 import json
 import logging
+import warnings
 from pathlib import Path
 from typing import Optional
 
@@ -14,6 +16,42 @@ from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Track legacy command usage
+USAGE_LOG_FILE = Path.home() / ".beautyai" / "legacy_usage.log"
+
+
+def log_legacy_usage(command: str, args: list):
+    """Log usage of legacy command for future cleanup analysis."""
+    try:
+        USAGE_LOG_FILE.parent.mkdir(exist_ok=True)
+        with open(USAGE_LOG_FILE, "a") as f:
+            import datetime
+            timestamp = datetime.datetime.now().isoformat()
+            f.write(f"{timestamp},{command},{' '.join(args)}\n")
+    except Exception:
+        # Silently fail if logging doesn't work
+        pass
+
+
+def show_deprecation_warning():
+    """Show deprecation warning with migration guidance."""
+    warning_msg = """
+🚨 DEPRECATION WARNING 🚨
+
+The 'beautyai-model-manager' command is deprecated and will be removed in a future version.
+
+Please use the new unified CLI instead:
+  OLD: beautyai-model-manager [options]
+  NEW: beautyai manage models [options]
+
+All arguments and functionality remain the same.
+
+For more information: https://github.com/BeautyAI/inference-framework
+"""
+    
+    warnings.warn(warning_msg, DeprecationWarning, stacklevel=2)
+    print(warning_msg)
 
 
 def parse_arguments():
@@ -272,4 +310,5 @@ def main():
 
 
 if __name__ == "__main__":
+    show_deprecation_warning()
     sys.exit(main())
