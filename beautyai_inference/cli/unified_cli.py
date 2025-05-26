@@ -171,13 +171,13 @@ class UnifiedCLI:
         
         # Add model
         add_parser = model_subparsers.add_parser('add', help='Add new model configuration')
-        add_parser.add_argument('--name', required=True, help='Model name')
+        add_parser.add_argument('--name', required=True, help='Model name (required)')
         
         # Add standardized model arguments
         for arg_def in StandardizedArguments.MODEL_SELECTION_GROUP.arguments:
             if arg_def.name == '--model':
                 add_parser.add_argument('--model-id', required=True, type=str, 
-                                       help='Model ID (e.g., Qwen/Qwen3-14B)')
+                                       help='Model ID (e.g., Qwen/Qwen3-14B) (required)')
             elif arg_def.name in ['--engine', '--quantization', '--dtype']:
                 kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
                 if arg_def.choices:
@@ -221,7 +221,7 @@ class UnifiedCLI:
         system_parser = subparsers.add_parser(
             'system',
             help='Model lifecycle management',
-            description='Manage models in memory and system resources'
+            description='Model lifecycle management'
         )
         system_subparsers = system_parser.add_subparsers(
             dest='system_command',
@@ -282,7 +282,7 @@ class UnifiedCLI:
         run_parser = subparsers.add_parser(
             'run',
             help='Inference operations',
-            description='Run inference operations like chat, test, and benchmark'
+            description='Inference operations'
         )
         run_subparsers = run_parser.add_subparsers(
             dest='run_command',
@@ -359,7 +359,7 @@ class UnifiedCLI:
         config_parser = subparsers.add_parser(
             'config',
             help='Configuration management',
-            description='Manage application configuration'
+            description='Configuration management'
         )
         config_subparsers = config_parser.add_subparsers(
             dest='config_command',
