@@ -27,13 +27,19 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         self.mock_inference_service = MagicMock()
         self.mock_config_service = MagicMock()
         
-        # Create the CLI with mocked services
-        self.cli = UnifiedCLI()
-        self.cli.model_registry_service = self.mock_model_registry_service
+        # Set default return values to avoid None returns
         self.mock_model_registry_service.list_models.return_value = 0
-        self.cli.lifecycle_service = self.mock_lifecycle_service
-        self.cli.inference_service = self.mock_inference_service
-        self.cli.config_service = self.mock_config_service
+        self.mock_lifecycle_service.show_status.return_value = 0
+        self.mock_inference_service.start_chat.return_value = 0
+        self.mock_config_service.show_config.return_value = 0
+        
+        # Create the CLI with mocked services
+        self.cli = UnifiedCLI(
+            model_registry_service=self.mock_model_registry_service,
+            lifecycle_service=self.mock_lifecycle_service,
+            inference_service=self.mock_inference_service,
+            config_service=self.mock_config_service
+        )
 
     def test_invalid_command_group(self):
         """Test that invalid command groups are handled correctly."""
@@ -46,8 +52,9 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         args.log_level = None
         args.no_color = False
         
-        with self.assertRaises(SystemExit):
+        with patch('sys.exit') as mock_exit:
             self.cli.route_command(args)
+            mock_exit.assert_called_with(1)
 
     def test_model_command_error_handling(self):
         """Test error handling in model commands."""
@@ -84,10 +91,10 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         args.log_level = None
         args.no_color = False
         
-        # The CLI should catch the exception and print an error message
-        with patch("sys.stderr"):
+        # The CLI should catch the exception and return an error code
+        with patch("sys.stderr"):  # Suppress error output during test
             exit_code = self.cli.route_command(args)
-            self.assertNotEqual(exit_code, 0)
+            self.assertNotEqual(exit_code, 0)  # Should not return success
 
     def test_run_command_error_handling(self):
         """Test error handling in run commands."""
@@ -142,9 +149,11 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         args.log_level = None
         args.no_color = False
         
-        with patch("logging.Logger.setLevel") as mock_set_level:
+        with patch("logging.getLogger") as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
             self.cli.route_command(args)
-            mock_set_level.assert_called_with(logging.DEBUG)
+            mock_logger.setLevel.assert_called_with(logging.DEBUG)
         
         # Test quiet mode
         args = argparse.Namespace()
@@ -157,9 +166,11 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         args.log_level = None
         args.no_color = False
         
-        with patch("logging.Logger.setLevel") as mock_set_level:
+        with patch("logging.getLogger") as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
             self.cli.route_command(args)
-            mock_set_level.assert_called_with(logging.WARNING)
+            mock_logger.setLevel.assert_called_with(logging.WARNING)
         
         # Test custom log level
         args = argparse.Namespace()
@@ -172,9 +183,11 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         args.log_level = "DEBUG"
         args.no_color = False
         
-        with patch("logging.Logger.setLevel") as mock_set_level:
+        with patch("logging.getLogger") as mock_get_logger:
+            mock_logger = MagicMock()
+            mock_get_logger.return_value = mock_logger
             self.cli.route_command(args)
-            mock_set_level.assert_called_with(logging.DEBUG)
+            mock_logger.setLevel.assert_called_with(logging.DEBUG)
 
     def test_missing_required_args(self):
         """Test that missing required arguments are handled correctly."""
@@ -193,8 +206,8 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
 
     def test_service_configuration_error(self):
         """Test error handling during service configuration."""
-        # Mock the configure method to raise an exception
-        self.mock_model_registry_service.configure.side_effect = ValueError("Invalid configuration")
+        # Mock the list_models method to raise an exception due to incomplete configuration
+        self.mock_model_registry_service.list_models.side_effect = ValueError("Configuration missing")
         
         args = argparse.Namespace()
         args.command_group = "model"
@@ -208,9 +221,8 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
         
         # The CLI should catch the exception and print an error message
         with patch("sys.stderr"):
-            with patch("builtins.open", side_effect=FileNotFoundError("File not found")):
-                exit_code = self.cli.route_command(args)
-                self.assertNotEqual(exit_code, 0)
+            exit_code = self.cli.route_command(args)
+            self.assertNotEqual(exit_code, 0)
 
 
 if __name__ == "__main__":

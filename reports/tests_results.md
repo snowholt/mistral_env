@@ -90,7 +90,7 @@ tensor_parallel_size: 1
 model_architecture: causal_lm
 
 .No command specified. Use --help to see available commands.
-F
+.
 MODEL NAME                               ENGINE             QUANT        DEFAULT   
 -------------------------------------------------------------------------------------
 qwen3-model                              transformers       4bit         ✓         
@@ -116,7 +116,20 @@ deepseek-r1-qwen-14b-multilingual-gguf   llama.cpp          Q4_K_M
 arabic-deepseek-r1-distill-llama3-8b     transformers       4bit                   
 arabic-morph-deepseek-r1-distill-llama-8b transformers       4bit                   
 
-Fusage: beautyai model add [-h] --name NAME --model-id MODEL_ID [--engine {transformers,vllm}] [--quantization {4bit,8bit,awq,squeezellm,none}]
+
+MODEL NAME                               ENGINE             QUANT        DEFAULT   
+-------------------------------------------------------------------------------------
+qwen3-model                              transformers       4bit         ✓         
+bee1reason-arabic-qwen-14b               transformers       none                   
+bee1reason-arabic-qwen-14b-gguf          llama.cpp          Q4_K_M                 
+llama-4-maverick-17b                     transformers       4bit                   
+deepseek-r1-qwen-14b-multilingual        transformers       4bit                   
+arabic-deepseek-r1-distill-8b            transformers       4bit                   
+deepseek-r1-qwen-14b-multilingual-gguf   llama.cpp          Q4_K_M                 
+arabic-deepseek-r1-distill-llama3-8b     transformers       4bit                   
+arabic-morph-deepseek-r1-distill-llama-8b transformers       4bit                   
+
+.usage: beautyai model add [-h] --name NAME --model-id MODEL_ID [--engine {transformers,vllm}] [--quantization {4bit,8bit,awq,squeezellm,none}]
                           [--dtype {float16,float32,bfloat16}] [--description DESCRIPTION] [--default]
 beautyai model add: error: the following arguments are required: --name, --model-id
 .
@@ -132,67 +145,20 @@ deepseek-r1-qwen-14b-multilingual-gguf   llama.cpp          Q4_K_M
 arabic-deepseek-r1-distill-llama3-8b     transformers       4bit                   
 arabic-morph-deepseek-r1-distill-llama-8b transformers       4bit                   
 
-.ERROR:beautyai_inference.cli.unified_cli:Command execution failed: 'ModelConfig' object has no attribute 'top_k'
-.ERROR:beautyai_inference.cli.unified_cli:Command execution failed: Invalid configuration
-.
-===== System Status =====
+.ERROR:beautyai_inference.cli.unified_cli:Run command execution failed: ModelConfig.__init__() got an unexpected keyword argument 'top_k'
+.WARNING:beautyai_inference.cli.unified_cli:Error configuring services: Invalid configuration
+ERROR:beautyai_inference.config.config_manager:Error loading config from config.json: File not found
+ERROR:beautyai_inference.config.config_manager:Error saving model registry to models.json: File not found
 
-GPU Status:
+MODEL NAME                               ENGINE             QUANT        DEFAULT   
+-------------------------------------------------------------------------------------
+default                                  transformers       4bit         ✓         
 
-  GPU 0: NVIDIA GeForce RTX 4090
-    Memory Used:     0.00 MB / 24069.38 MB (0.0%)
-    Memory Free:     24069.38 MB
-    Utilization:     0.0%
-    Memory Usage:    [░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░] 0.0%
-
-System Information:
-  Platform:        Linux 6.8.0-60-generic
-  Python Version:  3.12.3
-  PyTorch Version: 2.6.0+cu124
-  CUDA Available:  True
-  CUDA Version:    12.4
-  Device Count:    1
-    Device 0:       NVIDIA GeForce RTX 4090
-
-Loaded Models:
-  No models currently loaded.
-
-F
-======================================================================
-FAIL: test_invalid_command_group (__main__.TestBeautyAICLIErrorHandling.test_invalid_command_group)
-Test that invalid command groups are handled correctly.
+..
 ----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_cli_error_handling.py", line 49, in test_invalid_command_group
-    with self.assertRaises(SystemExit):
-AssertionError: SystemExit not raised
+Ran 8 tests in 0.011s
 
-======================================================================
-FAIL: test_logging_configuration (__main__.TestBeautyAICLIErrorHandling.test_logging_configuration)
-Test that logging is properly configured.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_cli_error_handling.py", line 162, in test_logging_configuration
-    mock_set_level.assert_called_with(logging.WARNING)
-  File "/usr/lib/python3.12/unittest/mock.py", line 935, in assert_called_with
-    raise AssertionError(error_message)
-AssertionError: expected call not found.
-Expected: setLevel(30)
-  Actual: not called.
-
-======================================================================
-FAIL: test_system_command_error_handling (__main__.TestBeautyAICLIErrorHandling.test_system_command_error_handling)
-Test error handling in system commands.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_cli_error_handling.py", line 90, in test_system_command_error_handling
-    self.assertNotEqual(exit_code, 0)
-AssertionError: 0 == 0
-
-----------------------------------------------------------------------
-Ran 8 tests in 0.087s
-
-FAILED (failures=3)
+OK
 
 ---
 
