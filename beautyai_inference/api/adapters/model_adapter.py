@@ -37,28 +37,6 @@ class ModelAPIAdapter(APIServiceAdapter):
         self.lifecycle_service = lifecycle_service
         self.validation_service = validation_service
         super().__init__(self.registry_service)  # Use registry as primary service
-"""
-Model Management API Adapter.
-
-Provides API-compatible interface for model registry and lifecycle operations,
-bridging model services with REST/GraphQL endpoints.
-"""
-from typing import Dict, Any, Optional, List
-import logging
-import time
-
-from .base_adapter import APIServiceAdapter
-from ..models import APIRequest, APIResponse, ModelAddRequest
-from ..errors import ModelNotFoundError, ValidationError, ModelLoadError
-from ...services.model.registry_service import RegistryService
-from ...services.model.lifecycle_service import ModelLifecycleService
-from ...services.model.validation_service import ModelValidationService
-from ...config.config_manager import ModelConfig, AppConfig
-
-logger = logging.getLogger(__name__)
-
-
-class ModelAPIAdapter(APIServiceAdapter):
     """
     API adapter for model management operations.
     
@@ -131,13 +109,20 @@ class ModelAPIAdapter(APIServiceAdapter):
         except Exception as e:
             logger.error(f"Failed to list models: {e}")
             raise
+
+    def get_supported_operations(self) -> Dict[str, str]:
+        """Get dictionary of supported operations and their descriptions."""
+        return {
+            "list_models": "List all available models",
+            "get_model_info": "Get detailed model information",
+            "load_model": "Load a model for inference",
+            "unload_model": "Unload a specific model",
+            "unload_all_models": "Unload all models",
             "get_model_status": "Get model loading status",
             "get_system_status": "Get system memory and GPU status"
         }
-    
-    @require_permission("model:read")
-    def list_models(self, auth_context: AuthContext, 
-                   request: ModelListRequest) -> ModelListResponse:
+
+    def list_models(self, auth_context, request):
         """
         List available models with optional filtering.
         
@@ -179,114 +164,127 @@ class ModelAPIAdapter(APIServiceAdapter):
             }
         
         return self.execute_with_auth(auth_context, _list_models)
-    
-    @require_permission("model:read")
-    def get_model_info(self, auth_context: AuthContext,
-                      model_name: str) -> APIResponse:
+
+    def get_model_info(self, model_name: str) -> Dict[str, Any]:
         """
         Get detailed information about a specific model.
         
         Args:
-            auth_context: Authentication context
             model_name: Name of the model to get info for
             
         Returns:
-            APIResponse with detailed model information
+            Dictionary with detailed model information
         """
-        def _get_model_info():
+        try:
+            # Configure services with default config
+            self.registry_service.configure({})
+            
+            # Get default app config
+            from pathlib import Path
+            default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
+            app_config = AppConfig.load_from_file(default_config_path) if default_config_path.exists() else AppConfig()
+            
             # Get model configuration
-            model_config = self.registry_service.get_model(model_name)
+            result = self.registry_service.list_models(app_config)
+            models_data = result["models"]
+            
+            if model_name not in models_data:
+                raise ModelNotFoundError(f"Model '{model_name}' not found in registry")
+            
+            model_config = models_data[model_name]
             
             # Get loading status
             loaded_models = self.lifecycle_service.list_loaded_models()
             is_loaded = any(model['name'] == model_name for model in loaded_models)
             
-            # Get validation status
-            validation_result = self.registry_service.validate_model_config(model_config)
-            
             return {
-                "model": model_config,
+                "name": model_name,
+                "model_id": model_config.model_id,
+                "engine_type": model_config.engine_type,
+                "quantization": model_config.quantization,
+                "dtype": model_config.dtype,
+                "description": model_config.description,
                 "is_loaded": is_loaded,
-                "validation": validation_result,
+                "is_default": model_name == result["default_model"],
                 "loading_metadata": next(
                     (model for model in loaded_models if model['name'] == model_name),
                     None
                 ) if is_loaded else None
             }
-        
-        return self.execute_with_auth(auth_context, _get_model_info)
-    
-    @require_permission("model:manage")
-    def load_model(self, auth_context: AuthContext,
-                  request: ModelLoadRequest) -> ModelLoadResponse:
+            
+        except Exception as e:
+            logger.error(f"Failed to get model info for '{model_name}': {e}")
+            raise
+
+    def load_model(self, model_name: str, engine: Optional[str] = None, 
+                  quantization: Optional[str] = None, **kwargs) -> Dict[str, Any]:
         """
         Load a model for inference.
         
         Args:
-            auth_context: Authentication context
-            request: Model load request with configuration
+            model_name: Name of the model to load
+            engine: Optional engine override
+            quantization: Optional quantization override
+            **kwargs: Additional configuration options
             
         Returns:
-            ModelLoadResponse with loading result
+            Dictionary with loading result
         """
-        def _load_model():
+        try:
             # Load the model using lifecycle service
             result = self.lifecycle_service.load_model(
-                model_name=request.model_name,
-                engine=request.engine,
-                quantization=request.quantization,
-                **request.additional_config
+                model_name=model_name,
+                engine=engine,
+                quantization=quantization,
+                **kwargs
             )
             
             return {
-                "model_name": request.model_name,
+                "model_name": model_name,
                 "engine": result.get("engine"),
                 "quantization": result.get("quantization"),
                 "loading_time_ms": result.get("loading_time_ms"),
                 "memory_usage": result.get("memory_usage"),
                 "status": "loaded"
             }
-        
-        return self.execute_with_auth(auth_context, _load_model)
-    
-    @require_permission("model:manage")
-    def unload_model(self, auth_context: AuthContext,
-                    request: ModelUnloadRequest) -> ModelUnloadResponse:
+            
+        except Exception as e:
+            logger.error(f"Failed to load model '{model_name}': {e}")
+            raise
+
+    def unload_model(self, model_name: str) -> Dict[str, Any]:
         """
         Unload a specific model.
         
         Args:
-            auth_context: Authentication context
-            request: Model unload request
+            model_name: Name of the model to unload
             
         Returns:
-            ModelUnloadResponse with unloading result
+            Dictionary with unloading result
         """
-        def _unload_model():
+        try:
             # Unload the model
-            result = self.lifecycle_service.unload_model(request.model_name)
+            result = self.lifecycle_service.unload_model(model_name)
             
             return {
-                "model_name": request.model_name,
+                "model_name": model_name,
                 "status": "unloaded",
                 "memory_freed": result.get("memory_freed"),
                 "unloading_time_ms": result.get("unloading_time_ms")
             }
-        
-        return self.execute_with_auth(auth_context, _unload_model)
-    
-    @require_permission("model:manage")
-    def unload_all_models(self, auth_context: AuthContext) -> APIResponse:
+            
+        except Exception as e:
+            logger.error(f"Failed to unload model '{model_name}': {e}")
+            raise
+
+    def unload_all_models(self) -> Dict[str, Any]:
         """
         Unload all loaded models.
         
-        Args:
-            auth_context: Authentication context
-            
         Returns:
-            APIResponse with unloading results
+            Dictionary with unloading results
         """
-        def _unload_all_models():
+        try:
             result = self.lifecycle_service.unload_all_models()
             
             return {
@@ -295,23 +293,22 @@ class ModelAPIAdapter(APIServiceAdapter):
                 "unloading_time_ms": result.get("unloading_time_ms"),
                 "status": "all_unloaded"
             }
-        
-        return self.execute_with_auth(auth_context, _unload_all_models)
-    
-    @require_permission("model:read")
-    def get_model_status(self, auth_context: AuthContext,
-                        request: ModelStatusRequest) -> ModelStatusResponse:
+            
+        except Exception as e:
+            logger.error(f"Failed to unload all models: {e}")
+            raise
+
+    def get_model_status(self, model_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Get current model loading and system status.
         
         Args:
-            auth_context: Authentication context
-            request: Status request with optional model filter
+            model_name: Optional specific model to get status for
             
         Returns:
-            ModelStatusResponse with status information
+            Dictionary with status information
         """
-        def _get_model_status():
+        try:
             # Get loaded models
             loaded_models = self.lifecycle_service.list_loaded_models()
             
@@ -319,10 +316,10 @@ class ModelAPIAdapter(APIServiceAdapter):
             system_status = self.lifecycle_service.show_status()
             
             # Filter by specific model if requested
-            if request.model_name:
+            if model_name:
                 loaded_models = [
                     model for model in loaded_models 
-                    if model['name'] == request.model_name
+                    if model['name'] == model_name
                 ]
             
             return {
@@ -331,5 +328,7 @@ class ModelAPIAdapter(APIServiceAdapter):
                 "total_loaded": len(loaded_models),
                 "timestamp": system_status.get("timestamp")
             }
-        
-        return self.execute_with_auth(auth_context, _get_model_status)
+            
+        except Exception as e:
+            logger.error(f"Failed to get model status: {e}")
+            raise

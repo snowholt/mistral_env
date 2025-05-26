@@ -23,10 +23,14 @@ __all__ = [
     'BenchmarkRequest', 'BenchmarkResponse',
     
     # Config schemas
-    'ConfigRequest', 'ConfigResponse',
+    'ConfigGetRequest', 'ConfigGetResponse',
     'ConfigUpdateRequest', 'ConfigUpdateResponse',
+    'ConfigValidateRequest', 'ConfigValidateResponse',
+    'ConfigResetRequest', 'ConfigResetResponse',
     
     # System schemas
     'SystemStatusRequest', 'SystemStatusResponse',
-    'MemoryStatusRequest', 'MemoryStatusResponse'
+    'SystemHealthRequest', 'SystemHealthResponse',
+    'SystemCleanupRequest', 'SystemCleanupResponse',
+    'SystemMetricsRequest', 'SystemMetricsResponse'
 ]
