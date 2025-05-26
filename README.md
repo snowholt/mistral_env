@@ -1,9 +1,10 @@
-# Mistral Inference Framework
+# BeautyAI Inference Framework
 
-This framework provides a scalable, professional-grade interface for running inference with various language models. It supports both Hugging Face Transformers and vLLM inference backends, with various quantization options to optimize for different hardware requirements.
+This framework provides a scalable, professional-grade CLI interface for running inference with various language models, specializing in Arabic AI models but supporting multilingual capabilities. It features a unified command structure with support for both Hugging Face Transformers and vLLM inference backends, with various quantization options to optimize for different hardware requirements.
 
 ## Features
 
+- **Unified CLI Interface**: Single `beautyai` command with organized subcommands for all functionality
 - **Multiple Inference Backends**: Use either Hugging Face Transformers (default) or vLLM for optimized inference
 - **Flexible Quantization**: Support for 4-bit/8-bit quantization with Transformers and AWQ/SqueezeLLM with vLLM
 - **Multiple Model Architectures**: Support for both causal language models (e.g., Qwen, Mistral, Llama) and sequence-to-sequence models (e.g., T5, Flan-T5)
@@ -12,6 +13,8 @@ This framework provides a scalable, professional-grade interface for running inf
 - **Model Registry**: Manage multiple model configurations and easily switch between them
 - **Modular Design**: Clean separation of components for easy maintenance and extension
 - **Configuration Management**: Use JSON config files or command-line parameters
+- **Service-Oriented Architecture**: Ready for future API integration and web interfaces
+- **Backward Compatibility**: Legacy command aliases still supported
 
 ## Requirements
 
@@ -47,43 +50,104 @@ After installation, you can use the framework with the provided command-line too
 
 ```bash
 # Activate the virtual environment
-source venv/bin/activate
+### Quick Start
 
-# Test the model with a simple prompt
-beautyai-test
-
-# Start an interactive chat session
-beautyai-chat
-
-# Run benchmarks
-beautyai-benchmark
-
-# Manage model configurations
-beautyai-models list
-```
-
-### Model Registry
-
-The framework includes a model registry to manage multiple model configurations:
+After installation, you can use the framework with the unified CLI interface:
 
 ```bash
+# Activate the virtual environment
+source venv/bin/activate
+
+# Show all available commands
+beautyai --help
+
+# Test the model with a simple prompt
+beautyai run test
+
+# Start an interactive chat session
+beautyai run chat
+
+# Run benchmarks
+beautyai run benchmark
+
+# Manage model configurations
+beautyai model list
+```
+
+### Unified CLI Commands
+
+The BeautyAI framework uses a unified command structure organized into four main groups:
+
+#### Model Registry Management
+```bash
 # List all available models
-beautyai-models list
+beautyai model list
 
 # Add a new model configuration
-beautyai-models add --name "mistral-7b" --model-id "mistralai/Mistral-7B-Instruct-v0.2" --engine transformers --quantization 4bit
+beautyai model add --name "mistral-7b" --model-id "mistralai/Mistral-7B-Instruct-v0.2" --engine transformers --quantization 4bit
 
 # Show details of a specific model
-beautyai-models show mistral-7b
+beautyai model show mistral-7b
 
 # Set a model as default
-beautyai-models set-default mistral-7b
+beautyai model set-default mistral-7b
 
-# Use a specific model for benchmarking
-beautyai-benchmark --model-name mistral-7b
+# Remove a model from registry
+beautyai model remove mistral-7b
+```
 
-# Save current benchmark configuration to registry
-beautyai-benchmark --model "TinyLlama/TinyLlama-1.1B-Chat-v1.0" --quantization 8bit --save-model
+#### System Lifecycle Management
+```bash
+# Load a model into memory
+beautyai system load mistral-7b
+
+# Check system status and loaded models
+beautyai system status
+
+# Unload a specific model
+beautyai system unload mistral-7b
+
+# Unload all models
+beautyai system unload-all
+
+# Clear model cache
+beautyai system clear-cache
+```
+
+#### Inference Operations
+```bash
+# Start interactive chat
+beautyai run chat --model-name mistral-7b
+
+# Run inference tests
+beautyai run test --model Qwen/Qwen3-14B
+
+# Run performance benchmarks
+beautyai run benchmark --model-name mistral-7b --output-file results.json
+```
+
+#### Configuration Management
+```bash
+# Show current configuration
+beautyai config show
+
+# Update configuration settings
+beautyai config set default_engine vllm
+
+# Reset configuration to defaults
+beautyai config reset
+```
+
+### Legacy Commands (Backward Compatibility)
+
+For backward compatibility, the old command structure is still supported:
+
+```bash
+# These legacy commands still work:
+beautyai-test         # -> beautyai run test
+beautyai-chat         # -> beautyai run chat
+beautyai-benchmark    # -> beautyai run benchmark
+beautyai-models list  # -> beautyai model list
 ```
 
 ## Supported Model Architectures
@@ -121,20 +185,26 @@ Example models:
 All commands support command-line options for customization:
 
 ```bash
-# Use a different model
-beautyai-chat --model mistralai/Mixtral-8x7B-Instruct-v0.1
+# Use a different model with unified CLI
+beautyai run chat --model mistralai/Mixtral-8x7B-Instruct-v0.1
 
 # Use vLLM backend with AWQ quantization
-beautyai-chat --engine vllm --quantization awq
+beautyai run chat --engine vllm --quantization awq
 
 # Run benchmarks with custom parameters
-beautyai-benchmark --input-lengths 10,100,500 --output-length 100
+beautyai run benchmark --input-lengths 10,100,500 --output-length 100
+
+# Load a model with specific quantization
+beautyai system load --model-name my-model --quantization 4bit
 ```
 
 Use `--help` with any command to see all available options:
 
 ```bash
-beautyai-chat --help
+beautyai --help                    # Show main help
+beautyai model --help              # Show model management help
+beautyai run chat --help           # Show chat-specific options
+beautyai system status --help      # Show status command help
 ```
 
 ### Configuration Files

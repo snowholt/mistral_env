@@ -3,8 +3,11 @@ from setuptools import setup, find_packages
 setup(
     name="beautyaiinference",
     version="1.0.0",
-    description="A modular framework for inference with Arabic AI models",
+    description="A scalable, professional-grade CLI framework for running inference with Arabic AI models and multilingual language models",
+    long_description="BeautyAI Inference Framework provides a unified CLI interface for managing and running inference with various language models, specializing in Arabic AI models but supporting multilingual capabilities. Features include modular architecture, multiple backend support (Transformers/vLLM), quantization capabilities, and comprehensive model lifecycle management.",
     author="Lumi AI",
+    author_email="lumi@beautyai.dev",
+    url="https://github.com/lumiai/beautyai-inference",
     packages=find_packages(),
     python_requires=">=3.10",
     install_requires=[
@@ -21,12 +24,15 @@ setup(
     },
     entry_points={
         "console_scripts": [
+            # Primary unified CLI entry point
+            "beautyai=beautyai_inference.cli.unified_cli:main",
+            
+            # Backward compatibility entry points (legacy wrappers)
             "beautyai-chat=beautyai_inference.cli.chat_cli:main",
             "beautyai-test=beautyai_inference.cli.test_cli:main",
             "beautyai-benchmark=beautyai_inference.cli.benchmark_cli:main",
             "beautyai-models=beautyai_inference.cli.model_manager_cli:main",
             "beautyai-manage=beautyai_inference.cli.model_management_cli:main",
-            "beautyai=beautyai_inference.cli.unified_cli:main",
         ],
     },
     classifiers=[
