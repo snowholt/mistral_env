@@ -34,7 +34,7 @@ from .argument_config import (
     ArgumentGroup,
     add_backward_compatible_args
 )
-from .services.config_service import ConfigService
+from ..services.config.config_service import ConfigService
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

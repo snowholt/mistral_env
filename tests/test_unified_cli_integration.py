@@ -20,7 +20,7 @@ sys.path.append(".")  # Add the current directory to the path
 
 from beautyai_inference.cli.unified_cli import UnifiedCLI
 from beautyai_inference.cli.handlers.unified_cli_adapter import UnifiedCLIAdapter
-from beautyai_inference.cli.services.config_service import ConfigService
+from beautyai_inference.services.config.config_service import ConfigService
 from beautyai_inference.config.config_manager import AppConfig, ModelConfig
 
 
