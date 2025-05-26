@@ -51,10 +51,11 @@ class TestHelpText(unittest.TestCase):
         self.assertIn("beautyai run", help_text)
         self.assertIn("beautyai config", help_text)
         
-        # Check that migration information is included
-        self.assertIn("Migration from legacy commands", help_text)
-        self.assertIn("now removed", help_text)
-        self.assertIn("beautyai-", help_text)
+        # Check that helpful comments are included
+        self.assertIn("# List all available models", help_text)
+        self.assertIn("# Start interactive chat", help_text)
+        self.assertIn("# Show system status", help_text)
+        self.assertIn("# Show current configuration", help_text)
 
     @patch("sys.stdout", new_callable=MagicMock)
     @patch("sys.stderr", new_callable=MagicMock)

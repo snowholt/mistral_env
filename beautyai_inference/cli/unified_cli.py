@@ -408,37 +408,30 @@ class UnifiedCLI:
         return """
 Examples:
   # Model registry management
-  beautyai model list
-  beautyai model add --name my-qwen --model-id Qwen/Qwen3-14B
-  beautyai model show my-qwen
-  beautyai model set-default my-qwen
+  beautyai model list                                    # List all available models
+  beautyai model add --name my-qwen --model-id Qwen/Qwen3-14B  # Add new model to registry
+  beautyai model show my-qwen                            # Show model details
+  beautyai model set-default my-qwen                     # Set default model
   
   # System lifecycle management
-  beautyai system load my-qwen
-  beautyai system status
-  beautyai system unload my-qwen
+  beautyai system load my-qwen                           # Load model into memory
+  beautyai system status                                 # Show system status
+  beautyai system unload my-qwen                         # Unload model from memory
+  beautyai system clear-cache my-qwen                    # Clear model cache
   
   # Inference operations
-  beautyai run chat --model-name my-qwen
-  beautyai run test --model Qwen/Qwen3-14B
-  beautyai run benchmark --model-name my-qwen --output-file results.json
-  beautyai run save-session --output-file session.json
-  beautyai run load-session --input-file session.json
+  beautyai run chat --model-name my-qwen                 # Start interactive chat
+  beautyai run test --model Qwen/Qwen3-14B               # Test model with sample prompts
+  beautyai run benchmark --model-name my-qwen            # Run performance benchmarks
+  beautyai run save-session --output-file session.json   # Save chat session
+  beautyai run load-session --input-file session.json    # Load chat session
   
   # Configuration management
-  beautyai config show
-  beautyai config set default_engine vllm
-  beautyai config validate
-  beautyai config backup --backup-dir my_backups
-  beautyai config restore backups/config_20250525_120000.json
-  beautyai config migrate --verbose
-
-Migration from legacy commands (now removed):
-  OLD: beautyai-models list        -> NEW: beautyai model list
-  OLD: beautyai-manage load model  -> NEW: beautyai system load model
-  OLD: beautyai-chat              -> NEW: beautyai run chat
-  OLD: beautyai-test              -> NEW: beautyai run test
-  OLD: beautyai-benchmark         -> NEW: beautyai run benchmark
+  beautyai config show                                   # Show current configuration
+  beautyai config set default_engine vllm               # Update configuration setting
+  beautyai config validate                              # Validate configuration
+  beautyai config backup --backup-dir my_backups        # Backup configuration
+  beautyai config restore backups/config_20250525_120000.json  # Restore configuration
 """
 
     def route_command(self, args: argparse.Namespace) -> int:
