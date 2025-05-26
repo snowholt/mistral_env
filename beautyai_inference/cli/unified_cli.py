@@ -28,6 +28,13 @@ from typing import Dict, Callable, Any
 from .services.model_registry_service import ModelRegistryService
 from .services.lifecycle_service import LifecycleService
 from .services.inference_service import InferenceService
+from .argument_config import (
+    StandardizedArgumentParser, 
+    StandardizedArguments,
+    ArgumentDefinition,
+    ArgumentGroup,
+    add_backward_compatible_args
+)
 from .services.config_service import ConfigService
 
 logging.basicConfig(level=logging.INFO)
@@ -81,37 +88,14 @@ class UnifiedCLI:
 
     def create_parser(self) -> argparse.ArgumentParser:
         """Create the main argument parser with all subcommands."""
-        parser = argparse.ArgumentParser(
-            prog='beautyai',
+        parser = StandardizedArgumentParser(
+            prog_name='beautyai',
             description='Unified CLI for BeautyAI model management and inference',
-            formatter_class=argparse.RawDescriptionHelpFormatter,
-            epilog=self._get_help_examples()
-        )
+            add_global_args=True
+        ).parser
         
-        # Global options
-        parser.add_argument(
-            '--config',
-            type=str,
-            help='Path to configuration file'
-        )
-        
-        parser.add_argument(
-            '--models-file',
-            type=str,
-            help='Path to model registry file'
-        )
-        
-        parser.add_argument(
-            '--verbose', '-v',
-            action='store_true',
-            help='Enable verbose logging'
-        )
-        
-        parser.add_argument(
-            '--version',
-            action='version',
-            version='BeautyAI CLI v1.0.0'
-        )
+        # Override epilog with examples
+        parser.epilog = self._get_help_examples()
         
         # Create subcommands
         subparsers = parser.add_subparsers(
@@ -148,31 +132,63 @@ class UnifiedCLI:
         
         # List models
         list_parser = model_subparsers.add_parser('list', help='List all models in registry')
+        # Add standardized output formatting args
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name in ['--format', '--output-file']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                if arg_def.default:
+                    kwargs['default'] = arg_def.default
+                list_parser.add_argument(arg_def.name, **kwargs)
         
         # Show model details
         show_parser = model_subparsers.add_parser('show', help='Show model details')
         show_parser.add_argument('name', help='Model name')
+        # Add output formatting
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name in ['--format']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                if arg_def.default:
+                    kwargs['default'] = arg_def.default
+                show_parser.add_argument(arg_def.name, **kwargs)
         
         # Add model
         add_parser = model_subparsers.add_parser('add', help='Add new model configuration')
         add_parser.add_argument('--name', required=True, help='Model name')
-        add_parser.add_argument('--model-id', required=True, help='Model ID (e.g., Qwen/Qwen3-14B)')
-        add_parser.add_argument('--engine', choices=['transformers', 'vllm'], 
-                               default='transformers', help='Inference engine')
-        add_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                               default='4bit', help='Quantization method')
-        add_parser.add_argument('--dtype', default='float16', help='Data type')
+        
+        # Add standardized model arguments
+        for arg_def in StandardizedArguments.MODEL_SELECTION_GROUP.arguments:
+            if arg_def.name == '--model':
+                add_parser.add_argument('--model-id', required=True, type=str, 
+                                       help='Model ID (e.g., Qwen/Qwen3-14B)')
+            elif arg_def.name in ['--engine', '--quantization', '--dtype']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                if arg_def.default:
+                    kwargs['default'] = arg_def.default
+                add_parser.add_argument(arg_def.name, **kwargs)
+        
         add_parser.add_argument('--description', help='Model description')
         add_parser.add_argument('--default', action='store_true', help='Set as default model')
         
-        # Update model
+        # Update model  
         update_parser = model_subparsers.add_parser('update', help='Update model configuration')
         update_parser.add_argument('name', help='Model name')
         update_parser.add_argument('--model-id', help='Model ID')
-        update_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Inference engine')
-        update_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                                  help='Quantization method')
-        update_parser.add_argument('--dtype', help='Data type')
+        
+        # Add standardized model arguments (optional for update)
+        for arg_def in StandardizedArguments.MODEL_SELECTION_GROUP.arguments:
+            if arg_def.name in ['--engine', '--quantization', '--dtype']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                # Don't set default for update command
+                update_parser.add_argument(arg_def.name, **kwargs)
+        
         update_parser.add_argument('--description', help='Model description')
         update_parser.add_argument('--default', action='store_true', help='Set as default model')
         
@@ -201,6 +217,16 @@ class UnifiedCLI:
         # Load model
         load_parser = system_subparsers.add_parser('load', help='Load model into memory')
         load_parser.add_argument('name', help='Model name')
+        # Add system configuration args
+        for arg_def in StandardizedArguments.SYSTEM_GROUP.arguments:
+            if arg_def.name in ['--gpu-memory-utilization', '--tensor-parallel-size', '--force-cpu']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.action:
+                    kwargs['action'] = arg_def.action
+                    kwargs.pop('type', None)
+                if arg_def.default and not arg_def.action:
+                    kwargs['default'] = arg_def.default
+                load_parser.add_argument(arg_def.name, **kwargs)
         
         # Unload model
         unload_parser = system_subparsers.add_parser('unload', help='Unload model from memory')
@@ -211,9 +237,27 @@ class UnifiedCLI:
         
         # List loaded models
         list_loaded_parser = system_subparsers.add_parser('list-loaded', help='List loaded models')
+        # Add output formatting
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name in ['--format']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                if arg_def.default:
+                    kwargs['default'] = arg_def.default
+                list_loaded_parser.add_argument(arg_def.name, **kwargs)
         
         # System status
         status_parser = system_subparsers.add_parser('status', help='Show system status')
+        # Add output formatting
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name in ['--format']:
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                if arg_def.default:
+                    kwargs['default'] = arg_def.default
+                status_parser.add_argument(arg_def.name, **kwargs)
         
         # Clear cache
         clear_cache_parser = system_subparsers.add_parser('clear-cache', help='Clear model cache')
@@ -231,57 +275,70 @@ class UnifiedCLI:
             help='Inference commands'
         )
         
+        # Helper function to add standardized arguments to a parser
+        def add_model_and_generation_args(parser, include_all_generation=True):
+            # Model selection arguments
+            for arg_def in StandardizedArguments.MODEL_SELECTION_GROUP.arguments:
+                if arg_def.name in ['--model', '--model-name', '--engine', '--quantization']:
+                    kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                    if arg_def.choices:
+                        kwargs['choices'] = arg_def.choices
+                    # Don't set defaults for run commands, let services handle defaults
+                    parser.add_argument(arg_def.name, **kwargs)
+            
+            # Generation arguments  
+            for arg_def in StandardizedArguments.GENERATION_GROUP.arguments:
+                if include_all_generation or arg_def.name in ['--temperature', '--max-tokens', '--top-p', '--top-k', '--repetition-penalty', '--stream']:
+                    kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                    if arg_def.action:
+                        kwargs['action'] = arg_def.action
+                        kwargs.pop('type', None)
+                    if arg_def.default and not arg_def.action:
+                        kwargs['default'] = arg_def.default
+                    parser.add_argument(arg_def.name, **kwargs)
+        
         # Chat interface
         chat_parser = run_subparsers.add_parser('chat', help='Start interactive chat')
-        chat_parser.add_argument('--model', help='Model ID to use')
-        chat_parser.add_argument('--model-name', help='Model name from registry')
-        chat_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Inference engine')
-        chat_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                                help='Quantization method')
-        chat_parser.add_argument('--temperature', type=float, default=0.7, help='Sampling temperature')
-        chat_parser.add_argument('--max-tokens', type=int, default=1024, help='Maximum tokens to generate')
-        chat_parser.add_argument('--top-p', type=float, help='Top-p sampling parameter')
-        chat_parser.add_argument('--top-k', type=int, help='Top-k sampling parameter')
-        chat_parser.add_argument('--repetition-penalty', type=float, help='Repetition penalty')
+        add_model_and_generation_args(chat_parser)
         
         # Test interface
         test_parser = run_subparsers.add_parser('test', help='Run model test')
-        test_parser.add_argument('--model', help='Model ID to use')
-        test_parser.add_argument('--model-name', help='Model name from registry')
-        test_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Inference engine')
-        test_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                                help='Quantization method')
+        add_model_and_generation_args(test_parser, include_all_generation=False)
         test_parser.add_argument('--prompt', help='Test prompt')
-        test_parser.add_argument('--temperature', type=float, help='Sampling temperature')
-        test_parser.add_argument('--max-tokens', type=int, help='Maximum tokens to generate')
         
         # Benchmark interface
         benchmark_parser = run_subparsers.add_parser('benchmark', help='Run performance benchmark')
-        benchmark_parser.add_argument('--model', help='Model ID to use')
-        benchmark_parser.add_argument('--model-name', help='Model name from registry')
-        benchmark_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Inference engine')
-        benchmark_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                                     help='Quantization method')
+        add_model_and_generation_args(benchmark_parser, include_all_generation=False)
         benchmark_parser.add_argument('--input-lengths', default='10,100,1000',
                                      help='Comma-separated input lengths')
         benchmark_parser.add_argument('--output-length', type=int, default=200,
                                      help='Output length for benchmark')
         benchmark_parser.add_argument('--num-runs', type=int, default=3,
                                      help='Number of benchmark runs per input length')
-        benchmark_parser.add_argument('--output-file', help='Save results to file')
+        # Add output file argument
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name == '--output-file':
+                kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                benchmark_parser.add_argument(arg_def.name, **kwargs)
         
         # Session management - save current session
         save_session_parser = run_subparsers.add_parser('save-session', help='Save chat session to file')
         save_session_parser.add_argument('--session-id', help='Session ID to save')
-        save_session_parser.add_argument('--output-file', help='Output file path')
+        for arg_def in StandardizedArguments.OUTPUT_GROUP.arguments:
+            if arg_def.name == '--output-file':
+                kwargs = {'type': arg_def.arg_type, 'help': 'Output file path for session'}
+                save_session_parser.add_argument(arg_def.name, **kwargs)
         
         # Session management - load saved session
         load_session_parser = run_subparsers.add_parser('load-session', help='Load chat session from file')
         load_session_parser.add_argument('--input-file', required=True, help='Session file to load')
-        load_session_parser.add_argument('--model-name', help='Override model name')
-        load_session_parser.add_argument('--engine', choices=['transformers', 'vllm'], help='Override inference engine')
-        load_session_parser.add_argument('--quantization', choices=['4bit', '8bit', 'awq', 'squeezellm', 'none'],
-                                       help='Override quantization method')
+        # Add model override arguments
+        for arg_def in StandardizedArguments.MODEL_SELECTION_GROUP.arguments:
+            if arg_def.name in ['--model-name', '--engine', '--quantization']:
+                kwargs = {'type': arg_def.arg_type, 'help': f'Override {arg_def.help_text.lower()}'}
+                if arg_def.choices:
+                    kwargs['choices'] = arg_def.choices
+                load_session_parser.add_argument(arg_def.name, **kwargs)
 
     def _add_config_commands(self, subparsers):
         """Add configuration management commands."""

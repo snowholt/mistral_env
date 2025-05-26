@@ -10,6 +10,7 @@ from pathlib import Path
 from ..config.config_manager import AppConfig, ModelConfig
 from ..core.model_factory import ModelFactory
 from ..utils.memory_utils import get_gpu_info, clear_terminal_screen
+from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -19,48 +20,24 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Chat with BeautyAI model")
     
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="Qwen/Qwen3-14B",
-        help="Model ID to use (default: Qwen/Qwen3-14B)",
+    # Add standardized arguments with backward compatibility
+    add_backward_compatible_args(
+        parser,
+        include_model=True,
+        include_generation=True,
+        include_system=False
     )
     
-    parser.add_argument(
-        "--engine", 
-        type=str, 
-        choices=["transformers", "vllm"], 
-        default="transformers",
-        help="Inference engine to use (default: transformers)"
-    )
-    
-    parser.add_argument(
-        "--quantization",
-        type=str,
-        choices=["4bit", "8bit", "awq", "squeezellm", "none"],
-        default="4bit",
-        help="Quantization method (default: 4bit)",
-    )
-    
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.7,
-        help="Sampling temperature (default: 0.7)",
-    )
-    
-    parser.add_argument(
-        "--max-tokens",
-        type=int,
-        default=1024,
-        help="Maximum number of tokens to generate (default: 1024)",
-    )
-    
-    parser.add_argument(
-        "--config",
-        type=str,
-        help="Path to a JSON configuration file",
-    )
+    # Add legacy config argument if not already added
+    try:
+        parser.add_argument(
+            "--config",
+            type=str,
+            help="Path to a JSON configuration file",
+        )
+    except argparse.ArgumentError:
+        # Argument already exists from global args
+        pass
     
     return parser.parse_args()
 

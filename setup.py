@@ -13,6 +13,7 @@ setup(
         "accelerate>=0.25.0",
         "bitsandbytes>=0.41.0",
         "psutil>=5.9.0",
+        "argcomplete>=3.0.0",  # Add auto-completion support
     ],
     extras_require={
         "vllm": ["vllm>=0.2.0"],
