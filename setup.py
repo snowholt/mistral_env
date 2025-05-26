@@ -26,13 +26,6 @@ setup(
         "console_scripts": [
             # Primary unified CLI entry point
             "beautyai=beautyai_inference.cli.unified_cli:main",
-            
-            # Backward compatibility entry points (legacy wrappers)
-            "beautyai-chat=beautyai_inference.cli.chat_cli:main",
-            "beautyai-test=beautyai_inference.cli.test_cli:main",
-            "beautyai-benchmark=beautyai_inference.cli.benchmark_cli:main",
-            "beautyai-models=beautyai_inference.cli.model_manager_cli:main",
-            "beautyai-manage=beautyai_inference.cli.model_management_cli:main",
         ],
     },
     classifiers=[

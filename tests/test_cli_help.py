@@ -51,9 +51,9 @@ class TestHelpText(unittest.TestCase):
         self.assertIn("beautyai run", help_text)
         self.assertIn("beautyai config", help_text)
         
-        # Check that backward compatibility information is included
-        self.assertIn("For backward compatibility", help_text)
-        self.assertIn("old commands still work", help_text)
+        # Check that migration information is included
+        self.assertIn("Migration from legacy commands", help_text)
+        self.assertIn("now removed", help_text)
         self.assertIn("beautyai-", help_text)
 
     @patch("sys.stdout", new_callable=MagicMock)

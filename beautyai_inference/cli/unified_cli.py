@@ -2,12 +2,12 @@
 """
 Unified CLI for BeautyAI - Single entry point for all model management and inference operations.
 
-This unified CLI consolidates all functionality from:
-- beautyai-models (model registry management)
-- beautyai-manage (model lifecycle management) 
-- beautyai-chat (interactive chat interface)
-- beautyai-test (simple model testing)
-- beautyai-benchmark (performance benchmarking)
+This unified CLI replaces all legacy CLI commands and provides a centralized interface for:
+- Model registry management (formerly beautyai-models)
+- Model lifecycle management (formerly beautyai-manage) 
+- Interactive chat interface (formerly beautyai-chat)
+- Simple model testing (formerly beautyai-test)
+- Performance benchmarking (formerly beautyai-benchmark)
 
 Usage:
     beautyai model list                 # List models in registry
@@ -433,12 +433,12 @@ Examples:
   beautyai config restore backups/config_20250525_120000.json
   beautyai config migrate --verbose
 
-For backward compatibility, old commands still work:
-  beautyai-models list        -> beautyai model list
-  beautyai-manage load model  -> beautyai system load model
-  beautyai-chat              -> beautyai run chat
-  beautyai-test              -> beautyai run test
-  beautyai-benchmark         -> beautyai run benchmark
+Migration from legacy commands (now removed):
+  OLD: beautyai-models list        -> NEW: beautyai model list
+  OLD: beautyai-manage load model  -> NEW: beautyai system load model
+  OLD: beautyai-chat              -> NEW: beautyai run chat
+  OLD: beautyai-test              -> NEW: beautyai run test
+  OLD: beautyai-benchmark         -> NEW: beautyai run benchmark
 """
 
     def route_command(self, args: argparse.Namespace) -> int:
