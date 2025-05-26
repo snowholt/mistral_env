@@ -129,35 +129,42 @@ def list_available_models(config: AppConfig):
 
 
 def main():
-    """Main entry point for the benchmark CLI."""
-    # Show deprecation warning
-    show_deprecation_warning()
-    
+    """
+    Main entry point for the benchmark CLI.
+    DEPRECATED: Redirects to unified CLI.
+    """
     # Log legacy usage
     log_legacy_usage("beautyai-benchmark", sys.argv[1:])
     
-    # Try to redirect to unified CLI
+    # Show deprecation warning
+    show_deprecation_warning()
+    
+    # Redirect to unified CLI
     try:
-        import subprocess
-        import os
+        from .unified_cli import main as unified_main
         
-        # Prepare arguments for unified CLI: 'beautyai run benchmark [original_args]'
-        unified_args = ["beautyai", "run", "benchmark"] + sys.argv[1:]
+        # Modify sys.argv to match unified CLI format
+        # Convert: beautyai-benchmark [args] -> beautyai run benchmark [args]
+        original_argv = sys.argv.copy()
+        sys.argv = ["beautyai", "run", "benchmark"] + sys.argv[1:]
         
-        # Check if unified CLI is available
-        result = subprocess.run(["which", "beautyai"], capture_output=True)
-        if result.returncode == 0:
-            # Execute unified CLI and exit with its return code
-            exit_code = subprocess.call(unified_args)
-            sys.exit(exit_code)
-        else:
-            print("⚠️  Unified CLI not found, falling back to legacy implementation...")
-    
+        # Call the unified CLI
+        return unified_main()
+        
     except Exception as e:
-        print(f"⚠️  Failed to redirect to unified CLI: {e}")
-        print("Falling back to legacy implementation...")
-    
-    # Legacy implementation fallback
+        # Fallback to original implementation if unified CLI fails
+        logger.warning(f"Failed to redirect to unified CLI: {e}")
+        logger.info("Falling back to legacy implementation...")
+        
+        # Restore original argv
+        sys.argv = original_argv
+        
+        # Execute legacy implementation
+        return _legacy_main()
+
+
+def _legacy_main():
+    """Legacy main implementation kept for fallback."""
     args = parse_arguments()
     
     # Load configuration

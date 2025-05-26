@@ -261,7 +261,42 @@ def set_default_model(config: AppConfig, name: str):
 
 
 def main():
-    """Main entry point."""
+    """
+    Main entry point for the model manager CLI.
+    DEPRECATED: Redirects to unified CLI.
+    """
+    # Log legacy usage
+    log_legacy_usage("beautyai-model-manager", sys.argv[1:])
+    
+    # Show deprecation warning
+    show_deprecation_warning()
+    
+    # Redirect to unified CLI
+    try:
+        from .unified_cli import main as unified_main
+        
+        # Modify sys.argv to match unified CLI format
+        # Convert: beautyai-model-manager [args] -> beautyai manage models [args]
+        original_argv = sys.argv.copy()
+        sys.argv = ["beautyai", "manage", "models"] + sys.argv[1:]
+        
+        # Call the unified CLI
+        return unified_main()
+        
+    except Exception as e:
+        # Fallback to original implementation if unified CLI fails
+        logger.warning(f"Failed to redirect to unified CLI: {e}")
+        logger.info("Falling back to legacy implementation...")
+        
+        # Restore original argv
+        sys.argv = original_argv
+        
+        # Execute legacy implementation
+        return _legacy_main()
+
+
+def _legacy_main():
+    """Legacy main implementation kept for fallback."""
     args = parse_arguments()
     
     if not args.command:
