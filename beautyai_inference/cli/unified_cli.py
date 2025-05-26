@@ -21,6 +21,7 @@ Usage:
 import argparse
 import sys
 import logging
+import traceback
 from pathlib import Path
 from typing import Dict, Callable, Any
 
@@ -44,11 +45,24 @@ logger = logging.getLogger(__name__)
 class UnifiedCLI:
     """Unified command-line interface for BeautyAI."""
     
-    def __init__(self):
-        self.model_registry_service = ModelRegistryService()
-        self.lifecycle_service = LifecycleService()
-        self.inference_service = InferenceService()
-        self.config_service = ConfigService()
+    def __init__(self, 
+                 model_registry_service=None,
+                 lifecycle_service=None,
+                 inference_service=None,
+                 config_service=None):
+        """Initialize the unified CLI with services.
+        
+        Args:
+            model_registry_service: Optional ModelRegistryService instance (for testing)
+            lifecycle_service: Optional LifecycleService instance (for testing)
+            inference_service: Optional InferenceService instance (for testing)
+            config_service: Optional ConfigService instance (for testing)
+        """
+        # Allow dependency injection for easier testing
+        self.model_registry_service = model_registry_service or ModelRegistryService()
+        self.lifecycle_service = lifecycle_service or LifecycleService()
+        self.inference_service = inference_service or InferenceService()
+        self.config_service = config_service or ConfigService()
         
         # Command routing table
         self.command_map: Dict[str, Dict[str, Callable]] = {
@@ -430,6 +444,19 @@ For backward compatibility, old commands still work:
     def route_command(self, args: argparse.Namespace) -> int:
         """Route command to appropriate service."""
         try:
+            # Ensure required attributes exist
+            for required_attr in ['verbose', 'config', 'models_file']:
+                if not hasattr(args, required_attr):
+                    setattr(args, required_attr, None)
+                    
+            # Set defaults for optional attributes
+            if not hasattr(args, 'quiet'):
+                setattr(args, 'quiet', False)
+            if not hasattr(args, 'log_level'):
+                setattr(args, 'log_level', None)
+            if not hasattr(args, 'no_color'):
+                setattr(args, 'no_color', False)
+                
             # Set up global configuration
             self._setup_global_config(args)
             
@@ -444,86 +471,177 @@ For backward compatibility, old commands still work:
                 return self._route_config_command(args)
             else:
                 print("No command specified. Use --help to see available commands.")
-                return 1
+                sys.exit(1)
                 
         except Exception as e:
             logger.error(f"Command execution failed: {e}")
-            if args.verbose:
+            if hasattr(args, 'verbose') and args.verbose:
                 import traceback
                 traceback.print_exc()
             return 1
 
     def _setup_global_config(self, args: argparse.Namespace):
         """Set up global configuration for all services."""
-        if args.verbose:
+        # Handle logging configuration
+        if hasattr(args, 'verbose') and args.verbose:
             logging.getLogger().setLevel(logging.DEBUG)
+            logger.debug("Debug logging enabled")
+        
+        if hasattr(args, 'quiet') and args.quiet:
+            logging.getLogger().setLevel(logging.WARNING)
+        
+        if hasattr(args, 'log_level') and args.log_level:
+            try:
+                log_level = getattr(logging, args.log_level.upper())
+                logging.getLogger().setLevel(log_level)
+            except (AttributeError, TypeError):
+                logger.warning(f"Invalid log level: {args.log_level}, using INFO")
+                logging.getLogger().setLevel(logging.INFO)
         
         # Pass configuration to all services
         config_data = {
-            'config_file': args.config,
-            'models_file': args.models_file,
-            'verbose': args.verbose,
+            'config_file': getattr(args, 'config', None),
+            'models_file': getattr(args, 'models_file', None),
+            'verbose': getattr(args, 'verbose', False),
+            'quiet': getattr(args, 'quiet', False),
+            'log_level': getattr(args, 'log_level', None),
+            'no_color': getattr(args, 'no_color', False),
         }
         
-        self.model_registry_service.configure(config_data)
-        self.lifecycle_service.configure(config_data)
-        self.inference_service.configure(config_data)
-        self.config_service.configure(config_data)
+        logger.debug(f"Configuration: {config_data}")
+        
+        # Configure all services
+        try:
+            self.model_registry_service.configure(config_data)
+            self.lifecycle_service.configure(config_data)
+            self.inference_service.configure(config_data)
+            self.config_service.configure(config_data)
+        except Exception as e:
+            logger.warning(f"Error configuring services: {e}")
+            # Continue execution even if configuration fails
+            # The services should handle missing configuration gracefully
 
     def _route_model_command(self, args: argparse.Namespace) -> int:
         """Route model registry commands."""
-        command = args.model_command
-        if not command:
-            print("No model command specified. Use 'beautyai-manage model --help' for options.")
-            return 1
-        
-        handler = self.command_map['model'].get(command)
-        if handler:
-            return handler(args)
-        else:
-            print(f"Unknown model command: {command}")
+        try:
+            command = args.model_command
+            if not command:
+                print("No model command specified. Use 'beautyai model --help' for options.")
+                sys.exit(1)
+            
+            handler = self.command_map['model'].get(command)
+            if handler:
+                # Ensure required arguments for each command are present
+                if command == 'show' or command == 'remove' or command == 'set-default':
+                    if not hasattr(args, 'name'):
+                        print(f"Error: Missing required argument 'name' for command 'model {command}'")
+                        sys.exit(1)
+                
+                if command == 'add':
+                    if not hasattr(args, 'name') or not hasattr(args, 'model_id'):
+                        print(f"Error: Missing required arguments for command 'model {command}'")
+                        sys.exit(1)
+                
+                # Call the handler with the args
+                return handler(args)
+            else:
+                print(f"Unknown model command: {command}")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Model command execution failed: {e}")
             return 1
 
     def _route_system_command(self, args: argparse.Namespace) -> int:
         """Route system lifecycle commands."""
-        command = args.system_command
-        if not command:
-            print("No system command specified. Use 'beautyai-manage system --help' for options.")
-            return 1
-        
-        handler = self.command_map['system'].get(command)
-        if handler:
-            return handler(args)
-        else:
-            print(f"Unknown system command: {command}")
+        try:
+            command = args.system_command
+            if not command:
+                print("No system command specified. Use 'beautyai system --help' for options.")
+                sys.exit(1)
+            
+            handler = self.command_map['system'].get(command)
+            if handler:
+                # Ensure required arguments for each command are present
+                if command in ['load', 'unload', 'clear-cache']:
+                    if not hasattr(args, 'name'):
+                        print(f"Error: Missing required argument 'name' for command 'system {command}'")
+                        sys.exit(1)
+                
+                # Call the handler with the args
+                return handler(args)
+            else:
+                print(f"Unknown system command: {command}")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"System command execution failed: {e}")
             return 1
 
     def _route_run_command(self, args: argparse.Namespace) -> int:
         """Route inference operation commands."""
-        command = args.run_command
-        if not command:
-            print("No run command specified. Use 'beautyai-manage run --help' for options.")
-            return 1
-        
-        handler = self.command_map['run'].get(command)
-        if handler:
-            return handler(args)
-        else:
-            print(f"Unknown run command: {command}")
+        try:
+            command = args.run_command
+            if not command:
+                print("No run command specified. Use 'beautyai run --help' for options.")
+                sys.exit(1)
+            
+            handler = self.command_map['run'].get(command)
+            if handler:
+                # Ensure required arguments for each command are present
+                if command == 'chat':
+                    # Add default model if not provided
+                    if not hasattr(args, 'model') and not hasattr(args, 'model_name'):
+                        if self.config_service and hasattr(self.config_service, 'get_default_model'):
+                            default_model = self.config_service.get_default_model()
+                            if default_model:
+                                setattr(args, 'model', default_model)
+                
+                # File handling for save-session and load-session
+                if command == 'save-session':
+                    if not hasattr(args, 'output_file'):
+                        print(f"Warning: No output file specified for 'run {command}'")
+                
+                if command == 'load-session':
+                    if not hasattr(args, 'input_file'):
+                        print(f"Error: Missing required argument 'input_file' for command 'run {command}'")
+                        sys.exit(1)
+                
+                # Call the handler with the args
+                return handler(args)
+            else:
+                print(f"Unknown run command: {command}")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Run command execution failed: {e}")
             return 1
 
     def _route_config_command(self, args: argparse.Namespace) -> int:
         """Route configuration management commands."""
-        command = args.config_command
-        if not command:
-            print("No config command specified. Use 'beautyai-manage config --help' for options.")
-            return 1
-        
-        handler = self.command_map['config'].get(command)
-        if handler:
-            return handler(args)
-        else:
-            print(f"Unknown config command: {command}")
+        try:
+            command = args.config_command
+            if not command:
+                print("No config command specified. Use 'beautyai config --help' for options.")
+                sys.exit(1)
+            
+            handler = self.command_map['config'].get(command)
+            if handler:
+                # Ensure required arguments for each command are present
+                if command == 'set':
+                    if not hasattr(args, 'key') or not hasattr(args, 'value'):
+                        print(f"Error: Missing required arguments 'key' and/or 'value' for command 'config {command}'")
+                        sys.exit(1)
+                
+                if command == 'restore':
+                    if not hasattr(args, 'config_file'):
+                        print(f"Error: Missing required argument 'config_file' for command 'config {command}'")
+                        sys.exit(1)
+                
+                # Call the handler with the args
+                return handler(args)
+            else:
+                print(f"Unknown config command: {command}")
+                sys.exit(1)
+        except Exception as e:
+            logger.error(f"Config command execution failed: {e}")
             return 1
 
 

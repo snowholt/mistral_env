@@ -21,107 +21,29 @@ OK
 
 INFO 05-26 11:18:58 [importing.py:53] Triton module has been replaced with a placeholder.
 INFO 05-26 11:18:58 [__init__.py:239] Automatically detected platform cuda.
-ERROR:beautyai_inference.config.config_manager:Error loading config from /tmp/tmp2rygmfvm/config.json: [Errno 2] No such file or directory: '/tmp/tmp2rygmfvm/config.json'
-
-=== Global Configuration ===
-Config File:     /tmp/tmp2rygmfvm/config.json
-Models File:     /tmp/tmp2rygmfvm/models.json
-Default Model:   default
-Cache Directory: None
-
-=== Current Model Configuration ===
-model_id: Qwen/Qwen3-14B
-engine_type: transformers
-quantization: 4bit
-dtype: float16
-max_new_tokens: 512
-temperature: 0.7
-top_p: 0.95
-do_sample: True
-gpu_memory_utilization: 0.9
-tensor_parallel_size: 1
-model_architecture: causal_lm
-
-F
-MODEL NAME                               ENGINE             QUANT        DEFAULT   
--------------------------------------------------------------------------------------
-default                                  transformers       4bit         ✓         
-
-.No command specified. Use --help to see available commands.
-F.ERROR:beautyai_inference.config.config_manager:Error loading config from /tmp/tmp6z6pkar9/config.json: [Errno 2] No such file or directory: '/tmp/tmp6z6pkar9/config.json'
-
-MODEL NAME                               ENGINE             QUANT        DEFAULT   
--------------------------------------------------------------------------------------
-default                                  transformers       4bit         ✓         
-
-FERROR:beautyai_inference.config.config_manager:Error loading config from /tmp/tmp2ojh1gbr/config.json: [Errno 2] No such file or directory: '/tmp/tmp2ojh1gbr/config.json'
-Error: Model 'test-model' not found in registry.
-FERROR:LifecycleService:Configuration file not found: /tmp/tmpyh39j0yt/config.json
-ERROR:beautyai_inference.cli.unified_cli:Command execution failed: 'Namespace' object has no attribute 'name'
-FERROR:beautyai_inference.config.config_manager:Error loading config from /tmp/tmpoq2ok74y/config.json: [Errno 2] No such file or directory: '/tmp/tmpoq2ok74y/config.json'
-
-MODEL NAME                               ENGINE             QUANT        DEFAULT   
--------------------------------------------------------------------------------------
-default                                  transformers       4bit         ✓         
-
-.
-======================================================================
-FAIL: test_config_commands_integration (__main__.TestUnifiedCLIIntegration.test_config_commands_integration)
-Test integration of config commands.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_unified_cli_integration.py", line 218, in test_config_commands_integration
-    self.mock_config_service.show_config.assert_called_once()
-  File "/usr/lib/python3.12/unittest/mock.py", line 923, in assert_called_once
-    raise AssertionError(msg)
-AssertionError: Expected 'show_config' to have been called once. Called 0 times.
-
-======================================================================
-FAIL: test_error_handling (__main__.TestUnifiedCLIIntegration.test_error_handling)
-Test error handling in the CLI.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_unified_cli_integration.py", line 254, in test_error_handling
-    with self.assertRaises(SystemExit):
-AssertionError: SystemExit not raised
-
-======================================================================
-FAIL: test_model_commands_integration (__main__.TestUnifiedCLIIntegration.test_model_commands_integration)
-Test integration of model registry commands.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_unified_cli_integration.py", line 78, in test_model_commands_integration
-    self.mock_model_registry_service.list_models.assert_called_once()
-  File "/usr/lib/python3.12/unittest/mock.py", line 923, in assert_called_once
-    raise AssertionError(msg)
-AssertionError: Expected 'list_models' to have been called once. Called 0 times.
-
-======================================================================
-FAIL: test_run_commands_integration (__main__.TestUnifiedCLIIntegration.test_run_commands_integration)
-Test integration of inference commands.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_unified_cli_integration.py", line 178, in test_run_commands_integration
-    self.mock_inference_service.start_chat.assert_called_once()
-  File "/usr/lib/python3.12/unittest/mock.py", line 923, in assert_called_once
-    raise AssertionError(msg)
-AssertionError: Expected 'start_chat' to have been called once. Called 0 times.
-
-======================================================================
-FAIL: test_system_commands_integration (__main__.TestUnifiedCLIIntegration.test_system_commands_integration)
-Test integration of system lifecycle commands.
-----------------------------------------------------------------------
-Traceback (most recent call last):
-  File "/home/lumi/beautyai/tests/test_unified_cli_integration.py", line 140, in test_system_commands_integration
-    self.mock_lifecycle_service.load_model.assert_called_once()
-  File "/usr/lib/python3.12/unittest/mock.py", line 923, in assert_called_once
-    raise AssertionError(msg)
-AssertionError: Expected 'load_model' to have been called once. Called 0 times.
+test_config_commands_integration (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_config_commands_integration)
+Test integration of config commands. ... ok
+test_configuration_loading (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_configuration_loading)
+Test configuration loading. ... ok
+test_error_handling (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_error_handling)
+Test error handling in the CLI. ... No command specified. Use --help to see available commands.
+Unknown model command: invalid
+ok
+test_main_function (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_main_function)
+Test the main function calls route_command. ... ok
+test_model_commands_integration (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_model_commands_integration)
+Test integration of model registry commands. ... ok
+test_run_commands_integration (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_run_commands_integration)
+Test integration of inference commands. ... ok
+test_system_commands_integration (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_system_commands_integration)
+Test integration of system lifecycle commands. ... ok
+test_verbosity_setting (tests.test_unified_cli_integration.TestUnifiedCLIIntegration.test_verbosity_setting)
+Test that verbosity is properly set. ... ok
 
 ----------------------------------------------------------------------
-Ran 8 tests in 0.010s
+Ran 8 tests in 0.021s
 
-FAILED (failures=5)
+OK
 
 ---
 
