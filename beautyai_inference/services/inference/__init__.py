@@ -8,5 +8,14 @@ Contains services for:
 - Session management (session_service)
 """
 
-# Services will be imported here as they are created
-__all__ = []
+from .chat_service import ChatService
+from .test_service import TestService
+from .benchmark_service import BenchmarkService
+from .session_service import SessionService
+
+__all__ = [
+    'ChatService',
+    'TestService', 
+    'BenchmarkService',
+    'SessionService'
+]

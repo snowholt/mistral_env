@@ -7,5 +7,12 @@ Contains services for:
 - Model configuration validation (validation_service)
 """
 
-# Services will be imported here as they are created
-__all__ = []
+from .registry_service import RegistryService
+from .lifecycle_service import ModelLifecycleService
+from .validation_service import ModelValidationService
+
+__all__ = [
+    'RegistryService',
+    'ModelLifecycleService', 
+    'ModelValidationService'
+]

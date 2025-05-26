@@ -25,10 +25,8 @@ import traceback
 from pathlib import Path
 from typing import Dict, Callable, Any
 
-# Import service classes (to be created)
-from .services.model_registry_service import ModelRegistryService
-from .services.lifecycle_service import LifecycleService
-from .services.inference_service import InferenceService
+# Import CLI adapter
+from .handlers.unified_cli_adapter import UnifiedCLIAdapter
 from .argument_config import (
     StandardizedArgumentParser, 
     StandardizedArguments,
@@ -45,58 +43,50 @@ logger = logging.getLogger(__name__)
 class UnifiedCLI:
     """Unified command-line interface for BeautyAI."""
     
-    def __init__(self, 
-                 model_registry_service=None,
-                 lifecycle_service=None,
-                 inference_service=None,
-                 config_service=None):
-        """Initialize the unified CLI with services.
+    def __init__(self, adapter=None, config_service=None):
+        """Initialize the unified CLI with adapter and services.
         
         Args:
-            model_registry_service: Optional ModelRegistryService instance (for testing)
-            lifecycle_service: Optional LifecycleService instance (for testing)
-            inference_service: Optional InferenceService instance (for testing)
+            adapter: Optional UnifiedCLIAdapter instance (for testing)
             config_service: Optional ConfigService instance (for testing)
         """
-        # Allow dependency injection for easier testing
-        self.model_registry_service = model_registry_service or ModelRegistryService()
-        self.lifecycle_service = lifecycle_service or LifecycleService()
-        self.inference_service = inference_service or InferenceService()
+        # Use adapter pattern to bridge old CLI interface with new services
+        self.adapter = adapter or UnifiedCLIAdapter()
         self.config_service = config_service or ConfigService()
         
-        # Command routing table
+        # Command routing table using adapter
         self.command_map: Dict[str, Dict[str, Callable]] = {
             'model': {
-                'list': self.model_registry_service.list_models,
-                'add': self.model_registry_service.add_model,
-                'show': self.model_registry_service.show_model,
-                'update': self.model_registry_service.update_model,
-                'remove': self.model_registry_service.remove_model,
-                'set-default': self.model_registry_service.set_default_model,
+                'list': self.adapter.list_models,
+                'add': self.adapter.add_model,
+                'show': self.adapter.show_model,
+                'update': self.adapter.update_model,
+                'remove': self.adapter.remove_model,
+                'set-default': self.adapter.set_default_model,
             },
             'system': {
-                'load': self.lifecycle_service.load_model,
-                'unload': self.lifecycle_service.unload_model,
-                'unload-all': self.lifecycle_service.unload_all_models,
-                'list-loaded': self.lifecycle_service.list_loaded_models,
-                'status': self.lifecycle_service.show_status,
-                'clear-cache': self.lifecycle_service.clear_cache,
+                'load': self.adapter.load_model,
+                'unload': self.adapter.unload_model,
+                'unload-all': self.adapter.unload_all_models,
+                'list-loaded': self.adapter.list_loaded_models,
+                'status': self.adapter.show_status,
+                'clear-cache': self.adapter.clear_cache,
             },
             'run': {
-                'chat': self.inference_service.start_chat,
-                'test': self.inference_service.run_test,
-                'benchmark': self.inference_service.run_benchmark,
-                'save-session': self.inference_service.save_session,
-                'load-session': self.inference_service.load_session,
+                'chat': self.adapter.start_chat,
+                'test': self.adapter.run_test,
+                'benchmark': self.adapter.run_benchmark,
+                'save-session': self.adapter.save_session,
+                'load-session': self.adapter.load_session,
             },
             'config': {
-                'show': self.config_service.show_config,
-                'set': self.config_service.set_config,
-                'reset': self.config_service.reset_config,
-                'validate': self.config_service.validate_config,
-                'backup': self.config_service.backup_config,
-                'restore': self.config_service.restore_config,
-                'migrate': self.config_service.migrate_config,
+                'show': self.adapter.show_config,
+                'set': self.adapter.set_config,
+                'reset': self.adapter.reset_config,
+                'validate': self.adapter.validate_config,
+                'backup': self.adapter.backup_config,
+                'restore': self.adapter.restore_config,
+                'migrate': self.adapter.migrate_config,
             },
         }
 

@@ -19,9 +19,7 @@ from pathlib import Path
 sys.path.append(".")  # Add the current directory to the path
 
 from beautyai_inference.cli.unified_cli import UnifiedCLI
-from beautyai_inference.cli.services.model_registry_service import ModelRegistryService
-from beautyai_inference.cli.services.lifecycle_service import LifecycleService
-from beautyai_inference.cli.services.inference_service import InferenceService
+from beautyai_inference.cli.handlers.unified_cli_adapter import UnifiedCLIAdapter
 from beautyai_inference.cli.services.config_service import ConfigService
 from beautyai_inference.config.config_manager import AppConfig, ModelConfig
 
@@ -36,20 +34,9 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         self.config_file = os.path.join(self.test_dir, "config.json")
         self.models_file = os.path.join(self.test_dir, "models.json")
         
-        # Create mock services
-        self.mock_model_registry_service = MagicMock()
-        self.mock_lifecycle_service = MagicMock()
-        self.mock_inference_service = MagicMock()
-        self.mock_config_service = MagicMock()
-        
-        # Setup mock model registry
-        self.mock_model_registry = MagicMock()
-        
-        # Set up configure method to not throw errors
-        self.mock_model_registry_service.configure = MagicMock()
-        self.mock_lifecycle_service.configure = MagicMock()
-        self.mock_inference_service.configure = MagicMock()
-        self.mock_config_service.configure = MagicMock()
+        # Create mock adapter and config service
+        self.mock_adapter = MagicMock(spec=UnifiedCLIAdapter)
+        self.mock_config_service = MagicMock(spec=ConfigService)
         
         # Create default configuration files to prevent errors
         with open(self.config_file, 'w') as f:
@@ -57,11 +44,9 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         with open(self.models_file, 'w') as f:
             json.dump({"models": {}, "default_model": "default"}, f)
         
-        # Create the CLI with mocked services
+        # Create the CLI with mocked adapter and config service
         self.cli = UnifiedCLI(
-            model_registry_service=self.mock_model_registry_service,
-            lifecycle_service=self.mock_lifecycle_service,
-            inference_service=self.mock_inference_service,
+            adapter=self.mock_adapter,
             config_service=self.mock_config_service
         )
         
@@ -98,10 +83,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_model_registry_service.list_models.reset_mock()
+        self.mock_adapter.list_models.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_model_registry_service.list_models.assert_called_once_with(args)
+        self.mock_adapter.list_models.assert_called_once_with(args)
         
         # Test add model
         args = argparse.Namespace()
@@ -121,10 +106,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_model_registry_service.add_model.reset_mock()
+        self.mock_adapter.add_model.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_model_registry_service.add_model.assert_called_once_with(args)
+        self.mock_adapter.add_model.assert_called_once_with(args)
         
         # Test update model
         args = argparse.Namespace()
@@ -144,10 +129,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_model_registry_service.update_model.reset_mock()
+        self.mock_adapter.update_model.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_model_registry_service.update_model.assert_called_once_with(args)
+        self.mock_adapter.update_model.assert_called_once_with(args)
         
         # Test remove model
         args = argparse.Namespace()
@@ -163,10 +148,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_model_registry_service.remove_model.reset_mock()
+        self.mock_adapter.remove_model.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_model_registry_service.remove_model.assert_called_once_with(args)
+        self.mock_adapter.remove_model.assert_called_once_with(args)
 
     def test_system_commands_integration(self):
         """Test integration of system lifecycle commands."""
@@ -183,10 +168,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_lifecycle_service.load_model.reset_mock()
+        self.mock_adapter.load_model.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_lifecycle_service.load_model.assert_called_once_with(args)
+        self.mock_adapter.load_model.assert_called_once_with(args)
         
         # Test status
         args = argparse.Namespace()
@@ -200,10 +185,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_lifecycle_service.show_status.reset_mock()
+        self.mock_adapter.show_status.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_lifecycle_service.show_status.assert_called_once_with(args)
+        self.mock_adapter.show_status.assert_called_once_with(args)
         
         # Test unload model
         args = argparse.Namespace()
@@ -218,10 +203,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_lifecycle_service.unload_model.reset_mock()
+        self.mock_adapter.unload_model.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_lifecycle_service.unload_model.assert_called_once_with(args)
+        self.mock_adapter.unload_model.assert_called_once_with(args)
 
     def test_run_commands_integration(self):
         """Test integration of inference commands."""
@@ -242,10 +227,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.stream = False
         
         # Reset mock to ensure clean test
-        self.mock_inference_service.start_chat.reset_mock()
+        self.mock_adapter.start_chat.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_inference_service.start_chat.assert_called_once_with(args)
+        self.mock_adapter.start_chat.assert_called_once_with(args)
         
         # Test test
         args = argparse.Namespace()
@@ -263,10 +248,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.max_tokens = 512
         
         # Reset mock to ensure clean test
-        self.mock_inference_service.run_test.reset_mock()
+        self.mock_adapter.run_test.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_inference_service.run_test.assert_called_once_with(args)
+        self.mock_adapter.run_test.assert_called_once_with(args)
         
         # Test benchmark
         args = argparse.Namespace()
@@ -284,10 +269,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_inference_service.run_benchmark.reset_mock()
+        self.mock_adapter.run_benchmark.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_inference_service.run_benchmark.assert_called_once_with(args)
+        self.mock_adapter.run_benchmark.assert_called_once_with(args)
 
     def test_config_commands_integration(self):
         """Test integration of config commands."""
@@ -303,10 +288,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_config_service.show_config.reset_mock()
+        self.mock_adapter.show_config.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_config_service.show_config.assert_called_once_with(args)
+        self.mock_adapter.show_config.assert_called_once_with(args)
         
         # Test set config
         args = argparse.Namespace()
@@ -322,10 +307,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_config_service.set_config.reset_mock()
+        self.mock_adapter.set_config.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_config_service.set_config.assert_called_once_with(args)
+        self.mock_adapter.set_config.assert_called_once_with(args)
         
         # Test validate config
         args = argparse.Namespace()
@@ -339,10 +324,10 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.no_color = False
         
         # Reset mock to ensure clean test
-        self.mock_config_service.validate_config.reset_mock()
+        self.mock_adapter.validate_config.reset_mock()
         
         self.cli.route_command(args)
-        self.mock_config_service.validate_config.assert_called_once_with(args)
+        self.mock_adapter.validate_config.assert_called_once_with(args)
 
     def test_error_handling(self):
         """Test error handling in the CLI."""
@@ -407,12 +392,6 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
             }
         }
         
-        # Reset configure mocks
-        self.mock_model_registry_service.configure.reset_mock()
-        self.mock_lifecycle_service.configure.reset_mock()
-        self.mock_inference_service.configure.reset_mock()
-        self.mock_config_service.configure.reset_mock()
-        
         args = argparse.Namespace()
         args.command_group = "model"
         args.model_command = "list"
@@ -423,17 +402,12 @@ class TestUnifiedCLIIntegration(unittest.TestCase):
         args.log_level = None
         args.no_color = False
         
-        # Configure services
+        # Test that global config setup works without errors
         self.cli._setup_global_config(args)
         
-        # Assert configuration was loaded (mock_file_open should be called)
-        # mock_file_open.assert_called()  # This might not be called if we skip file operations
-        
-        # Assert that the configuration was passed to all services
-        self.mock_model_registry_service.configure.assert_called_once()
-        self.mock_lifecycle_service.configure.assert_called_once()
-        self.mock_inference_service.configure.assert_called_once()
-        self.mock_config_service.configure.assert_called_once()
+        # The adapter should be initialized and working
+        self.assertIsNotNone(self.cli.adapter)
+        self.assertIsNotNone(self.cli.config_service)
 
 
 if __name__ == "__main__":

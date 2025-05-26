@@ -2,10 +2,18 @@
 System services package.
 
 Contains services for:
-- Memory monitoring and reporting (memory_service)
-- Cache management operations (cache_service)
-- System status aggregation (status_service)
+- Memory management and monitoring (memory_service)
+- Cache management operations (cache_service)  
+- System status and monitoring (status_service)
 """
 
-# Services will be imported here as they are created
+from .memory_service import MemoryService
+from .cache_service import CacheService
+from .status_service import StatusService
+
+__all__ = [
+    'MemoryService',
+    'CacheService',
+    'StatusService'
+]
 __all__ = []
