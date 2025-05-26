@@ -63,8 +63,14 @@ class ModelListRequest(APIRequest):
 @dataclass
 class ModelListResponse(APIResponse):
     """Response containing list of models."""
-    models: List[Dict[str, Any]]
-    total_count: int
+    success: bool = True
+    models: List[Dict[str, Any]] = None
+    total_count: int = 0
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.models is None:
+            self.models = []
 
 
 @dataclass
@@ -78,8 +84,9 @@ class ModelAddRequest(APIRequest):
 @dataclass
 class ModelAddResponse(APIResponse):
     """Response for model addition."""
-    model_name: str
-    message: str
+    success: bool = True
+    model_name: str = ""
+    message: str = ""
 
 
 @dataclass
@@ -92,8 +99,9 @@ class ModelLoadRequest(APIRequest):
 @dataclass
 class ModelLoadResponse(APIResponse):
     """Response for model loading."""
-    model_name: str
-    model_id: str
+    success: bool = True
+    model_name: str = ""
+    model_id: str = ""
     memory_usage_mb: Optional[float] = None
     load_time_seconds: Optional[float] = None
 
@@ -113,9 +121,10 @@ class ChatRequest(APIRequest):
 @dataclass
 class ChatResponse(APIResponse):
     """Response for chat interaction."""
-    response: str
-    session_id: str
-    model_name: str
+    success: bool = True
+    response: str = ""
+    session_id: str = ""
+    model_name: str = ""
     generation_stats: Optional[Dict[str, Any]] = None
 
 
@@ -129,7 +138,13 @@ class ConfigGetRequest(APIRequest):
 @dataclass
 class ConfigGetResponse(APIResponse):
     """Response containing configuration."""
-    config: Dict[str, Any]
+    success: bool = True
+    config: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.config is None:
+            self.config = {}
 
 
 @dataclass
@@ -143,9 +158,10 @@ class ConfigSetRequest(APIRequest):
 @dataclass
 class ConfigSetResponse(APIResponse):
     """Response for configuration update."""
-    key: str
-    old_value: Any
-    new_value: Any
+    success: bool = True
+    key: str = ""
+    old_value: Any = None
+    new_value: Any = None
 
 
 # System Status API Models
@@ -160,10 +176,16 @@ class SystemStatusRequest(APIRequest):
 @dataclass
 class SystemStatusResponse(APIResponse):
     """Response containing system status."""
-    system_info: Dict[str, Any]
+    success: bool = True
+    system_info: Dict[str, Any] = None
     memory_info: Optional[Dict[str, Any]] = None
     loaded_models: Optional[List[Dict[str, Any]]] = None
     cache_info: Optional[Dict[str, Any]] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.system_info is None:
+            self.system_info = {}
 
 
 # Test API Models
@@ -179,11 +201,17 @@ class TestRequest(APIRequest):
 @dataclass
 class TestResponse(APIResponse):
     """Response for model test."""
-    model_name: str
-    prompt: str
-    response: str
-    generation_stats: Dict[str, Any]
+    success: bool = True
+    model_name: str = ""
+    prompt: str = ""
+    response: str = ""
+    generation_stats: Dict[str, Any] = None
     validation_result: Optional[Dict[str, Any]] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.generation_stats is None:
+            self.generation_stats = {}
 
 
 # Benchmark API Models
@@ -198,10 +226,18 @@ class BenchmarkRequest(APIRequest):
 @dataclass
 class BenchmarkResponse(APIResponse):
     """Response for model benchmark."""
-    model_name: str
-    benchmark_type: str
-    results: Dict[str, Any]
-    summary: Dict[str, Any]
+    success: bool = True
+    model_name: str = ""
+    benchmark_type: str = ""
+    results: Dict[str, Any] = None
+    summary: Dict[str, Any] = None
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.results is None:
+            self.results = {}
+        if self.summary is None:
+            self.summary = {}
 
 
 # Session Management API Models
@@ -216,9 +252,10 @@ class SessionSaveRequest(APIRequest):
 @dataclass
 class SessionSaveResponse(APIResponse):
     """Response for session save."""
-    session_id: str
-    file_path: str
-    file_size_bytes: int
+    success: bool = True
+    session_id: str = ""
+    file_path: str = ""
+    file_size_bytes: int = 0
 
 
 @dataclass
@@ -230,9 +267,15 @@ class SessionLoadRequest(APIRequest):
 @dataclass
 class SessionLoadResponse(APIResponse):
     """Response for session load."""
-    session_data: Dict[str, Any]
-    session_id: str
-    message_count: int
+    success: bool = True
+    session_data: Dict[str, Any] = None
+    session_id: str = ""
+    message_count: int = 0
+    
+    def __post_init__(self):
+        super().__post_init__()
+        if self.session_data is None:
+            self.session_data = {}
 
 
 # Type aliases for convenience

@@ -8,17 +8,15 @@ import logging
 from typing import Dict, Any
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends
+from fastapi import APIRouter
 from ..models import APIResponse
-from ..auth import AuthContext, get_auth_context
-from ...services.system.status_service import StatusService
 
 logger = logging.getLogger(__name__)
 
-health_router = APIRouter(prefix="/health", tags=["health"])
+router = APIRouter()
 
 
-@health_router.get("/basic")
+@router.get("/")
 async def health_check() -> Dict[str, Any]:
     """Basic health check endpoint."""
     return {
@@ -29,7 +27,7 @@ async def health_check() -> Dict[str, Any]:
     }
 
 
-@health_router.get("/status")
+@router.get("/status")
 async def detailed_status() -> Dict[str, Any]:
     """Detailed system status."""
     return {
@@ -49,7 +47,7 @@ status_service = StatusService()
 
 
 @health_router.get("/", response_model=APIResponse)
-async def health_check_api():
+async def health_check():
     """
     Basic health check endpoint.
     
@@ -81,7 +79,7 @@ async def detailed_health_check(auth: AuthContext = Depends(get_auth_context)):
     """
     try:
         # Get comprehensive system status
-        system_status = status_service.get_comprehensive_status()
+        system_status = status_service.get_system_status()
         
         return APIResponse(
             success=True,
@@ -89,7 +87,7 @@ async def detailed_health_check(auth: AuthContext = Depends(get_auth_context)):
                 "status": "healthy",
                 "service": "BeautyAI Inference API",
                 "version": "1.0.0", 
-                "system": system_status.to_dict() if hasattr(system_status, 'to_dict') else vars(system_status),
+                "system": system_status,
                 "authenticated_user": auth.username if auth.authenticated else "anonymous",
                 "timestamp": datetime.utcnow().isoformat() + "Z"
             }
@@ -124,12 +122,9 @@ async def readiness_check():
         
         # Check model registry
         try:
-            # Simple health check - just verify service is responsive
-            health_status = status_service.get_health_status()
-            if not health_status.get('healthy', True):
-                issues.append("System health check failed")
+            status_service.configure({})  # Use default config
         except Exception as e:
-            issues.append(f"Service health check failed: {e}")
+            issues.append(f"Service configuration failed: {e}")
         
         if issues:
             return APIResponse(
