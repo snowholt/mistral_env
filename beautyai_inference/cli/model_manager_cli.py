@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..config.config_manager import AppConfig, ModelConfig
+from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +19,14 @@ logger = logging.getLogger(__name__)
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Manage model configurations")
+    
+    # Add standardized arguments with backward compatibility (global args only)
+    add_backward_compatible_args(
+        parser,
+        include_model=False,  # We handle model args manually for subcommands
+        include_generation=False,
+        include_system=False
+    )
     
     # Main commands
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -46,9 +55,6 @@ def parse_arguments():
     update_parser.add_argument("name", help="Name of the model to update")
     update_parser.add_argument("--model-id", help="Model ID (e.g., Qwen/Qwen3-14B)")
     update_parser.add_argument("--engine", choices=["transformers", "vllm"], help="Inference engine")
-    update_parser.add_argument("--quantization", choices=["4bit", "8bit", "awq", "squeezellm", "none"], 
-                              help="Quantization method")
-    update_parser.add_argument("--dtype", help="Data type")
     update_parser.add_argument("--description", help="Description of the model")
     update_parser.add_argument("--default", action="store_true", help="Set as default model")
     
@@ -61,19 +67,12 @@ def parse_arguments():
     default_parser = subparsers.add_parser("set-default", help="Set default model")
     default_parser.add_argument("name", help="Name of the model to set as default")
     
-    # General options
-    parser.add_argument(
-        "--config", 
-        type=str,
-        default=str(Path(__file__).parent.parent / "config" / "default_config.json"),
-        help="Path to configuration file"
-    )
-    
-    parser.add_argument(
-        "--models-file",
-        type=str,
-        help="Path to model registry file"
-    )
+    # Enable auto-completion if available
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass  # Auto-completion not available
     
     return parser.parse_args()
 

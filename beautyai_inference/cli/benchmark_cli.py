@@ -12,6 +12,7 @@ from typing import Dict, Any, List
 from ..config.config_manager import AppConfig, ModelConfig
 from ..core.model_factory import ModelFactory
 from ..utils.memory_utils import get_gpu_info, get_system_memory_stats
+from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -21,43 +22,15 @@ def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Benchmark BeautyAI model")
     
-    # Model selection
-    model_group = parser.add_argument_group("Model Selection")
-    model_group.add_argument(
-        "--model",
-        type=str,
-        help="Model ID to use (e.g., Qwen/Qwen3-14B)",
+    # Add standardized arguments with backward compatibility
+    add_backward_compatible_args(
+        parser,
+        include_model=True,
+        include_generation=True,
+        include_system=False
     )
     
-    model_group.add_argument(
-        "--model-name",
-        type=str,
-        help="Name of model from the registry to use",
-    )
-    
-    model_group.add_argument(
-        "--list-models",
-        action="store_true",
-        help="List all available models in the registry"
-    )
-    
-    # Model configuration
-    config_group = parser.add_argument_group("Model Configuration")
-    config_group.add_argument(
-        "--engine", 
-        type=str, 
-        choices=["transformers", "vllm"], 
-        help="Inference engine to use"
-    )
-    
-    config_group.add_argument(
-        "--quantization",
-        type=str,
-        choices=["4bit", "8bit", "awq", "squeezellm", "none"],
-        help="Quantization method",
-    )
-    
-    # Benchmark settings
+    # Benchmark specific settings
     benchmark_group = parser.add_argument_group("Benchmark Settings")
     benchmark_group.add_argument(
         "--input-lengths", 
@@ -72,32 +45,19 @@ def parse_arguments():
         default=200,
         help="Number of output tokens to generate (default: 200)",
     )
-    
-    # Configuration
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=str(Path(__file__).parent.parent / "config" / "default_config.json"),
-        help="Path to a JSON configuration file",
-    )
 
-    parser.add_argument(
-        "--models-file",
-        type=str,
-        help="Path to the models registry file",
-    )
-    
-    parser.add_argument(
-        "--output-file",
-        type=str,
-        help="Path to save benchmark results as JSON",
-    )
-    
-    parser.add_argument(
+    benchmark_group.add_argument(
         "--save-model",
         action="store_true",
         help="Save the current model configuration to the registry"
     )
+    
+    # Enable auto-completion if available
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass  # Auto-completion not available
     
     return parser.parse_args()
 

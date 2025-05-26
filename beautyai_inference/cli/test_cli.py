@@ -40,6 +40,13 @@ def parse_arguments():
         # Argument already exists from global args
         pass
     
+    # Enable auto-completion if available
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass  # Auto-completion not available
+    
     return parser.parse_args()
 
 

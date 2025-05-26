@@ -10,6 +10,7 @@ from pathlib import Path
 from ..config.config_manager import AppConfig
 from ..core.model_manager import ModelManager
 from ..utils.memory_utils import get_gpu_memory_stats
+from .argument_config import add_backward_compatible_args, ArgumentValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -18,6 +19,14 @@ logger = logging.getLogger(__name__)
 def parse_arguments():
     """Parse command line arguments."""
     parser = argparse.ArgumentParser(description="Manage loaded models")
+    
+    # Add standardized arguments with backward compatibility (global args only)
+    add_backward_compatible_args(
+        parser,
+        include_model=False,  # We handle model selection manually for subcommands
+        include_generation=False,
+        include_system=False
+    )
     
     # Main commands
     subparsers = parser.add_subparsers(dest="command", help="Command to run")
@@ -43,19 +52,12 @@ def parse_arguments():
     clear_cache_parser = subparsers.add_parser("clear-cache", help="Clear model cache from disk")
     clear_cache_parser.add_argument("name", help="Name of the model to clear cache for")
     
-    # Configuration
-    parser.add_argument(
-        "--config",
-        type=str,
-        default=str(Path(__file__).parent.parent / "config" / "default_config.json"),
-        help="Path to configuration file"
-    )
-    
-    parser.add_argument(
-        "--models-file",
-        type=str,
-        help="Path to model registry file"
-    )
+    # Enable auto-completion if available
+    try:
+        import argcomplete
+        argcomplete.autocomplete(parser)
+    except ImportError:
+        pass  # Auto-completion not available
     
     return parser.parse_args()
 

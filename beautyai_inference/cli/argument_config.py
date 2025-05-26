@@ -493,9 +493,7 @@ class StandardizedArgumentParser:
         if arg_def.dest:
             kwargs['dest'] = arg_def.dest
         
-        # Add auto-completion support if available
-        if ARGCOMPLETE_AVAILABLE and arg_def.completer:
-            kwargs['completer'] = arg_def.completer
+        # Don't pass completer as kwarg to avoid TypeError when argcomplete is not available
         
         # Add argument with or without short name
         if arg_def.short_name:
@@ -503,8 +501,10 @@ class StandardizedArgumentParser:
         else:
             action = group.add_argument(arg_def.name, **kwargs)
         
-        # Set completion options if available but no custom completer
-        if ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
+        # Set completer on the action object if argcomplete is available
+        if ARGCOMPLETE_AVAILABLE and arg_def.completer:
+            action.completer = arg_def.completer
+        elif ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
             action.completer = lambda prefix, **kwargs: [opt for opt in arg_def.completion_options if opt.startswith(prefix)]
     
     def parse_args(self, args=None):
@@ -632,9 +632,7 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
             if arg_def.action:
                 kwargs['action'] = arg_def.action
             
-            # Add auto-completion support if available
-            if ARGCOMPLETE_AVAILABLE and arg_def.completer:
-                kwargs['completer'] = arg_def.completer
+            # Don't pass completer as kwarg to avoid TypeError when argcomplete is not available
             
             try:
                 if arg_def.short_name:
@@ -642,8 +640,10 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
                 else:
                     action = parser.add_argument(arg_def.name, **kwargs)
                 
-                # Set completion options if available but no custom completer
-                if ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
+                # Set completer on the action object if argcomplete is available
+                if ARGCOMPLETE_AVAILABLE and arg_def.completer:
+                    action.completer = arg_def.completer
+                elif ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
                     action.completer = lambda prefix, **kwargs: [opt for opt in arg_def.completion_options if opt.startswith(prefix)]
             except argparse.ArgumentError:
                 # Argument already exists, skip
@@ -664,9 +664,7 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
             if arg_def.action:
                 kwargs['action'] = arg_def.action
             
-            # Add auto-completion support if available
-            if ARGCOMPLETE_AVAILABLE and arg_def.completer:
-                kwargs['completer'] = arg_def.completer
+            # Don't pass completer as kwarg to avoid TypeError when argcomplete is not available
             
             try:
                 if arg_def.short_name:
@@ -674,8 +672,10 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
                 else:
                     action = parser.add_argument(arg_def.name, **kwargs)
                 
-                # Set completion options if available but no custom completer
-                if ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
+                # Set completer on the action object if argcomplete is available
+                if ARGCOMPLETE_AVAILABLE and arg_def.completer:
+                    action.completer = arg_def.completer
+                elif ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
                     action.completer = lambda prefix, **kwargs: [opt for opt in arg_def.completion_options if opt.startswith(prefix)]
             except argparse.ArgumentError:
                 # Argument already exists, skip
@@ -696,9 +696,7 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
             if arg_def.action:
                 kwargs['action'] = arg_def.action
             
-            # Add auto-completion support if available
-            if ARGCOMPLETE_AVAILABLE and arg_def.completer:
-                kwargs['completer'] = arg_def.completer
+            # Don't pass completer as kwarg to avoid TypeError when argcomplete is not available
             
             try:
                 if arg_def.short_name:
@@ -706,8 +704,10 @@ def add_backward_compatible_args(parser: argparse.ArgumentParser,
                 else:
                     action = parser.add_argument(arg_def.name, **kwargs)
                 
-                # Set completion options if available but no custom completer
-                if ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
+                # Set completer on the action object if argcomplete is available
+                if ARGCOMPLETE_AVAILABLE and arg_def.completer:
+                    action.completer = arg_def.completer
+                elif ARGCOMPLETE_AVAILABLE and not arg_def.completer and arg_def.completion_options:
                     action.completer = lambda prefix, **kwargs: [opt for opt in arg_def.completion_options if opt.startswith(prefix)]
             except argparse.ArgumentError:
                 # Argument already exists, skip
