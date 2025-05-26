@@ -495,10 +495,8 @@ Examples:
         
         # Configure all services
         try:
-            self.model_registry_service.configure(config_data)
-            self.lifecycle_service.configure(config_data)
-            self.inference_service.configure(config_data)
-            self.config_service.configure(config_data)
+            # Configure adapter first
+            self.adapter.configure(config_data)
         except Exception as e:
             logger.warning(f"Error configuring services: {e}")
             # Continue execution even if configuration fails

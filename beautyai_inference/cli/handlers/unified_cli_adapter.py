@@ -40,6 +40,26 @@ class UnifiedCLIAdapter:
         self.cache_service = CacheService()
         self.status_service = StatusService()
         
+    def configure(self, config_data: Optional[Dict[str, Any]] = None) -> None:
+        """Configure all services with provided configuration data."""
+        if config_data is None:
+            config_data = {}
+            
+        try:
+            # Configure each service
+            if hasattr(self.registry_service, 'configure'):
+                self.registry_service.configure(config_data)
+            if hasattr(self.lifecycle_service, 'configure'):
+                self.lifecycle_service.configure(config_data)
+            if hasattr(self.config_service, 'configure'):
+                self.config_service.configure(config_data)
+            if hasattr(self.status_service, 'configure'):
+                self.status_service.configure(config_data)
+                
+        except Exception as e:
+            logger.warning(f"Error configuring adapter services: {e}")
+            # Continue execution even if configuration fails
+    
     def _load_config(self, args) -> AppConfig:
         """Load configuration from args."""
         config_file = getattr(args, "config", None)
@@ -246,19 +266,84 @@ class UnifiedCLIAdapter:
     # Lifecycle Operations - delegate to lifecycle service
     def load_model(self, args) -> int:
         """Load a model into memory."""
-        return self.lifecycle_service.load_model(args)
+        try:
+            # Load config first
+            app_config = self._load_config(args)
+            
+            # Get model config from registry
+            model_config = self.registry_service.get_model(app_config, args.name)
+            
+            if not model_config:
+                print(f"Error: Model '{args.name}' not found in registry.")
+                return 1
+            
+            # Load model using lifecycle service
+            success, error_msg = self.lifecycle_service.load_model(model_config, show_progress=True)
+            
+            if success:
+                print(f"✅ Model '{args.name}' loaded into memory.")
+                return 0
+            else:
+                print(f"❌ Failed to load model '{args.name}': {error_msg}")
+                return 1
+                
+        except Exception as e:
+            print(f"Error loading model: {e}")
+            return 1
     
     def unload_model(self, args) -> int:
         """Unload a model from memory."""
-        return self.lifecycle_service.unload_model(args)
+        try:
+            success, error_msg = self.lifecycle_service.unload_model(args.name, show_progress=True)
+            
+            if success:
+                print(f"✅ Model '{args.name}' unloaded from memory.")
+                return 0
+            else:
+                print(f"❌ Failed to unload model '{args.name}': {error_msg}")
+                return 1
+                
+        except Exception as e:
+            print(f"Error unloading model: {e}")
+            return 1
     
     def unload_all_models(self, args) -> int:
         """Unload all models from memory."""
-        return self.lifecycle_service.unload_all_models(args)
+        try:
+            success, errors = self.lifecycle_service.unload_all_models(show_progress=True)
+            
+            if success:
+                print("✅ All models unloaded from memory.")
+                return 0
+            else:
+                print("❌ Failed to unload all models:")
+                for error in errors:
+                    print(f"   • {error}")
+                return 1
+                
+        except Exception as e:
+            print(f"Error unloading all models: {e}")
+            return 1
     
     def list_loaded_models(self, args) -> int:
         """List all loaded models."""
-        return self.lifecycle_service.list_loaded_models(args)
+        try:
+            loaded_models = self.lifecycle_service.list_loaded_models()
+            
+            if not loaded_models:
+                print("No models are currently loaded in memory.")
+                return 0
+            
+            print(f"\n📋 Loaded Models ({len(loaded_models)}):")
+            print("-" * 40)
+            for model in loaded_models:
+                print(f"  • {model['name']} ({model['status']})")
+            print()
+            return 0
+            
+        except Exception as e:
+            print(f"Error listing loaded models: {e}")
+            return 1
     
     def show_status(self, args) -> int:
         """Show system status."""
@@ -315,7 +400,64 @@ class UnifiedCLIAdapter:
     # Inference Operations - delegate to specialized services
     def start_chat(self, args) -> int:
         """Start interactive chat."""
-        return self.chat_service.start_chat(args)
+        try:
+            # Load config first
+            app_config = self._load_config(args)
+            
+            # Get model name from args
+            model_name = getattr(args, 'model_name', None)
+            if not model_name:
+                # Try to get default model from registry
+                if app_config.model_registry.default_model:
+                    model_name = app_config.model_registry.default_model
+                else:
+                    print("Error: No model specified and no default model set.")
+                    print("Use --model-name to specify a model or set a default model in the registry.")
+                    return 1
+            
+            # Get model config from registry
+            model_config = self.registry_service.get_model(app_config, model_name)
+            
+            if not model_config:
+                print(f"Error: Model '{model_name}' not found in registry.")
+                return 1
+            
+            # Build generation config from args and model config
+            generation_config = {}
+            
+            # Use model's custom generation params as base
+            if model_config.custom_generation_params:
+                generation_config.update(model_config.custom_generation_params)
+            
+            # Override with args if provided
+            if hasattr(args, 'max_tokens') and args.max_tokens:
+                generation_config['max_new_tokens'] = args.max_tokens
+            elif hasattr(args, 'max_new_tokens') and args.max_new_tokens:
+                generation_config['max_new_tokens'] = args.max_new_tokens
+            else:
+                generation_config['max_new_tokens'] = model_config.max_new_tokens
+                
+            if hasattr(args, 'temperature') and args.temperature is not None:
+                generation_config['temperature'] = args.temperature
+            else:
+                generation_config['temperature'] = model_config.temperature
+                
+            if hasattr(args, 'top_p') and args.top_p is not None:
+                generation_config['top_p'] = args.top_p
+            else:
+                generation_config['top_p'] = model_config.top_p
+                
+            if hasattr(args, 'do_sample') and args.do_sample is not None:
+                generation_config['do_sample'] = args.do_sample
+            else:
+                generation_config['do_sample'] = model_config.do_sample
+            
+            # Start the chat with proper parameters
+            return self.chat_service.start_chat(model_name, model_config, generation_config)
+            
+        except Exception as e:
+            print(f"Error starting chat: {e}")
+            return 1
     
     def run_test(self, args) -> int:
         """Run model test."""

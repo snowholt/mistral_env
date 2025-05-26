@@ -68,10 +68,13 @@ class StatusService:
             Dict[str, Any]: Loaded models information
         """
         try:
-            loaded_models = self.model_manager.list_loaded_models()
+            loaded_model_names = self.model_manager.list_loaded_models()
             
             model_info = {}
-            for model_name, model_instance in loaded_models.items():
+            for model_name in loaded_model_names:
+                model_instance = self.model_manager.get_loaded_model(model_name)
+                if model_instance is None:
+                    continue
                 try:
                     # Get model details
                     model_info[model_name] = {
@@ -87,7 +90,7 @@ class StatusService:
                     model_info[model_name] = {"error": str(e)}
             
             return {
-                "count": len(loaded_models),
+                "count": len(loaded_model_names),
                 "models": model_info
             }
             

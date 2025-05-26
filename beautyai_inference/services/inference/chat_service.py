@@ -150,17 +150,17 @@ class ChatService(BaseService):
                     sys.stdout.flush()
                     
                     response = ""
-                    streaming = hasattr(model, "generate_streaming")
+                    streaming = hasattr(model, "chat_stream")
                     
                     start_time = time.time()
                     
                     if streaming:
-                        for token in model.generate_streaming(user_input, generation_config, chat_history):
+                        for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
                             print(token, end="")
                             sys.stdout.flush()
                             response += token
                     else:
-                        response = model.generate(user_input, generation_config, chat_history)
+                        response = model.chat(chat_history, **generation_config)
                         print(response)
                     
                     end_time = time.time()
@@ -316,17 +316,17 @@ class ChatService(BaseService):
                     sys.stdout.flush()
                     
                     response = ""
-                    streaming = hasattr(model, "generate_streaming")
+                    streaming = hasattr(model, "chat_stream")
                     
                     start_time = time.time()
                     
                     if streaming:
-                        for token in model.generate_streaming(user_input, generation_config, chat_history):
+                        for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
                             print(token, end="")
                             sys.stdout.flush()
                             response += token
                     else:
-                        response = model.generate(user_input, generation_config, chat_history)
+                        response = model.chat(chat_history, **generation_config)
                         print(response)
                     
                     end_time = time.time()
@@ -395,12 +395,12 @@ class ChatService(BaseService):
         """
         if not self.model_manager.is_model_loaded(model_name):
             print(f"Loading model '{model_name}'...")
-            self.model_manager.load_model(model_name, model_config)
+            self.model_manager.load_model(model_config)
             print(f"Model loaded successfully.")
         else:
             print(f"Using already loaded model '{model_name}'.")
             
-        return self.model_manager.get_model(model_name)
+        return self.model_manager.get_loaded_model(model_name)
     
     def _show_chat_help(self):
         """Display help message for chat commands."""
