@@ -109,9 +109,19 @@ class ConfigurationError(APIError):
         )
 
 
+
+class InferenceError(APIError):
+    """Raised when inference operation fails."""
+    def __init__(self, message: str = "Inference failed", details: Optional[Dict[str, Any]] = None):
+        super().__init__(
+            message=message,
+            error_code="INFERENCE_ERROR",
+            details=details or {},
+            status_code=500
+        )
+
 class SystemError(APIError):
     """Raised when system-level errors occur."""
-    
     def __init__(self, message: str, details: Optional[Dict[str, Any]] = None):
         super().__init__(
             message=message,

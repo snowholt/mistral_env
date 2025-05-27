@@ -13,7 +13,8 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
 from ..models import (
     APIResponse, ChatRequest, ChatResponse, TestRequest, TestResponse,
-    BenchmarkRequest, BenchmarkResponse, SessionRequest, SessionResponse
+    BenchmarkRequest, BenchmarkResponse,
+    SessionSaveRequest, SessionSaveResponse, SessionLoadRequest, SessionLoadResponse
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
@@ -178,9 +179,9 @@ async def run_benchmark(
         raise HTTPException(status_code=500, detail=f"Failed to run benchmark: {str(e)}")
 
 
-@inference_router.post("/sessions/save", response_model=SessionResponse)
+@inference_router.post("/sessions/save", response_model=SessionSaveResponse)
 async def save_session(
-    request: SessionRequest,
+    request: SessionSaveRequest,
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
@@ -198,14 +199,13 @@ async def save_session(
                 self.session_file = session_request.session_file
         
         args = SessionArgs(request)
-        
         result = session_service.save_session(args)
-        
         if result == 0:
-            return SessionResponse(
+            return SessionSaveResponse(
                 success=True,
-                session_name=request.session_name,
-                message="Session saved successfully"
+                session_id=request.session_id,
+                file_path=request.output_file or "",
+                file_size_bytes=0  # TODO: set actual file size if available
             )
         else:
             raise HTTPException(status_code=500, detail="Failed to save session")
@@ -215,9 +215,9 @@ async def save_session(
         raise HTTPException(status_code=500, detail=f"Failed to save session: {str(e)}")
 
 
-@inference_router.post("/sessions/load", response_model=SessionResponse)
+@inference_router.post("/sessions/load", response_model=SessionLoadResponse)
 async def load_session(
-    request: SessionRequest,
+    request: SessionLoadRequest,
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
@@ -235,14 +235,13 @@ async def load_session(
                 self.session_file = session_request.session_file
         
         args = SessionArgs(request)
-        
         result = session_service.load_session(args)
-        
         if result == 0:
-            return SessionResponse(
+            return SessionLoadResponse(
                 success=True,
-                session_name=request.session_name,
-                message="Session loaded successfully"
+                session_data={},  # TODO: set actual session data if available
+                session_id="",
+                message_count=0
             )
         else:
             raise HTTPException(status_code=404, detail="Session not found")

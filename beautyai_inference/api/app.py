@@ -9,8 +9,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 import logging
 
-# Import the endpoints
-from .endpoints import health, models, inference, config, system
+# Import the routers
+from .endpoints import health_router, models_router, inference_router, config_router, system_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -35,11 +35,11 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(health.router, prefix="/health", tags=["Health"])
-app.include_router(models.router, prefix="/models", tags=["Models"])
-app.include_router(inference.router, prefix="/inference", tags=["Inference"])
-app.include_router(config.router, prefix="/config", tags=["Configuration"])
-app.include_router(system.router, prefix="/system", tags=["System"])
+app.include_router(health_router, tags=["Health"])
+app.include_router(models_router, tags=["Models"])
+app.include_router(inference_router, tags=["Inference"])
+app.include_router(config_router, tags=["Configuration"])
+app.include_router(system_router, tags=["System"])
 
 
 @app.on_event("startup")

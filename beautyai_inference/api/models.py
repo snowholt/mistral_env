@@ -28,6 +28,7 @@ class APIRequest:
 class APIResponse:
     """Base class for all API responses."""
     success: bool
+    data: Optional[Dict[str, Any]] = None
     timestamp: str = None
     execution_time_ms: Optional[float] = None
     
@@ -285,3 +286,41 @@ ConfigRequest = Union[ConfigGetRequest, ConfigSetRequest]
 ConfigResponse = Union[ConfigGetResponse, ConfigSetResponse]
 SystemRequest = SystemStatusRequest
 SystemResponse = SystemStatusResponse
+
+
+# Backup/Restore API Models
+@dataclass
+class BackupRequest(APIRequest):
+    """Request to create a configuration backup."""
+    backup_name: str
+    description: Optional[str] = None
+    include_models: bool = True
+    include_cache: bool = False
+
+
+@dataclass
+class BackupResponse(APIResponse):
+    """Response for configuration backup."""
+    success: bool = True
+    backup_name: str = ""
+    timestamp: str = ""
+    file_path: Optional[str] = None
+    size_bytes: Optional[int] = None
+    message: str = ""
+
+
+@dataclass
+class RestoreRequest(APIRequest):
+    """Request to restore configuration from backup."""
+    backup_name: str
+    confirm: bool = False
+    restore_models: bool = True
+
+
+@dataclass
+class RestoreResponse(APIResponse):
+    """Response for configuration restore."""
+    success: bool = True
+    backup_name: str = ""
+    restored_timestamp: str = ""
+    message: str = ""

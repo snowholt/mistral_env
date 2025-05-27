@@ -12,7 +12,7 @@ from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends
 from ..models import (
-    APIResponse, ConfigRequest, ConfigResponse, ConfigListResponse,
+    APIResponse, ConfigRequest, ConfigResponse,
     BackupRequest, BackupResponse
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
@@ -30,7 +30,7 @@ migration_service = MigrationService()
 backup_service = BackupService()
 
 
-@config_router.get("/", response_model=ConfigListResponse)
+@config_router.get("/", response_model=ConfigResponse)
 async def get_configuration(
     auth: AuthContext = Depends(get_auth_context),
     section: Optional[str] = None
@@ -54,9 +54,8 @@ async def get_configuration(
         # Note: Config service returns exit codes, not data
         # In a real API, this would be restructured to return actual config data
         result = config_service.show_config(args)
-        
         if result == 0:
-            return ConfigListResponse(
+            return ConfigResponse(
                 success=True,
                 config={
                     "section": section or "all",
@@ -64,7 +63,7 @@ async def get_configuration(
                         "default_model": "qwen-7b",
                         "max_tokens": 2048,
                         "temperature": 0.7
-                    }  # Placeholder data
+                    }
                 },
                 message="Configuration retrieved successfully"
             )

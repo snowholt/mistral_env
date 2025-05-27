@@ -195,6 +195,9 @@ class Permissions:
     
     # Model operations
     MODEL_LIST = "model_list"
+    MODEL_READ = "model_read"
+    MODEL_WRITE = "model_write" 
+    MODEL_DELETE = "model_delete"
     MODEL_ADD = "model_add"
     MODEL_REMOVE = "model_remove"
     MODEL_LOAD = "model_load"
