@@ -270,11 +270,23 @@ class TransformersEngine(ModelInterface):
 
         # Filter parameters and log warnings for unsupported ones
         filtered_params = {}
+        unsupported_params = []
         for param, value in generation_params.items():
             if param in supported_params:
                 filtered_params[param] = value
             else:
+                unsupported_params.append(param)
                 logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
+        
+        # Log a user-friendly summary warning if any parameters were ignored
+        if unsupported_params:
+            # Only show warning at INFO level for commonly unsupported params
+            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty'}
+            if set(unsupported_params).issubset(common_unsupported):
+                logger.info(f"Note: Parameters {unsupported_params} are not supported by Transformers engine (use vLLM for these)")
+            else:
+                logger.warning(f"Ignored unsupported generation parameters for Transformers engine: {unsupported_params}. "
+                              f"Supported parameters: {sorted(supported_params)}")
 
         architecture = getattr(self.config, 'model_architecture', 'causal_lm')
 
@@ -403,11 +415,23 @@ class TransformersEngine(ModelInterface):
         }
 
         filtered_params = {}
+        unsupported_params = []
         for param, value in generation_params.items():
             if param in supported_params:
                 filtered_params[param] = value
             else:
+                unsupported_params.append(param)
                 logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
+        
+        # Log a user-friendly summary warning if any parameters were ignored
+        if unsupported_params:
+            # Only show warning at INFO level for commonly unsupported params
+            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty'}
+            if set(unsupported_params).issubset(common_unsupported):
+                logger.info(f"Note: Parameters {unsupported_params} are not supported by Transformers engine (use vLLM for these)")
+            else:
+                logger.warning(f"Ignored unsupported generation parameters for Transformers engine: {unsupported_params}. "
+                              f"Supported parameters: {sorted(supported_params)}")
 
         # Generate response
         response = self.generator(

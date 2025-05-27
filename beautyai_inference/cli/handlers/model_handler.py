@@ -301,21 +301,19 @@ class ModelHandler:
             return 1
     
     def list_loaded_models(self, args: Namespace) -> int:
-        """List all loaded models."""
+        """List all loaded models and show cross-process state."""
         try:
             loaded_models = self.lifecycle_service.list_loaded_models()
-            
+            # The cross-process state summary is printed by the service now
             if not loaded_models:
                 print("No models are currently loaded in memory.")
                 return 0
-            
             print(f"\n📋 Loaded Models ({len(loaded_models)}):")
             print("-" * 40)
             for model in loaded_models:
                 print(f"  • {model['name']} ({model['status']})")
             print()
             return 0
-            
         except Exception as e:
             print(f"Error listing loaded models: {e}")
             return 1

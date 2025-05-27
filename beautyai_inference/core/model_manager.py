@@ -11,7 +11,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 
 from .model_interface import ModelInterface
 from .model_factory import ModelFactory
@@ -37,10 +37,9 @@ class ModelManager:
     
     def _initialize_persistence(self):
         """Initialize persistence file for CLI state management."""
-        # Use a temporary directory for persistence state
-        temp_dir = Path(tempfile.gettempdir()) / "beautyai"
-        temp_dir.mkdir(exist_ok=True)
-        self._persistence_file = temp_dir / "loaded_models.json"
+        # Use config directory for persistence state - more organized
+        config_dir = Path(__file__).parent.parent / "config"
+        self._persistence_file = config_dir / "loaded_models_state.json"
         
         # Load existing state if available
         self._load_persistence_state()
@@ -51,23 +50,79 @@ class ModelManager:
             if self._persistence_file.exists():
                 with open(self._persistence_file, 'r') as f:
                     data = json.load(f)
-                
-                # Check if state is recent (within last hour) and validate models
+                # Check if state is recent (within last 24 hours)
                 timestamp = data.get('timestamp', 0)
-                if time.time() - timestamp < 3600:  # 1 hour
+                if time.time() - timestamp < 86400:  # 24 hours
                     loaded_models = data.get('loaded_models', {})
-                    
-                    # For CLI persistence, we only track model names that were loaded
-                    # The actual model instances can't be serialized, so we'll recreate them
-                    logger.info(f"Found {len(loaded_models)} models in persistence state")
-                    for model_name, model_info in loaded_models.items():
-                        logger.info(f"  - {model_name}: {model_info.get('model_id', 'unknown')}")
+                    if loaded_models:
+                        logger.info(f"Found {len(loaded_models)} models in recent persistence state")
+                        for model_name, model_info in loaded_models.items():
+                            logger.info(f"  - {model_name}: {model_info.get('model_id', 'unknown')} (not loaded in memory)")
+                        logger.info("Note: Persistence tracks previous session state, actual models must be reloaded")
+                    else:
+                        logger.debug("No models in persistence state")
                 else:
-                    logger.info("Persistence state is stale, clearing")
+                    logger.debug("Persistence state is stale (>24h), clearing")
                     self._clear_persistence_state()
         except Exception as e:
             logger.warning(f"Error loading persistence state: {e}")
             self._clear_persistence_state()
+    def get_cross_process_model_state(self) -> dict:
+        """
+        Returns a dict with two keys:
+        - 'in_memory': models loaded in this process
+        - 'persisted': models found in persistence file (may not be loaded in memory)
+        """
+        in_memory = list(self._loaded_models.keys())
+        persisted = []
+        try:
+            if self._persistence_file and self._persistence_file.exists():
+                with open(self._persistence_file, 'r') as f:
+                    data = json.load(f)
+                persisted = list(data.get('loaded_models', {}).keys())
+        except Exception as e:
+            logger.warning(f"Error reading persistence info: {e}")
+        return {
+            'in_memory': in_memory,
+            'persisted': persisted
+        }
+    def print_cross_process_model_state(self):
+        """
+        Print a clear summary of model state for both in-memory and persisted models.
+        """
+        state = self.get_cross_process_model_state()
+        print("\nModel State Summary:")
+        print(f"  Models loaded in this process: {state['in_memory'] if state['in_memory'] else 'None'}")
+        print(f"  Models in persistence (previously loaded, not in memory): {state['persisted'] if state['persisted'] else 'None'}")
+        if state['persisted'] and not state['in_memory']:
+            print("  ⚠️  Models listed in persistence are NOT loaded in memory. Use 'beautyai system load <model>' to reload.")
+        print()
+    
+    def _verify_persisted_models(self, persisted_models: Dict[str, Any]):
+        """Verify if persisted models are actually still loaded in memory by checking GPU/system memory."""
+        try:
+            # Import here to avoid circular imports
+            from ..utils.memory_utils import get_gpu_memory_stats
+            import psutil
+            
+            # Get current memory usage
+            gpu_stats = get_gpu_memory_stats()
+            
+            # If GPU memory is being used significantly, models might still be loaded
+            if gpu_stats and len(gpu_stats) > 0:
+                gpu_memory_used = gpu_stats[0].get('memory_used_mb', 0)
+                
+                # If GPU has significant memory usage (>1GB), assume models are loaded
+                if gpu_memory_used > 1000:  # 1GB threshold
+                    logger.info(f"GPU memory usage detected ({gpu_memory_used:.0f}MB), models may still be loaded from previous session")
+                    logger.info("Note: Cannot restore model instances across processes. Use 'beautyai system load' to reload if needed.")
+                else:
+                    logger.debug(f"Low GPU memory usage ({gpu_memory_used:.0f}MB), models likely not loaded")
+            else:
+                logger.debug("Could not check GPU memory usage")
+                
+        except Exception as e:
+            logger.debug(f"Could not verify persisted models: {e}")
     
     def _save_persistence_state(self):
         """Save current model state to persistence file."""
@@ -81,11 +136,13 @@ class ModelManager:
             # Save model information (not actual instances)
             for model_name, model_instance in self._loaded_models.items():
                 try:
-                    # Get model info from the instance
+                    # Get model info from the instance's config
+                    config = getattr(model_instance, 'config', None)
                     model_info = {
-                        'model_id': getattr(model_instance, 'model_id', 'unknown'),
-                        'engine': getattr(model_instance, 'engine_type', 'unknown'),
-                        'loaded_at': time.time()
+                        'model_id': config.model_id if config else getattr(model_instance, 'model_id', 'unknown'),
+                        'engine': config.engine_type if config else getattr(model_instance, 'engine_type', 'unknown'),
+                        'loaded_at': time.time(),
+                        'status': 'loaded'
                     }
                     persistence_data['loaded_models'][model_name] = model_info
                 except Exception as e:
@@ -143,19 +200,17 @@ class ModelManager:
     def unload_model(self, model_name: str) -> bool:
         """Unload a model from memory."""
         with self._lock:
-            # Check both in-memory and persistence state
+            # Check only in-memory models
             in_memory = model_name in self._loaded_models
-            in_persistence = model_name in self.get_persistence_info()
             
-            if not in_memory and not in_persistence:
-                logger.warning(f"Model '{model_name}' not loaded")
+            if not in_memory:
+                logger.warning(f"Model '{model_name}' not loaded in memory")
                 return False
             
             logger.info(f"Unloading model '{model_name}'")
             
-            # Remove from memory if present
-            if in_memory:
-                del self._loaded_models[model_name]
+            # Remove from memory
+            del self._loaded_models[model_name]
                 
             # Force garbage collection and clear GPU memory
             gc.collect()
@@ -169,16 +224,14 @@ class ModelManager:
     def unload_all_models(self) -> bool:
         """Unload all loaded models."""
         with self._lock:
-            # Get models from both memory and persistence
+            # Get models only from memory
             memory_models = list(self._loaded_models.keys())
-            persistence_models = list(self.get_persistence_info().keys())
-            all_models = list(set(memory_models + persistence_models))
             
-            if not all_models:
+            if not memory_models:
                 logger.info("No models to unload")
                 return True
             
-            logger.info(f"Unloading {len(all_models)} models")
+            logger.info(f"Unloading {len(memory_models)} models")
             
             # Clear memory models
             for model_name in memory_models:
@@ -256,33 +309,101 @@ class ModelManager:
     def get_loaded_model(self, model_name: str) -> Optional[ModelInterface]:
         """Get a loaded model by name."""
         with self._lock:
-            # For persistence scenarios, if model not in memory but in persistence,
-            # return None to trigger reloading
-            if model_name not in self._loaded_models:
-                persistence_info = self.get_persistence_info()
-                if model_name in persistence_info:
-                    logger.info(f"Model '{model_name}' exists in persistence but not in memory. May need reloading.")
-                    return None
-            
+            # Only return models that are actually loaded in memory
+            # Don't check persistence state for get_loaded_model to avoid confusion
             return self._loaded_models.get(model_name)
     
     def list_loaded_models(self) -> List[str]:
-        """List all loaded models."""
+        """List all loaded models that are actually in memory."""
         with self._lock:
-            # For CLI commands, return persisted model list if no models in memory
-            if not self._loaded_models:
-                persistence_info = self.get_persistence_info()
-                return list(persistence_info.keys())
+            # Only return models that are actually loaded in memory and working
+            # Check if each model is still functional
+            working_models = []
+            models_to_remove = []
             
-            return list(self._loaded_models.keys())
+            for model_name, model_instance in self._loaded_models.items():
+                try:
+                    # Quick check if model is still accessible
+                    if hasattr(model_instance, 'model') and model_instance.model is not None:
+                        working_models.append(model_name)
+                    else:
+                        logger.warning(f"Model '{model_name}' in memory but not functional, will remove")
+                        models_to_remove.append(model_name)
+                except Exception as e:
+                    logger.warning(f"Model '{model_name}' check failed: {e}, will remove")
+                    models_to_remove.append(model_name)
+            
+            # Clean up non-functional models
+            for model_name in models_to_remove:
+                if model_name in self._loaded_models:
+                    del self._loaded_models[model_name]
+                    self._remove_from_persistence(model_name)
+            
+            # Update persistence if we removed any models
+            if models_to_remove:
+                self._save_persistence_state()
+            
+            return working_models
     
     def is_model_loaded(self, model_name: str) -> bool:
-        """Check if a model is loaded."""
+        """Check if a model is actually loaded in memory and functional."""
         with self._lock:
-            # Check both memory and persistence state
-            if model_name in self._loaded_models:
-                return True
+            # Check if model is in memory and functional
+            if model_name not in self._loaded_models:
+                return False
             
-            # Check persistence state for CLI commands
+            try:
+                model_instance = self._loaded_models[model_name]
+                # Verify the model is actually loaded and functional
+                if hasattr(model_instance, 'model') and model_instance.model is not None:
+                    return True
+                else:
+                    # Model is in our dict but not actually loaded, clean up
+                    logger.warning(f"Model '{model_name}' was in memory registry but not functional, removing")
+                    del self._loaded_models[model_name]
+                    return False
+            except Exception as e:
+                logger.warning(f"Error checking model '{model_name}': {e}, removing from memory registry")
+                if model_name in self._loaded_models:
+                    del self._loaded_models[model_name]
+                return False
+    
+    def get_model_info(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """Get detailed information about a model (both loaded and persistence state)."""
+        with self._lock:
+            info = {}
+            
+            # Check if actually loaded in memory
+            if model_name in self._loaded_models:
+                model_instance = self._loaded_models[model_name]
+                try:
+                    if hasattr(model_instance, 'model') and model_instance.model is not None:
+                        config = getattr(model_instance, 'config', None)
+                        info = {
+                            'name': model_name,
+                            'status': 'loaded_in_memory',
+                            'model_id': config.model_id if config else 'unknown',
+                            'engine_type': config.engine_type if config else 'unknown',
+                            'device': str(getattr(model_instance.model, 'device', 'unknown')) if hasattr(model_instance, 'model') else 'unknown'
+                        }
+                    else:
+                        info = {'name': model_name, 'status': 'registered_but_not_functional'}
+                except Exception as e:
+                    info = {'name': model_name, 'status': f'error: {e}'}
+            
+            # Check persistence state
             persistence_info = self.get_persistence_info()
-            return model_name in persistence_info
+            if model_name in persistence_info:
+                if not info:  # Not in memory
+                    info = {
+                        'name': model_name,
+                        'status': 'in_persistence_only',
+                        'model_id': persistence_info[model_name].get('model_id', 'unknown'),
+                        'engine_type': persistence_info[model_name].get('engine', 'unknown'),
+                        'last_loaded': persistence_info[model_name].get('loaded_at', 'unknown')
+                    }
+                else:
+                    # Add persistence info to memory info
+                    info['persistence_state'] = persistence_info[model_name]
+            
+            return info if info else None

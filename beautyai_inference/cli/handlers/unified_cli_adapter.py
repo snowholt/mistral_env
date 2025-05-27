@@ -326,21 +326,19 @@ class UnifiedCLIAdapter:
             return 1
     
     def list_loaded_models(self, args) -> int:
-        """List all loaded models."""
+        """List all loaded models and show cross-process state."""
         try:
             loaded_models = self.lifecycle_service.list_loaded_models()
-            
+            # The cross-process state summary is printed by the service now
             if not loaded_models:
                 print("No models are currently loaded in memory.")
                 return 0
-            
             print(f"\n📋 Loaded Models ({len(loaded_models)}):")
             print("-" * 40)
             for model in loaded_models:
                 print(f"  • {model['name']} ({model['status']})")
             print()
             return 0
-            
         except Exception as e:
             print(f"Error listing loaded models: {e}")
             return 1
@@ -429,28 +427,39 @@ class UnifiedCLIAdapter:
             if model_config.custom_generation_params:
                 generation_config.update(model_config.custom_generation_params)
             
-            # Override with args if provided
-            if hasattr(args, 'max_tokens') and args.max_tokens:
+            # Set max_new_tokens from model config (primary source)
+            generation_config['max_new_tokens'] = model_config.max_new_tokens
+            
+            # Check which CLI arguments were explicitly provided by user
+            # (not just argparse defaults) by checking sys.argv
+            import sys
+            provided_args = set()
+            for arg in sys.argv:
+                if arg.startswith('--'):
+                    # Remove the '--' prefix and convert to underscores
+                    arg_name = arg[2:].replace('-', '_')
+                    provided_args.add(arg_name)
+            
+            # Only override model registry values with CLI args that were explicitly provided
+            if 'max_tokens' in provided_args and hasattr(args, 'max_tokens') and args.max_tokens:
                 generation_config['max_new_tokens'] = args.max_tokens
-            elif hasattr(args, 'max_new_tokens') and args.max_new_tokens:
+            elif 'max_new_tokens' in provided_args and hasattr(args, 'max_new_tokens') and args.max_new_tokens:
                 generation_config['max_new_tokens'] = args.max_new_tokens
-            else:
-                generation_config['max_new_tokens'] = model_config.max_new_tokens
                 
-            if hasattr(args, 'temperature') and args.temperature is not None:
+            if 'temperature' in provided_args and hasattr(args, 'temperature'):
                 generation_config['temperature'] = args.temperature
-            else:
-                generation_config['temperature'] = model_config.temperature
                 
-            if hasattr(args, 'top_p') and args.top_p is not None:
+            if 'top_p' in provided_args and hasattr(args, 'top_p'):
                 generation_config['top_p'] = args.top_p
-            else:
-                generation_config['top_p'] = model_config.top_p
                 
-            if hasattr(args, 'do_sample') and args.do_sample is not None:
+            if 'do_sample' in provided_args and hasattr(args, 'do_sample'):
                 generation_config['do_sample'] = args.do_sample
-            else:
-                generation_config['do_sample'] = model_config.do_sample
+                
+            if 'repetition_penalty' in provided_args and hasattr(args, 'repetition_penalty'):
+                generation_config['repetition_penalty'] = args.repetition_penalty
+                
+            if 'top_k' in provided_args and hasattr(args, 'top_k'):
+                generation_config['top_k'] = args.top_k
             
             # Start the chat with proper parameters
             return self.chat_service.start_chat(model_name, model_config, generation_config)

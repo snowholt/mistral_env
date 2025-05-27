@@ -65,10 +65,10 @@ class ModelLifecycleService(BaseService):
                 with tqdm(total=100, desc=f"Loading {model_config.name}", unit="%") as pbar:
                     pbar.update(20)  # Configuration loaded
                     
-                    success = self.model_manager.load_model(model_config)
+                    model_instance = self.model_manager.load_model(model_config)
                     pbar.update(80)  # Model loaded
                     
-                    if success:
+                    if model_instance:
                         pbar.update(100)
                         logger.info(f"✅ Model '{model_config.name}' loaded successfully")
                         self._print_memory_status()
@@ -78,8 +78,8 @@ class ModelLifecycleService(BaseService):
                         logger.error(error_msg)
                         return False, error_msg
             else:
-                success = self.model_manager.load_model(model_config)
-                if success:
+                model_instance = self.model_manager.load_model(model_config)
+                if model_instance:
                     logger.info(f"Model '{model_config.name}' loaded successfully")
                     return True, None
                 else:
@@ -169,26 +169,25 @@ class ModelLifecycleService(BaseService):
     
     def list_loaded_models(self) -> List[Dict[str, Any]]:
         """
-        List all currently loaded models.
-        
+        List all currently loaded models and show cross-process state.
         Returns:
             List of loaded model information
         """
         try:
+            # Print cross-process state summary for user clarity
+            self.model_manager.print_cross_process_model_state()
             loaded_models = self.model_manager.list_loaded_models()
-            
             models_info = []
             for model_name in loaded_models:
-                # Get model info from the manager
+                model_instance = self.model_manager.get_loaded_model(model_name)
                 model_info = {
                     'name': model_name,
-                    'status': 'loaded',
-                    'memory_used': 'unknown'  # Could be enhanced with actual memory usage
+                    'status': 'loaded' if model_instance else 'error',
+                    'engine': getattr(getattr(model_instance, 'config', None), 'engine_type', 'unknown') if model_instance else 'unknown',
+                    'model_id': getattr(getattr(model_instance, 'config', None), 'model_id', 'unknown') if model_instance else 'unknown'
                 }
                 models_info.append(model_info)
-            
             return models_info
-            
         except Exception as e:
             logger.error(f"Error listing loaded models: {str(e)}")
             return []
