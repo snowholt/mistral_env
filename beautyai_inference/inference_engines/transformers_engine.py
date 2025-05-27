@@ -4,6 +4,7 @@ Inference engine implementation based on Hugging Face Transformers.
 import torch
 import time
 import logging
+import warnings
 from threading import Thread
 from typing import List, Dict, Any, Optional, Union, Tuple
 import os
@@ -27,6 +28,20 @@ from ..config.config_manager import ModelConfig
 from ..utils.memory_utils import get_gpu_memory_stats, time_function
 
 logger = logging.getLogger(__name__)
+
+
+def suppress_transformers_warnings():
+    """Suppress common Transformers warnings about generation parameters."""
+    # Filter out specific warnings about generation parameters
+    warnings.filterwarnings("ignore", message=".*generation flags.*")
+    warnings.filterwarnings("ignore", message=".*generation config.*")
+    warnings.filterwarnings("ignore", message=".*not valid.*")
+    warnings.filterwarnings("ignore", message=".*may be ignored.*")
+    warnings.filterwarnings("ignore", category=UserWarning, module="transformers")
+    
+    # Set environment variable to reduce verbosity
+    import os
+    os.environ.setdefault("TRANSFORMERS_VERBOSITY", "error")
 
 
 def register_mistral3_modules():
@@ -73,6 +88,9 @@ class TransformersEngine(ModelInterface):
         """Load the model into memory."""
         start_time = time.time()
         logger.info(f"Loading model: {self.config.model_id}")
+        
+        # Suppress warnings early
+        suppress_transformers_warnings()
 
         # Configure quantization if specified
         quantization_config = None
@@ -226,6 +244,8 @@ class TransformersEngine(ModelInterface):
             logger.info(f"Using text-generation pipeline for causal language model")
 
         # Create pipeline without generation parameters (they should be passed during inference)
+        suppress_transformers_warnings()  # Suppress warnings during pipeline creation
+        
         self.generator = pipeline(
             pipeline_task,
             model=self.model,
@@ -269,24 +289,45 @@ class TransformersEngine(ModelInterface):
         }
 
         # Filter parameters and log warnings for unsupported ones
+        # Filter out unsupported parameters for transformers pipeline
+        # Comprehensive list of supported parameters for text-generation pipeline
+        supported_params = {
+            'max_new_tokens', 'max_length', 'min_length', 'temperature', 
+            'top_p', 'repetition_penalty', 'length_penalty', 'num_beams', 
+            'early_stopping', 'do_sample', 'pad_token_id', 'eos_token_id', 
+            'use_cache', 'num_return_sequences'
+        }
+
         filtered_params = {}
         unsupported_params = []
         for param, value in generation_params.items():
             if param in supported_params:
-                filtered_params[param] = value
+                # Additional model-specific filtering
+                if param == 'temperature' and value == 0:
+                    # Some models don't handle temperature=0 well, use a small value
+                    filtered_params[param] = 0.01
+                elif param == 'do_sample' and value is False and 'temperature' in generation_params:
+                    # When do_sample=False, temperature should be ignored
+                    continue
+                else:
+                    filtered_params[param] = value
             else:
                 unsupported_params.append(param)
                 logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
         
-        # Log a user-friendly summary warning if any parameters were ignored
+        # Only log warnings for unexpected unsupported parameters
         if unsupported_params:
-            # Only show warning at INFO level for commonly unsupported params
-            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty'}
-            if set(unsupported_params).issubset(common_unsupported):
-                logger.info(f"Note: Parameters {unsupported_params} are not supported by Transformers engine (use vLLM for these)")
-            else:
-                logger.warning(f"Ignored unsupported generation parameters for Transformers engine: {unsupported_params}. "
+            # Common parameters that users might try but aren't supported by transformers
+            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty', 'logit_bias', 'stream'}
+            unexpected_unsupported = set(unsupported_params) - common_unsupported
+            
+            if unexpected_unsupported:
+                logger.warning(f"Ignored unexpected unsupported generation parameters for Transformers engine: {list(unexpected_unsupported)}. "
                               f"Supported parameters: {sorted(supported_params)}")
+            
+            # Only log info for commonly unsupported params if in debug mode
+            if common_unsupported.intersection(set(unsupported_params)):
+                logger.debug(f"Note: Parameters {list(common_unsupported.intersection(set(unsupported_params)))} are not supported by Transformers engine (use vLLM for these)")
 
         architecture = getattr(self.config, 'model_architecture', 'causal_lm')
 
@@ -295,7 +336,8 @@ class TransformersEngine(ModelInterface):
             # For seq2seq models, just use the prompt directly
             formatted_prompt = prompt
 
-            # Generate response
+            # Generate response with warning suppression
+            suppress_transformers_warnings()
             response = self.generator(
                 formatted_prompt,
                 **filtered_params
@@ -407,6 +449,7 @@ class TransformersEngine(ModelInterface):
         })
 
         # Filter out unsupported parameters for transformers pipeline
+        # Comprehensive list of supported parameters for text-generation pipeline
         supported_params = {
             'max_new_tokens', 'max_length', 'min_length', 'temperature', 
             'top_p', 'repetition_penalty', 'length_penalty', 'num_beams', 
@@ -418,22 +461,35 @@ class TransformersEngine(ModelInterface):
         unsupported_params = []
         for param, value in generation_params.items():
             if param in supported_params:
-                filtered_params[param] = value
+                # Additional model-specific filtering
+                if param == 'temperature' and value == 0:
+                    # Some models don't handle temperature=0 well, use a small value
+                    filtered_params[param] = 0.01
+                elif param == 'do_sample' and value is False and 'temperature' in generation_params:
+                    # When do_sample=False, temperature should be ignored
+                    continue
+                else:
+                    filtered_params[param] = value
             else:
                 unsupported_params.append(param)
                 logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
         
-        # Log a user-friendly summary warning if any parameters were ignored
+        # Only log warnings for unexpected unsupported parameters
         if unsupported_params:
-            # Only show warning at INFO level for commonly unsupported params
-            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty'}
-            if set(unsupported_params).issubset(common_unsupported):
-                logger.info(f"Note: Parameters {unsupported_params} are not supported by Transformers engine (use vLLM for these)")
-            else:
-                logger.warning(f"Ignored unsupported generation parameters for Transformers engine: {unsupported_params}. "
+            # Common parameters that users might try but aren't supported by transformers
+            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty', 'logit_bias', 'stream'}
+            unexpected_unsupported = set(unsupported_params) - common_unsupported
+            
+            if unexpected_unsupported:
+                logger.warning(f"Ignored unexpected unsupported generation parameters for Transformers engine: {list(unexpected_unsupported)}. "
                               f"Supported parameters: {sorted(supported_params)}")
+            
+            # Only log info for commonly unsupported params if in debug mode
+            if common_unsupported.intersection(set(unsupported_params)):
+                logger.debug(f"Note: Parameters {list(common_unsupported.intersection(set(unsupported_params)))} are not supported by Transformers engine (use vLLM for these)")
 
-        # Generate response
+        # Generate response with warning suppression
+        suppress_transformers_warnings()
         response = self.generator(
             formatted_prompt,
             **filtered_params

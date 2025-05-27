@@ -93,7 +93,6 @@ class ModelAddResponse(APIResponse):
 @dataclass
 class ModelLoadRequest(APIRequest):
     """Request to load a model into memory."""
-    model_name: str
     force_reload: bool = False
 
 

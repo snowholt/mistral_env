@@ -69,13 +69,26 @@ class ModelAPIAdapter(APIServiceAdapter):
         start_time = time.time()
         
         try:
-            # Configure services with default config
-            self.registry_service.configure({})
-            
-            # Get default app config
+            # Get default app config with proper model registry path
             from pathlib import Path
-            default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
-            app_config = AppConfig.load_from_file(default_config_path) if default_config_path.exists() else AppConfig()
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            default_config_path = config_dir / "default_config.json"
+            model_registry_path = config_dir / "model_registry.json"
+            
+            # Load app config
+            if default_config_path.exists():
+                app_config = AppConfig.load_from_file(default_config_path)
+                # Override the models_file to use absolute path
+                app_config.models_file = str(model_registry_path)
+            else:
+                app_config = AppConfig()
+                app_config.models_file = str(model_registry_path)
+            
+            # Load the model registry - this is the missing step!
+            app_config.load_model_registry()
+            
+            # Configure services with the corrected config
+            self.registry_service.configure({})
             
             # Get models from registry
             result = self.registry_service.list_models(app_config)
@@ -122,48 +135,17 @@ class ModelAPIAdapter(APIServiceAdapter):
             "get_system_status": "Get system memory and GPU status"
         }
 
-    def list_models(self, auth_context, request):
+    async def get_model(self, model_name: str) -> Dict[str, Any]:
         """
-        List available models with optional filtering.
+        Get detailed information about a specific model.
         
         Args:
-            auth_context: Authentication context
-            request: Model list request with optional filters
+            model_name: Name of the model to get info for
             
         Returns:
-            ModelListResponse with model list and metadata
+            Dictionary with detailed model information
         """
-        def _list_models():
-            # Get models from registry
-            models = self.registry_service.list_models(
-                model_type=request.model_type,
-                engine=request.engine,
-                quantization=request.quantization
-            )
-            
-            # Get loading status for each model
-            loaded_models = self.lifecycle_service.list_loaded_models()
-            loaded_model_names = {model['name'] for model in loaded_models}
-            
-            # Enhance model data with loading status
-            enhanced_models = []
-            for model in models:
-                model_data = model.copy()
-                model_data['is_loaded'] = model['name'] in loaded_model_names
-                enhanced_models.append(model_data)
-            
-            return {
-                "models": enhanced_models,
-                "total_count": len(enhanced_models),
-                "loaded_count": len(loaded_model_names),
-                "filters_applied": {
-                    "model_type": request.model_type,
-                    "engine": request.engine,
-                    "quantization": request.quantization
-                }
-            }
-        
-        return self.execute_with_auth(auth_context, _list_models)
+        return self.get_model_info(model_name)
 
     def get_model_info(self, model_name: str) -> Dict[str, Any]:
         """
@@ -179,10 +161,20 @@ class ModelAPIAdapter(APIServiceAdapter):
             # Configure services with default config
             self.registry_service.configure({})
             
-            # Get default app config
+            # Get default app config with proper model registry path
             from pathlib import Path
-            default_config_path = Path(__file__).parent.parent.parent / "config" / "default_config.json"
-            app_config = AppConfig.load_from_file(default_config_path) if default_config_path.exists() else AppConfig()
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            default_config_path = config_dir / "default_config.json"
+            model_registry_path = config_dir / "model_registry.json"
+            
+            # Load app config
+            if default_config_path.exists():
+                app_config = AppConfig.load_from_file(default_config_path)
+                # Override the models_file to use absolute path
+                app_config.models_file = str(model_registry_path)
+            else:
+                app_config = AppConfig()
+                app_config.models_file = str(model_registry_path)
             
             # Get model configuration
             result = self.registry_service.list_models(app_config)
@@ -216,43 +208,80 @@ class ModelAPIAdapter(APIServiceAdapter):
             logger.error(f"Failed to get model info for '{model_name}': {e}")
             raise
 
-    def load_model(self, model_name: str, engine: Optional[str] = None, 
-                  quantization: Optional[str] = None, **kwargs) -> Dict[str, Any]:
+    async def load_model(self, model_name: str, force_reload: bool = False) -> Dict[str, Any]:
         """
         Load a model for inference.
         
         Args:
             model_name: Name of the model to load
-            engine: Optional engine override
-            quantization: Optional quantization override
-            **kwargs: Additional configuration options
+            force_reload: Whether to force reload if already loaded
             
         Returns:
             Dictionary with loading result
         """
         try:
+            # Get default app config with proper model registry path
+            from pathlib import Path
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            default_config_path = config_dir / "default_config.json"
+            model_registry_path = config_dir / "model_registry.json"
+            
+            # Load app config
+            if default_config_path.exists():
+                app_config = AppConfig.load_from_file(default_config_path)
+                # Override the models_file to use absolute path
+                app_config.models_file = str(model_registry_path)
+            else:
+                app_config = AppConfig()
+                app_config.models_file = str(model_registry_path)
+            
+            # Load the model registry - this is the missing step!
+            app_config.load_model_registry()
+            
+            # Configure services with the corrected config
+            self.registry_service.configure({})
+            
+            # Get model configuration from registry
+            model_config = self.registry_service.get_model(app_config, model_name)
+            if not model_config:
+                raise ModelNotFoundError(f"Model '{model_name}' not found in registry")
+            
+            # Check if already loaded and not forcing reload
+            if not force_reload and self.lifecycle_service.model_manager.is_model_loaded(model_name):
+                return {
+                    "model_name": model_name,
+                    "model_id": model_config.model_id,
+                    "engine": model_config.engine_type,
+                    "quantization": model_config.quantization,
+                    "status": "already_loaded"
+                }
+            
+            # Track loading time
+            import time
+            start_time = time.time()
+            
             # Load the model using lifecycle service
-            result = self.lifecycle_service.load_model(
-                model_name=model_name,
-                engine=engine,
-                quantization=quantization,
-                **kwargs
-            )
+            success, error_msg = self.lifecycle_service.load_model(model_config, show_progress=True)
+            
+            load_time = time.time() - start_time
+            
+            if not success:
+                raise ModelLoadError(error_msg or f"Failed to load model '{model_name}'")
             
             return {
                 "model_name": model_name,
-                "engine": result.get("engine"),
-                "quantization": result.get("quantization"),
-                "loading_time_ms": result.get("loading_time_ms"),
-                "memory_usage": result.get("memory_usage"),
-                "status": "loaded"
+                "model_id": model_config.model_id,
+                "engine": model_config.engine_type,
+                "quantization": model_config.quantization,
+                "status": "loaded",
+                "load_time_seconds": load_time
             }
             
         except Exception as e:
             logger.error(f"Failed to load model '{model_name}': {e}")
             raise
 
-    def unload_model(self, model_name: str) -> Dict[str, Any]:
+    async def unload_model(self, model_name: str) -> Dict[str, Any]:
         """
         Unload a specific model.
         
@@ -264,13 +293,14 @@ class ModelAPIAdapter(APIServiceAdapter):
         """
         try:
             # Unload the model
-            result = self.lifecycle_service.unload_model(model_name)
+            success, error_msg = self.lifecycle_service.unload_model(model_name, show_progress=True)
+            
+            if not success:
+                raise ModelLoadError(error_msg or f"Failed to unload model '{model_name}'")
             
             return {
                 "model_name": model_name,
-                "status": "unloaded",
-                "memory_freed": result.get("memory_freed"),
-                "unloading_time_ms": result.get("unloading_time_ms")
+                "status": "unloaded"
             }
             
         except Exception as e:
@@ -298,7 +328,7 @@ class ModelAPIAdapter(APIServiceAdapter):
             logger.error(f"Failed to unload all models: {e}")
             raise
 
-    def get_model_status(self, model_name: Optional[str] = None) -> Dict[str, Any]:
+    async def get_model_status(self, model_name: Optional[str] = None) -> Dict[str, Any]:
         """
         Get current model loading and system status.
         
