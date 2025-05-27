@@ -89,31 +89,45 @@ class InferenceAPIAdapter(APIServiceAdapter):
                                        max_tokens: Optional[int], temperature: float, 
                                        **kwargs) -> Dict[str, Any]:
         """Generate non-streaming chat completion."""
-        # Convert messages to prompt format
-        prompt = self._messages_to_prompt(messages)
+        from ...core.model_manager import ModelManager
         
-        # Generate response
-        result = await self.chat_service.chat_with_model(
-            model_name=model_name,
-            message=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
+        # Get the loaded model
+        model_manager = ModelManager()
+        model = model_manager.get_loaded_model(model_name)
+        
+        if model is None:
+            raise InferenceError(f"Model '{model_name}' is not loaded")
+        
+        # Prepare generation parameters
+        generation_params = {
+            'temperature': temperature,
             **kwargs
-        )
+        }
+        if max_tokens:
+            generation_params['max_tokens'] = max_tokens
+        
+        # Generate response using the model's chat method
+        response_text = model.chat(messages, **generation_params)
+        
+        # Count tokens (rough estimation)
+        prompt_text = self._messages_to_prompt(messages)
+        prompt_tokens = len(prompt_text.split()) 
+        completion_tokens = len(response_text.split())
+        total_tokens = prompt_tokens + completion_tokens
         
         return {
             "choices": [{
                 "message": {
                     "role": "assistant",
-                    "content": result.get("response", "")
+                    "content": response_text
                 },
-                "finish_reason": result.get("finish_reason", "stop"),
+                "finish_reason": "stop",
                 "index": 0
             }],
             "usage": {
-                "prompt_tokens": result.get("prompt_tokens", 0),
-                "completion_tokens": result.get("completion_tokens", 0),
-                "total_tokens": result.get("total_tokens", 0)
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": total_tokens
             },
             "model": model_name,
             "created": int(time.time())
@@ -123,30 +137,40 @@ class InferenceAPIAdapter(APIServiceAdapter):
                                max_tokens: Optional[int], temperature: float, 
                                **kwargs) -> Iterator[Dict[str, Any]]:
         """Generate streaming chat completion."""
-        # Convert messages to prompt format
-        prompt = self._messages_to_prompt(messages)
+        # For now, fall back to non-streaming and yield as a single chunk
+        # TODO: Implement proper streaming support
+        from ...core.model_manager import ModelManager
         
-        # Generate streaming response
-        stream = self.chat_service.stream_chat_with_model(
-            model_name=model_name,
-            message=prompt,
-            max_tokens=max_tokens,
-            temperature=temperature,
+        # Get the loaded model
+        model_manager = ModelManager()
+        model = model_manager.get_loaded_model(model_name)
+        
+        if model is None:
+            raise InferenceError(f"Model '{model_name}' is not loaded")
+        
+        # Prepare generation parameters
+        generation_params = {
+            'temperature': temperature,
             **kwargs
-        )
+        }
+        if max_tokens:
+            generation_params['max_tokens'] = max_tokens
         
-        for chunk in stream:
-            yield {
-                "choices": [{
-                    "delta": {
-                        "content": chunk.get("text", "")
-                    },
-                    "index": 0,
-                    "finish_reason": chunk.get("finish_reason")
-                }],
-                "model": model_name,
-                "created": int(time.time())
-            }
+        # Generate response using the model's chat method
+        response_text = model.chat(messages, **generation_params)
+        
+        # Yield the response as a single chunk
+        yield {
+            "choices": [{
+                "delta": {
+                    "content": response_text
+                },
+                "index": 0,
+                "finish_reason": "stop"
+            }],
+            "model": model_name,
+            "created": int(time.time())
+        }
     
     def _messages_to_prompt(self, messages: List[Dict[str, str]]) -> str:
         """Convert chat messages to a single prompt string."""

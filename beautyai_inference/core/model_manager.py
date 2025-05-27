@@ -12,6 +12,7 @@ import tempfile
 import time
 from pathlib import Path
 from typing import Dict, Optional, List, Any
+from threading import Timer
 
 from .model_interface import ModelInterface
 from .model_factory import ModelFactory
@@ -32,6 +33,9 @@ class ModelManager:
             if cls._instance is None:
                 cls._instance = super(ModelManager, cls).__new__(cls)
                 cls._instance._loaded_models = {}  # Dict[str, ModelInterface]
+                cls._instance._model_timers = {}  # Dict[str, Timer] - auto-unload timers
+                cls._instance._model_last_used = {}  # Dict[str, float] - last access timestamps
+                cls._instance._auto_unload_minutes = 60  # Default 60 minutes keep-alive
                 cls._instance._initialize_persistence()
             return cls._instance
     
@@ -195,6 +199,9 @@ class ModelManager:
             # Update persistence state
             self._save_persistence_state()
             
+            # Start or reset the keep-alive timer for the model
+            self._start_model_timer(model_name)
+            
             return model
 
     def unload_model(self, model_name: str) -> bool:
@@ -218,6 +225,9 @@ class ModelManager:
             
             # Update persistence state - remove from persistence
             self._remove_from_persistence(model_name)
+            
+            # Stop the keep-alive timer for the model
+            self._stop_model_timer(model_name)
             
             return True
     
@@ -244,6 +254,9 @@ class ModelManager:
             
             # Clear persistence state since no models are loaded
             self._clear_persistence_state()
+            
+            # Stop all keep-alive timers
+            self._stop_all_model_timers()
             
             return True
     
@@ -407,3 +420,33 @@ class ModelManager:
                     info['persistence_state'] = persistence_info[model_name]
             
             return info if info else None
+    
+    def _start_model_timer(self, model_name: str):
+        """Start or reset the keep-alive timer for a model."""
+        self._stop_model_timer(model_name)  # Ensure no duplicate timers
+        timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
+        timer.start()
+        self._model_timers[model_name] = timer
+        logger.info(f"Started keep-alive timer for model '{model_name}' (will unload after {self._auto_unload_minutes} minutes of inactivity)")
+    
+    def _stop_model_timer(self, model_name: str):
+        """Stop the keep-alive timer for a model if running."""
+        timer = self._model_timers.pop(model_name, None)
+        if timer is not None:
+            timer.cancel()
+            logger.info(f"Stopped keep-alive timer for model '{model_name}'")
+    
+    def _stop_all_model_timers(self):
+        """Stop all keep-alive timers."""
+        for model_name in list(self._model_timers.keys()):
+            self._stop_model_timer(model_name)
+        logger.info("Stopped all keep-alive timers for loaded models")
+    
+    def _auto_unload_model(self, model_name: str):
+        """Automatically unload a model after a period of inactivity."""
+        with self._lock:
+            if model_name in self._loaded_models:
+                logger.info(f"Automatically unloading model '{model_name}' due to inactivity")
+                self.unload_model(model_name)
+            else:
+                logger.debug(f"Model '{model_name}' not found in loaded models during auto-unload check")

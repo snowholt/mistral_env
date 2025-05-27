@@ -8,6 +8,7 @@ Provides REST API endpoints for inference operations including:
 - Session management
 """
 import logging
+import time
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
@@ -32,48 +33,79 @@ session_service = SessionService()
 
 
 @inference_router.post("/chat", response_model=ChatResponse)
-async def start_chat_session(
+async def chat_completion(
     request: ChatRequest,
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
-    Start an interactive chat session with a model.
+    Generate a chat completion response from a model.
     
-    Creates a new chat session and returns session information.
-    The actual chat interaction would typically be handled via WebSocket.
+    Sends a message to the model and returns the response.
+    Supports both streaming and non-streaming responses.
     """
     require_permissions(auth, ["chat"])
     
     try:
-        # Convert request to args-like object for service compatibility
-        class ChatArgs:
-            def __init__(self, chat_request):
-                self.model_name = chat_request.model_name
-                self.system_prompt = chat_request.system_prompt
-                self.max_tokens = chat_request.max_tokens
-                self.temperature = chat_request.temperature
-                self.stream = chat_request.stream
-                self.session_name = getattr(chat_request, 'session_name', None)
+        # Import the inference adapter
+        from ..adapters.inference_adapter import InferenceAPIAdapter
         
-        args = ChatArgs(request)
+        # Create adapter instance with required service dependencies
+        inference_adapter = InferenceAPIAdapter(
+            chat_service=chat_service,
+            test_service=test_service, 
+            benchmark_service=benchmark_service
+        )
         
-        # Note: The actual chat service returns exit codes, not responses
-        # In a real API, this would be restructured to return proper data
-        result = chat_service.start_chat(args)
+        # Convert simple message to messages format
+        messages = []
         
-        if result == 0:
-            return ChatResponse(
-                success=True,
-                session_id=f"chat_{request.model_name}_{auth.user_id}",
-                model_name=request.model_name,
-                message="Chat session started successfully"
-            )
+        # Add chat history if provided
+        if request.chat_history:
+            for msg in request.chat_history:
+                messages.append({
+                    "role": msg.get("role", "user"),
+                    "content": msg.get("content", "")
+                })
+        
+        # Add current user message
+        messages.append({
+            "role": "user", 
+            "content": request.message
+        })
+        
+        # Extract generation parameters from generation_config
+        generation_params = {}
+        if request.generation_config:
+            generation_params.update(request.generation_config)
+        
+        # Generate response using the adapter
+        response_data = await inference_adapter.chat_completion(
+            model_name=request.model_name,
+            messages=messages,
+            stream=request.stream,
+            **generation_params
+        )
+        
+        # Extract response text
+        if "choices" in response_data and len(response_data["choices"]) > 0:
+            response_text = response_data["choices"][0].get("message", {}).get("content", "")
         else:
-            raise HTTPException(status_code=500, detail="Failed to start chat session")
+            response_text = "No response generated"
+        
+        # Generate session ID if not provided
+        session_id = request.session_id or f"chat_{request.model_name}_{int(time.time())}"
+        
+        return ChatResponse(
+            success=True,
+            response=response_text,
+            session_id=session_id,
+            model_name=request.model_name,
+            generation_stats=response_data.get("usage", {})
+        )
             
     except Exception as e:
-        logger.error(f"Failed to start chat: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to start chat: {str(e)}")
+        logger.error(f"Failed to generate chat response: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate chat response: {str(e)}")
 
 
 @inference_router.post("/test", response_model=TestResponse)
