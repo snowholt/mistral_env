@@ -349,3 +349,41 @@ class ModelLifecycleService(BaseService):
         except Exception as e:
             logger.warning(f"Could not print memory status: {e}")
             print("📊 Memory status unavailable\n")
+    
+    def show_status(self) -> Dict[str, Any]:
+        """
+        Get comprehensive status information including loaded models and memory usage.
+        
+        Returns:
+            Dict[str, Any]: Status information
+        """
+        try:
+            # Get loaded models
+            loaded_models = self.list_loaded_models()
+            
+            # Get memory status
+            memory_status = self.get_memory_status()
+            
+            # Get GPU memory stats
+            gpu_stats = get_gpu_memory_stats()
+            
+            return {
+                "success": True,
+                "loaded_models": {
+                    "count": len(loaded_models),
+                    "models": loaded_models
+                },
+                "memory_status": memory_status,
+                "gpu_stats": gpu_stats,
+                "timestamp": logging.datetime.now().isoformat() if hasattr(logging, 'datetime') else None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get status: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "loaded_models": {"count": 0, "models": []},
+                "memory_status": {},
+                "gpu_stats": []
+            }

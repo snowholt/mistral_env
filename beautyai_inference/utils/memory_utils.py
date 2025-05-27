@@ -25,6 +25,7 @@ def get_gpu_info() -> Dict[str, Any]:
 def get_gpu_memory_stats() -> List[Dict[str, Any]]:
     """
     Get detailed GPU memory usage statistics for all available GPUs.
+    Uses nvidia-smi for system-wide accurate memory reporting.
     
     Returns:
         List[Dict[str, Any]]: List of dictionaries with memory stats for each GPU
@@ -33,47 +34,84 @@ def get_gpu_memory_stats() -> List[Dict[str, Any]]:
     
     if not torch.cuda.is_available():
         return stats
+    
+    try:
+        import subprocess
         
-    # Get stats for each GPU
-    for i in range(torch.cuda.device_count()):
-        device_props = torch.cuda.get_device_properties(i)
-        total_memory = device_props.total_memory
+        # Get memory info using nvidia-smi for system-wide accuracy
+        result = subprocess.run(
+            ['nvidia-smi', '--query-gpu=index,name,memory.total,memory.used,memory.free,utilization.gpu', 
+             '--format=csv,noheader,nounits'],
+            capture_output=True,
+            text=True,
+            timeout=10
+        )
         
-        # Memory in bytes
-        memory_allocated = torch.cuda.memory_allocated(i)
-        memory_reserved = torch.cuda.memory_reserved(i)
-        memory_free = total_memory - memory_allocated
-        
-        # Calculate percentages
-        memory_used_percent = (memory_allocated / total_memory) * 100 if total_memory > 0 else 0
-        
-        # Get GPU utilization (only on NVIDIA with nvidia-smi)
-        gpu_utilization = 0
-        try:
-            import subprocess
-            result = subprocess.run(
-                ['nvidia-smi', f'--query-gpu=utilization.gpu', '--format=csv,noheader,nounits', '-i', str(i)],
-                capture_output=True,
-                text=True
-            )
-            gpu_utilization = float(result.stdout.strip())
-        except:
-            pass
-            
-        # Add to stats list
-        stats.append({
-            "index": i,
-            "name": device_props.name,
-            "total_memory": total_memory,
-            "memory_used": memory_allocated,
-            "memory_reserved": memory_reserved,
-            "memory_free": memory_free,
-            "memory_total_mb": total_memory / (1024**2),
-            "memory_used_mb": memory_allocated / (1024**2),
-            "memory_free_mb": memory_free / (1024**2),
-            "memory_used_percent": memory_used_percent,
-            "gpu_utilization": gpu_utilization
-        })
+        if result.returncode == 0:
+            lines = result.stdout.strip().split('\n')
+            for line in lines:
+                parts = [p.strip() for p in line.split(',')]
+                if len(parts) >= 6:
+                    index = int(parts[0])
+                    name = parts[1]
+                    total_memory_mb = float(parts[2])
+                    used_memory_mb = float(parts[3])
+                    free_memory_mb = float(parts[4])
+                    gpu_utilization = float(parts[5])
+                    
+                    # Convert to bytes
+                    total_memory = total_memory_mb * (1024**2)
+                    memory_used = used_memory_mb * (1024**2)
+                    memory_free = free_memory_mb * (1024**2)
+                    
+                    # Calculate percentage
+                    memory_used_percent = (used_memory_mb / total_memory_mb) * 100 if total_memory_mb > 0 else 0
+                    
+                    stats.append({
+                        "index": index,
+                        "name": name,
+                        "total_memory": total_memory,
+                        "memory_used": memory_used,
+                        "memory_reserved": 0,  # nvidia-smi doesn't distinguish reserved vs used
+                        "memory_free": memory_free,
+                        "memory_total_mb": total_memory_mb,
+                        "memory_used_mb": used_memory_mb,
+                        "memory_free_mb": free_memory_mb,
+                        "memory_used_percent": memory_used_percent,
+                        "gpu_utilization": gpu_utilization
+                    })
+        else:
+            # Fallback to PyTorch CUDA functions (process-local only)
+            for i in range(torch.cuda.device_count()):
+                device_props = torch.cuda.get_device_properties(i)
+                total_memory = device_props.total_memory
+                
+                # Memory in bytes (process-local)
+                memory_allocated = torch.cuda.memory_allocated(i)
+                memory_reserved = torch.cuda.memory_reserved(i)
+                memory_free = total_memory - memory_allocated
+                
+                # Calculate percentages
+                memory_used_percent = (memory_allocated / total_memory) * 100 if total_memory > 0 else 0
+                
+                stats.append({
+                    "index": i,
+                    "name": device_props.name,
+                    "total_memory": total_memory,
+                    "memory_used": memory_allocated,
+                    "memory_reserved": memory_reserved,
+                    "memory_free": memory_free,
+                    "memory_total_mb": total_memory / (1024**2),
+                    "memory_used_mb": memory_allocated / (1024**2),
+                    "memory_free_mb": memory_free / (1024**2),
+                    "memory_used_percent": memory_used_percent,
+                    "gpu_utilization": 0  # Not available without nvidia-smi
+                })
+                
+    except Exception as e:
+        # Emergency fallback - return empty stats with error info
+        print(f"Warning: Could not get GPU memory stats: {e}")
+        return []
     
     return stats
 
