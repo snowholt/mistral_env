@@ -267,7 +267,7 @@ models = response.json()
 
 # Add a new model
 model_data = {
-    "name": "my-qwen",
+    "name": "qwen3-model",
     "model_id": "Qwen/Qwen3-14B",
     "engine_type": "transformers",
     "quantization": "4bit",
@@ -277,7 +277,7 @@ response = requests.post(f"{base_url}/models", json=model_data)
 
 # Start a chat session
 chat_data = {
-    "model_name": "my-qwen",
+    "model_name": "qwen3-model",
     "messages": [{"role": "user", "content": "Hello, how are you?"}],
     "generation_config": {
         "temperature": 0.7,

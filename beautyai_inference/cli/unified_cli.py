@@ -399,20 +399,20 @@ class UnifiedCLI:
 Examples:
   # Model registry management
   beautyai model list                                    # List all available models
-  beautyai model add --name my-qwen --model-id Qwen/Qwen3-14B  # Add new model to registry
-  beautyai model show my-qwen                            # Show model details
-  beautyai model set-default my-qwen                     # Set default model
+  beautyai model add --name qwen3-model --model-id Qwen/Qwen3-14B  # Add new model to registry
+  beautyai model show qwen3-model                            # Show model details
+  beautyai model set-default qwen3-model                     # Set default model
   
   # System lifecycle management
-  beautyai system load my-qwen                           # Load model into memory
+  beautyai system load qwen3-model                           # Load model into memory
   beautyai system status                                 # Show system status
-  beautyai system unload my-qwen                         # Unload model from memory
-  beautyai system clear-cache my-qwen                    # Clear model cache
+  beautyai system unload qwen3-model                         # Unload model from memory
+  beautyai system clear-cache qwen3-model                    # Clear model cache
   
   # Inference operations
-  beautyai run chat --model-name my-qwen                 # Start interactive chat
+  beautyai run chat --model-name qwen3-model                 # Start interactive chat
   beautyai run test --model Qwen/Qwen3-14B               # Test model with sample prompts
-  beautyai run benchmark --model-name my-qwen            # Run performance benchmarks
+  beautyai run benchmark --model-name qwen3-model            # Run performance benchmarks
   beautyai run save-session --output-file session.json   # Save chat session
   beautyai run load-session --input-file session.json    # Load chat session
   
