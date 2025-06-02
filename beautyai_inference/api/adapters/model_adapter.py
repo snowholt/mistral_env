@@ -37,23 +37,6 @@ class ModelAPIAdapter(APIServiceAdapter):
         self.lifecycle_service = lifecycle_service
         self.validation_service = validation_service
         super().__init__(self.registry_service)  # Use registry as primary service
-    """
-    API adapter for model management operations.
-    
-    Provides API-compatible interface for:
-    - Model registry operations (list, add, update, remove)
-    - Model lifecycle management (load, unload, status)
-    - Model validation and configuration
-    """
-    
-    def __init__(self, registry_service: RegistryService, 
-                 lifecycle_service: ModelLifecycleService,
-                 validation_service: ModelValidationService):
-        """Initialize model API adapter with required services."""
-        self.registry_service = registry_service
-        self.lifecycle_service = lifecycle_service
-        self.validation_service = validation_service
-        super().__init__(self.registry_service)  # Use registry as primary service
     
     async def list_models(self, limit: Optional[int] = None, offset: int = 0) -> Dict[str, Any]:
         """
@@ -145,18 +128,6 @@ class ModelAPIAdapter(APIServiceAdapter):
         Returns:
             Dictionary with detailed model information
         """
-        return self.get_model_info(model_name)
-
-    def get_model_info(self, model_name: str) -> Dict[str, Any]:
-        """
-        Get detailed information about a specific model.
-        
-        Args:
-            model_name: Name of the model to get info for
-            
-        Returns:
-            Dictionary with detailed model information
-        """
         try:
             # Configure services with default config
             self.registry_service.configure({})
@@ -175,6 +146,9 @@ class ModelAPIAdapter(APIServiceAdapter):
             else:
                 app_config = AppConfig()
                 app_config.models_file = str(model_registry_path)
+            
+            # Load the model registry - this was the missing step!
+            app_config.load_model_registry()
             
             # Get model configuration
             result = self.registry_service.list_models(app_config)
@@ -339,6 +313,34 @@ class ModelAPIAdapter(APIServiceAdapter):
             Dictionary with status information
         """
         try:
+            # Get default app config with proper model registry path
+            from pathlib import Path
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            default_config_path = config_dir / "default_config.json"
+            model_registry_path = config_dir / "model_registry.json"
+            
+            # Load app config
+            if default_config_path.exists():
+                app_config = AppConfig.load_from_file(default_config_path)
+                # Override the models_file to use absolute path
+                app_config.models_file = str(model_registry_path)
+            else:
+                app_config = AppConfig()
+                app_config.models_file = str(model_registry_path)
+            
+            # Always load the model registry
+            app_config.load_model_registry()
+            
+            # Verify the model exists if a specific model is requested
+            if model_name:
+                # Get model configuration from registry
+                result = self.registry_service.list_models(app_config)
+                models_data = result["models"]
+                
+                # Check if model exists
+                if model_name not in models_data:
+                    raise ModelNotFoundError(f"Model '{model_name}' not found in registry")
+            
             # Get loaded models
             loaded_models = self.lifecycle_service.list_loaded_models()
             
