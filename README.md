@@ -108,6 +108,48 @@ Access the interactive API documentation at:
 - **ReDoc**: http://localhost:8000/redoc
 - **Health Check**: http://localhost:8000/health
 
+### Service Management (Ubuntu/systemd)
+
+For development convenience, BeautyAI includes systemd service management for running the API server as a system service:
+
+```bash
+# Install the systemd service (one-time setup)
+./manage-api-service.sh install
+
+# Start the API service
+./manage-api-service.sh start
+
+# Check service status and API health
+./manage-api-service.sh status
+
+# View service logs
+./manage-api-service.sh logs
+
+# Stop the service
+./manage-api-service.sh stop
+
+# Restart the service (useful after code changes)
+./manage-api-service.sh restart
+
+# Enable auto-start on boot (optional)
+./manage-api-service.sh enable
+```
+
+**Standard systemctl commands** also work after installation:
+```bash
+sudo systemctl start beautyai-api     # Start service
+sudo systemctl stop beautyai-api      # Stop service
+sudo systemctl status beautyai-api    # Check status
+sudo journalctl -u beautyai-api -f    # Follow logs
+```
+
+**Features:**
+- Auto-restart on failure
+- Development mode with `--reload` for automatic code reloading
+- Proper security restrictions and resource limits
+- Integration with Ubuntu system logging
+- Easy start/stop for development workflows
+
 ## 📚 Command Reference
 
 ### Model Registry Management
