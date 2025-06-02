@@ -19,29 +19,13 @@ health_router = APIRouter(prefix="/health", tags=["health"])
 
 
 @health_router.get("/basic")
-async def health_check() -> Dict[str, Any]:
-    """Basic health check endpoint."""
+async def health_check_basic() -> Dict[str, Any]:
+    """Basic health check endpoint - Simple version without authentication."""
     return {
         "status": "healthy",
         "timestamp": datetime.utcnow().isoformat() + "Z",
         "service": "BeautyAI Inference API",
         "version": "1.0.0"
-    }
-
-
-@health_router.get("/status")
-async def detailed_status() -> Dict[str, Any]:
-    """Detailed system status."""
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "service": "BeautyAI Inference API",
-        "version": "1.0.0",
-        "components": {
-            "api": "healthy",
-            "models": "not_loaded",
-            "memory": "available"
-        }
     }
 
 # Initialize status service

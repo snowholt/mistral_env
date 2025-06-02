@@ -35,11 +35,11 @@ app.add_middleware(
 )
 
 # Include routers
-app.include_router(health_router, tags=["Health"])
-app.include_router(models_router, tags=["Models"])
-app.include_router(inference_router, tags=["Inference"])
-app.include_router(config_router, tags=["Configuration"])
-app.include_router(system_router, tags=["System"])
+app.include_router(health_router)
+app.include_router(models_router)
+app.include_router(inference_router)
+app.include_router(config_router)
+app.include_router(system_router)
 
 
 @app.on_event("startup")
