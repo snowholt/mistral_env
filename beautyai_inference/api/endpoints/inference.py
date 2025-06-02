@@ -331,23 +331,28 @@ async def load_session(
     require_permissions(auth, ["session_load"])
     
     try:
-        # Convert request to args-like object for service compatibility
-        class SessionArgs:
-            def __init__(self, session_request):
-                self.session_name = session_request.session_name
-                self.session_file = session_request.session_file
+        import json
+        import os
         
-        args = SessionArgs(request)
-        result = session_service.load_session(args)
-        if result == 0:
-            return SessionLoadResponse(
-                success=True,
-                session_data={},  # TODO: set actual session data if available
-                session_id="",
-                message_count=0
-            )
-        else:
-            raise HTTPException(status_code=404, detail="Session not found")
+        # Check if file exists
+        if not os.path.exists(request.input_file):
+            raise HTTPException(status_code=404, detail=f"Session file not found: {request.input_file}")
+        
+        # Load session data from file
+        with open(request.input_file, 'r') as f:
+            session_data = json.load(f)
+        
+        # Extract session info
+        session_id = session_data.get("session_id", "")
+        messages = session_data.get("messages", [])
+        message_count = len(messages)
+        
+        return SessionLoadResponse(
+            success=True,
+            session_data=session_data,
+            session_id=session_id,
+            message_count=message_count
+        )
             
     except Exception as e:
         logger.error(f"Failed to load session: {e}")
@@ -366,14 +371,39 @@ async def list_sessions(
     require_permissions(auth, ["session_load"])
     
     try:
-        # TODO: Implement session listing in service
-        # For now, return placeholder data
+        import os
+        import json
+        
+        sessions_dir = "/home/lumi/beautyai/sessions"
+        sessions = []
+        
+        # Check if sessions directory exists
+        if os.path.exists(sessions_dir):
+            # List all JSON files in sessions directory
+            for filename in os.listdir(sessions_dir):
+                if filename.endswith('.json'):
+                    file_path = os.path.join(sessions_dir, filename)
+                    try:
+                        # Try to load session metadata
+                        with open(file_path, 'r') as f:
+                            session_data = json.load(f)
+                        
+                        sessions.append({
+                            "session_id": session_data.get("session_id", filename[:-5]),  # Remove .json
+                            "file_path": file_path,
+                            "file_size": os.path.getsize(file_path),
+                            "message_count": len(session_data.get("messages", [])),
+                            "last_modified": os.path.getmtime(file_path)
+                        })
+                    except Exception as e:
+                        logger.warning(f"Could not read session file {filename}: {e}")
+        
         return APIResponse(
             success=True,
             data={
-                "sessions": [],
-                "total_count": 0,
-                "message": "No sessions found"
+                "sessions": sessions,
+                "total_count": len(sessions),
+                "message": f"Found {len(sessions)} sessions"
             }
         )
         
@@ -395,7 +425,18 @@ async def delete_session(
     require_permissions(auth, ["session_delete"])
     
     try:
-        # TODO: Implement session deletion in service
+        import os
+        
+        sessions_dir = "/home/lumi/beautyai/sessions"
+        file_path = os.path.join(sessions_dir, f"{session_name}.json")
+        
+        # Check if file exists
+        if not os.path.exists(file_path):
+            raise HTTPException(status_code=404, detail=f"Session not found: {session_name}")
+        
+        # Delete the file
+        os.remove(file_path)
+        
         return APIResponse(
             success=True,
             data={
