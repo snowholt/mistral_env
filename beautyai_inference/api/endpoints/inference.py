@@ -19,7 +19,7 @@ from ..models import (
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
-from ...services.inference import ChatService, TestService, BenchmarkService, SessionService
+from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +30,7 @@ chat_service = ChatService()
 test_service = TestService()
 benchmark_service = BenchmarkService()
 session_service = SessionService()
+content_filter_service = ContentFilterService()
 
 
 @inference_router.post("/chat", response_model=ChatResponse)
@@ -72,6 +73,21 @@ async def chat_completion(
             "role": "user", 
             "content": request.message
         })
+        
+        # Content filtering check for the current user message
+        filter_result = content_filter_service.filter_content(request.message, language='ar')
+        if not filter_result.is_allowed:
+            return ChatResponse(
+                message="",
+                response=filter_result.suggested_response,
+                model_info={
+                    "model_name": request.model_name,
+                    "status": "filtered"
+                },
+                generation_config=request.generation_config,
+                success=False,
+                error=f"Content filtered: {filter_result.filter_reason}"
+            )
         
         # Extract generation parameters from generation_config
         generation_params = {}

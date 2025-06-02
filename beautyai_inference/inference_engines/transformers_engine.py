@@ -26,6 +26,7 @@ from transformers.models.auto import modeling_auto
 from ..core.model_interface import ModelInterface
 from ..config.config_manager import ModelConfig
 from ..utils.memory_utils import get_gpu_memory_stats, time_function
+from ..services.inference.content_filter_service import ContentFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -79,6 +80,9 @@ class TransformersEngine(ModelInterface):
         self.model = None
         self.tokenizer = None
         self.generator = None
+        
+        # Initialize content filter
+        self.content_filter = ContentFilterService()
 
         # Register Mistral3 modules if we're loading a Mistral3 model
         if "mistral" in self.config.model_id.lower() and "3" in self.config.model_id:
@@ -431,6 +435,21 @@ class TransformersEngine(ModelInterface):
         """Generate a response in a conversation."""
         if not self.model or not self.tokenizer:
             self.load_model()
+
+        # Extract the last user message for content filtering
+        last_user_message = None
+        for message in reversed(messages):
+            if message.get('role') == 'user':
+                last_user_message = message.get('content', '')
+                break
+        
+        # Apply content filtering
+        if last_user_message:
+            filter_result = self.content_filter.filter_content(last_user_message)
+            if not filter_result.is_allowed:
+                logger.warning(f"Content filtered: {filter_result.filter_reason}")
+                logger.debug(f"Filtered content: {last_user_message[:100]}...")
+                return filter_result.suggested_response or "I apologize, but I cannot assist with that request."
 
         # Format conversation
         formatted_prompt = self._format_conversation(messages)

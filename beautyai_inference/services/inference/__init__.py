@@ -12,10 +12,12 @@ from .chat_service import ChatService
 from .test_service import TestService
 from .benchmark_service import BenchmarkService
 from .session_service import SessionService
+from .content_filter_service import ContentFilterService
 
 __all__ = [
     'ChatService',
     'TestService', 
     'BenchmarkService',
-    'SessionService'
+    'SessionService',
+    'ContentFilterService'
 ]

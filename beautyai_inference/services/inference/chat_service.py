@@ -18,6 +18,7 @@ from ..base.base_service import BaseService
 from ...config.config_manager import AppConfig, ModelConfig
 from ...core.model_manager import ModelManager
 from ...utils.memory_utils import clear_terminal_screen
+from .content_filter_service import ContentFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class ChatService(BaseService):
     def __init__(self):
         super().__init__()
         self.model_manager = ModelManager()
+        self.content_filter = ContentFilterService()
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
     
     def start_chat(self, model_name: str, model_config: ModelConfig, 
@@ -140,6 +142,14 @@ class ChatService(BaseService):
                             chat_history[0] = {"role": "system", "content": system_message}
                         else:
                             chat_history.insert(0, {"role": "system", "content": system_message})
+                        continue
+                    
+                    # Content filtering check
+                    filter_result = self.content_filter.filter_content(user_input, language='ar')
+                    if not filter_result.is_allowed:
+                        print(f"\n🚫 {filter_result.suggested_response}")
+                        if filter_result.filter_reason:
+                            logger.info(f"Blocked user input due to: {filter_result.filter_reason}")
                         continue
                     
                     # Add user message to conversation
@@ -307,6 +317,14 @@ class ChatService(BaseService):
                             chat_history[0] = {"role": "system", "content": system_message}
                         else:
                             chat_history.insert(0, {"role": "system", "content": system_message})
+                        continue
+                    
+                    # Content filtering check
+                    filter_result = self.content_filter.filter_content(user_input, language='ar')
+                    if not filter_result.is_allowed:
+                        print(f"\n🚫 {filter_result.suggested_response}")
+                        if filter_result.filter_reason:
+                            logger.info(f"Blocked user input due to: {filter_result.filter_reason}")
                         continue
                     
                     # Continue with normal message processing, identical to start_chat
