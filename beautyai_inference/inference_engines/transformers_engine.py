@@ -26,7 +26,6 @@ from transformers.models.auto import modeling_auto
 from ..core.model_interface import ModelInterface
 from ..config.config_manager import ModelConfig
 from ..utils.memory_utils import get_gpu_memory_stats, time_function
-from ..services.inference.content_filter_service import ContentFilterService
 
 logger = logging.getLogger(__name__)
 
@@ -81,8 +80,8 @@ class TransformersEngine(ModelInterface):
         self.tokenizer = None
         self.generator = None
         
-        # Initialize content filter
-        self.content_filter = ContentFilterService()
+        # Content filter will be injected when needed
+        self.content_filter = None
 
         # Register Mistral3 modules if we're loading a Mistral3 model
         if "mistral" in self.config.model_id.lower() and "3" in self.config.model_id:
@@ -258,6 +257,10 @@ class TransformersEngine(ModelInterface):
 
         loading_time = time.time() - start_time
         logger.info(f"Model loaded in {loading_time:.2f} seconds")
+
+    def set_content_filter(self, content_filter):
+        """Inject content filter service to avoid circular imports."""
+        self.content_filter = content_filter
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt."""
@@ -443,8 +446,8 @@ class TransformersEngine(ModelInterface):
                 last_user_message = message.get('content', '')
                 break
         
-        # Apply content filtering
-        if last_user_message:
+        # Apply content filtering if available
+        if last_user_message and self.content_filter:
             filter_result = self.content_filter.filter_content(last_user_message)
             if not filter_result.is_allowed:
                 logger.warning(f"Content filtered: {filter_result.filter_reason}")

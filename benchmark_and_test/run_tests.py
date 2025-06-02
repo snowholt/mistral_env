@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """
-BeautyAI Test Runner
+BeautyAI Independent Benchmarking & Testing System Test Runner
 
-Comprehensive test runner for all BeautyAI framework components with organized
-test categories and detailed reporting.
+Comprehensive test runner for the independent benchmarking and testing system
+with organized test categories and detailed reporting.
 """
 import os
 import sys
@@ -13,39 +13,35 @@ import time
 from typing import List, Dict, Optional
 from pathlib import Path
 
-# Add the parent directory to the path for imports
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Set up path for independent system
+current_dir = Path(__file__).parent.resolve()
+sys.path.insert(0, str(current_dir))
 
 
-class BeautyAITestRunner:
-    """Comprehensive test runner for BeautyAI framework."""
+class IndependentTestRunner:
+    """Test runner for independent benchmarking & testing system."""
     
-    def __init__(self, project_root: str = None):
+    def __init__(self, system_root: str = None):
         """Initialize test runner."""
-        if project_root is None:
-            project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if system_root is None:
+            # Get the system root from the script location
+            script_dir = Path(__file__).parent.resolve()
+            system_root = script_dir
         
-        self.project_root = Path(project_root)
-        self.tests_dir = self.project_root / "tests"
+        self.system_root = Path(system_root).resolve()
+        self.tests_dir = self.system_root / "tests"
         
-        # Test categories with their respective files
+        # Test categories for independent system
         self.test_categories = {
-            "cli": [
-                "test_unified_cli.py",
-                "test_unified_cli_integration.py", 
-                "test_cli_help.py",
-                "test_cli_error_handling.py",
-                "test_cli_end_to_end.py"
+            "benchmarking": [
+                "test_enhanced_benchmarking.py"
             ],
             "content_filter": [
                 "test_content_filter.py"
             ],
-            "benchmarking": [
-                "test_enhanced_benchmarking.py"
-            ],
-            "integration": [
-                "test_unified_cli_integration.py",
-                "test_cli_end_to_end.py"
+            "all": [
+                "test_enhanced_benchmarking.py",
+                "test_content_filter.py"
             ]
         }
     
@@ -130,7 +126,7 @@ class BeautyAITestRunner:
             start_time = time.time()
             result = subprocess.run(
                 cmd,
-                cwd=self.project_root,
+                cwd=self.system_root,
                 capture_output=True,
                 text=True,
                 timeout=300  # 5 minute timeout per test file
@@ -268,7 +264,7 @@ class BeautyAITestRunner:
         
         checks = {
             "Python version": sys.version.split()[0],
-            "Project root exists": self.project_root.exists(),
+            "System root exists": self.system_root.exists(),
             "Tests directory exists": self.tests_dir.exists(),
             "BeautyAI package importable": self._check_import("beautyai_inference"),
             "Pytest available": self._check_import("pytest"),
@@ -339,7 +335,7 @@ Examples:
     args = parser.parse_args()
     
     # Initialize test runner
-    runner = BeautyAITestRunner(args.project_root)
+    runner = IndependentTestRunner(args.project_root)
     
     if args.check:
         env_ok = runner.check_test_environment()

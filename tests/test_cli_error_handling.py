@@ -21,23 +21,19 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
 
     def setUp(self):
         """Set up the test environment."""
-        # Create mocks for the services
-        self.mock_model_registry_service = MagicMock()
-        self.mock_lifecycle_service = MagicMock()
-        self.mock_inference_service = MagicMock()
+        # Create a mock adapter to inject mocked services
+        self.mock_adapter = MagicMock()
         self.mock_config_service = MagicMock()
         
         # Set default return values to avoid None returns
-        self.mock_model_registry_service.list_models.return_value = 0
-        self.mock_lifecycle_service.show_status.return_value = 0
-        self.mock_inference_service.start_chat.return_value = 0
+        self.mock_adapter.list_models.return_value = 0
+        self.mock_adapter.show_status.return_value = 0
+        self.mock_adapter.start_chat.return_value = 0
         self.mock_config_service.show_config.return_value = 0
         
-        # Create the CLI with mocked services
+        # Create the CLI with mocked adapter and config service
         self.cli = UnifiedCLI(
-            model_registry_service=self.mock_model_registry_service,
-            lifecycle_service=self.mock_lifecycle_service,
-            inference_service=self.mock_inference_service,
+            adapter=self.mock_adapter,
             config_service=self.mock_config_service
         )
 
@@ -59,7 +55,7 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
     def test_model_command_error_handling(self):
         """Test error handling in model commands."""
         # Mock the list_models method to raise an exception
-        self.mock_model_registry_service.list_models.side_effect = ValueError("Test error")
+        self.mock_adapter.list_models.side_effect = ValueError("Test error")
         
         args = argparse.Namespace()
         args.command_group = "model"
@@ -79,7 +75,7 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
     def test_system_command_error_handling(self):
         """Test error handling in system commands."""
         # Mock the show_status method to raise an exception
-        self.mock_lifecycle_service.show_status.side_effect = RuntimeError("Test error")
+        self.mock_adapter.show_status.side_effect = RuntimeError("Test error")
         
         args = argparse.Namespace()
         args.command_group = "system"
@@ -99,7 +95,7 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
     def test_run_command_error_handling(self):
         """Test error handling in run commands."""
         # Mock the start_chat method to raise an exception
-        self.mock_inference_service.start_chat.side_effect = Exception("Test error")
+        self.mock_adapter.start_chat.side_effect = Exception("Test error")
         
         args = argparse.Namespace()
         args.command_group = "run"
@@ -207,7 +203,7 @@ class TestBeautyAICLIErrorHandling(unittest.TestCase):
     def test_service_configuration_error(self):
         """Test error handling during service configuration."""
         # Mock the list_models method to raise an exception due to incomplete configuration
-        self.mock_model_registry_service.list_models.side_effect = ValueError("Configuration missing")
+        self.mock_adapter.list_models.side_effect = ValueError("Configuration missing")
         
         args = argparse.Namespace()
         args.command_group = "model"
