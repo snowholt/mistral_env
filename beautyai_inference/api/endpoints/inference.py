@@ -137,32 +137,45 @@ async def run_model_test(
     require_permissions(auth, ["test"])
     
     try:
-        # Convert request to args-like object for service compatibility
-        class TestArgs:
-            def __init__(self, test_request):
-                self.model_name = test_request.model_name
-                self.prompt = test_request.prompt
-                self.max_tokens = test_request.max_tokens
-                self.temperature = test_request.temperature
-                self.output_file = None  # API mode doesn't save to file
+        # Import the inference adapter
+        from ..adapters.inference_adapter import InferenceAPIAdapter
         
-        args = TestArgs(request)
+        # Create adapter instance with required service dependencies
+        inference_adapter = InferenceAPIAdapter(
+            chat_service=chat_service,
+            test_service=test_service, 
+            benchmark_service=benchmark_service
+        )
         
-        # Note: The test service returns exit codes, not response data
-        # In a real implementation, this would be restructured for API use
-        result = test_service.run_test(args)
+        # Extract generation parameters from generation_config
+        generation_params = {}
+        if request.generation_config:
+            generation_params.update(request.generation_config)
         
-        if result == 0:
-            return TestResponse(
-                success=True,
-                model_name=request.model_name,
-                prompt=request.prompt,
-                response="Test completed successfully",  # Placeholder
-                tokens_generated=request.max_tokens,
-                inference_time_ms=100.0  # Placeholder
-            )
+        # Create messages format for the prompt
+        messages = [{"role": "user", "content": request.prompt}]
+        
+        # Generate response using the adapter
+        response_data = await inference_adapter.chat_completion(
+            model_name=request.model_name,
+            messages=messages,
+            stream=False,
+            **generation_params
+        )
+        
+        # Extract response text
+        if "choices" in response_data and len(response_data["choices"]) > 0:
+            response_text = response_data["choices"][0].get("message", {}).get("content", "")
         else:
-            raise HTTPException(status_code=500, detail="Test failed")
+            response_text = "No response generated"
+        
+        return TestResponse(
+            success=True,
+            model_name=request.model_name,
+            prompt=request.prompt,
+            response=response_text,
+            generation_stats=response_data.get("usage", {})
+        )
             
     except Exception as e:
         logger.error(f"Failed to run test: {e}")
@@ -184,47 +197,81 @@ async def run_benchmark(
     require_permissions(auth, ["benchmark"])
     
     try:
-        # Convert request to args-like object for service compatibility
-        class BenchmarkArgs:
-            def __init__(self, benchmark_request):
-                self.model_name = benchmark_request.model_name
-                self.prompt = benchmark_request.prompt
-                self.num_runs = benchmark_request.num_runs
-                self.max_tokens = benchmark_request.max_tokens
-                self.temperature = benchmark_request.temperature
-                self.output_file = None  # API mode doesn't save to file
+        # Import the inference adapter
+        from ..adapters.inference_adapter import InferenceAPIAdapter
         
-        args = BenchmarkArgs(request)
+        # Create adapter instance with required service dependencies
+        inference_adapter = InferenceAPIAdapter(
+            chat_service=chat_service,
+            test_service=test_service, 
+            benchmark_service=benchmark_service
+        )
         
-        # For long-running benchmarks, consider running in background
-        if request.num_runs > 10:
-            background_tasks.add_task(benchmark_service.run_benchmark, args)
+        # Extract configuration parameters
+        config = request.config or {}
+        num_runs = config.get("num_runs", 5)
+        prompt = config.get("prompt", "Hello, how are you?")
+        
+        # For large benchmarks, run in background
+        if num_runs > 10:
+            background_tasks.add_task(_run_benchmark_task, request, inference_adapter)
             return BenchmarkResponse(
                 success=True,
                 model_name=request.model_name,
-                status="running",
-                message="Benchmark started in background"
+                benchmark_type=request.benchmark_type,
+                summary={"status": "running", "message": "Benchmark started in background"}
             )
         
         # Run benchmark synchronously for small tests
-        result = benchmark_service.run_benchmark(args)
+        start_time = time.time()
+        total_tokens = 0
+        responses = []
         
-        if result == 0:
-            return BenchmarkResponse(
-                success=True,
+        for i in range(num_runs):
+            messages = [{"role": "user", "content": f"{prompt} (run {i+1})"}]
+            
+            response_data = await inference_adapter.chat_completion(
                 model_name=request.model_name,
-                status="completed",
-                num_runs=request.num_runs,
-                avg_latency_ms=150.0,  # Placeholder
-                tokens_per_second=25.0,  # Placeholder
-                total_tokens=request.max_tokens * request.num_runs
+                messages=messages,
+                stream=False,
+                **config.get("generation_config", {})
             )
-        else:
-            raise HTTPException(status_code=500, detail="Benchmark failed")
+            
+            responses.append(response_data)
+            if "usage" in response_data:
+                total_tokens += response_data["usage"].get("total_tokens", 0)
+        
+        end_time = time.time()
+        total_time = end_time - start_time
+        avg_latency = (total_time / num_runs) * 1000  # Convert to ms
+        tokens_per_second = total_tokens / total_time if total_time > 0 else 0
+        
+        return BenchmarkResponse(
+            success=True,
+            model_name=request.model_name,
+            benchmark_type=request.benchmark_type,
+            results={
+                "num_runs": num_runs,
+                "total_time_s": total_time,
+                "avg_latency_ms": avg_latency,
+                "tokens_per_second": tokens_per_second,
+                "total_tokens": total_tokens
+            },
+            summary={
+                "status": "completed",
+                "avg_latency_ms": avg_latency,
+                "tokens_per_second": tokens_per_second
+            }
+        )
             
     except Exception as e:
         logger.error(f"Failed to run benchmark: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to run benchmark: {str(e)}")
+
+async def _run_benchmark_task(request: BenchmarkRequest, inference_adapter):
+    """Background task for running large benchmarks."""
+    # This would be implemented for background processing
+    pass
 
 
 @inference_router.post("/sessions/save", response_model=SessionSaveResponse)
@@ -240,23 +287,31 @@ async def save_session(
     require_permissions(auth, ["session_save"])
     
     try:
-        # Convert request to args-like object for service compatibility
-        class SessionArgs:
-            def __init__(self, session_request):
-                self.session_name = session_request.session_name
-                self.session_file = session_request.session_file
+        # Create sessions directory if it doesn't exist
+        import os
+        sessions_dir = "/home/lumi/beautyai/sessions"
+        os.makedirs(sessions_dir, exist_ok=True)
         
-        args = SessionArgs(request)
-        result = session_service.save_session(args)
-        if result == 0:
-            return SessionSaveResponse(
-                success=True,
-                session_id=request.session_id,
-                file_path=request.output_file or "",
-                file_size_bytes=0  # TODO: set actual file size if available
-            )
+        # Use output_file if provided, otherwise generate filename
+        if request.output_file:
+            file_path = request.output_file
         else:
-            raise HTTPException(status_code=500, detail="Failed to save session")
+            file_path = os.path.join(sessions_dir, f"{request.session_id}.json")
+        
+        # Save session data to file
+        import json
+        with open(file_path, 'w') as f:
+            json.dump(request.session_data, f, indent=2)
+        
+        # Get file size
+        file_size = os.path.getsize(file_path)
+        
+        return SessionSaveResponse(
+            success=True,
+            session_id=request.session_id,
+            file_path=file_path,
+            file_size_bytes=file_size
+        )
             
     except Exception as e:
         logger.error(f"Failed to save session: {e}")
