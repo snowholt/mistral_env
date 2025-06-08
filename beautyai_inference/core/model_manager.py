@@ -189,12 +189,18 @@ class ModelManager:
         with self._lock:
             if model_name in self._loaded_models:
                 logger.info(f"Model '{model_name}' already loaded")
+                # Update last used timestamp and reset timer
+                self._model_last_used[model_name] = time.time()
+                self._start_model_timer(model_name)
                 return self._loaded_models[model_name]
                 
             logger.info(f"Loading model '{model_name}'")
             model = ModelFactory.create_model(model_config)
             model.load_model()
             self._loaded_models[model_name] = model
+            
+            # Initialize timestamps and timers
+            self._model_last_used[model_name] = time.time()
             
             # Update persistence state
             self._save_persistence_state()
@@ -344,7 +350,12 @@ class ModelManager:
         with self._lock:
             # Only return models that are actually loaded in memory
             # Don't check persistence state for get_loaded_model to avoid confusion
-            return self._loaded_models.get(model_name)
+            model = self._loaded_models.get(model_name)
+            if model:
+                # Update last used timestamp and reset timer when model is accessed
+                self._model_last_used[model_name] = time.time()
+                self._start_model_timer(model_name)
+            return model
     
     def list_loaded_models(self) -> List[str]:
         """List all loaded models that are actually in memory."""
@@ -377,6 +388,50 @@ class ModelManager:
                 self._save_persistence_state()
             
             return working_models
+
+    def list_loaded_models_with_timers(self) -> List[Dict[str, Any]]:
+        """List all loaded models with detailed timer information."""
+        with self._lock:
+            models_info = []
+            models_to_remove = []
+            
+            for model_name, model_instance in self._loaded_models.items():
+                try:
+                    # Quick check if model is still accessible
+                    if hasattr(model_instance, 'model') and model_instance.model is not None:
+                        timer_info = self.get_model_timer_info(model_name)
+                        
+                        # Get model configuration info
+                        config = getattr(model_instance, 'config', None)
+                        model_info = {
+                            'name': model_name,
+                            'model_id': config.model_id if config else 'unknown',
+                            'engine_type': config.engine_type if config else 'unknown',
+                            'status': 'loaded',
+                            'timer_info': timer_info
+                        }
+                        models_info.append(model_info)
+                    else:
+                        logger.warning(f"Model '{model_name}' in memory but not functional, will remove")
+                        models_to_remove.append(model_name)
+                except Exception as e:
+                    logger.warning(f"Model '{model_name}' check failed: {e}, will remove")
+                    models_to_remove.append(model_name)
+            
+            # Clean up non-functional models
+            for model_name in models_to_remove:
+                if model_name in self._loaded_models:
+                    del self._loaded_models[model_name]
+                    self._stop_model_timer(model_name)
+                    if model_name in self._model_last_used:
+                        del self._model_last_used[model_name]
+                    self._remove_from_persistence(model_name)
+            
+            # Update persistence if we removed any models
+            if models_to_remove:
+                self._save_persistence_state()
+            
+            return models_info
     
     def is_model_loaded(self, model_name: str) -> bool:
         """Check if a model is actually loaded in memory and functional."""
@@ -470,3 +525,164 @@ class ModelManager:
                 self.unload_model(model_name)
             else:
                 logger.debug(f"Model '{model_name}' not found in loaded models during auto-unload check")
+
+    def get_model_timer_info(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get timer information for a specific model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary with timer information or None if model not loaded
+        """
+        with self._lock:
+            if model_name not in self._loaded_models:
+                return None
+                
+            last_used = self._model_last_used.get(model_name, time.time())
+            timer = self._model_timers.get(model_name)
+            
+            if timer and timer.is_alive():
+                # Calculate remaining time
+                elapsed_seconds = time.time() - last_used
+                total_timeout_seconds = self._auto_unload_minutes * 60
+                remaining_seconds = max(0, total_timeout_seconds - elapsed_seconds)
+                
+                return {
+                    "model_name": model_name,
+                    "auto_unload_enabled": True,
+                    "timeout_minutes": self._auto_unload_minutes,
+                    "last_used_timestamp": last_used,
+                    "last_used_ago_seconds": elapsed_seconds,
+                    "remaining_seconds": remaining_seconds,
+                    "remaining_minutes": remaining_seconds / 60,
+                    "will_unload_at": last_used + total_timeout_seconds,
+                    "timer_active": True
+                }
+            else:
+                return {
+                    "model_name": model_name,
+                    "auto_unload_enabled": False,
+                    "timeout_minutes": self._auto_unload_minutes,
+                    "last_used_timestamp": last_used,
+                    "last_used_ago_seconds": time.time() - last_used,
+                    "remaining_seconds": None,
+                    "remaining_minutes": None,
+                    "will_unload_at": None,
+                    "timer_active": False
+                }
+
+    def get_all_models_timer_info(self) -> List[Dict[str, Any]]:
+        """
+        Get timer information for all loaded models.
+        
+        Returns:
+            List of dictionaries with timer information for each loaded model
+        """
+        with self._lock:
+            models_info = []
+            for model_name in self._loaded_models.keys():
+                timer_info = self.get_model_timer_info(model_name)
+                if timer_info:
+                    # Add model metadata
+                    model_instance = self._loaded_models.get(model_name)
+                    if model_instance and hasattr(model_instance, 'config'):
+                        timer_info['model_id'] = model_instance.config.model_id
+                        timer_info['engine_type'] = model_instance.config.engine_type
+                    models_info.append(timer_info)
+            return models_info
+
+    def reset_model_timer(self, model_name: str, extend_minutes: Optional[int] = None) -> bool:
+        """
+        Reset/extend the keep-alive timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            extend_minutes: Optional custom timeout in minutes (uses default if None)
+            
+        Returns:
+            True if timer was reset, False if model not loaded
+        """
+        with self._lock:
+            if model_name not in self._loaded_models:
+                logger.warning(f"Cannot reset timer for model '{model_name}' - not loaded")
+                return False
+            
+            # Update last used timestamp
+            self._model_last_used[model_name] = time.time()
+            
+            # Use custom timeout if provided
+            if extend_minutes is not None:
+                old_timeout = self._auto_unload_minutes
+                self._auto_unload_minutes = extend_minutes
+                self._start_model_timer(model_name)
+                self._auto_unload_minutes = old_timeout  # Restore default
+                logger.info(f"Reset timer for model '{model_name}' with custom timeout: {extend_minutes} minutes")
+            else:
+                self._start_model_timer(model_name)
+                logger.info(f"Reset timer for model '{model_name}' with default timeout: {self._auto_unload_minutes} minutes")
+            
+            return True
+
+    def set_auto_unload_timeout(self, minutes: int) -> None:
+        """
+        Set the default auto-unload timeout for new models.
+        
+        Args:
+            minutes: Timeout in minutes (must be > 0)
+        """
+        if minutes <= 0:
+            raise ValueError("Timeout must be greater than 0 minutes")
+            
+        with self._lock:
+            old_timeout = self._auto_unload_minutes
+            self._auto_unload_minutes = minutes
+            logger.info(f"Changed default auto-unload timeout from {old_timeout} to {minutes} minutes")
+
+    def disable_model_timer(self, model_name: str) -> bool:
+        """
+        Disable auto-unload timer for a specific model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            True if timer was disabled, False if model not loaded
+        """
+        with self._lock:
+            if model_name not in self._loaded_models:
+                return False
+                
+            self._stop_model_timer(model_name)
+            logger.info(f"Disabled auto-unload timer for model '{model_name}'")
+            return True
+
+    def enable_model_timer(self, model_name: str, timeout_minutes: Optional[int] = None) -> bool:
+        """
+        Enable auto-unload timer for a specific model.
+        
+        Args:
+            model_name: Name of the model
+            timeout_minutes: Optional custom timeout (uses default if None)
+            
+        Returns:
+            True if timer was enabled, False if model not loaded
+        """
+        with self._lock:
+            if model_name not in self._loaded_models:
+                return False
+                
+            # Update last used timestamp
+            self._model_last_used[model_name] = time.time()
+            
+            if timeout_minutes is not None:
+                old_timeout = self._auto_unload_minutes
+                self._auto_unload_minutes = timeout_minutes
+                self._start_model_timer(model_name)
+                self._auto_unload_minutes = old_timeout
+            else:
+                self._start_model_timer(model_name)
+                
+            logger.info(f"Enabled auto-unload timer for model '{model_name}'")
+            return True

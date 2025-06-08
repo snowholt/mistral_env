@@ -191,6 +191,20 @@ class ModelLifecycleService(BaseService):
         except Exception as e:
             logger.error(f"Error listing loaded models: {str(e)}")
             return []
+
+    def list_loaded_models_with_timers(self) -> List[Dict[str, Any]]:
+        """
+        List all currently loaded models with detailed timer information.
+        Returns:
+            List of loaded model information including timer details
+        """
+        try:
+            # Get models with timer info directly from model manager
+            models_info = self.model_manager.list_loaded_models_with_timers()
+            return models_info
+        except Exception as e:
+            logger.error(f"Error listing loaded models with timers: {str(e)}")
+            return []
     
     def get_memory_status(self) -> Dict[str, Any]:
         """
@@ -263,6 +277,160 @@ class ModelLifecycleService(BaseService):
         except Exception as e:
             logger.error(f"Error checking if model '{model_name}' is loaded: {str(e)}")
             return False
+
+    def get_loaded_models_with_timers(self) -> List[Dict[str, Any]]:
+        """
+        Get detailed information about loaded models including timer status.
+        
+        Returns:
+            List of dictionaries with model and timer information
+        """
+        try:
+            # Get basic loaded models info
+            loaded_models = self.list_loaded_models()
+            
+            # Get timer info for all models
+            timer_info = self.model_manager.get_all_models_timer_info()
+            
+            # Merge the information
+            enhanced_models = []
+            for model in loaded_models:
+                model_name = model['name']
+                # Find corresponding timer info
+                timer_data = next((t for t in timer_info if t['model_name'] == model_name), None)
+                
+                enhanced_model = {
+                    **model,
+                    'timer_info': timer_data
+                }
+                enhanced_models.append(enhanced_model)
+            
+            return enhanced_models
+            
+        except Exception as e:
+            logger.error(f"Error getting models with timers: {str(e)}")
+            return []
+
+    def get_model_timer_info(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get timer information for a specific model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary with timer information or None if model not loaded
+        """
+        try:
+            return self.model_manager.get_model_timer_info(model_name)
+        except Exception as e:
+            logger.error(f"Error getting timer info for model '{model_name}': {str(e)}")
+            return None
+
+    def reset_model_timer(self, model_name: str, extend_minutes: Optional[int] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Reset/extend the keep-alive timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            extend_minutes: Optional custom timeout in minutes
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            if not self.model_manager.is_model_loaded(model_name):
+                return False, f"Model '{model_name}' is not loaded"
+            
+            success = self.model_manager.reset_model_timer(model_name, extend_minutes)
+            if success:
+                if extend_minutes:
+                    return True, f"Timer reset for '{model_name}' with {extend_minutes} minute timeout"
+                else:
+                    return True, f"Timer reset for '{model_name}' with default timeout"
+            else:
+                return False, f"Failed to reset timer for '{model_name}'"
+                
+        except Exception as e:
+            error_msg = f"Error resetting timer for model '{model_name}': {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+
+    def disable_model_timer(self, model_name: str) -> Tuple[bool, Optional[str]]:
+        """
+        Disable auto-unload timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            if not self.model_manager.is_model_loaded(model_name):
+                return False, f"Model '{model_name}' is not loaded"
+            
+            success = self.model_manager.disable_model_timer(model_name)
+            if success:
+                return True, f"Auto-unload timer disabled for '{model_name}'"
+            else:
+                return False, f"Failed to disable timer for '{model_name}'"
+                
+        except Exception as e:
+            error_msg = f"Error disabling timer for model '{model_name}': {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+
+    def enable_model_timer(self, model_name: str, timeout_minutes: Optional[int] = None) -> Tuple[bool, Optional[str]]:
+        """
+        Enable auto-unload timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            timeout_minutes: Optional custom timeout in minutes
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            if not self.model_manager.is_model_loaded(model_name):
+                return False, f"Model '{model_name}' is not loaded"
+            
+            success = self.model_manager.enable_model_timer(model_name, timeout_minutes)
+            if success:
+                if timeout_minutes:
+                    return True, f"Auto-unload timer enabled for '{model_name}' with {timeout_minutes} minute timeout"
+                else:
+                    return True, f"Auto-unload timer enabled for '{model_name}' with default timeout"
+            else:
+                return False, f"Failed to enable timer for '{model_name}'"
+                
+        except Exception as e:
+            error_msg = f"Error enabling timer for model '{model_name}': {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
+
+    def set_default_timeout(self, minutes: int) -> Tuple[bool, Optional[str]]:
+        """
+        Set the default auto-unload timeout for new models.
+        
+        Args:
+            minutes: Timeout in minutes
+            
+        Returns:
+            Tuple of (success, error_message)
+        """
+        try:
+            if minutes <= 0:
+                return False, "Timeout must be greater than 0 minutes"
+            
+            self.model_manager.set_auto_unload_timeout(minutes)
+            return True, f"Default auto-unload timeout set to {minutes} minutes"
+            
+        except Exception as e:
+            error_msg = f"Error setting default timeout: {str(e)}"
+            logger.error(error_msg)
+            return False, error_msg
     
     def _estimate_memory_requirements(self, model_config: ModelConfig) -> int:
         """

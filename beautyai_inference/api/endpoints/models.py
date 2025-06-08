@@ -238,9 +238,9 @@ async def get_model_status(
     Get the current status of a model.
     
     Returns information about whether the model is loaded, memory usage,
-    and other runtime statistics.
+    and performance metrics.
     """
-    require_permissions(auth, ["model_read"])
+    require_permissions(auth, ["model_status"])
     
     try:
         result = await model_adapter.get_model_status(model_name)
@@ -255,21 +255,79 @@ async def get_model_status(
         raise HTTPException(status_code=500, detail=f"Failed to get model status: {str(e)}")
 
 
-@models_router.post("/{model_name}/validate", response_model=APIResponse)
-async def validate_model(
-    model_name: str = Path(..., description="Name of the model to validate"),
+@models_router.get("/loaded", response_model=APIResponse)
+async def list_loaded_models(
+    include_timers: bool = Query(False, description="Include timer information"),
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
-    Validate a model configuration.
+    List all currently loaded models.
     
-    Checks the model configuration for compatibility, validates parameters,
-    and returns any issues or recommendations.
+    Returns basic information about loaded models.
+    Set include_timers=true for detailed timer information.
     """
-    require_permissions(auth, ["model_read"])
+    require_permissions(auth, ["model_status"])
     
     try:
-        result = await model_adapter.validate_model(model_name)
+        if include_timers:
+            result = await model_adapter.list_loaded_models_with_timers()
+        else:
+            models_info = model_adapter.lifecycle_service.list_loaded_models()
+            result = {
+                "total_loaded": len(models_info),
+                "models": models_info
+            }
+        
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to list loaded models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
+@models_router.get("/loaded/detailed", response_model=APIResponse)
+async def list_loaded_models_with_timers(
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    List all loaded models with detailed timer information.
+    
+    Returns information about each loaded model including:
+    - Model name, ID, and engine type
+    - Timer status (active/inactive)
+    - Time remaining before auto-unload
+    - Last used timestamp
+    """
+    require_permissions(auth, ["model_status"])
+    
+    try:
+        result = await model_adapter.list_loaded_models_with_timers()
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to list loaded models with timers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
+@models_router.get("/{model_name}/timer", response_model=APIResponse)
+async def get_model_timer_info(
+    model_name: str = Path(..., description="Name of the model to check"),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Get keep-alive timer information for a specific model.
+    
+    Returns timer status, remaining time until auto-unload,
+    last usage timestamp, and timer configuration.
+    """
+    require_permissions(auth, ["model_status"])
+    
+    try:
+        result = await model_adapter.get_model_timer_info(model_name)
         return APIResponse(
             success=True,
             data=result
@@ -277,8 +335,88 @@ async def validate_model(
     except ModelNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
     except Exception as e:
-        logger.error(f"Failed to validate model {model_name}: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to validate model: {str(e)}")
+        logger.error(f"Failed to get timer info for {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get timer info: {str(e)}")
+
+
+@models_router.post("/{model_name}/timer/reset", response_model=APIResponse)
+async def reset_model_timer(
+    model_name: str = Path(..., description="Name of the model"),
+    extend_minutes: Optional[int] = Query(None, description="Custom timeout in minutes (optional)"),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Reset/extend the keep-alive timer for a model.
+    
+    Resets the timer countdown and optionally sets a custom timeout.
+    The model will remain active for the specified duration before auto-unload.
+    """
+    require_permissions(auth, ["model_load"])
+    
+    try:
+        result = await model_adapter.reset_model_timer(model_name, extend_minutes)
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except ModelNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to reset timer for {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reset timer: {str(e)}")
+
+
+@models_router.post("/{model_name}/timer/disable", response_model=APIResponse)
+async def disable_model_timer(
+    model_name: str = Path(..., description="Name of the model"),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Disable auto-unload timer for a model.
+    
+    The model will remain loaded indefinitely until manually unloaded.
+    Useful for models that need to stay available continuously.
+    """
+    require_permissions(auth, ["model_load"])
+    
+    try:
+        result = await model_adapter.disable_model_timer(model_name)
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except ModelNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to disable timer for {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to disable timer: {str(e)}")
+
+
+@models_router.post("/{model_name}/timer/enable", response_model=APIResponse)
+async def enable_model_timer(
+    model_name: str = Path(..., description="Name of the model"),
+    timeout_minutes: Optional[int] = Query(None, description="Timeout in minutes (optional)"),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Enable auto-unload timer for a model.
+    
+    Starts the auto-unload timer with the specified or default timeout.
+    The model will be automatically unloaded after the timeout period of inactivity.
+    """
+    require_permissions(auth, ["model_load"])
+    
+    try:
+        result = await model_adapter.enable_model_timer(model_name, timeout_minutes)
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except ModelNotFoundError as e:
+        raise HTTPException(status_code=404, detail=e.message)
+    except Exception as e:
+        logger.error(f"Failed to enable timer for {model_name}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to enable timer: {str(e)}")
 
 
 @models_router.post("/default/{model_name}", response_model=APIResponse)

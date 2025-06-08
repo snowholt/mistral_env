@@ -349,18 +349,173 @@ class ModelAPIAdapter(APIServiceAdapter):
             
             # Filter by specific model if requested
             if model_name:
-                loaded_models = [
-                    model for model in loaded_models 
-                    if model['name'] == model_name
-                ]
+                loaded_models = [m for m in loaded_models if m['name'] == model_name]
             
             return {
                 "loaded_models": loaded_models,
                 "system_status": system_status,
                 "total_loaded": len(loaded_models),
-                "timestamp": system_status.get("timestamp")
+                "timestamp": None
             }
             
         except Exception as e:
             logger.error(f"Failed to get model status: {e}")
+            raise
+
+    async def get_loaded_models_with_timers(self) -> Dict[str, Any]:
+        """
+        Get detailed information about loaded models including timer status.
+        
+        Returns:
+            Dictionary with enhanced model information
+        """
+        try:
+            models_with_timers = self.lifecycle_service.get_loaded_models_with_timers()
+            
+            return {
+                "loaded_models": models_with_timers,
+                "total_loaded": len(models_with_timers),
+                "timestamp": None
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get models with timers: {e}")
+            raise
+
+    async def get_model_timer_info(self, model_name: str) -> Dict[str, Any]:
+        """
+        Get timer information for a specific model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary with timer information
+        """
+        try:
+            timer_info = self.lifecycle_service.get_model_timer_info(model_name)
+            
+            if timer_info is None:
+                raise ModelNotFoundError(f"Model '{model_name}' is not loaded")
+            
+            return timer_info
+            
+        except Exception as e:
+            logger.error(f"Failed to get timer info for model {model_name}: {e}")
+            raise
+
+    async def reset_model_timer(self, model_name: str, extend_minutes: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Reset/extend the keep-alive timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            extend_minutes: Optional custom timeout in minutes
+            
+        Returns:
+            Dictionary with operation result
+        """
+        try:
+            success, message = self.lifecycle_service.reset_model_timer(model_name, extend_minutes)
+            
+            if not success:
+                if "not loaded" in message:
+                    raise ModelNotFoundError(message)
+                else:
+                    raise ModelLoadError(message)
+            
+            # Get updated timer info
+            timer_info = self.lifecycle_service.get_model_timer_info(model_name)
+            
+            return {
+                "model_name": model_name,
+                "operation": "timer_reset",
+                "message": message,
+                "timer_info": timer_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to reset timer for model {model_name}: {e}")
+            raise
+
+    async def disable_model_timer(self, model_name: str) -> Dict[str, Any]:
+        """
+        Disable auto-unload timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary with operation result
+        """
+        try:
+            success, message = self.lifecycle_service.disable_model_timer(model_name)
+            
+            if not success:
+                if "not loaded" in message:
+                    raise ModelNotFoundError(message)
+                else:
+                    raise ModelLoadError(message)
+            
+            return {
+                "model_name": model_name,
+                "operation": "timer_disabled",
+                "message": message
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to disable timer for model {model_name}: {e}")
+            raise
+
+    async def enable_model_timer(self, model_name: str, timeout_minutes: Optional[int] = None) -> Dict[str, Any]:
+        """
+        Enable auto-unload timer for a model.
+        
+        Args:
+            model_name: Name of the model
+            timeout_minutes: Optional custom timeout in minutes
+            
+        Returns:
+            Dictionary with operation result
+        """
+        try:
+            success, message = self.lifecycle_service.enable_model_timer(model_name, timeout_minutes)
+            
+            if not success:
+                if "not loaded" in message:
+                    raise ModelNotFoundError(message)
+                else:
+                    raise ModelLoadError(message)
+            
+            # Get updated timer info
+            timer_info = self.lifecycle_service.get_model_timer_info(model_name)
+            
+            return {
+                "model_name": model_name,
+                "operation": "timer_enabled",
+                "message": message,
+                "timer_info": timer_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to enable timer for model {model_name}: {e}")
+            raise
+
+    async def list_loaded_models_with_timers(self) -> Dict[str, Any]:
+        """
+        List all loaded models with timer information.
+        
+        Returns:
+            Dictionary with loaded models and timer details
+        """
+        try:
+            models_info = self.lifecycle_service.list_loaded_models_with_timers()
+            
+            return {
+                "total_loaded": len(models_info),
+                "models": models_info
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to list loaded models with timers: {e}")
             raise
