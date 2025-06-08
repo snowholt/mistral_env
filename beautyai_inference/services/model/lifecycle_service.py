@@ -169,13 +169,13 @@ class ModelLifecycleService(BaseService):
     
     def list_loaded_models(self) -> List[Dict[str, Any]]:
         """
-        List all currently loaded models and show cross-process state.
+        List all currently loaded models.
         Returns:
             List of loaded model information
         """
         try:
-            # Print cross-process state summary for user clarity
-            self.model_manager.print_cross_process_model_state()
+            # Don't print cross-process state for API calls to avoid hanging
+            # self.model_manager.print_cross_process_model_state()
             loaded_models = self.model_manager.list_loaded_models()
             models_info = []
             for model_name in loaded_models:

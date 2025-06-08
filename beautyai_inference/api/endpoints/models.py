@@ -86,6 +86,64 @@ async def add_model(
         raise HTTPException(status_code=500, detail=f"Failed to add model: {str(e)}")
 
 
+@models_router.get("/loaded", response_model=APIResponse)
+async def list_loaded_models(
+    include_timers: bool = Query(False, description="Include timer information"),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    List all currently loaded models.
+    
+    Returns basic information about loaded models.
+    Set include_timers=true for detailed timer information.
+    """
+    require_permissions(auth, ["model_read"])
+    
+    try:
+        if include_timers:
+            result = await model_adapter.list_loaded_models_with_timers()
+        else:
+            models_info = model_adapter.lifecycle_service.list_loaded_models()
+            result = {
+                "total_loaded": len(models_info),
+                "models": models_info
+            }
+        
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to list loaded models: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
+@models_router.get("/loaded/detailed", response_model=APIResponse)
+async def list_loaded_models_with_timers(
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    List all loaded models with detailed timer information.
+    
+    Returns information about each loaded model including:
+    - Model name, ID, and engine type
+    - Timer status (active/inactive)
+    - Time remaining before auto-unload
+    - Last used timestamp
+    """
+    require_permissions(auth, ["model_read"])
+    
+    try:
+        result = await model_adapter.list_loaded_models_with_timers()
+        return APIResponse(
+            success=True,
+            data=result
+        )
+    except Exception as e:
+        logger.error(f"Failed to list loaded models with timers: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
+
+
 @models_router.get("/{model_name}", response_model=APIResponse)
 async def get_model(
     model_name: str = Path(..., description="Name of the model to retrieve"),
@@ -240,7 +298,7 @@ async def get_model_status(
     Returns information about whether the model is loaded, memory usage,
     and performance metrics.
     """
-    require_permissions(auth, ["model_status"])
+    require_permissions(auth, ["model_read"])
     
     try:
         result = await model_adapter.get_model_status(model_name)
@@ -255,62 +313,7 @@ async def get_model_status(
         raise HTTPException(status_code=500, detail=f"Failed to get model status: {str(e)}")
 
 
-@models_router.get("/loaded", response_model=APIResponse)
-async def list_loaded_models(
-    include_timers: bool = Query(False, description="Include timer information"),
-    auth: AuthContext = Depends(get_auth_context)
-):
-    """
-    List all currently loaded models.
-    
-    Returns basic information about loaded models.
-    Set include_timers=true for detailed timer information.
-    """
-    require_permissions(auth, ["model_status"])
-    
-    try:
-        if include_timers:
-            result = await model_adapter.list_loaded_models_with_timers()
-        else:
-            models_info = model_adapter.lifecycle_service.list_loaded_models()
-            result = {
-                "total_loaded": len(models_info),
-                "models": models_info
-            }
-        
-        return APIResponse(
-            success=True,
-            data=result
-        )
-    except Exception as e:
-        logger.error(f"Failed to list loaded models: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
-
-@models_router.get("/loaded/detailed", response_model=APIResponse)
-async def list_loaded_models_with_timers(
-    auth: AuthContext = Depends(get_auth_context)
-):
-    """
-    List all loaded models with detailed timer information.
-    
-    Returns information about each loaded model including:
-    - Model name, ID, and engine type
-    - Timer status (active/inactive)
-    - Time remaining before auto-unload
-    - Last used timestamp
-    """
-    require_permissions(auth, ["model_status"])
-    
-    try:
-        result = await model_adapter.list_loaded_models_with_timers()
-        return APIResponse(
-            success=True,
-            data=result
-        )
-    except Exception as e:
-        logger.error(f"Failed to list loaded models with timers: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to list models: {str(e)}")
 
 
 @models_router.get("/{model_name}/timer", response_model=APIResponse)
@@ -324,7 +327,7 @@ async def get_model_timer_info(
     Returns timer status, remaining time until auto-unload,
     last usage timestamp, and timer configuration.
     """
-    require_permissions(auth, ["model_status"])
+    require_permissions(auth, ["model_read"])
     
     try:
         result = await model_adapter.get_model_timer_info(model_name)

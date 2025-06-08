@@ -399,7 +399,7 @@ class ModelManager:
                 try:
                     # Quick check if model is still accessible
                     if hasattr(model_instance, 'model') and model_instance.model is not None:
-                        timer_info = self.get_model_timer_info(model_name)
+                        timer_info = self._get_model_timer_info_unsafe(model_name)
                         
                         # Get model configuration info
                         config = getattr(model_instance, 'config', None)
@@ -526,6 +526,52 @@ class ModelManager:
             else:
                 logger.debug(f"Model '{model_name}' not found in loaded models during auto-unload check")
 
+    def _get_model_timer_info_unsafe(self, model_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Get timer information for a specific model (internal method, assumes lock is held).
+        
+        Args:
+            model_name: Name of the model
+            
+        Returns:
+            Dictionary with timer information or None if model not loaded
+        """
+        if model_name not in self._loaded_models:
+            return None
+            
+        last_used = self._model_last_used.get(model_name, time.time())
+        timer = self._model_timers.get(model_name)
+        
+        if timer and timer.is_alive():
+            # Calculate remaining time
+            elapsed_seconds = time.time() - last_used
+            total_timeout_seconds = self._auto_unload_minutes * 60
+            remaining_seconds = max(0, total_timeout_seconds - elapsed_seconds)
+            
+            return {
+                "model_name": model_name,
+                "auto_unload_enabled": True,
+                "timeout_minutes": self._auto_unload_minutes,
+                "last_used_timestamp": last_used,
+                "last_used_ago_seconds": elapsed_seconds,
+                "remaining_seconds": remaining_seconds,
+                "remaining_minutes": remaining_seconds / 60,
+                "will_unload_at": last_used + total_timeout_seconds,
+                "timer_active": True
+            }
+        else:
+            return {
+                "model_name": model_name,
+                "auto_unload_enabled": False,
+                "timeout_minutes": self._auto_unload_minutes,
+                "last_used_timestamp": last_used,
+                "last_used_ago_seconds": time.time() - last_used,
+                "remaining_seconds": None,
+                "remaining_minutes": None,
+                "will_unload_at": None,
+                "timer_active": False
+            }
+
     def get_model_timer_info(self, model_name: str) -> Optional[Dict[str, Any]]:
         """
         Get timer information for a specific model.
@@ -537,41 +583,7 @@ class ModelManager:
             Dictionary with timer information or None if model not loaded
         """
         with self._lock:
-            if model_name not in self._loaded_models:
-                return None
-                
-            last_used = self._model_last_used.get(model_name, time.time())
-            timer = self._model_timers.get(model_name)
-            
-            if timer and timer.is_alive():
-                # Calculate remaining time
-                elapsed_seconds = time.time() - last_used
-                total_timeout_seconds = self._auto_unload_minutes * 60
-                remaining_seconds = max(0, total_timeout_seconds - elapsed_seconds)
-                
-                return {
-                    "model_name": model_name,
-                    "auto_unload_enabled": True,
-                    "timeout_minutes": self._auto_unload_minutes,
-                    "last_used_timestamp": last_used,
-                    "last_used_ago_seconds": elapsed_seconds,
-                    "remaining_seconds": remaining_seconds,
-                    "remaining_minutes": remaining_seconds / 60,
-                    "will_unload_at": last_used + total_timeout_seconds,
-                    "timer_active": True
-                }
-            else:
-                return {
-                    "model_name": model_name,
-                    "auto_unload_enabled": False,
-                    "timeout_minutes": self._auto_unload_minutes,
-                    "last_used_timestamp": last_used,
-                    "last_used_ago_seconds": time.time() - last_used,
-                    "remaining_seconds": None,
-                    "remaining_minutes": None,
-                    "will_unload_at": None,
-                    "timer_active": False
-                }
+            return self._get_model_timer_info_unsafe(model_name)
 
     def get_all_models_timer_info(self) -> List[Dict[str, Any]]:
         """
