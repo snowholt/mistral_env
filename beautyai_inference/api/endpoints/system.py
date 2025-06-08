@@ -333,32 +333,58 @@ async def get_resource_usage(
     require_permissions(auth, ["system_status"])
     
     try:
+        import psutil
+        import shutil
+        
+        # Get memory status from our memory service
+        memory_status = memory_service.get_memory_status()
+        
+        # Get CPU information
+        cpu_percent = psutil.cpu_percent(interval=1)
+        cpu_count = psutil.cpu_count()
+        cpu_freq = psutil.cpu_freq()
+        
+        # Get disk usage for root partition
+        disk_usage = shutil.disk_usage("/")
+        
+        # Get network I/O statistics
+        net_io = psutil.net_io_counters()
+        
+        # Extract system memory data
+        system_memory = memory_status.system_stats
+        
+        # Extract GPU data
+        gpu_data = {"usage_percent": 0, "memory_usage_percent": 0, "temperature_c": 0}
+        if memory_status.has_gpu and memory_status.gpu_stats:
+            gpu_stat = memory_status.gpu_stats[0]
+            gpu_data = {
+                "usage_percent": round(gpu_stat.get("gpu_utilization", 0), 1),
+                "memory_usage_percent": round(gpu_stat.get("memory_used_percent", 0), 1),
+                "temperature_c": 0  # Temperature monitoring would require additional tools
+            }
+        
         return APIResponse(
             success=True,
             data={
                 "cpu": {
-                    "usage_percent": 25.5,
-                    "cores": 8,
-                    "frequency_mhz": 3200
+                    "usage_percent": round(cpu_percent, 1),
+                    "cores": cpu_count,
+                    "frequency_mhz": round(cpu_freq.current, 0) if cpu_freq else 0
                 },
                 "memory": {
-                    "total_gb": 32.0,
-                    "available_gb": 16.0,
-                    "usage_percent": 50.0
+                    "total_gb": round(system_memory.get("total_gb", 0), 1),
+                    "available_gb": round(system_memory.get("available_gb", 0), 1),
+                    "usage_percent": round(system_memory.get("percent", 0), 1)
                 },
-                "gpu": {
-                    "usage_percent": 15.0,
-                    "memory_usage_percent": 20.0,
-                    "temperature_c": 65
-                },
+                "gpu": gpu_data,
                 "disk": {
-                    "total_gb": 1000.0,
-                    "available_gb": 500.0,
-                    "usage_percent": 50.0
+                    "total_gb": round(disk_usage.total / (1024**3), 1),
+                    "available_gb": round(disk_usage.free / (1024**3), 1),
+                    "usage_percent": round((disk_usage.used / disk_usage.total) * 100, 1)
                 },
                 "network": {
-                    "bytes_sent": 1024000,
-                    "bytes_received": 2048000
+                    "bytes_sent": net_io.bytes_sent,
+                    "bytes_received": net_io.bytes_recv
                 }
             }
         )

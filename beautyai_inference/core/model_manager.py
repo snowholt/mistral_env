@@ -216,10 +216,21 @@ class ModelManager:
             
             logger.info(f"Unloading model '{model_name}'")
             
+            # Get the model instance before removing it
+            model_instance = self._loaded_models.get(model_name)
+            
+            # Call the model's unload method if available
+            if model_instance and hasattr(model_instance, 'unload_model'):
+                try:
+                    model_instance.unload_model()
+                except Exception as e:
+                    logger.error(f"Error calling model's unload method: {e}")
+            
             # Remove from memory
             del self._loaded_models[model_name]
                 
             # Force garbage collection and clear GPU memory
+            import gc
             gc.collect()
             clear_gpu_memory()
             
@@ -243,9 +254,18 @@ class ModelManager:
             
             logger.info(f"Unloading {len(memory_models)} models")
             
-            # Clear memory models
+            # Clear memory models one by one, calling their unload methods
             for model_name in memory_models:
                 if model_name in self._loaded_models:
+                    model_instance = self._loaded_models[model_name]
+                    
+                    # Call the model's unload method if available
+                    if model_instance and hasattr(model_instance, 'unload_model'):
+                        try:
+                            model_instance.unload_model()
+                        except Exception as e:
+                            logger.error(f"Error calling unload method for {model_name}: {e}")
+                    
                     del self._loaded_models[model_name]
             
             # Force garbage collection and clear GPU memory

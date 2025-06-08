@@ -14,6 +14,11 @@ class ModelInterface(ABC):
         pass
     
     @abstractmethod
+    def unload_model(self) -> None:
+        """Unload the model from memory and free resources."""
+        pass
+    
+    @abstractmethod
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt."""
         pass

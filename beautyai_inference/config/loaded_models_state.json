@@ -1,11 +1,4 @@
 {
-  "timestamp": 1749387045.333774,
-  "loaded_models": {
-    "qwen3-model": {
-      "model_id": "Qwen/Qwen3-14B",
-      "engine": "transformers",
-      "loaded_at": 1749387045.3337762,
-      "status": "loaded"
-    }
-  }
+  "timestamp": 1749411674.775135,
+  "loaded_models": {}
 }

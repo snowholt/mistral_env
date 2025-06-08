@@ -258,6 +258,46 @@ class TransformersEngine(ModelInterface):
         loading_time = time.time() - start_time
         logger.info(f"Model loaded in {loading_time:.2f} seconds")
 
+    def unload_model(self) -> None:
+        """Unload the model from memory and free resources."""
+        logger.info(f"Unloading model: {self.config.model_id}")
+        
+        try:
+            # Clear pipeline first
+            if hasattr(self, 'generator') and self.generator is not None:
+                del self.generator
+                self.generator = None
+            
+            # Move model to CPU and clear from GPU
+            if hasattr(self, 'model') and self.model is not None:
+                # Move to CPU first to free GPU memory
+                self.model.cpu()
+                # Delete the model
+                del self.model
+                self.model = None
+            
+            # Clear tokenizer
+            if hasattr(self, 'tokenizer') and self.tokenizer is not None:
+                del self.tokenizer
+                self.tokenizer = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            # Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            logger.info(f"Model {self.config.model_id} unloaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Error unloading model {self.config.model_id}: {e}")
+            # Even if there's an error, try to clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
     def set_content_filter(self, content_filter):
         """Inject content filter service to avoid circular imports."""
         self.content_filter = content_filter

@@ -65,6 +65,33 @@ class VLLMEngine(ModelInterface):
         loading_time = time.time() - start_time
         logger.info(f"Model loaded in {loading_time:.2f} seconds")
     
+    def unload_model(self) -> None:
+        """Unload the model from memory and free resources."""
+        logger.info(f"Unloading vLLM model: {self.config.model_id}")
+        
+        try:
+            # vLLM doesn't have a direct unload method, but we can delete the instance
+            if hasattr(self, 'model') and self.model is not None:
+                del self.model
+                self.model = None
+            
+            # Force garbage collection
+            import gc
+            gc.collect()
+            
+            # Clear CUDA cache if available
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+                torch.cuda.synchronize()
+            
+            logger.info(f"vLLM model {self.config.model_id} unloaded successfully")
+            
+        except Exception as e:
+            logger.error(f"Error unloading vLLM model {self.config.model_id}: {e}")
+            # Even if there's an error, try to clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+    
     def _format_prompt(self, prompt: str) -> str:
         """Format a single prompt for the model."""
         return f"<s>[INST] {prompt} [/INST]"
