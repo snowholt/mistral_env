@@ -8,7 +8,7 @@ Type=simple
 User=lumi
 Group=lumi
 WorkingDirectory=/home/lumi/beautyai
-Environment=PATH=/home/lumi/beautyai/venv/bin
+Environment=PATH=/home/lumi/beautyai/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONPATH=/home/lumi/beautyai
 Environment=CUDA_VISIBLE_DEVICES=0
 ExecStart=/home/lumi/beautyai/venv/bin/uvicorn beautyai_inference.api.app:app --host 0.0.0.0 --port 8000 --reload

@@ -50,29 +50,39 @@ async def get_system_status(
         
         # Build memory info from memory status
         memory_info = {
-            "total_memory_gb": getattr(memory_status, 'total_memory_gb', 0),
-            "available_memory_gb": getattr(memory_status, 'available_memory_gb', 0),
+            "total_memory_gb": status.memory_status.system_stats.get("total_gb", 0),
+            "available_memory_gb": status.memory_status.system_stats.get("available_gb", 0),
             "gpu_memory_gb": 0,  # Will be filled from GPU info
-            "memory_usage_percent": getattr(memory_status, 'usage_percent', 0)
+            "memory_usage_percent": status.memory_status.system_stats.get("percent", 0)
         }
         
         # Extract GPU info
-        gpu_info_data = system_info.get("gpu_info", {})
+        gpu_info_data = status.memory_status.gpu_info
+        gpu_memory_gb = 0
+        gpu_memory_used_gb = 0
+        gpu_utilization_percent = 0
+        
+        if status.memory_status.has_gpu and status.memory_status.gpu_stats:
+            gpu_stat = status.memory_status.gpu_stats[0]
+            gpu_memory_gb = round(gpu_stat.get("total_memory", 0) / (1024**3), 2)
+            gpu_memory_used_gb = round(gpu_stat.get("memory_used", 0) / (1024**3), 2)
+            gpu_utilization_percent = round(gpu_stat.get("gpu_utilization", 0), 1)
+        
         gpu_info = {
             "gpu_available": gpu_info_data.get("is_available", False),
-            "gpu_name": gpu_info_data.get("name", "None"),
-            "gpu_memory_used_gb": gpu_info_data.get("memory_used_gb", 0),
-            "gpu_utilization_percent": gpu_info_data.get("utilization_percent", 0)
+            "gpu_name": gpu_info_data.get("device_name", "None"),
+            "gpu_memory_used_gb": gpu_memory_used_gb,
+            "gpu_utilization_percent": gpu_utilization_percent
         }
         
         # Update memory info with GPU data
-        memory_info["gpu_memory_gb"] = gpu_info_data.get("memory_total_gb", 0)
+        memory_info["gpu_memory_gb"] = gpu_memory_gb
         
         # Extract model info
-        models_list = loaded_models_info.get("models", {})
+        models_list = loaded_models_info.get("local_models", {})
         model_info = {
             "loaded_models": list(models_list.keys()),
-            "total_loaded": loaded_models_info.get("count", 0),
+            "total_loaded": loaded_models_info.get("local_count", 0),
             "default_model": "none"  # TODO: Get from config
         }
         
@@ -83,14 +93,14 @@ async def get_system_status(
                 "python_version": system_info.get("python_version", "unknown"),
                 "framework_version": "1.0.0",
                 "gpu_available": gpu_info_data.get("is_available", False),
-                "gpu_name": gpu_info_data.get("name", "None")
+                "gpu_name": gpu_info_data.get("device_name", "None")
             },
             memory_info={
-                "total_memory_gb": getattr(memory_status, 'total_memory_gb', 0),
-                "available_memory_gb": getattr(memory_status, 'available_memory_gb', 0),
-                "gpu_memory_gb": gpu_info_data.get("memory_total_gb", 0),
-                "memory_usage_percent": getattr(memory_status, 'usage_percent', 0),
-                "gpu_memory_used_gb": gpu_info_data.get("memory_used_gb", 0)
+                "total_memory_gb": status.memory_status.system_stats.get("total_gb", 0),
+                "available_memory_gb": status.memory_status.system_stats.get("available_gb", 0),
+                "gpu_memory_gb": gpu_memory_gb,
+                "memory_usage_percent": status.memory_status.system_stats.get("percent", 0),
+                "gpu_memory_used_gb": gpu_memory_used_gb
             },
             loaded_models=[
                 {
@@ -100,7 +110,7 @@ async def get_system_status(
                 for model_name, model_data in models_list.items()
             ],
             cache_info={
-                "total_loaded": loaded_models_info.get("count", 0),
+                "total_loaded": loaded_models_info.get("local_count", 0),
                 "default_model": "none"
             }
         )
@@ -128,9 +138,9 @@ async def get_memory_status(
         # Extract system memory info
         system_stats = memory_status.system_stats
         system_memory = {
-            "total_gb": round(system_stats.get("total", 0) / (1024**3), 2),
-            "available_gb": round(system_stats.get("available", 0) / (1024**3), 2),
-            "used_gb": round(system_stats.get("used", 0) / (1024**3), 2),
+            "total_gb": round(system_stats.get("total_gb", 0), 2),
+            "available_gb": round(system_stats.get("available_gb", 0), 2),
+            "used_gb": round(system_stats.get("used_gb", 0), 2),
             "usage_percent": round(system_stats.get("percent", 0), 1)
         }
         
@@ -139,10 +149,10 @@ async def get_memory_status(
         if memory_status.has_gpu and memory_status.gpu_stats:
             gpu_stat = memory_status.gpu_stats[0]  # First GPU
             gpu_memory = {
-                "total_gb": round(gpu_stat.get("total", 0) / (1024**3), 2),
-                "available_gb": round(gpu_stat.get("free", 0) / (1024**3), 2),
-                "used_gb": round(gpu_stat.get("used", 0) / (1024**3), 2),
-                "usage_percent": round((gpu_stat.get("used", 0) / max(gpu_stat.get("total", 1), 1)) * 100, 1)
+                "total_gb": round(gpu_stat.get("total_memory", 0) / (1024**3), 2),
+                "available_gb": round(gpu_stat.get("memory_free", 0) / (1024**3), 2),
+                "used_gb": round(gpu_stat.get("memory_used", 0) / (1024**3), 2),
+                "usage_percent": round(gpu_stat.get("memory_used_percent", 0), 1)
             }
         
         # Get process memory info (rough estimate)
