@@ -43,29 +43,65 @@ async def get_system_status(
         # Get comprehensive status from status service
         status = status_service.get_comprehensive_status()
         
+        # Extract system info
+        system_info = status.system_info or {}
+        memory_status = status.memory_status
+        loaded_models_info = status.loaded_models or {}
+        
+        # Build memory info from memory status
+        memory_info = {
+            "total_memory_gb": getattr(memory_status, 'total_memory_gb', 0),
+            "available_memory_gb": getattr(memory_status, 'available_memory_gb', 0),
+            "gpu_memory_gb": 0,  # Will be filled from GPU info
+            "memory_usage_percent": getattr(memory_status, 'usage_percent', 0)
+        }
+        
+        # Extract GPU info
+        gpu_info_data = system_info.get("gpu_info", {})
+        gpu_info = {
+            "gpu_available": gpu_info_data.get("is_available", False),
+            "gpu_name": gpu_info_data.get("name", "None"),
+            "gpu_memory_used_gb": gpu_info_data.get("memory_used_gb", 0),
+            "gpu_utilization_percent": gpu_info_data.get("utilization_percent", 0)
+        }
+        
+        # Update memory info with GPU data
+        memory_info["gpu_memory_gb"] = gpu_info_data.get("memory_total_gb", 0)
+        
+        # Extract model info
+        models_list = loaded_models_info.get("models", {})
+        model_info = {
+            "loaded_models": list(models_list.keys()),
+            "total_loaded": loaded_models_info.get("count", 0),
+            "default_model": "none"  # TODO: Get from config
+        }
+        
         return SystemStatusResponse(
             success=True,
             system_info={
-                "platform": status.get("platform", "unknown"),
-                "python_version": status.get("python_version", "unknown"),
-                "framework_version": "1.0.0"
+                "platform": system_info.get("platform", "unknown"),
+                "python_version": system_info.get("python_version", "unknown"),
+                "framework_version": "1.0.0",
+                "gpu_available": gpu_info_data.get("is_available", False),
+                "gpu_name": gpu_info_data.get("name", "None")
             },
             memory_info={
-                "total_memory_gb": status.get("memory", {}).get("total", 0),
-                "available_memory_gb": status.get("memory", {}).get("available", 0),
-                "gpu_memory_gb": status.get("gpu", {}).get("memory", 0),
-                "memory_usage_percent": status.get("memory", {}).get("usage_percent", 0)
+                "total_memory_gb": getattr(memory_status, 'total_memory_gb', 0),
+                "available_memory_gb": getattr(memory_status, 'available_memory_gb', 0),
+                "gpu_memory_gb": gpu_info_data.get("memory_total_gb", 0),
+                "memory_usage_percent": getattr(memory_status, 'usage_percent', 0),
+                "gpu_memory_used_gb": gpu_info_data.get("memory_used_gb", 0)
             },
-            gpu_info={
-                "gpu_available": status.get("gpu", {}).get("available", False),
-                "gpu_name": status.get("gpu", {}).get("name", "None"),
-                "gpu_memory_used_gb": status.get("gpu", {}).get("memory_used", 0),
-                "gpu_utilization_percent": status.get("gpu", {}).get("utilization", 0)
-            },
-            model_info={
-                "loaded_models": status.get("loaded_models", []),
-                "total_loaded": len(status.get("loaded_models", [])),
-                "default_model": status.get("default_model", "none")
+            loaded_models=[
+                {
+                    "model_name": model_name,
+                    "model_info": model_data
+                }
+                for model_name, model_data in models_list.items()
+            ],
+            cache_info={
+                "total_loaded": loaded_models_info.get("count", 0),
+                "default_model": "none"
             }
         )
         
@@ -86,41 +122,48 @@ async def get_memory_status(
     require_permissions(auth, ["system_status"])
     
     try:
-        # Convert to args-like object for service compatibility
-        class MemoryArgs:
-            def __init__(self):
-                self.detailed = True
+        # Get memory status from service
+        memory_status = memory_service.get_memory_status()
         
-        args = MemoryArgs()
+        # Extract system memory info
+        system_stats = memory_status.system_stats
+        system_memory = {
+            "total_gb": round(system_stats.get("total", 0) / (1024**3), 2),
+            "available_gb": round(system_stats.get("available", 0) / (1024**3), 2),
+            "used_gb": round(system_stats.get("used", 0) / (1024**3), 2),
+            "usage_percent": round(system_stats.get("percent", 0), 1)
+        }
         
-        # Note: Memory service returns exit codes, not data
-        # In a real API, this would be restructured to return actual memory data
-        result = memory_service.show_memory_status(args)
+        # Extract GPU memory info
+        gpu_memory = {"total_gb": 0, "available_gb": 0, "used_gb": 0, "usage_percent": 0}
+        if memory_status.has_gpu and memory_status.gpu_stats:
+            gpu_stat = memory_status.gpu_stats[0]  # First GPU
+            gpu_memory = {
+                "total_gb": round(gpu_stat.get("total", 0) / (1024**3), 2),
+                "available_gb": round(gpu_stat.get("free", 0) / (1024**3), 2),
+                "used_gb": round(gpu_stat.get("used", 0) / (1024**3), 2),
+                "usage_percent": round((gpu_stat.get("used", 0) / max(gpu_stat.get("total", 1), 1)) * 100, 1)
+            }
         
-        if result == 0:
-            return APIResponse(
-                success=True,
-                data={
-                    "system_memory": {
-                        "total_gb": 32.0,  # Placeholder data
-                        "available_gb": 16.0,
-                        "used_gb": 16.0,
-                        "usage_percent": 50.0
-                    },
-                    "gpu_memory": {
-                        "total_gb": 24.0,
-                        "available_gb": 20.0,
-                        "used_gb": 4.0,
-                        "usage_percent": 16.7
-                    },
-                    "process_memory": {
-                        "rss_mb": 1024.0,
-                        "vms_mb": 2048.0
-                    }
-                }
-            )
-        else:
-            raise HTTPException(status_code=500, detail="Failed to get memory status")
+        # Get process memory info (rough estimate)
+        import psutil
+        process = psutil.Process()
+        memory_info_bytes = process.memory_info()
+        process_memory = {
+            "rss_mb": round(memory_info_bytes.rss / (1024**2), 1),
+            "vms_mb": round(memory_info_bytes.vms / (1024**2), 1)
+        }
+        
+        return APIResponse(
+            success=True,
+            data={
+                "system_memory": system_memory,
+                "gpu_memory": gpu_memory,
+                "process_memory": process_memory,
+                "gpu_available": memory_status.has_gpu,
+                "gpu_count": len(memory_status.gpu_stats) if memory_status.gpu_stats else 0
+            }
+        )
             
     except Exception as e:
         logger.error(f"Failed to get memory status: {e}")
@@ -140,26 +183,36 @@ async def clear_memory(
     require_permissions(auth, ["cache_clear"])
     
     try:
-        # Convert to args-like object for service compatibility
-        class ClearArgs:
-            def __init__(self, force_clear=False):
-                self.force = force_clear
+        # Get memory status before clearing
+        memory_before = memory_service.get_memory_status()
         
-        args = ClearArgs(force)
+        # Clear GPU memory
+        gpu_cleared = memory_service.clear_gpu_memory()
         
-        result = memory_service.clear_memory(args)
+        # Force garbage collection
+        import gc
+        gc.collect()
         
-        if result == 0:
-            return APIResponse(
-                success=True,
-                data={
-                    "message": "Memory cleared successfully",
-                    "freed_memory_mb": 512.0,  # Placeholder
-                    "force_clear": force
-                }
-            )
-        else:
-            raise HTTPException(status_code=500, detail="Failed to clear memory")
+        # Get memory status after clearing
+        memory_after = memory_service.get_memory_status()
+        
+        # Calculate freed memory (rough estimate)
+        freed_memory_mb = 0
+        if memory_before.has_gpu and memory_after.has_gpu:
+            if memory_before.gpu_stats and memory_after.gpu_stats:
+                before_used = memory_before.gpu_stats[0].get("used", 0)
+                after_used = memory_after.gpu_stats[0].get("used", 0)
+                freed_memory_mb = round((before_used - after_used) / (1024**2), 1)
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": "Memory cleared successfully",
+                "freed_memory_mb": max(freed_memory_mb, 0),  # Don't show negative
+                "gpu_cleared": gpu_cleared,
+                "force_clear": force
+            }
+        )
             
     except Exception as e:
         logger.error(f"Failed to clear memory: {e}")
@@ -178,28 +231,30 @@ async def get_cache_status(
     require_permissions(auth, ["system_status"])
     
     try:
-        # Convert to args-like object for service compatibility
-        class CacheArgs:
-            def __init__(self):
-                self.detailed = True
+        # Get cache statistics from service
+        cache_stats = cache_service.get_cache_statistics()
+        total_cache_info = cache_service.get_total_cache_size()
+        cached_models = cache_service.list_cached_models()
         
-        args = CacheArgs()
-        
-        result = cache_service.show_cache_status(args)
-        
-        if result == 0:
-            return APIResponse(
-                success=True,
-                data={
-                    "total_cache_size_gb": 8.5,  # Placeholder data
-                    "cache_entries": 5,
-                    "cache_location": "/home/user/.cache/huggingface",
-                    "oldest_entry": "2025-05-20T10:00:00Z",
-                    "newest_entry": "2025-05-26T12:00:00Z"
-                }
-            )
-        else:
-            raise HTTPException(status_code=500, detail="Failed to get cache status")
+        # Format the response
+        return APIResponse(
+            success=True,
+            data={
+                "total_cache_size_gb": round(total_cache_info.get("total_size_bytes", 0) / (1024**3), 2),
+                "cache_entries": len(cached_models),
+                "cache_location": str(cache_service._get_huggingface_cache_dir()),
+                "cached_models": [
+                    {
+                        "model_id": cache_info.model_id,
+                        "size_gb": round(cache_info.size_bytes / (1024**3), 2),
+                        "cache_path": str(cache_info.cache_path),
+                        "size_human": cache_info.size_human
+                    }
+                    for cache_info in cached_models[:10]  # Limit to first 10 for brevity
+                ],
+                "statistics": cache_stats
+            }
+        )
             
     except Exception as e:
         logger.error(f"Failed to get cache status: {e}")
@@ -220,30 +275,36 @@ async def clear_cache(
     require_permissions(auth, ["cache_clear"])
     
     try:
-        # Convert to args-like object for service compatibility
-        class CacheArgs:
-            def __init__(self, model=None, force_clear=False):
-                self.model_name = model
-                self.force = force_clear
-                self.all = model is None
+        # Get cache size before clearing
+        total_cache_before = cache_service.get_total_cache_size()
+        size_before = total_cache_before.get("total_size_bytes", 0)
         
-        args = CacheArgs(model_name, force)
-        
-        result = cache_service.clear_cache(args)
-        
-        if result == 0:
-            message = f"Cache cleared for model '{model_name}'" if model_name else "All caches cleared"
-            return APIResponse(
-                success=True,
-                data={
-                    "message": message,
-                    "cleared_model": model_name,
-                    "freed_space_gb": 2.1,  # Placeholder
-                    "force_clear": force
-                }
-            )
+        if model_name:
+            # Clear specific model cache
+            success = cache_service.clear_model_cache(model_name)
+            message = f"Cache cleared for model '{model_name}'" if success else f"Failed to clear cache for model '{model_name}'"
         else:
-            raise HTTPException(status_code=500, detail="Failed to clear cache")
+            # Clear all caches
+            success = cache_service.clear_all_cache()
+            message = "All caches cleared" if success else "Failed to clear all caches"
+        
+        # Get cache size after clearing
+        total_cache_after = cache_service.get_total_cache_size()
+        size_after = total_cache_after.get("total_size_bytes", 0)
+        freed_space_gb = round((size_before - size_after) / (1024**3), 2)
+        
+        if not success:
+            raise HTTPException(status_code=500, detail=message)
+        
+        return APIResponse(
+            success=True,
+            data={
+                "message": message,
+                "cleared_model": model_name,
+                "freed_space_gb": max(freed_space_gb, 0),  # Don't show negative
+                "force_clear": force
+            }
+        )
             
     except Exception as e:
         logger.error(f"Failed to clear cache: {e}")
