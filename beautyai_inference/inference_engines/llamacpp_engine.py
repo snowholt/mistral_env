@@ -42,66 +42,196 @@ class LlamaCppEngine(ModelInterface):
         
         logger.info(f"Loading GGUF file: {model_path}")
         
-        # Configure GPU layers (use all layers for GPU acceleration)
-        n_gpu_layers = -1  # Use all layers on GPU
+        # Enhanced CUDA detection and configuration
+        import torch
+        has_cuda = torch.cuda.is_available()
+        logger.info(f"CUDA available: {has_cuda}")
         
-        # Configure memory usage (conservative settings for 24GB GPU)
-        n_ctx = 4096  # Context length
-        n_batch = 512  # Batch size
+        if has_cuda:
+            gpu_name = torch.cuda.get_device_name(0)
+            gpu_memory_mb = torch.cuda.get_device_properties(0).total_memory / (1024**2)
+            gpu_memory_gb = gpu_memory_mb / 1024
+            logger.info(f"GPU: {gpu_name}, Memory: {gpu_memory_gb:.1f}GB")
+            
+            # Calculate optimal GPU layers based on model size and GPU memory
+            # For GGUF models, typically each layer uses ~100-200MB for 14B models
+            # Leave some memory for KV cache and operations
+            available_gpu_memory_gb = gpu_memory_gb * 0.85  # Use 85% of GPU memory
+            
+            # Use all layers if we have enough memory, otherwise calculate optimal layers
+            n_gpu_layers = -1  # Use all layers by default
+            
+            logger.info(f"Using all layers on GPU (n_gpu_layers={n_gpu_layers})")
+        else:
+            n_gpu_layers = 0
+            logger.warning("CUDA not available, using CPU-only mode")
+        
+        # Configure optimal parameters for maximum speed
+        n_ctx = getattr(self.config, 'max_seq_len', 2048)  # Reduce context for speed
+        n_batch = 1024  # Larger batch size for better GPU utilization
+        n_threads = 16  # More CPU threads for better parallel processing
+        n_threads_batch = 16  # More batch processing threads
+        
+        # GPU-specific settings optimized for RTX 4090
+        gpu_settings = {}
+        if has_cuda:
+            gpu_settings.update({
+                "main_gpu": 0,  # Use GPU 0 as primary
+                "tensor_split": None,  # Don't split tensors (single GPU)
+                "low_vram": False,  # We have 24GB, don't use low VRAM mode
+                "mul_mat_q": True,  # Use quantized matrix multiplication for speed
+                "flash_attn": True,  # Enable flash attention for speed
+                "split_mode": 0,  # Don't split model across devices
+            })
+        
+        # Model loading parameters optimized for maximum performance
+        model_params = {
+            "model_path": model_path,
+            "n_gpu_layers": n_gpu_layers,
+            "n_ctx": n_ctx,
+            "n_batch": n_batch,
+            "n_threads": n_threads,
+            "n_threads_batch": n_threads_batch,  # Added for batch processing
+            "verbose": True,  # Enable verbose to see GPU usage
+            "use_mmap": True,  # Use memory mapping for efficiency
+            "use_mlock": False,  # Don't lock memory
+            "rope_freq_base": 10000.0,  # RoPE frequency base
+            "rope_freq_scale": 1.0,  # RoPE frequency scale
+            "f16_kv": True,  # Use half precision for KV cache (faster)
+            "logits_all": False,  # Only compute needed logits (faster)
+            "vocab_only": False,  # Don't load vocab only
+            **gpu_settings
+        }
         
         try:
-            self.model = Llama(
-                model_path=model_path,
-                n_gpu_layers=n_gpu_layers,
-                n_ctx=n_ctx,
-                n_batch=n_batch,
-                verbose=False,
-                use_mmap=True,  # Use memory mapping for efficiency
-                use_mlock=False,  # Don't lock all memory
-            )
+            logger.info(f"Initializing Llama with {n_gpu_layers} GPU layers, context: {n_ctx}")
+            self.model = Llama(**model_params)
             
             loading_time = time.time() - start_time
-            logger.info(f"GGUF model loaded in {loading_time:.2f} seconds")
+            logger.info(f"✅ GGUF model loaded successfully in {loading_time:.2f} seconds")
+            
+            # Check GPU memory usage after loading
+            if has_cuda and n_gpu_layers != 0:
+                try:
+                    gpu_memory_used = torch.cuda.memory_allocated(0) / (1024**3)
+                    gpu_memory_cached = torch.cuda.memory_reserved(0) / (1024**3)
+                    logger.info(f"GPU memory used: {gpu_memory_used:.2f}GB, cached: {gpu_memory_cached:.2f}GB")
+                    
+                    if gpu_memory_used > 0.5:  # If more than 500MB is used
+                        logger.info("✅ Model successfully loaded on GPU!")
+                    else:
+                        logger.warning("⚠️ Low GPU memory usage - model may be running on CPU")
+                except Exception as mem_e:
+                    logger.warning(f"Could not check GPU memory usage: {mem_e}")
             
         except Exception as e:
-            logger.error(f"Failed to load GGUF model {model_path}: {e}")
-            raise
+            error_msg = str(e).lower()
+            logger.error(f"Failed to load GGUF model: {e}")
+            
+            # Enhanced error handling based on common CUDA issues
+            if "cuda" in error_msg or "gpu" in error_msg:
+                logger.warning("GPU loading failed, attempting CPU fallback...")
+                
+                # Try with fewer GPU layers first
+                if n_gpu_layers == -1:
+                    logger.info("Trying with limited GPU layers...")
+                    try:
+                        model_params["n_gpu_layers"] = 20  # Try with 20 layers
+                        self.model = Llama(**model_params)
+                        logger.info("✅ Model loaded with limited GPU layers")
+                        return
+                    except Exception:
+                        logger.info("Limited GPU layers failed, trying CPU-only...")
+                
+                # Final fallback to CPU-only
+                try:
+                    model_params.update({
+                        "n_gpu_layers": 0,
+                        "main_gpu": 0,
+                        "tensor_split": None,
+                        "low_vram": False,
+                        "mul_mat_q": False,
+                    })
+                    
+                    self.model = Llama(**model_params)
+                    logger.warning("⚠️ Model loaded in CPU-only mode as fallback")
+                    
+                except Exception as e2:
+                    logger.error(f"Failed to load model even in CPU mode: {e2}")
+                    raise
+            else:
+                # Non-CUDA related error
+                raise
     
     def _find_gguf_model_path(self) -> Optional[str]:
         """Find the GGUF model file path."""
         # Check if model_filename is specified in config
         if hasattr(self.config, 'model_filename') and self.config.model_filename:
             filename = self.config.model_filename
+            logger.info(f"Looking for specific model file: {filename}")
         else:
-            # Default GGUF filename patterns
-            filename = "devstralQ4_K_M.gguf"  # Default for Devstral
+            # Default GGUF filename patterns based on model
+            if "devstral" in self.config.model_id.lower():
+                filename = "devstralQ4_K_M.gguf"
+            elif "bee1reason" in self.config.model_id.lower():
+                if "i1-q4_k_s" in str(getattr(self.config, 'quantization', '')).lower():
+                    filename = "Bee1reason-arabic-Qwen-14B.i1-Q4_K_S.gguf"
+                else:
+                    filename = "Bee1reason-arabic-Qwen-14B-Q4_K_M.gguf"
+            else:
+                filename = "*.gguf"  # Fallback pattern
         
         # Common paths to check
         cache_dir = os.path.expanduser("~/.cache/huggingface/hub")
         
-        # Pattern for HuggingFace cache
+        # Pattern for HuggingFace cache (handle various naming conventions)
         model_id_safe = self.config.model_id.replace("/", "--")
         
-        # Search patterns
+        # Search patterns with various possible cache directory names
         search_patterns = [
             f"{cache_dir}/models--{model_id_safe}/snapshots/*/",
             f"{cache_dir}/models--{model_id_safe.replace('_', '--')}/snapshots/*/",
+            f"{cache_dir}/models--{model_id_safe.replace('-', '--')}/snapshots/*/",
         ]
         
+        import glob
+        
+        # Search for specific filename first
+        if filename != "*.gguf":
+            for pattern_dir in search_patterns:
+                dirs = glob.glob(pattern_dir)
+                for dir_path in dirs:
+                    full_path = os.path.join(dir_path, filename)
+                    if os.path.exists(full_path):
+                        logger.info(f"Found GGUF model at: {full_path}")
+                        return full_path
+        
+        # If specific filename not found, search for any GGUF files
+        logger.info("Specific filename not found, searching for any GGUF files...")
         for pattern_dir in search_patterns:
-            import glob
             dirs = glob.glob(pattern_dir)
             for dir_path in dirs:
-                full_path = os.path.join(dir_path, filename)
-                if os.path.exists(full_path):
-                    logger.info(f"Found GGUF model at: {full_path}")
-                    return full_path
+                gguf_files = glob.glob(os.path.join(dir_path, "*.gguf"))
+                if gguf_files:
+                    # Sort by file size (largest first) - usually the main model
+                    gguf_files.sort(key=lambda x: os.path.getsize(x), reverse=True)
+                    
+                    # Prefer Q4_K_M quantization if available
+                    for gguf_file in gguf_files:
+                        if "Q4_K_M" in os.path.basename(gguf_file):
+                            logger.info(f"Found preferred Q4_K_M model: {gguf_file}")
+                            return gguf_file
+                    
+                    # Otherwise use the first (largest) file
+                    logger.info(f"Found GGUF model: {gguf_files[0]}")
+                    return gguf_files[0]
         
         # Also check if it's a direct path
         if os.path.exists(self.config.model_id):
             return self.config.model_id
             
-        logger.error(f"Could not find GGUF file {filename} for model {self.config.model_id}")
+        logger.error(f"Could not find any GGUF files for model {self.config.model_id}")
+        logger.info(f"Searched in patterns: {search_patterns}")
         return None
     
     def unload_model(self) -> None:
@@ -128,21 +258,28 @@ class LlamaCppEngine(ModelInterface):
         return f"<s>[INST] {prompt} [/INST]"
     
     def generate(self, prompt: str, **kwargs) -> str:
-        """Generate text from a prompt."""
+        """Generate text from a prompt with optimized settings for speed."""
         if not self.model:
             self.load_model()
         
         # Format prompt
         formatted_prompt = self._format_prompt(prompt)
         
-        # Generate response
+        # Optimized generation parameters for maximum speed
         response = self.model(
             formatted_prompt,
-            max_tokens=kwargs.get("max_new_tokens", self.config.max_new_tokens),
+            max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 512)),  # Limit for speed
             temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
             top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.95)),
+            top_k=kwargs.get("top_k", 40),  # Add top_k for speed
+            repeat_penalty=kwargs.get("repeat_penalty", 1.1),
             echo=False,
             stop=["</s>", "[INST]", "[/INST]"],
+            # Speed optimizations
+            stream=False,  # Disable streaming for faster batch processing
+            tfs_z=1.0,     # TFS disabled for speed
+            typical_p=1.0,  # Typical sampling disabled
+            mirostat_mode=0,  # Disable mirostat for speed
         )
         
         # Extract response text
@@ -164,13 +301,20 @@ class LlamaCppEngine(ModelInterface):
                 content=msg["content"]
             ))
         
-        # Generate response using chat completion
+        # Generate response using chat completion with speed optimizations
         try:
             response = self.model.create_chat_completion(
                 messages=formatted_messages,
-                max_tokens=kwargs.get("max_new_tokens", self.config.max_new_tokens),
+                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 512)),  # Limit for speed
                 temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
                 top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.95)),
+                top_k=kwargs.get("top_k", 40),  # Add top_k for speed
+                repeat_penalty=kwargs.get("repeat_penalty", 1.1),
+                # Speed optimizations
+                stream=False,
+                tfs_z=1.0,
+                typical_p=1.0,
+                mirostat_mode=0,
             )
             
             if response and 'choices' in response and len(response['choices']) > 0:

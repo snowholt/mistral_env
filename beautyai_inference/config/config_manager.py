@@ -27,6 +27,7 @@ class ModelConfig:
     name: str = "default"  # Friendly name for the model configuration
     description: Optional[str] = None  # Optional description of the model configuration
     model_architecture: str = "causal_lm"  # 'causal_lm' or 'seq2seq_lm'
+    model_filename: Optional[str] = None  # Specific filename for GGUF models
     documentation: Optional[Dict[str, str]] = None  # Documentation for the model configuration
     custom_generation_params: Optional[Dict[str, Any]] = None  # Custom generation parameters
     
@@ -46,6 +47,7 @@ class ModelConfig:
             "name": self.name,
             "description": self.description,
             "model_architecture": self.model_architecture,
+            "model_filename": self.model_filename,
             "documentation": self.documentation,
             "custom_generation_params": self.custom_generation_params,
         }
