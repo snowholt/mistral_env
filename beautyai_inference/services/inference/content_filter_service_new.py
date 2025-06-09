@@ -134,51 +134,39 @@ class ContentFilterService(BaseService):
         self.allowed_medical_topics.update(medical_beauty_terms_ar + medical_beauty_terms_en)
         self.allowed_medical_keywords.update(medical_beauty_terms_ar + medical_beauty_terms_en)
         
-        # Add common medical keywords from compound terms (be more selective)
-        medical_keywords_to_add = []
+        # Add common medical keywords (any individual words)
         for term in medical_beauty_terms_ar + medical_beauty_terms_en:
-            # Only add individual words that are clearly medical/beauty related
             words = term.split()
-            for word in words:
-                if len(word) > 3 and word not in ['the', 'and', 'or', 'of', 'في', 'من', 'إلى', 'على']:
-                    # Skip common non-medical words
-                    non_medical_words = ['best', 'good', 'better', 'أفضل', 'جيد', 'أحسن', 'how', 'what', 'كيف', 'ما']
-                    if word not in non_medical_words:
-                        medical_keywords_to_add.append(word)
-        
-        self.allowed_medical_keywords.update(medical_keywords_to_add)
+            self.allowed_medical_keywords.update(words)
     
     def _load_forbidden_content(self) -> None:
         """Load sexual/sensual and off-topic content that is FORBIDDEN."""
-        # Sexual and sensual content (be more specific to avoid false positives)
+        # Sexual and sensual content (Arabic and English)
         forbidden_terms = [
-            # Sexual content in Arabic (use more specific terms)
-            'جنس', 'جنسي', 'جنسية', 'عشق', 'غرام', 'شهوة', 'إثارة جنسية',
-            'ممارسة الجنس', 'علاقة حميمة', 'إغراء جنسي', 'إغواء جنسي',
-            'رومانسي', 'عاطفي', 'صديق', 'صديقة', 'حبيب', 'حبيبة',
-            'زواج', 'خطوبة', 'موعد غرامي', 'لقاء رومانسي',
+            # Sexual content in Arabic
+            'جنس', 'جنسي', 'جنسية', 'حب', 'عشق', 'غرام', 'شهوة', 'إثارة',
+            'ممارسة', 'علاقة حميمة', 'قبلة', 'عناق', 'لمسة', 'إغراء', 'إغواء',
             
-            # Sexual content in English (specific terms)
-            'sex', 'sexual', 'intimate relationship', 'romance', 'romantic', 
-            'boyfriend', 'girlfriend', 'dating', 'love affair', 'seduction',
-            'kiss', 'kissing', 'touching', 'seduce', 'arousal', 'desire', 'lust', 'passion',
-            'erotic', 'sensual', 'sexy', 'hot body', 'attraction', 'flirt', 'flirting',
-            'marriage', 'wedding', 'date night', 'romantic dinner',
+            # Sexual content in English
+            'sex', 'sexual', 'intimate', 'romance', 'romantic', 'love', 'kiss',
+            'touch', 'seduce', 'seduction', 'arousal', 'desire', 'lust', 'passion',
+            'erotic', 'sensual', 'sexy', 'hot', 'attraction', 'flirt', 'dating',
             
-            # Completely off-topic subjects (not medical/beauty related)
-            'طبخ', 'طعام', 'مطبخ', 'وصفة', 'كرة القدم', 'رياضة', 'سياسة', 'اقتصاد', 
-            'تكنولوجيا', 'حاسوب', 'برمجة', 'ألعاب', 'موسيقى', 'أفلام', 'سفر',
-            'طقس', 'أخبار', 'سيارات', 'مواصلات', 'تعليم', 'دراسة', 'عمل', 'وظيفة',
-            
-            'cooking', 'food', 'recipe', 'kitchen', 'restaurant', 'football', 'soccer',
-            'sports', 'politics', 'economy', 'technology', 'programming', 'computer', 
-            'software', 'hardware', 'gaming', 'music', 'movies', 'entertainment', 
-            'travel', 'vacation', 'weather', 'news', 'cars', 'transportation',
-            'education', 'study', 'work', 'job', 'career'
+            # Completely off-topic subjects
+            'طبخ', 'طعام', 'كرة القدم', 'رياضة', 'سياسة', 'اقتصاد', 'تكنولوجيا',
+            'cooking', 'food', 'football', 'sports', 'politics', 'economy', 'technology',
+            'programming', 'computer', 'software', 'hardware', 'gaming', 'music',
+            'movies', 'entertainment', 'travel', 'vacation', 'weather', 'news'
         ]
         
         self.forbidden_topics.update(forbidden_terms)
         self.forbidden_keywords.update(forbidden_terms)
+        
+        # Add individual words from compound terms
+        for term in forbidden_terms:
+            words = term.split()
+            if len(words) > 1:
+                self.forbidden_keywords.update(words)
     
     def filter_content(self, user_input: str, language: str = 'ar') -> FilterResult:
         """
@@ -229,33 +217,9 @@ class ContentFilterService(BaseService):
         """Check for explicitly forbidden sexual/sensual content."""
         matches = []
         
-        # Check for forbidden phrases first (more specific)
-        forbidden_phrases = [
-            'علاقة حميمة', 'ممارسة الجنس', 'إثارة جنسية', 'إغراء جنسي', 'موعد غرامي',
-            'intimate relationship', 'sexual intercourse', 'sexual arousal', 'romantic date'
-        ]
-        
-        for phrase in forbidden_phrases:
-            if phrase.lower() in text:
-                matches.append(phrase)
-        
-        # Then check individual forbidden terms, but be more careful
         for forbidden_term in self.forbidden_topics:
-            if len(forbidden_term) > 3 and forbidden_term.lower() in text:
-                # Skip if it's part of a medical term
-                medical_exceptions = [
-                    'حب الشباب',  # acne (contains 'حب' but is medical)
-                    'love handles',  # medical term for body fat
-                ]
-                
-                is_medical_context = False
-                for medical_term in medical_exceptions:
-                    if medical_term.lower() in text:
-                        is_medical_context = True
-                        break
-                
-                if not is_medical_context:
-                    matches.append(forbidden_term)
+            if forbidden_term.lower() in text:
+                matches.append(forbidden_term)
         
         return matches
     
@@ -267,50 +231,32 @@ class ContentFilterService(BaseService):
         if not words:
             return False
         
-        # Check for explicit medical/beauty phrases first
-        medical_phrases = [
-            'حب الشباب', 'عيادة تجميل', 'طب تجميلي', 'عملية تجميل', 'علاج البشرة',
-            'cosmetic surgery', 'plastic surgery', 'skin treatment', 'beauty clinic',
-            'aesthetic medicine', 'dermatology'
-        ]
-        
-        for phrase in medical_phrases:
-            if phrase.lower() in text:
-                return True
-        
         # Count medical/beauty related words
         medical_word_count = 0
         for word in words:
             if word in self.allowed_medical_keywords:
                 medical_word_count += 1
         
+        # Also check for medical phrases
+        phrase_matches = 0
+        for topic in self.allowed_medical_topics:
+            if len(topic.split()) > 1 and topic.lower() in text:
+                phrase_matches += 1
+        
         # Calculate relevance score
-        relevance_ratio = medical_word_count / len(words) if words else 0
+        total_relevant = medical_word_count + phrase_matches
+        relevance_ratio = total_relevant / len(words) if words else 0
         
-        # Adjust threshold based on strictness and text length
-        if len(words) <= 5:  # Short texts need higher medical word density
-            if self.strictness_level == "strict":
-                threshold = 0.6  # 60% of words must be medical for short texts
-            elif self.strictness_level == "balanced":
-                threshold = 0.4  # 40% of words must be medical for short texts
-            else:  # "relaxed"
-                threshold = 0.3  # 30% of words must be medical for short texts
-        else:  # Longer texts can have lower density
-            if self.strictness_level == "strict":
-                threshold = 0.3  # 30% of words must be medical
-            elif self.strictness_level == "balanced":
-                threshold = 0.2  # 20% of words must be medical  
-            else:  # "relaxed"
-                threshold = 0.1  # 10% of words must be medical
+        # Adjust threshold based on strictness
+        if self.strictness_level == "strict":
+            threshold = 0.3  # At least 30% of words must be medical/beauty related
+        elif self.strictness_level == "balanced":
+            threshold = 0.2  # At least 20% of words must be medical/beauty related  
+        else:  # "relaxed"
+            threshold = 0.1  # At least 10% of words must be medical/beauty related
         
-        # For very short questions, be more lenient if they contain question words
-        if len(words) <= 3:
-            question_words = ['ما', 'كيف', 'متى', 'أين', 'لماذا', 'هل', 'what', 'how', 'when', 'where', 'why', 'is', 'are']
-            has_question_word = any(word in question_words for word in words)
-            if has_question_word and medical_word_count > 0:
-                return True
-        
-        return relevance_ratio >= threshold
+        # Also allow if we have any exact medical phrase match
+        return relevance_ratio >= threshold or phrase_matches > 0
     
     def set_strictness_level(self, level: str) -> None:
         """Set the strictness level of the content filter."""

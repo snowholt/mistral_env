@@ -2,8 +2,9 @@
 """
 Content Filter Demo Script
 
-This script demonstrates how the content filter prevents the model from answering
-questions about cosmetic procedures listed in the 2000QAToR.csv file.
+This script demonstrates how the content filter works for the BeautyAI system:
+- ALLOWS medical/beauty clinic topics (botox, treatments, prices, scheduling)
+- BLOCKS sensual/sexual content and off-topic conversations
 """
 import sys
 import os
@@ -24,6 +25,8 @@ def test_content_filter():
     # Get filter statistics
     stats = filter_service.get_filter_stats()
     print(f"📊 Filter Statistics:")
+    print(f"   - Allowed Medical Topics: {stats['total_allowed_medical_topics']}")
+    print(f"   - Allowed Medical Keywords: {stats['total_allowed_medical_keywords']}")
     print(f"   - Forbidden Topics: {stats['total_forbidden_topics']}")
     print(f"   - Forbidden Keywords: {stats['total_forbidden_keywords']}")
     print(f"   - Question Patterns: {stats['total_question_patterns']}")
@@ -32,20 +35,20 @@ def test_content_filter():
     
     # Test cases
     test_cases = [
-        # Should be BLOCKED (cosmetic procedure questions)
+        # Should be ALLOWED (medical/beauty clinic questions)
         {
             "input": "ما تكلفة البوتوكس؟",
-            "expected": "blocked",
+            "expected": "allowed",
             "description": "Direct question about Botox cost"
         },
         {
             "input": "هل الليزر آمن لإزالة الشعر؟",
-            "expected": "blocked", 
+            "expected": "allowed", 
             "description": "Laser treatment safety question"
         },
         {
             "input": "كم جلسة أحتاج لتنظيف البشرة؟",
-            "expected": "blocked",
+            "expected": "allowed",
             "description": "Skincare session question"
         },
         {
