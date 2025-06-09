@@ -166,17 +166,24 @@ class ChatService(BaseService):
                     
                     if streaming:
                         for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
-                            print(token, end="")
+                            # Ensure token is a string
+                            token_str = str(token) if not isinstance(token, str) else token
+                            print(token_str, end="")
                             sys.stdout.flush()
-                            response += token
+                            response += token_str
                     else:
                         response = model.chat(chat_history, **generation_config)
+                        # Ensure response is a string
+                        if not isinstance(response, str):
+                            response = str(response)
                         print(response)
                     
                     end_time = time.time()
                     generation_time = end_time - start_time
                     
-                    # Add to chat history
+                    # Add to chat history - ensure response is a string
+                    if not isinstance(response, str):
+                        response = str(response)
                     chat_history.append({"role": "assistant", "content": response})
                     
                     # Update session history
@@ -340,17 +347,24 @@ class ChatService(BaseService):
                     
                     if streaming:
                         for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
-                            print(token, end="")
+                            # Ensure token is a string
+                            token_str = str(token) if not isinstance(token, str) else token
+                            print(token_str, end="")
                             sys.stdout.flush()
-                            response += token
+                            response += token_str
                     else:
                         response = model.chat(chat_history, **generation_config)
+                        # Ensure response is a string
+                        if not isinstance(response, str):
+                            response = str(response)
                         print(response)
                     
                     end_time = time.time()
                     generation_time = end_time - start_time
                     
-                    # Add to chat history
+                    # Add to chat history - ensure response is a string
+                    if not isinstance(response, str):
+                        response = str(response)
                     chat_history.append({"role": "assistant", "content": response})
                     
                     # Update session history

@@ -20,7 +20,7 @@
     "bee1reason-arabic-qwen-14b": {
       "model_id": "beetlware/Bee1reason-arabic-Qwen-14B",
       "engine_type": "transformers",
-      "quantization": "none",
+      "quantization": "8bit",
       "dtype": "float16",
       "max_new_tokens": 1024,
       "name": "bee1reason-arabic-qwen-14b",

@@ -411,10 +411,20 @@ class TransformersEngine(ModelInterface):
                 formatted_prompt = f"User: {prompt}\nAssistant:"
 
             # Generate response
-            response = self.generator(
+            generated_output = self.generator(
                 formatted_prompt,
                 **filtered_params
-            )[0]["generated_text"]
+            )
+            
+            # Ensure we get the generated text as a string
+            if isinstance(generated_output, list) and len(generated_output) > 0:
+                response = generated_output[0].get("generated_text", "")
+            else:
+                response = str(generated_output)
+            
+            # Ensure response is a string
+            if not isinstance(response, str):
+                response = str(response)
 
             # Extract assistant's reply
             if "[/INST]" in response:
@@ -424,6 +434,10 @@ class TransformersEngine(ModelInterface):
             else:
                 # For models that just continue the text
                 assistant_reply = response[len(formatted_prompt):].strip()
+
+            # Ensure the result is a string
+            if not isinstance(assistant_reply, str):
+                assistant_reply = str(assistant_reply)
 
             return assistant_reply
 
@@ -458,6 +472,12 @@ class TransformersEngine(ModelInterface):
 
     def _extract_last_reply(self, response: str, formatted_prompt: str) -> str:
         """Extract the last reply from a conversation."""
+        # Ensure response is a string
+        if not isinstance(response, str):
+            response = str(response)
+        if not isinstance(formatted_prompt, str):
+            formatted_prompt = str(formatted_prompt)
+            
         architecture = getattr(self.config, 'model_architecture', 'causal_lm')
 
         if architecture == 'seq2seq_lm':
@@ -480,7 +500,8 @@ class TransformersEngine(ModelInterface):
                 return parts[-1].strip()
 
         # Fallback: return everything after the prompt
-        return response[len(formatted_prompt):].strip() if response.startswith(formatted_prompt) else response
+        fallback_result = response[len(formatted_prompt):].strip() if response.startswith(formatted_prompt) else response
+        return fallback_result
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Generate a response in a conversation."""
@@ -560,13 +581,29 @@ class TransformersEngine(ModelInterface):
 
         # Generate response with warning suppression
         suppress_transformers_warnings()
-        response = self.generator(
+        generated_output = self.generator(
             formatted_prompt,
             **filtered_params
-        )[0]["generated_text"]
+        )
+        
+        # Ensure we get the generated text as a string
+        if isinstance(generated_output, list) and len(generated_output) > 0:
+            response = generated_output[0].get("generated_text", "")
+        else:
+            response = str(generated_output)
+        
+        # Ensure response is a string
+        if not isinstance(response, str):
+            response = str(response)
 
         # Extract assistant's reply
-        return self._extract_last_reply(response, formatted_prompt)
+        extracted_reply = self._extract_last_reply(response, formatted_prompt)
+        
+        # Ensure the final result is a string
+        if not isinstance(extracted_reply, str):
+            extracted_reply = str(extracted_reply)
+            
+        return extracted_reply
 
     def chat_stream(self, messages: List[Dict[str, str]], callback=None, **kwargs) -> str:
         """Stream a chat response token by token."""
