@@ -67,10 +67,10 @@ class LlamaCppEngine(ModelInterface):
             logger.warning("CUDA not available, using CPU-only mode")
         
         # Configure optimal parameters for maximum speed
-        n_ctx = getattr(self.config, 'max_seq_len', 2048)  # Reduce context for speed
-        n_batch = 1024  # Larger batch size for better GPU utilization
-        n_threads = 16  # More CPU threads for better parallel processing
-        n_threads_batch = 16  # More batch processing threads
+        n_ctx = getattr(self.config, 'max_seq_len', 4096)  # Optimal context for speed/quality balance
+        n_batch = 2048  # Much larger batch size for RTX 4090 (was 1024)
+        n_threads = 8   # Optimal for most CPUs (was 16) 
+        n_threads_batch = 8  # Match main threads for consistency
         
         # GPU-specific settings optimized for RTX 4090
         gpu_settings = {}
@@ -82,6 +82,8 @@ class LlamaCppEngine(ModelInterface):
                 "mul_mat_q": True,  # Use quantized matrix multiplication for speed
                 "flash_attn": True,  # Enable flash attention for speed
                 "split_mode": 0,  # Don't split model across devices
+                "offload_kqv": True,  # Offload KQV to GPU for speed
+                "cont_batching": True,  # Enable continuous batching
             })
         
         # Model loading parameters optimized for maximum performance
@@ -92,14 +94,16 @@ class LlamaCppEngine(ModelInterface):
             "n_batch": n_batch,
             "n_threads": n_threads,
             "n_threads_batch": n_threads_batch,  # Added for batch processing
-            "verbose": True,  # Enable verbose to see GPU usage
+            "verbose": False,  # Disable verbose for cleaner output and speed
             "use_mmap": True,  # Use memory mapping for efficiency
-            "use_mlock": False,  # Don't lock memory
+            "use_mlock": False,  # Don't lock memory (can cause issues)
             "rope_freq_base": 10000.0,  # RoPE frequency base
             "rope_freq_scale": 1.0,  # RoPE frequency scale
             "f16_kv": True,  # Use half precision for KV cache (faster)
             "logits_all": False,  # Only compute needed logits (faster)
             "vocab_only": False,  # Don't load vocab only
+            "embedding": False,  # Not using embeddings
+            "last_n_tokens_size": 64,  # Smaller buffer for speed
             **gpu_settings
         }
         
@@ -268,18 +272,20 @@ class LlamaCppEngine(ModelInterface):
         # Optimized generation parameters for maximum speed
         response = self.model(
             formatted_prompt,
-            max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 512)),  # Limit for speed
+            max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 256)),  # Reduced for speed
             temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
-            top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.95)),
-            top_k=kwargs.get("top_k", 40),  # Add top_k for speed
-            repeat_penalty=kwargs.get("repeat_penalty", 1.1),
+            top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.9)),  # Reduced for speed
+            top_k=kwargs.get("top_k", 20),  # Reduced top_k for faster sampling
+            repeat_penalty=kwargs.get("repeat_penalty", 1.05),  # Reduced for speed
             echo=False,
-            stop=["</s>", "[INST]", "[/INST]"],
-            # Speed optimizations
+            stop=["</s>", "[INST]", "[/INST]", "User:", "\n\n\n"],  # More stop tokens
+            # Aggressive speed optimizations
             stream=False,  # Disable streaming for faster batch processing
             tfs_z=1.0,     # TFS disabled for speed
             typical_p=1.0,  # Typical sampling disabled
             mirostat_mode=0,  # Disable mirostat for speed
+            frequency_penalty=0.0,  # Disable for speed
+            presence_penalty=0.0,   # Disable for speed
         )
         
         # Extract response text
@@ -305,16 +311,22 @@ class LlamaCppEngine(ModelInterface):
         try:
             response = self.model.create_chat_completion(
                 messages=formatted_messages,
-                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 512)),  # Limit for speed
+                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 256)),  # Reduced for speed
                 temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
-                top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.95)),
-                top_k=kwargs.get("top_k", 40),  # Add top_k for speed
-                repeat_penalty=kwargs.get("repeat_penalty", 1.1),
-                # Speed optimizations
+                top_p=kwargs.get("top_p", getattr(self.config, 'top_p', 0.9)),  # Slightly reduced for speed
+                top_k=kwargs.get("top_k", 20),  # Reduced top_k for faster sampling
+                repeat_penalty=kwargs.get("repeat_penalty", 1.05),  # Reduced for speed
+                # Aggressive speed optimizations
                 stream=False,
                 tfs_z=1.0,
                 typical_p=1.0,
                 mirostat_mode=0,
+                # Additional speed parameters
+                stop=["User:", "Human:", "\n\n\n"],  # Stop tokens for faster generation
+                frequency_penalty=0.0,
+                presence_penalty=0.0,
+                # Disable logit bias for speed
+                logit_bias={},
             )
             
             if response and 'choices' in response and len(response['choices']) > 0:
