@@ -282,6 +282,8 @@ async def unload_model(
         )
     except ModelNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except ModelLoadError as e:
+        raise HTTPException(status_code=500, detail=e.message)
     except Exception as e:
         logger.error(f"Failed to unload model {model_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to unload model: {str(e)}")
@@ -390,6 +392,8 @@ async def disable_model_timer(
         )
     except ModelNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except ModelLoadError as e:
+        raise HTTPException(status_code=500, detail=e.message)
     except Exception as e:
         logger.error(f"Failed to disable timer for {model_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to disable timer: {str(e)}")
@@ -417,6 +421,8 @@ async def enable_model_timer(
         )
     except ModelNotFoundError as e:
         raise HTTPException(status_code=404, detail=e.message)
+    except ModelLoadError as e:
+        raise HTTPException(status_code=500, detail=e.message)
     except Exception as e:
         logger.error(f"Failed to enable timer for {model_name}: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to enable timer: {str(e)}")

@@ -94,11 +94,18 @@ class ValidationService(BaseService):
                                 "errors": [f"Quantization method '{model_config.quantization}' is only supported with vLLM engine"]
                             })
                             
+                    if model_config.engine_type == "vllm" and model_config.quantization in ["4bit", "8bit"]:
+                        models_valid = False
+                        model_errors.append({
+                            "model": model_name,
+                            "errors": [f"Quantization method '{model_config.quantization}' is not compatible with vLLM engine"]
+                        })
+                        
                     if model_config.engine_type == "llama.cpp" and model_config.quantization in ["4bit", "8bit"]:
                         models_valid = False
                         model_errors.append({
                             "model": model_name,
-                            "errors": [f"Quantization method '{model_config.quantization}' is not compatible with llama.cpp engine"]
+                            "errors": [f"Quantization method '{model_config.quantization}' is not compatible with llama.cpp engine. Use GGUF quantization formats instead."]
                         })
                         
                 except Exception as e:

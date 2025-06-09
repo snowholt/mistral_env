@@ -240,7 +240,7 @@ class ModelAPIAdapter(APIServiceAdapter):
             load_time = time.time() - start_time
             
             if not success:
-                raise ModelLoadError(error_msg or f"Failed to load model '{model_name}'")
+                raise ModelLoadError(model_name, error_msg or "Unknown loading error")
             
             return {
                 "model_name": model_name,
@@ -270,7 +270,7 @@ class ModelAPIAdapter(APIServiceAdapter):
             success, error_msg = self.lifecycle_service.unload_model(model_name, show_progress=True)
             
             if not success:
-                raise ModelLoadError(error_msg or f"Failed to unload model '{model_name}'")
+                raise ModelLoadError(model_name, error_msg or "Unknown unloading error")
             
             return {
                 "model_name": model_name,
@@ -422,7 +422,7 @@ class ModelAPIAdapter(APIServiceAdapter):
                 if "not loaded" in message:
                     raise ModelNotFoundError(message)
                 else:
-                    raise ModelLoadError(message)
+                    raise ModelLoadError(model_name, message)
             
             # Get updated timer info
             timer_info = self.lifecycle_service.get_model_timer_info(model_name)
@@ -455,7 +455,7 @@ class ModelAPIAdapter(APIServiceAdapter):
                 if "not loaded" in message:
                     raise ModelNotFoundError(message)
                 else:
-                    raise ModelLoadError(message)
+                    raise ModelLoadError(model_name, message)
             
             return {
                 "model_name": model_name,
@@ -485,7 +485,7 @@ class ModelAPIAdapter(APIServiceAdapter):
                 if "not loaded" in message:
                     raise ModelNotFoundError(message)
                 else:
-                    raise ModelLoadError(message)
+                    raise ModelLoadError(model_name, message)
             
             # Get updated timer info
             timer_info = self.lifecycle_service.get_model_timer_info(model_name)

@@ -31,6 +31,11 @@ class ModelValidationService(BaseService):
             'architectures': ['causal_lm'],  # vLLM only supports causal LM
             'quantization': ['awq', 'squeezellm', 'none'],
             'dtypes': ['float16', 'bfloat16']
+        },
+        'llama.cpp': {
+            'architectures': ['causal_lm'],  # llama.cpp only supports causal LM
+            'quantization': ['Q4_0', 'Q4_1', 'Q5_0', 'Q5_1', 'Q8_0', 'Q4_K_M', 'Q4_K_S', 'Q5_K_M', 'Q5_K_S', 'Q6_K', 'Q8_K', 'none'],
+            'dtypes': ['float16', 'float32']
         }
     }
     

@@ -94,6 +94,14 @@ class TransformersEngine(ModelInterface):
         
         # Suppress warnings early
         suppress_transformers_warnings()
+        
+        # Setup download optimization
+        self._setup_download_optimization()
+        
+        # Check if model is cached, if not pre-download with optimizations
+        if not self._check_model_cached(self.config.model_id):
+            logger.info("Model not cached, starting optimized download...")
+            self._pre_download_model(self.config.model_id)
 
         # Configure quantization if specified
         quantization_config = None
@@ -684,3 +692,75 @@ class TransformersEngine(ModelInterface):
     def get_memory_stats(self) -> Dict[str, float]:
         """Get memory usage statistics."""
         return get_gpu_memory_stats()
+
+    def _setup_download_optimization(self) -> None:
+        """Setup environment variables for optimized downloads."""
+        os.environ.setdefault("HF_HUB_ENABLE_HF_TRANSFER", "1")
+        os.environ.setdefault("HF_HUB_PARALLEL_DOWNLOADS", "4")
+        os.environ.setdefault("HF_HUB_DOWNLOAD_TIMEOUT", "300")
+        
+        # Install hf_transfer if not available
+        try:
+            import hf_transfer
+        except ImportError:
+            logger.info("Installing hf_transfer for faster downloads...")
+            import subprocess
+            subprocess.check_call(["pip", "install", "hf_transfer"])
+            logger.info("hf_transfer installed successfully")
+
+    def _pre_download_model(self, model_id: str) -> bool:
+        """
+        Pre-download model files using optimized settings.
+        
+        Args:
+            model_id: The model identifier
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            from huggingface_hub import snapshot_download
+            import time
+            
+            logger.info(f"Pre-downloading model files for {model_id}...")
+            start_time = time.time()
+            
+            # Setup optimization before download
+            self._setup_download_optimization()
+            
+            # Download with optimized settings
+            snapshot_download(
+                model_id,
+                cache_dir=None,  # Use default cache
+                resume_download=True,
+                local_files_only=False,
+                use_auth_token=True if os.getenv("HUGGING_FACE_HUB_TOKEN") else None
+            )
+            
+            end_time = time.time()
+            logger.info(f"Pre-download completed in {end_time - start_time:.2f} seconds")
+            return True
+            
+        except Exception as e:
+            logger.warning(f"Pre-download failed: {e}")
+            return False
+
+    def _check_model_cached(self, model_id: str) -> bool:
+        """
+        Check if model is already fully cached.
+        
+        Args:
+            model_id: The model identifier
+            
+        Returns:
+            bool: True if model is cached, False otherwise
+        """
+        try:
+            from transformers.utils import is_offline_mode
+            from transformers import AutoConfig
+            
+            # Try to load config locally only
+            AutoConfig.from_pretrained(model_id, local_files_only=True)
+            return True
+        except Exception:
+            return False
