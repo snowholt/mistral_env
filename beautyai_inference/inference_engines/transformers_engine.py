@@ -133,14 +133,45 @@ class TransformersEngine(ModelInterface):
         # Add Mistral-specific parameters if it's likely a Mistral model
         if "mistral" in self.config.model_id.lower():
             logger.info("Detected Mistral model, using Mistral-specific tokenizer settings")
-            tokenizer_kwargs.update({
-                "tokenizer_mode": "mistral",
-            })
+            # For newer Mistral models like Devstral, try different approaches
+            if "devstral" in self.config.model_id.lower() or "2505" in self.config.model_id.lower():
+                # These models may need special tokenizer handling
+                tokenizer_kwargs.update({
+                    "use_fast": True,
+                    "padding_side": "left"
+                })
 
-        self.tokenizer = AutoTokenizer.from_pretrained(
-            self.config.model_id,
-            **tokenizer_kwargs
-        )
+        try:
+            self.tokenizer = AutoTokenizer.from_pretrained(
+                self.config.model_id,
+                **tokenizer_kwargs
+            )
+        except Exception as e:
+            logger.warning(f"Failed to load tokenizer with standard settings: {e}")
+            logger.info("Trying to load tokenizer with alternative settings...")
+            
+            # Try with minimal settings
+            try:
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    self.config.model_id,
+                    trust_remote_code=True,
+                    use_fast=False  # Force slow tokenizer for compatibility
+                )
+            except Exception as e2:
+                logger.error(f"Failed to load tokenizer with alternative settings: {e2}")
+                
+                # Last resort: try to use a compatible tokenizer
+                try:
+                    logger.info("Trying to use LlamaTokenizer as fallback...")
+                    from transformers import LlamaTokenizer
+                    self.tokenizer = LlamaTokenizer.from_pretrained(
+                        "meta-llama/Llama-2-7b-hf",  # Use a known working tokenizer
+                        trust_remote_code=True
+                    )
+                    logger.warning("Using fallback tokenizer - results may not be optimal")
+                except Exception as e3:
+                    logger.error(f"All tokenizer loading methods failed: {e3}")
+                    raise RuntimeError(f"Could not load any compatible tokenizer for {self.config.model_id}")
 
         # First check the model configuration to handle special cases
         try:

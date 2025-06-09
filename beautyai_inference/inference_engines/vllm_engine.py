@@ -40,27 +40,41 @@ class VLLMEngine(ModelInterface):
         if self.config.quantization in ["awq", "squeezellm"]:
             quantization = self.config.quantization
         
-        # Special handling for Mistral3 models
+        # Special handling for Mistral models (including Devstral)
         model_id_lower = self.config.model_id.lower()
         mistral_model_params = {}
-        if "mistral3" in model_id_lower or ("mistral" in model_id_lower and "3" in model_id_lower):
-            logger.info("Setting Mistral3-specific parameters for vLLM")
+        max_model_len = 8192  # Default
+        
+        if "mistral" in model_id_lower or "devstral" in model_id_lower:
+            logger.info("Setting Mistral-specific parameters for vLLM")
             mistral_model_params = {
                 "tokenizer_mode": "mistral",
-                "config_format": "mistral",
-                "load_format": "mistral",
                 "trust_remote_code": True
             }
+            
+            # For large Mistral models, reduce max_model_len to save memory
+            if "24b" in model_id_lower or "large" in model_id_lower:
+                max_model_len = 4096
+                logger.info(f"Large Mistral model detected, reducing max_model_len to {max_model_len}")
         
         # Load model with vLLM
-        self.model = LLM(
-            model=self.config.model_id,
-            quantization=quantization,
-            tensor_parallel_size=self.config.tensor_parallel_size,
-            gpu_memory_utilization=self.config.gpu_memory_utilization,
-            max_model_len=8192,  # Allow for longer conversations
-            **mistral_model_params
-        )
+        try:
+            self.model = LLM(
+                model=self.config.model_id,
+                quantization=quantization,
+                tensor_parallel_size=self.config.tensor_parallel_size,
+                gpu_memory_utilization=self.config.gpu_memory_utilization,
+                max_model_len=max_model_len,
+                **mistral_model_params
+            )
+        except torch.cuda.OutOfMemoryError as e:
+            logger.error(f"CUDA out of memory when loading {self.config.model_id}")
+            logger.error("Try reducing gpu_memory_utilization or using a smaller model")
+            raise RuntimeError(f"Insufficient GPU memory to load {self.config.model_id}. "
+                             f"Available memory may be too low. Consider using a quantized version.") from e
+        except Exception as e:
+            logger.error(f"Failed to load model {self.config.model_id}: {e}")
+            raise
         
         loading_time = time.time() - start_time
         logger.info(f"Model loaded in {loading_time:.2f} seconds")

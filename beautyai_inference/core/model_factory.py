@@ -9,6 +9,12 @@ from ..config.config_manager import ModelConfig
 from ..inference_engines.transformers_engine import TransformersEngine
 from ..inference_engines.vllm_engine import VLLMEngine
 
+try:
+    from ..inference_engines.llamacpp_engine import LlamaCppEngine
+    LLAMACPP_AVAILABLE = True
+except ImportError:
+    LLAMACPP_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
@@ -64,6 +70,26 @@ class ModelFactory:
                 return VLLMEngine(model_config)
             except ImportError:
                 logger.warning("vLLM not available, falling back to TransformersEngine")
+                return TransformersEngine(model_config)
+        
+        elif engine_type == "llama.cpp":
+            logger.info(f"Creating LlamaCppEngine for model: {model_config.model_id}")
+            
+            if not LLAMACPP_AVAILABLE:
+                logger.error("llama-cpp-python not available. Install with: pip install llama-cpp-python[server]")
+                logger.warning("Falling back to TransformersEngine with 4-bit quantization")
+                # Modify config for 4-bit fallback
+                model_config.engine_type = "transformers"
+                model_config.quantization = "4bit"
+                return TransformersEngine(model_config)
+            
+            try:
+                return LlamaCppEngine(model_config)
+            except Exception as e:
+                logger.error(f"Failed to create LlamaCppEngine: {e}")
+                logger.warning("Falling back to TransformersEngine with 4-bit quantization")
+                model_config.engine_type = "transformers"
+                model_config.quantization = "4bit"
                 return TransformersEngine(model_config)
         
         else:

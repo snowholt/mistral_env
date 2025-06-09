@@ -1,10 +1,10 @@
 {
-  "timestamp": 1749456756.694268,
+  "timestamp": 1749458170.0681148,
   "loaded_models": {
-    "bee1reason-arabic-qwen-14b": {
-      "model_id": "beetlware/Bee1reason-arabic-Qwen-14B",
+    "qwen3-model": {
+      "model_id": "Qwen/Qwen3-14B",
       "engine": "transformers",
-      "loaded_at": 1749456756.694271,
+      "loaded_at": 1749458170.0681162,
       "status": "loaded"
     }
   }

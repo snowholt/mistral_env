@@ -202,6 +202,8 @@ class ChatService(BaseService):
             return 0
             
         except Exception as e:
+            import traceback
+            logger.error(f"Full traceback for chat error: {traceback.format_exc()}")
             return self._handle_error(e, f"Failed to start chat with model {model_name}")
     
     def load_session_chat(self, model_name: str, model_config: ModelConfig, 
