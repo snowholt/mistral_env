@@ -399,23 +399,29 @@ class UnifiedCLIAdapter:
     def start_chat(self, args) -> int:
         """Start interactive chat."""
         try:
-            # Load config first
+            # Load config first to pass to registry service
             app_config = self._load_config(args)
             
             # Get model name from args
-            model_name = getattr(args, 'model_name', None)
+            model_name = getattr(args, 'model_name', None) or getattr(args, 'model', None)
             if not model_name:
-                # Try to get default model from registry
-                if app_config.model_registry.default_model:
-                    model_name = app_config.model_registry.default_model
-                else:
-                    print("Error: No model specified and no default model set.")
-                    print("Use --model-name to specify a model or set a default model in the registry.")
-                    return 1
+                # Use default model
+                model_name = self.registry_service.get_default_model(app_config)
+                
+            if not model_name:
+                print("Error: No model specified and no default model set.")
+                return 1
             
-            # Get model config from registry
+            # Check for content filter setting in CLI args
+            content_filter_setting = getattr(args, 'content_filter', 'balanced')
+            
+            # If content filter setting differs from current chat service, create new instance
+            if content_filter_setting != getattr(self.chat_service.content_filter, 'strictness_level', 'balanced'):
+                logger.info(f"Updating content filter level to: {content_filter_setting}")
+                self.chat_service = ChatService(content_filter_strictness=content_filter_setting)
+            
+            # Get model configuration from registry
             model_config = self.registry_service.get_model(app_config, model_name)
-            
             if not model_config:
                 print(f"Error: Model '{model_name}' not found in registry.")
                 return 1
@@ -460,6 +466,12 @@ class UnifiedCLIAdapter:
                 
             if 'top_k' in provided_args and hasattr(args, 'top_k'):
                 generation_config['top_k'] = args.top_k
+            
+            # Handle enable_thinking parameter
+            if 'enable_thinking' in provided_args and hasattr(args, 'enable_thinking'):
+                generation_config['enable_thinking'] = args.enable_thinking
+            elif 'disable_thinking' in provided_args and hasattr(args, 'disable_thinking') and args.disable_thinking:
+                generation_config['enable_thinking'] = False
             
             # Start the chat with proper parameters
             return self.chat_service.start_chat(model_name, model_config, generation_config)

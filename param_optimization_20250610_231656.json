@@ -1,0 +1,42 @@
+{
+  "timestamp": "20250610_231656",
+  "best_params": null,
+  "results": [
+    {
+      "params": {
+        "temperature": 0.3,
+        "top_p": 0.85,
+        "top_k": 80,
+        "repetition_penalty": 1.0,
+        "max_new_tokens": 512
+      },
+      "tokens_per_sec": 0.0,
+      "quality_score": 0.0,
+      "efficiency_score": 0.0
+    },
+    {
+      "params": {
+        "temperature": 0.1,
+        "top_p": 0.85,
+        "top_k": 80,
+        "repetition_penalty": 1.1,
+        "max_new_tokens": 1024
+      },
+      "tokens_per_sec": 0.0,
+      "quality_score": 0.0,
+      "efficiency_score": 0.0
+    },
+    {
+      "params": {
+        "temperature": 0.9,
+        "top_p": 0.95,
+        "top_k": 40,
+        "repetition_penalty": 1.05,
+        "max_new_tokens": 512
+      },
+      "tokens_per_sec": 0.0,
+      "quality_score": 0.0,
+      "efficiency_score": 0.0
+    }
+  ]
+}

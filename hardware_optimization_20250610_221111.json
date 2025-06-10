@@ -1,0 +1,43 @@
+{
+  "hardware": {
+    "cpu_cores": 24,
+    "cpu_threads": 24,
+    "system_ram_gb": 30.4530029296875,
+    "gpu_name": "NVIDIA GeForce RTX 4090",
+    "gpu_memory_gb": 23.5052490234375
+  },
+  "baseline": {
+    "settings": {
+      "n_batch": 1024,
+      "n_threads": 12,
+      "n_ctx": 512,
+      "n_gpu_layers": -1
+    },
+    "performance": {
+      "tokens_per_second": 64.23504779695138,
+      "inference_time": 1.136451244354248,
+      "output_tokens": 73,
+      "gpu_memory_gb": 0.0,
+      "stable": true
+    }
+  },
+  "optimized": {
+    "settings": {
+      "n_batch": 2048,
+      "n_threads": 16,
+      "n_ctx": 512,
+      "n_gpu_layers": -1
+    },
+    "performance": {
+      "tokens_per_second": 63.96545102358362,
+      "inference_time": 1.1412410736083984,
+      "output_tokens": 73,
+      "gpu_memory_gb": 0.0,
+      "stable": true
+    }
+  },
+  "improvement": {
+    "speed_multiplier": 0.9958029645401688,
+    "time_reduction_percent": -0.42147248093094003
+  }
+}

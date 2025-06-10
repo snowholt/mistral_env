@@ -292,12 +292,22 @@ class UnifiedCLI:
             
             # Generation arguments  
             for arg_def in StandardizedArguments.GENERATION_GROUP.arguments:
-                if include_all_generation or arg_def.name in ['--temperature', '--max-tokens', '--top-p', '--top-k', '--repetition-penalty', '--stream']:
+                if include_all_generation or arg_def.name in ['--temperature', '--max-tokens', '--top-p', '--top-k', '--repetition-penalty', '--stream', '--enable-thinking', '--disable-thinking']:
                     kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
                     if arg_def.action:
                         kwargs['action'] = arg_def.action
                         kwargs.pop('type', None)
                     if arg_def.default and not arg_def.action:
+                        kwargs['default'] = arg_def.default
+                    parser.add_argument(arg_def.name, **kwargs)
+            
+            # System configuration arguments (content filter)
+            for arg_def in StandardizedArguments.SYSTEM_GROUP.arguments:
+                if arg_def.name in ['--content-filter']:
+                    kwargs = {'type': arg_def.arg_type, 'help': arg_def.help_text}
+                    if arg_def.choices:
+                        kwargs['choices'] = arg_def.choices
+                    if arg_def.default:
                         kwargs['default'] = arg_def.default
                     parser.add_argument(arg_def.name, **kwargs)
         

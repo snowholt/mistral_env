@@ -99,22 +99,32 @@ def model_name_completer(prefix, parsed_args, **kwargs):
             model_names = list(config.models.keys())
             return [name for name in model_names if name.startswith(prefix)]
         except Exception:
-            # Fallback to common model names
-            return [name for name in ['qwen-14b', 'mistral-7b', 'default'] if name.startswith(prefix)]
+            # Fallback to current registry model names
+            fallback_models = [
+                'qwen3-model',
+                'deepseek-r1-qwen-14b-multilingual', 
+                'qwen3-official-q4km',
+                'qwen3-official-q6k',
+                'qwen3-unsloth-q4ks',
+                'qwen3-unsloth-q4km',
+                'qwen3-unsloth-q6k',
+                'bee1reason-arabic-q4ks',
+                'bee1reason-arabic-q4km-i1'
+            ]
+            return [name for name in fallback_models if name.startswith(prefix)]
     except ImportError:
         return []
 
 
 def model_id_completer(prefix, parsed_args, **kwargs):
     """Completer for Hugging Face model IDs."""
+    # Current models in the registry
     common_models = [
         'Qwen/Qwen3-14B',
-        'Qwen/Qwen3-7B', 
-        'mistralai/Mistral-7B-Instruct-v0.2',
-        'mistralai/Mistral-7B-Instruct-v0.3',
-        'microsoft/DialoGPT-medium',
-        'google/flan-t5-base',
-        'google/flan-t5-large'
+        'Qwen/Qwen3-14B-GGUF',
+        'lightblue/DeepSeek-R1-Distill-Qwen-14B-Multilingual',
+        'unsloth/Qwen3-14B-GGUF',
+        'mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF'
     ]
     
     return [model for model in common_models if model.startswith(prefix)]
@@ -135,7 +145,11 @@ class StandardizedArguments:
             arg_type=str,
             help_text="Path to configuration file",
             validator=lambda x: Path(x).exists() if x else True,
-            completion_options=["config.json", "default_config.json"],
+            completion_options=[
+                "beautyai_inference/config/default_config.json", 
+                "config/default_config.json",
+                "default_config.json"
+            ],
             completer=config_file_completer
         ),
         ArgumentDefinition(
@@ -143,7 +157,11 @@ class StandardizedArguments:
             arg_type=str,
             help_text="Path to model registry file",
             validator=lambda x: Path(x).exists() if x else True,
-            completion_options=["model_registry.json", "models.json"],
+            completion_options=[
+                "beautyai_inference/config/model_registry.json",
+                "config/model_registry.json", 
+                "model_registry.json"
+            ],
             completer=model_registry_completer
         ),
         ArgumentDefinition(
@@ -186,7 +204,13 @@ class StandardizedArguments:
                 name="--model",
                 arg_type=str,
                 help_text="Model ID to use (e.g., Qwen/Qwen3-14B)",
-                completion_options=["Qwen/Qwen3-14B", "mistralai/Mistral-7B-Instruct-v0.2"],
+                completion_options=[
+                    "Qwen/Qwen3-14B", 
+                    "Qwen/Qwen3-14B-GGUF",
+                    "lightblue/DeepSeek-R1-Distill-Qwen-14B-Multilingual",
+                    "unsloth/Qwen3-14B-GGUF",
+                    "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF"
+                ],
                 completer=model_id_completer
             ),
             ArgumentDefinition(
@@ -194,21 +218,32 @@ class StandardizedArguments:
                 arg_type=str, 
                 help_text="Name of model from registry to use",
                 validator=lambda x: True,  # Will be validated against registry
+                completion_options=[
+                    'qwen3-model',
+                    'deepseek-r1-qwen-14b-multilingual', 
+                    'qwen3-official-q4km',
+                    'qwen3-official-q6k',
+                    'qwen3-unsloth-q4ks',
+                    'qwen3-unsloth-q4km',
+                    'qwen3-unsloth-q6k',
+                    'bee1reason-arabic-q4ks',
+                    'bee1reason-arabic-q4km-i1'
+                ],
                 completer=model_name_completer
             ),
             ArgumentDefinition(
                 name="--engine",
                 arg_type=str,
-                choices=["transformers", "vllm"],
+                choices=["transformers", "vllm", "llamacpp"],
                 default="transformers",
-                help_text="Inference engine to use (default: transformers)"
+                help_text="Inference engine to use (default: transformers). Use llamacpp for GGUF models"
             ),
             ArgumentDefinition(
                 name="--quantization",
                 arg_type=str,
-                choices=["4bit", "8bit", "awq", "squeezellm", "none"],
+                choices=["4bit", "8bit", "awq", "squeezellm", "Q4_K_M", "Q4_K_S", "Q6_K", "i1-Q4_K_M", "i1-Q4_K_S", "none"],
                 default="4bit", 
-                help_text="Quantization method (default: 4bit)"
+                help_text="Quantization method (default: 4bit). Use 4bit/8bit for HF models, Q4_K_M/Q6_K for GGUF models"
             ),
             ArgumentDefinition(
                 name="--dtype",
@@ -268,6 +303,16 @@ class StandardizedArguments:
                 name="--stream",
                 action="store_true", 
                 help_text="Enable streaming output"
+            ),
+            ArgumentDefinition(
+                name="--enable-thinking",
+                action="store_true",
+                help_text="Enable thinking mode for Qwen3 models (shows <think>...</think> blocks)"
+            ),
+            ArgumentDefinition(
+                name="--disable-thinking",
+                action="store_true",
+                help_text="Disable thinking mode for Qwen3 models (no <think>...</think> blocks)"
             )
         ]
     )
@@ -492,7 +537,7 @@ class StandardizedArgumentParser:
         if arg_def.action:
             kwargs['action'] = arg_def.action
             if arg_def.action == 'version':
-                kwargs['version'] = 'BeautyAI CLI v1.0.0'
+                kwargs['version'] = 'BeautyAI Inference Framework v2.0.0'
         if arg_def.nargs:
             kwargs['nargs'] = arg_def.nargs
         if arg_def.metavar:

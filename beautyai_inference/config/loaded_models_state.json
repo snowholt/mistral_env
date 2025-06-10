@@ -1,10 +1,10 @@
 {
-  "timestamp": 1749577392.4099753,
+  "timestamp": 1749588216.3205447,
   "loaded_models": {
-    "bee1reason-arabic-q4km-i1": {
+    "bee1reason-arabic-q4ks": {
       "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
       "engine": "llama.cpp",
-      "loaded_at": 1749577392.4099774,
+      "loaded_at": 1749588216.3205462,
       "status": "loaded"
     }
   }

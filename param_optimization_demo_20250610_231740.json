@@ -1,0 +1,227 @@
+[
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 0.8,
+      "top_k": 10,
+      "repetition_penalty": 1.0,
+      "max_new_tokens": 256,
+      "source": "baseline_conservative"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 6.6000000000000005,
+      "efficiency_score": 660.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "top_k": 20,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 512,
+      "source": "baseline_balanced"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.95,
+      "efficiency_score": 894.9999999999999
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "top_k": 40,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 1024,
+      "source": "baseline_creative"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.95,
+      "efficiency_score": 894.9999999999999
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.9,
+      "top_p": 0.8,
+      "top_k": 20,
+      "repetition_penalty": 1.0,
+      "max_new_tokens": 512,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 7.6000000000000005,
+      "efficiency_score": 760.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 0.85,
+      "top_k": 20,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 1024,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.5,
+      "efficiency_score": 850.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 1.0,
+      "top_k": 20,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 512,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.45,
+      "efficiency_score": 844.9999999999999
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 0.9,
+      "top_k": 20,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 512,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.65,
+      "efficiency_score": 865.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.5,
+      "top_p": 1.0,
+      "top_k": 80,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 1024,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.75,
+      "efficiency_score": 875.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 0.95,
+      "top_k": 10,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 1024,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 7.550000000000001,
+      "efficiency_score": 755.0000000000001
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.9,
+      "top_p": 0.85,
+      "top_k": 80,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 256,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 7.5,
+      "efficiency_score": 750.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.3,
+      "top_p": 0.85,
+      "top_k": 80,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 512,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 7.899999999999999,
+      "efficiency_score": 789.9999999999999
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.3,
+      "top_p": 1.0,
+      "top_k": 40,
+      "repetition_penalty": 1.0,
+      "max_new_tokens": 256,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.6,
+      "efficiency_score": 860.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.1,
+      "top_p": 0.9,
+      "top_k": 40,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 1024,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.65,
+      "efficiency_score": 865.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.5,
+      "top_p": 1.0,
+      "top_k": 10,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 256,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.75,
+      "efficiency_score": 875.0
+    }
+  },
+  {
+    "params": {
+      "temperature": 0.5,
+      "top_p": 0.9,
+      "top_k": 10,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 256,
+      "source": "random"
+    },
+    "performance": {
+      "speed_score": 100,
+      "quality_score": 8.200000000000001,
+      "efficiency_score": 820.0000000000001
+    }
+  }
+]
