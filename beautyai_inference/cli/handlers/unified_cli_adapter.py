@@ -20,11 +20,11 @@ logger = logging.getLogger(__name__)
 class UnifiedCLIAdapter:
     """Adapter to bridge CLI interface with new refactored services."""
     
-    def __init__(self):
+    def __init__(self, content_filter_strictness: str = "balanced"):
         # Initialize new services
         self.registry_service = RegistryService()
         self.lifecycle_service = ModelLifecycleService()
-        self.chat_service = ChatService()
+        self.chat_service = ChatService(content_filter_strictness=content_filter_strictness)
         self.test_service = TestService()
         self.benchmark_service = BenchmarkService()
         self.session_service = SessionService()

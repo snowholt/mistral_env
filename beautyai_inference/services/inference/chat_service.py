@@ -26,10 +26,10 @@ logger = logging.getLogger(__name__)
 class ChatService(BaseService):
     """Service for interactive chat functionality."""
     
-    def __init__(self):
+    def __init__(self, content_filter_strictness: str = "balanced"):
         super().__init__()
         self.model_manager = ModelManager()
-        self.content_filter = ContentFilterService()
+        self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
     
     def start_chat(self, model_name: str, model_config: ModelConfig, 
@@ -78,8 +78,15 @@ class ChatService(BaseService):
             
             try:
                 while True:
-                    # Get user input
-                    user_input = input("\n👤 You: ")
+                    try:
+                        # Get user input
+                        user_input = input("\n👤 You: ")
+                    except EOFError:
+                        print("\n✅ Chat ended (EOF detected).")
+                        break
+                    except KeyboardInterrupt:
+                        print("\n✅ Chat ended (interrupted).")
+                        break
                     
                     # Handle special commands
                     if user_input.lower() in ["exit", "quit"]:
@@ -470,3 +477,13 @@ system <msg>    - Set a system message
             # Save session history if needed
             # (future feature: could save to disk or database)
             del self.active_sessions[session_id]
+    
+    def set_content_filter_strictness(self, strictness: str) -> None:
+        """
+        Set content filter strictness level.
+        
+        Args:
+            strictness: One of "strict", "balanced", "relaxed", "disabled"
+        """
+        self.content_filter.set_strictness_level(strictness)
+        logger.info(f"Content filter strictness set to: {strictness}")

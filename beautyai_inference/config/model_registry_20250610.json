@@ -13,10 +13,9 @@
       "model_architecture": "causal_lm",
       "custom_generation_params": {
         "temperature": 0.1,
-        "top_p": 0.8,
+        "top_p": 0.95,
         "do_sample": true,
-        "repetition_penalty": 1.05,
-        "top_k": 10
+        "repetition_penalty": 1.1
       }
     },
       
@@ -30,11 +29,10 @@
       "description": "DeepSeek R1 Distill Qwen 14B Multilingual - Transformers engine",
       "model_architecture": "causal_lm",
       "custom_generation_params": {
-        "temperature": 0.1,
-        "top_p": 0.8,
+        "temperature": 0.6,
+        "top_p": 0.95,
         "do_sample": true,
-        "repetition_penalty": 1.05,
-        "top_k": 10
+        "repetition_penalty": 1.1
       }
     },
 
@@ -133,6 +131,8 @@
       }
     },
 
+
+
     "bee1reason-arabic-q4ks": {
       "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
       "engine_type": "llama.cpp",
@@ -140,7 +140,7 @@
       "dtype": "float16",
       "max_new_tokens": 256,
       "name": "bee1reason-arabic-q4ks",
-      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_S - Fast Arabic reasoning - LlamaCpp engine",
+      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_S - Fast Arabic reasoning - LlamaCpp engine (cleaned)",
       "model_architecture": "causal_lm",
       "model_filename": "Bee1reason-arabic-Qwen-14B.i1-Q4_K_S.gguf",
       "blob_id": "334c5a6e68b4b18828cc3aeb771a22bd9bcbbca6d55c29ce507f3967c7db1af5",
@@ -160,7 +160,7 @@
       "dtype": "float16",
       "max_new_tokens": 256,
       "name": "bee1reason-arabic-q4km-i1",
-      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_M - Balanced Arabic reasoning - LlamaCpp engine",
+      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_M - Balanced Arabic reasoning - LlamaCpp engine (cleaned)",
       "model_architecture": "causal_lm",
       "model_filename": "Bee1reason-arabic-Qwen-14B.i1-Q4_K_M.gguf",
       "blob_id": "b17a5d0aa671fe8fad0abdc9c9914386f9a5b73bc69366500ed8f99b371a4552",
@@ -172,7 +172,6 @@
         "top_k": 10
       }
     }
-
 
 
   }

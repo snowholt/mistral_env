@@ -26,46 +26,120 @@ logger = logging.getLogger(__name__)
 # Standardized test parameters for fair comparison
 STANDARD_PARAMS = {
     "temperature": 0.1,
-    "max_new_tokens": 256,
+    "max_new_tokens": 512,  # Increased for full responses
     "top_p": 0.8,
     "top_k": 10,
     "repetition_penalty": 1.05,
     "do_sample": True
 }
 
-# Test prompts for accuracy and speed evaluation - sorted by language
+# Qwen3-specific parameters for thinking vs non-thinking modes
+QWEN3_THINKING_PARAMS = {
+    "temperature": 0.6,
+    "max_new_tokens": 512,
+    "top_p": 0.95,
+    "top_k": 20,
+    "repetition_penalty": 1.5,  # presence_penalty equivalent
+    "do_sample": True
+}
+
+QWEN3_NO_THINKING_PARAMS = {
+    "temperature": 0.7,
+    "max_new_tokens": 512,
+    "top_p": 0.8,
+    "top_k": 20,
+    "repetition_penalty": 1.5,  # presence_penalty equivalent
+    "do_sample": True
+}
+
+def clean_qwen3_response(response: str) -> str:
+    """Remove <think>...</think> content from Qwen3 responses."""
+    import re
+    
+    # Remove <think>...</think> blocks (including nested content)
+    pattern = r'<think>.*?</think>'
+    cleaned = re.sub(pattern, '', response, flags=re.DOTALL)
+    
+    # Clean up extra whitespace and newlines
+    cleaned = re.sub(r'\n\s*\n', '\n', cleaned.strip())
+    
+    return cleaned.strip()
+
+# Enhanced test prompts with thinking/non-thinking variations
 TEST_PROMPTS = [
-    # English prompts
+    # English prompts - Non-thinking mode
     {
-        "id": "simple_qa",
+        "id": "simple_qa_no_think",
+        "prompt": "What is the difference between Botox and other alternatives? /no_think",
+        "category": "cosmetic_comparison",
+        "expected_length": "long",
+        "mode": "no_thinking"
+    },
+    {
+        "id": "comparison_no_think",
+        "prompt": "What should be avoided after mesotherapy? /no_think",
+        "category": "post_treatment_care",
+        "expected_length": "medium",
+        "mode": "no_thinking"
+    },
+    # English prompts - Thinking mode
+    {
+        "id": "simple_qa_think",
         "prompt": "What is the difference between Botox and other alternatives?",
         "category": "cosmetic_comparison",
-        "expected_length": "long"
+        "expected_length": "long",
+        "mode": "thinking"
     },
     {
-        "id": "comparison",
+        "id": "comparison_think",
         "prompt": "What should be avoided after mesotherapy?",
         "category": "post_treatment_care",
-        "expected_length": "medium"
+        "expected_length": "medium",
+        "mode": "thinking"
     },
-    # Arabic prompts
+    # Arabic prompts - Non-thinking mode
     {
-        "id": "reasoning",
+        "id": "reasoning_no_think",
+        "prompt": "ما الفرق بين البوتوكس وبدائل أخرى؟ /no_think",
+        "category": "cosmetic_comparison",
+        "expected_length": "long",
+        "mode": "no_thinking"
+    },
+    {
+        "id": "technical_no_think",
+        "prompt": "هل يمكن تكرار التخلص من السيلوليت بشكل منتظم؟ /no_think",
+        "category": "treatment_frequency",
+        "expected_length": "medium",
+        "mode": "no_thinking"
+    },
+    {
+        "id": "practical_no_think",
+        "prompt": "من هو أفضل مرشح لـ الميزوثيرابي؟ /no_think",
+        "category": "candidate_suitability",
+        "expected_length": "medium",
+        "mode": "no_thinking"
+    },
+    # Arabic prompts - Thinking mode
+    {
+        "id": "reasoning_think",
         "prompt": "ما الفرق بين البوتوكس وبدائل أخرى؟",
         "category": "cosmetic_comparison",
-        "expected_length": "long"
+        "expected_length": "long",
+        "mode": "thinking"
     },
     {
-        "id": "technical",
+        "id": "technical_think",
         "prompt": "هل يمكن تكرار التخلص من السيلوليت بشكل منتظم؟",
         "category": "treatment_frequency",
-        "expected_length": "medium"
+        "expected_length": "medium",
+        "mode": "thinking"
     },
     {
-        "id": "practical",
+        "id": "practical_think",
         "prompt": "من هو أفضل مرشح لـ الميزوثيرابي؟",
         "category": "candidate_suitability",
-        "expected_length": "medium"
+        "expected_length": "medium",
+        "mode": "thinking"
     }
 ]
 
@@ -89,8 +163,20 @@ def create_engine(model_config):
     else:
         raise ValueError(f"Unsupported engine type: {model_config.engine_type}")
 
-def standardize_model_config(model_config):
+def standardize_model_config(model_config, test_mode="standard"):
     """Create a standardized version of the model config for fair testing."""
+    
+    # Choose parameters based on test mode and model type
+    if "qwen" in model_config.model_id.lower() or "qwen" in model_config.name.lower():
+        if test_mode == "thinking":
+            params = QWEN3_THINKING_PARAMS
+        elif test_mode == "no_thinking":
+            params = QWEN3_NO_THINKING_PARAMS
+        else:
+            params = STANDARD_PARAMS
+    else:
+        params = STANDARD_PARAMS
+    
     standardized = ModelConfig(
         model_id=model_config.model_id,
         engine_type=model_config.engine_type,
@@ -100,13 +186,13 @@ def standardize_model_config(model_config):
         name=model_config.name,
         description=model_config.description,
         model_architecture=model_config.model_architecture,
-        max_new_tokens=STANDARD_PARAMS['max_new_tokens'],
-        temperature=STANDARD_PARAMS['temperature'],
-        top_p=STANDARD_PARAMS['top_p'],
-        do_sample=STANDARD_PARAMS['do_sample'],
+        max_new_tokens=params['max_new_tokens'],
+        temperature=params['temperature'],
+        top_p=params['top_p'],
+        do_sample=params['do_sample'],
         custom_generation_params={
-            "top_k": STANDARD_PARAMS['top_k'],
-            "repetition_penalty": STANDARD_PARAMS['repetition_penalty']
+            "top_k": params['top_k'],
+            "repetition_penalty": params['repetition_penalty']
         }
     )
     return standardized
@@ -120,8 +206,8 @@ def test_single_model(model_config):
     logger.info(f"⚙️ Quantization: {model_config.quantization}")
     logger.info(f"{'='*80}")
     
-    # Standardize the config for fair testing
-    std_config = standardize_model_config(model_config)
+    # Check if this is a Qwen3 model
+    is_qwen3 = "qwen3" in model_config.model_id.lower() or "qwen3" in model_config.name.lower()
     
     model_results = {
         "model_name": model_config.name,
@@ -130,7 +216,8 @@ def test_single_model(model_config):
         "quantization": model_config.quantization,
         "dtype": model_config.dtype,
         "model_filename": model_config.model_filename,
-        "test_parameters": STANDARD_PARAMS,
+        "is_qwen3": is_qwen3,
+        "test_parameters_used": {},
         "load_time": 0,
         "unload_time": 0,
         "total_test_time": 0,
@@ -143,7 +230,7 @@ def test_single_model(model_config):
     try:
         # Create and load the engine
         logger.info("🔄 Creating engine...")
-        engine = create_engine(std_config)
+        engine = create_engine(model_config)
         
         logger.info("📥 Loading model...")
         load_start = time.time()
@@ -159,57 +246,100 @@ def test_single_model(model_config):
         total_inference_time = 0
         
         for i, test_prompt in enumerate(TEST_PROMPTS, 1):
-            logger.info(f"\n🔍 Test {i}/5: {test_prompt['category']} - {test_prompt['id']}")
+            logger.info(f"\n🔍 Test {i}/{len(TEST_PROMPTS)}: {test_prompt['category']} - {test_prompt['id']}")
             logger.info(f"📝 Prompt: {test_prompt['prompt']}")
             
+            # Determine which parameters to use based on prompt mode and model type
+            if is_qwen3:
+                if test_prompt.get('mode') == 'thinking':
+                    test_params = QWEN3_THINKING_PARAMS
+                    param_mode = "thinking"
+                elif test_prompt.get('mode') == 'no_thinking':
+                    test_params = QWEN3_NO_THINKING_PARAMS
+                    param_mode = "no_thinking"
+                else:
+                    test_params = STANDARD_PARAMS
+                    param_mode = "standard"
+            else:
+                test_params = STANDARD_PARAMS
+                param_mode = "standard"
+            
+            # Store which parameters were used for this test
+            model_results["test_parameters_used"][test_prompt['id']] = {
+                "mode": param_mode,
+                "parameters": test_params
+            }
+            
             try:
-                # Test with standardized parameters
                 start_time = time.time()
                 
                 # Use the appropriate method based on engine type
-                if std_config.engine_type == "llama.cpp":
+                if model_config.engine_type == "llama.cpp":
                     # For llama.cpp engines, use chat method with messages
                     messages = [{"role": "user", "content": test_prompt['prompt']}]
-                    response = engine.chat(messages, max_new_tokens=STANDARD_PARAMS['max_new_tokens'])
+                    # Create a temporary config with the test parameters
+                    temp_config = standardize_model_config(model_config, param_mode)
+                    response = engine.chat(messages, max_new_tokens=test_params['max_new_tokens'])
                 else:
                     # For transformers engines, use generate method
                     generation_params = {
-                        "max_new_tokens": STANDARD_PARAMS['max_new_tokens'],
-                        "temperature": STANDARD_PARAMS['temperature'],
-                        "top_p": STANDARD_PARAMS['top_p'],
-                        "do_sample": STANDARD_PARAMS['do_sample']
+                        "max_new_tokens": test_params['max_new_tokens'],
+                        "temperature": test_params['temperature'],
+                        "top_p": test_params['top_p'],
+                        "do_sample": test_params['do_sample']
                     }
-                    # Add custom params if available
-                    if std_config.custom_generation_params:
-                        generation_params.update(std_config.custom_generation_params)
+                    # Add custom params
+                    generation_params.update({
+                        "top_k": test_params['top_k'],
+                        "repetition_penalty": test_params['repetition_penalty']
+                    })
                     
                     response = engine.generate(test_prompt['prompt'], **generation_params)
                 
                 end_time = time.time()
                 inference_time = end_time - start_time
                 
-                # Calculate metrics
-                response_tokens = len(response.split()) if response else 0
+                # Store the full response for analysis
+                full_response = response
+                
+                # For Qwen3 models, clean the response for evaluation
+                if is_qwen3 and test_prompt.get('mode') == 'thinking':
+                    cleaned_response = clean_qwen3_response(response)
+                    evaluation_response = cleaned_response
+                else:
+                    evaluation_response = response
+                
+                # Calculate metrics based on the full response
+                response_tokens = len(full_response.split()) if full_response else 0
                 tokens_per_second = response_tokens / inference_time if inference_time > 0 else 0
                 
                 prompt_result = {
                     "prompt_id": test_prompt['id'],
                     "prompt_text": test_prompt['prompt'],
                     "category": test_prompt['category'],
-                    "response": response[:200] + "..." if len(response) > 200 else response,
-                    "response_length": len(response),
+                    "mode": test_prompt.get('mode', 'standard'),
+                    "parameters_used": param_mode,
+                    "full_response": full_response,  # Store complete response
+                    "evaluation_response": evaluation_response,  # Cleaned response for evaluation
+                    "response_preview": (evaluation_response[:200] + "...") if len(evaluation_response) > 200 else evaluation_response,
+                    "full_response_length": len(full_response),
+                    "evaluation_response_length": len(evaluation_response),
                     "response_tokens": response_tokens,
                     "inference_time": inference_time,
                     "tokens_per_second": tokens_per_second,
+                    "has_thinking_content": is_qwen3 and ("<think>" in full_response),
                     "status": "success"
                 }
                 
                 total_tokens += response_tokens
                 total_inference_time += inference_time
                 
-                logger.info(f"✅ Response length: {len(response)} chars, {response_tokens} tokens")
+                logger.info(f"✅ Full response length: {len(full_response)} chars, {response_tokens} tokens")
+                if is_qwen3 and test_prompt.get('mode') == 'thinking':
+                    logger.info(f"🧠 Evaluation response length: {len(evaluation_response)} chars (thinking content filtered)")
                 logger.info(f"⚡ Speed: {tokens_per_second:.1f} tokens/second")
                 logger.info(f"⏱️ Time: {inference_time:.2f} seconds")
+                logger.info(f"🎛️ Used {param_mode} parameters")
                 
             except Exception as e:
                 logger.error(f"❌ Prompt test failed: {e}")
@@ -217,6 +347,8 @@ def test_single_model(model_config):
                     "prompt_id": test_prompt['id'],
                     "prompt_text": test_prompt['prompt'],
                     "category": test_prompt['category'],
+                    "mode": test_prompt.get('mode', 'standard'),
+                    "parameters_used": param_mode,
                     "error": str(e),
                     "status": "failed"
                 }
@@ -232,13 +364,41 @@ def test_single_model(model_config):
             avg_tokens_per_second = sum(p["tokens_per_second"] for p in successful_tests) / len(successful_tests)
             max_tokens_per_second = max(p["tokens_per_second"] for p in successful_tests)
             min_tokens_per_second = min(p["tokens_per_second"] for p in successful_tests)
-            total_response_length = sum(p["response_length"] for p in successful_tests)
+            total_response_length = sum(p["full_response_length"] for p in successful_tests)
             avg_response_length = total_response_length / len(successful_tests)
+            total_eval_length = sum(p["evaluation_response_length"] for p in successful_tests)
+            avg_eval_length = total_eval_length / len(successful_tests)
+            
+            # Calculate thinking vs non-thinking performance for Qwen3
+            thinking_tests = [p for p in successful_tests if p.get("mode") == "thinking"]
+            no_thinking_tests = [p for p in successful_tests if p.get("mode") == "no_thinking"]
+            
+            thinking_metrics = {}
+            no_thinking_metrics = {}
+            
+            if thinking_tests:
+                thinking_metrics = {
+                    "count": len(thinking_tests),
+                    "avg_speed": sum(p["tokens_per_second"] for p in thinking_tests) / len(thinking_tests),
+                    "avg_response_length": sum(p["full_response_length"] for p in thinking_tests) / len(thinking_tests),
+                    "avg_eval_length": sum(p["evaluation_response_length"] for p in thinking_tests) / len(thinking_tests)
+                }
+            
+            if no_thinking_tests:
+                no_thinking_metrics = {
+                    "count": len(no_thinking_tests),
+                    "avg_speed": sum(p["tokens_per_second"] for p in no_thinking_tests) / len(no_thinking_tests),
+                    "avg_response_length": sum(p["full_response_length"] for p in no_thinking_tests) / len(no_thinking_tests),
+                    "avg_eval_length": sum(p["evaluation_response_length"] for p in no_thinking_tests) / len(no_thinking_tests)
+                }
         else:
             avg_tokens_per_second = 0
             max_tokens_per_second = 0
             min_tokens_per_second = 0
             avg_response_length = 0
+            avg_eval_length = 0
+            thinking_metrics = {}
+            no_thinking_metrics = {}
         
         model_results.update({
             "total_test_time": total_test_time,
@@ -251,16 +411,25 @@ def test_single_model(model_config):
                 "avg_tokens_per_second": avg_tokens_per_second,
                 "max_tokens_per_second": max_tokens_per_second,
                 "min_tokens_per_second": min_tokens_per_second,
-                "avg_response_length": avg_response_length,
-                "speed_consistency": (min_tokens_per_second / max_tokens_per_second * 100) if max_tokens_per_second > 0 else 0
+                "avg_full_response_length": avg_response_length,
+                "avg_evaluation_response_length": avg_eval_length,
+                "speed_consistency": (min_tokens_per_second / max_tokens_per_second * 100) if max_tokens_per_second > 0 else 0,
+                "thinking_mode_metrics": thinking_metrics,
+                "no_thinking_mode_metrics": no_thinking_metrics
             },
             "status": "completed"
         })
         
         logger.info(f"\n📊 Model Performance Summary:")
-        logger.info(f"✅ Successful tests: {len(successful_tests)}/5")
+        logger.info(f"✅ Successful tests: {len(successful_tests)}/{len(TEST_PROMPTS)}")
         logger.info(f"⚡ Average speed: {avg_tokens_per_second:.1f} tokens/second")
-        logger.info(f"📏 Average response length: {avg_response_length:.0f} characters")
+        logger.info(f"📏 Average full response length: {avg_response_length:.0f} characters")
+        if is_qwen3:
+            logger.info(f"🧠 Average evaluation response length: {avg_eval_length:.0f} characters")
+            if thinking_metrics:
+                logger.info(f"💭 Thinking mode avg speed: {thinking_metrics['avg_speed']:.1f} tokens/sec")
+            if no_thinking_metrics:
+                logger.info(f"⚡ No-thinking mode avg speed: {no_thinking_metrics['avg_speed']:.1f} tokens/sec")
         
         # Unload the model
         logger.info("\n🧹 Unloading model...")
@@ -285,7 +454,10 @@ def run_comprehensive_model_test():
     """Run comprehensive testing of all models in the registry."""
     logger.info("🚀 COMPREHENSIVE MODEL COMPARISON TEST")
     logger.info("Testing all models with standardized parameters for fair comparison")
-    logger.info(f"Parameters: temp={STANDARD_PARAMS['temperature']}, max_tokens={STANDARD_PARAMS['max_new_tokens']}")
+    logger.info("Qwen3 models will be tested with both thinking and no-thinking modes")
+    logger.info(f"Standard params: temp={STANDARD_PARAMS['temperature']}, max_tokens={STANDARD_PARAMS['max_new_tokens']}")
+    logger.info(f"Qwen3 thinking params: temp={QWEN3_THINKING_PARAMS['temperature']}, max_tokens={QWEN3_THINKING_PARAMS['max_new_tokens']}")
+    logger.info(f"Qwen3 no-thinking params: temp={QWEN3_NO_THINKING_PARAMS['temperature']}, max_tokens={QWEN3_NO_THINKING_PARAMS['max_new_tokens']}")
     print("=" * 80)
     
     # Load model registry
@@ -301,9 +473,12 @@ def run_comprehensive_model_test():
     test_results = {
         "test_metadata": {
             "timestamp": datetime.now().isoformat(),
-            "test_parameters": STANDARD_PARAMS,
+            "standard_parameters": STANDARD_PARAMS,
+            "qwen3_thinking_parameters": QWEN3_THINKING_PARAMS,
+            "qwen3_no_thinking_parameters": QWEN3_NO_THINKING_PARAMS,
             "models_tested": len(models),
-            "test_prompts": [p["id"] for p in TEST_PROMPTS]
+            "test_prompts": [p["id"] for p in TEST_PROMPTS],
+            "total_prompts": len(TEST_PROMPTS)
         },
         "model_results": {},
         "summary": {}
@@ -351,7 +526,8 @@ def run_comprehensive_model_test():
         )
         
         # Response quality (length as proxy)
-        response_lengths = [r["performance_metrics"]["avg_response_length"] for r in successful_results]
+        response_lengths = [r["performance_metrics"]["avg_full_response_length"] for r in successful_results]
+        eval_response_lengths = [r["performance_metrics"]["avg_evaluation_response_length"] for r in successful_results]
         
         # Load times
         load_times = [r["load_time"] for r in successful_results]
@@ -368,9 +544,12 @@ def run_comprehensive_model_test():
                 "speed_rankings": speed_rankings
             },
             "response_statistics": {
-                "avg_response_length": sum(response_lengths) / len(response_lengths) if response_lengths else 0,
-                "max_response_length": max(response_lengths) if response_lengths else 0,
-                "min_response_length": min(response_lengths) if response_lengths else 0
+                "avg_full_response_length": sum(response_lengths) / len(response_lengths) if response_lengths else 0,
+                "max_full_response_length": max(response_lengths) if response_lengths else 0,
+                "min_full_response_length": min(response_lengths) if response_lengths else 0,
+                "avg_evaluation_response_length": sum(eval_response_lengths) / len(eval_response_lengths) if eval_response_lengths else 0,
+                "max_evaluation_response_length": max(eval_response_lengths) if eval_response_lengths else 0,
+                "min_evaluation_response_length": min(eval_response_lengths) if eval_response_lengths else 0
             },
             "load_time_statistics": {
                 "avg_load_time": sum(load_times) / len(load_times) if load_times else 0,
@@ -393,7 +572,8 @@ def run_comprehensive_model_test():
         logger.info(f"\n📊 OVERALL STATISTICS:")
         logger.info(f"  Average speed: {summary['speed_statistics']['avg_speed_all_models']:.1f} tokens/second")
         logger.info(f"  Average load time: {summary['load_time_statistics']['avg_load_time']:.2f} seconds")
-        logger.info(f"  Average response length: {summary['response_statistics']['avg_response_length']:.0f} characters")
+        logger.info(f"  Average full response length: {summary['response_statistics']['avg_full_response_length']:.0f} characters")
+        logger.info(f"  Average evaluation response length: {summary['response_statistics']['avg_evaluation_response_length']:.0f} characters")
     
     # Save results to JSON file
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
