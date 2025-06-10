@@ -36,23 +36,6 @@
       }
     },
 
-    "mistral-devstral-small-2505-4bit": {
-      "model_id": "mistralai/Devstral-Small-2505",
-      "engine_type": "transformers",
-      "quantization": "4bit",
-      "dtype": "bfloat16",
-      "max_new_tokens": 2048,
-      "name": "mistral-devstral-small-2505-4bit",
-      "description": "Mistral Devstral Small 2505 (4-bit quantized - ~12GB VRAM)",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.1,
-        "top_p": 0.95,
-        "do_sample": true,
-        "repetition_penalty": 1.05
-      }
-    },
-
       "mistral-devstral-small-2505-gguf": {
       "model_id": "mistralai/Devstral-Small-2505_gguf",
       "engine_type": "llama.cpp",
@@ -82,11 +65,11 @@
       "model_architecture": "causal_lm",
       "model_filename": "Bee1reason-arabic-Qwen-14B-Q4_K_M.gguf",
       "custom_generation_params": {
-        "temperature": 0.1,
-        "top_p": 0.7,
+        "temperature": 0.0,
+        "top_p": 0.5,
         "do_sample": true,
         "repetition_penalty": 1.02,
-        "top_k": 5
+        "top_k": 1
       }
     },
     "bee1reason-arabic-qwen-14b-i1q4ks-gguf": {
@@ -107,21 +90,21 @@
         "top_k": 1
       }
     },
-    "deepseek-r1-qwen-14b-multilingual-gguf": {
-      "model_id": "pelican7/DeepSeek-R1-Distill-Qwen-14B-Multilingual-Q4_K_M-GGUF",
+    "qwen3-14b-gguf": {
+      "model_id": "Qwen/Qwen3-14B-GGUF",
       "engine_type": "llama.cpp",
       "quantization": "Q4_K_M",
       "dtype": "float16",
       "max_new_tokens": 128,
-      "name": "deepseek-r1-qwen-14b-multilingual-gguf",
-      "description": "DeepSeek R1 Distill Qwen 14B Multilingual model (GGUF Q4_K_M format)",
+      "name": "qwen3-14b-gguf",
+      "description": "Qwen3 14B model (GGUF Q4_K_M format - optimized for speed)",
       "model_architecture": "causal_lm",
       "custom_generation_params": {
         "temperature": 0.1,
-        "top_p": 0.7,
+        "top_p": 0.8,
         "do_sample": true,
-        "repetition_penalty": 1.02,
-        "top_k": 5
+        "repetition_penalty": 1.05,
+        "top_k": 10
       }
     }
   }
