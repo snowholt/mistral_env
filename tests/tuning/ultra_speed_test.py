@@ -33,37 +33,39 @@ STANDARD_PARAMS = {
     "do_sample": True
 }
 
-# Test prompts for accuracy and speed evaluation
+# Test prompts for accuracy and speed evaluation - sorted by language
 TEST_PROMPTS = [
+    # English prompts
     {
         "id": "simple_qa",
         "prompt": "What is the difference between Botox and other alternatives?",
-        "category": "knowledge",
+        "category": "cosmetic_comparison",
+        "expected_length": "long"
+    },
+    {
+        "id": "comparison",
+        "prompt": "What should be avoided after mesotherapy?",
+        "category": "post_treatment_care",
         "expected_length": "medium"
     },
+    # Arabic prompts
     {
         "id": "reasoning",
         "prompt": "ما الفرق بين البوتوكس وبدائل أخرى؟",
-        "category": "reasoning",
+        "category": "cosmetic_comparison",
         "expected_length": "long"
     },
     {
         "id": "technical",
         "prompt": "هل يمكن تكرار التخلص من السيلوليت بشكل منتظم؟",
-        "category": "technical",
+        "category": "treatment_frequency",
         "expected_length": "medium"
     },
     {
         "id": "practical",
         "prompt": "من هو أفضل مرشح لـ الميزوثيرابي؟",
-        "category": "practical",
-        "expected_length": "short"
-    },
-    {
-        "id": "comparison",
-        "prompt": "What should be avoided after mesotherapy?",
-        "category": "comparison",
-        "expected_length": "long"
+        "category": "candidate_suitability",
+        "expected_length": "medium"
     }
 ]
 
