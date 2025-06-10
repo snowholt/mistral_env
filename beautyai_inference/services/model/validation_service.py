@@ -240,7 +240,7 @@ class ModelValidationService(BaseService):
             'max_new_tokens', 'max_length', 'min_length', 'temperature', 
             'top_k', 'top_p', 'repetition_penalty', 'length_penalty',
             'num_beams', 'early_stopping', 'do_sample', 'pad_token_id',
-            'eos_token_id', 'use_cache'
+            'eos_token_id', 'use_cache', 'enable_thinking'
         }
         
         for param_name, param_value in model_config.custom_generation_params.items():
@@ -255,6 +255,10 @@ class ModelValidationService(BaseService):
             float_params = {'temperature', 'top_p', 'repetition_penalty', 'length_penalty'}
             if param_name in float_params and not isinstance(param_value, (int, float)):
                 errors.append(f"Parameter '{param_name}' must be a number, got {type(param_value).__name__}")
+            
+            bool_params = {'do_sample', 'early_stopping', 'use_cache', 'enable_thinking'}
+            if param_name in bool_params and not isinstance(param_value, bool):
+                errors.append(f"Parameter '{param_name}' must be a boolean, got {type(param_value).__name__}")
             
             # Value range validation
             if param_name == 'temperature' and (param_value < 0 or param_value > 2):

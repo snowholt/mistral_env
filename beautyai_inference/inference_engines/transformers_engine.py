@@ -384,6 +384,9 @@ class TransformersEngine(ModelInterface):
             'use_cache', 'num_return_sequences'
         }
 
+        # Special handling for enable_thinking - not passed to generation but used in chat template
+        enable_thinking = generation_params.get('enable_thinking', False)
+        
         filtered_params = {}
         unsupported_params = []
         for param, value in generation_params.items():
@@ -397,6 +400,9 @@ class TransformersEngine(ModelInterface):
                     continue
                 else:
                     filtered_params[param] = value
+            elif param == 'enable_thinking':
+                # This parameter is handled separately for chat template formatting
+                continue
             else:
                 unsupported_params.append(param)
                 logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
@@ -433,12 +439,21 @@ class TransformersEngine(ModelInterface):
         else:
             # For causal LMs, format with chat template
             try:
-                # Try using chat template first
-                formatted_prompt = self.tokenizer.apply_chat_template([
-                    {"role": "user", "content": prompt}
-                ], tokenize=False)
-            except (AttributeError, NotImplementedError):
-                # Fallback for models without chat templates
+                # Try using chat template first with enable_thinking from custom params
+                enable_thinking = False
+                if self.config.custom_generation_params:
+                    enable_thinking = self.config.custom_generation_params.get('enable_thinking', False)
+                
+                if enable_thinking is not None:
+                    formatted_prompt = self.tokenizer.apply_chat_template([
+                        {"role": "user", "content": prompt}
+                    ], tokenize=False, add_generation_prompt=True, enable_thinking=enable_thinking)
+                else:
+                    formatted_prompt = self.tokenizer.apply_chat_template([
+                        {"role": "user", "content": prompt}
+                    ], tokenize=False, add_generation_prompt=True)
+            except (AttributeError, NotImplementedError, TypeError):
+                # Fallback for models without chat templates or that don't support enable_thinking
                 formatted_prompt = f"User: {prompt}\nAssistant:"
 
             # Generate response
@@ -472,7 +487,7 @@ class TransformersEngine(ModelInterface):
 
             return assistant_reply
 
-    def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
+    def _format_conversation(self, messages: List[Dict[str, str]], enable_thinking: bool = None) -> str:
         """Format a conversation for the model."""
         architecture = getattr(self.config, 'model_architecture', 'causal_lm')
 
@@ -485,9 +500,22 @@ class TransformersEngine(ModelInterface):
         else:
             # For causal LMs, use the chat template
             try:
-                return self.tokenizer.apply_chat_template(messages, tokenize=False)
-            except (AttributeError, NotImplementedError):
-                # Fallback for models without chat templates
+                # Use enable_thinking from custom_generation_params if not explicitly provided
+                if enable_thinking is None and self.config.custom_generation_params:
+                    enable_thinking = self.config.custom_generation_params.get('enable_thinking', False)
+                
+                # Apply chat template with enable_thinking parameter for Qwen3 models
+                if enable_thinking is not None:
+                    return self.tokenizer.apply_chat_template(
+                        messages, 
+                        tokenize=False, 
+                        add_generation_prompt=True,
+                        enable_thinking=enable_thinking
+                    )
+                else:
+                    return self.tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
+            except (AttributeError, NotImplementedError, TypeError):
+                # Fallback for models without chat templates or that don't support enable_thinking
                 formatted = ""
                 for msg in messages:
                     role = msg.get("role", "")
@@ -554,8 +582,9 @@ class TransformersEngine(ModelInterface):
                 logger.debug(f"Filtered content: {last_user_message[:100]}...")
                 return filter_result.suggested_response or "I apologize, but I cannot assist with that request."
 
-        # Format conversation
-        formatted_prompt = self._format_conversation(messages)
+        # Format conversation  
+        enable_thinking = generation_params.get('enable_thinking', False)
+        formatted_prompt = self._format_conversation(messages, enable_thinking)
 
         # Merge parameters from config and kwargs
         generation_params = {}
@@ -642,7 +671,10 @@ class TransformersEngine(ModelInterface):
             self.load_model()
 
         # Format conversation
-        formatted_prompt = self._format_conversation(messages)
+        enable_thinking = False
+        if self.config.custom_generation_params:
+            enable_thinking = self.config.custom_generation_params.get('enable_thinking', False)
+        formatted_prompt = self._format_conversation(messages, enable_thinking)
         architecture = getattr(self.config, 'model_architecture', 'causal_lm')
 
         # Create inputs

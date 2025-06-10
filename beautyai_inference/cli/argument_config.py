@@ -300,6 +300,13 @@ class StandardizedArguments:
                 name="--trust-remote-code",
                 action="store_true",
                 help_text="Trust remote code for model loading"
+            ),
+            ArgumentDefinition(
+                name="--content-filter",
+                arg_type=str,
+                choices=["strict", "balanced", "relaxed", "disabled"],
+                default="balanced",
+                help_text="Content filter strictness level (default: balanced)"
             )
         ]
     )
