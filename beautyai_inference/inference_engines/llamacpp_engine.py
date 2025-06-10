@@ -80,11 +80,11 @@ class LlamaCppEngine(ModelInterface):
             n_gpu_layers = 0
             logger.warning("CUDA not available, using CPU-only mode")
         
-        # Optimized parameters for maximum speed on RTX 4090
-        n_ctx = 2048  # Reduced context size for faster inference
-        n_batch = 4096  # Increased batch size for RTX 4090 (24GB VRAM)
-        n_threads = 16  # Increased for modern multi-core CPUs
-        n_threads_batch = 16  # Match main threads
+        # Optimized parameters for MAXIMUM speed on RTX 4090
+        n_ctx = 1024  # Ultra-reduced context size for maximum speed
+        n_batch = 8192  # Maximum batch size for RTX 4090 (24GB VRAM)
+        n_threads = 24  # Maximum CPU threads for preprocessing
+        n_threads_batch = 24  # Match main threads
         
         # GPU-specific settings optimized for RTX 4090
         gpu_settings = {}
@@ -240,17 +240,17 @@ class LlamaCppEngine(ModelInterface):
         # Format prompt
         formatted_prompt = self._format_prompt(prompt)
         
-        # Optimized generation parameters for maximum speed on RTX 4090
+        # Optimized generation parameters for MAXIMUM speed on RTX 4090
         response = self.model(
             formatted_prompt,
-            max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 256)),
-            temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
-            top_p=kwargs.get("top_p", 0.8),  # Reduced for faster sampling
-            top_k=kwargs.get("top_k", 10),  # Significantly reduced for speed
-            repeat_penalty=kwargs.get("repeat_penalty", 1.05),
+            max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 64)),  # Extremely short for speed
+            temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.01)),  # Near-greedy
+            top_p=kwargs.get("top_p", 0.5),  # Ultra-aggressive for speed
+            top_k=kwargs.get("top_k", 1),  # Maximum speed - nearly greedy
+            repeat_penalty=kwargs.get("repeat_penalty", 1.0),  # Disabled for speed
             echo=False,
             stop=["</s>", "[INST]", "[/INST]", "User:", "\n\n\n"],
-            # Aggressive speed optimizations
+            # Ultra-aggressive speed optimizations
             stream=False,
             tfs_z=1.0,     # TFS disabled for speed
             typical_p=1.0,  # Typical sampling disabled
@@ -282,12 +282,12 @@ class LlamaCppEngine(ModelInterface):
         try:
             response = self.model.create_chat_completion(
                 messages=formatted_messages,
-                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 256)),
-                temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.1)),
-                top_p=kwargs.get("top_p", 0.8),  # Reduced for faster sampling
-                top_k=kwargs.get("top_k", 10),  # Significantly reduced for speed
-                repeat_penalty=kwargs.get("repeat_penalty", 1.05),
-                # AGGRESSIVE speed optimizations (same as generate method)
+                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 64)),  # Ultra-short
+                temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.01)),  # Near-greedy
+                top_p=kwargs.get("top_p", 0.5),  # Ultra-aggressive for speed
+                top_k=kwargs.get("top_k", 1),  # Maximum speed - nearly greedy
+                repeat_penalty=kwargs.get("repeat_penalty", 1.0),  # Disabled for speed
+                # ULTRA-AGGRESSIVE speed optimizations (same as generate method)
                 stream=False,
                 tfs_z=1.0,     # TFS disabled for speed
                 typical_p=1.0,  # Typical sampling disabled
