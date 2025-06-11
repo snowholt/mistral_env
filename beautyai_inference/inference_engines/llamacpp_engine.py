@@ -266,7 +266,7 @@ class LlamaCppEngine(ModelInterface):
             return ""
     
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
-        """Generate a response in a conversation with speed-optimized parameters."""
+        """Generate a response in a conversation with reliable parameters."""
         if not self.model:
             self.load_model()
         
@@ -278,36 +278,45 @@ class LlamaCppEngine(ModelInterface):
                 content=msg["content"]
             ))
         
-        # Use IDENTICAL speed optimizations as generate() method for consistent performance
+        # Use more reliable parameters instead of ultra-aggressive ones
         try:
+            max_tokens = kwargs.get("max_new_tokens", kwargs.get("max_tokens", 
+                                                                 min(self.config.max_new_tokens, 256)))
+            temperature = kwargs.get("temperature", getattr(self.config, 'temperature', 0.7))
+            top_p = kwargs.get("top_p", 0.9)
+            top_k = kwargs.get("top_k", 40)
+            repeat_penalty = kwargs.get("repeat_penalty", kwargs.get("repetition_penalty", 1.1))
+            
+            logger.info(f"Chat parameters: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}, top_k={top_k}")
+            
             response = self.model.create_chat_completion(
                 messages=formatted_messages,
-                max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 64)),  # Ultra-short
-                temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.01)),  # Near-greedy
-                top_p=kwargs.get("top_p", 0.5),  # Ultra-aggressive for speed
-                top_k=kwargs.get("top_k", 1),  # Maximum speed - nearly greedy
-                repeat_penalty=kwargs.get("repeat_penalty", 1.0),  # Disabled for speed
-                # ULTRA-AGGRESSIVE speed optimizations (same as generate method)
+                max_tokens=max_tokens,
+                temperature=temperature,
+                top_p=top_p,
+                top_k=top_k,
+                repeat_penalty=repeat_penalty,
                 stream=False,
-                tfs_z=1.0,     # TFS disabled for speed
-                typical_p=1.0,  # Typical sampling disabled
-                mirostat_mode=0,  # Disable mirostat for speed
-                stop=["</s>", "[INST]", "[/INST]", "User:", "Human:", "\n\n\n"],
-                frequency_penalty=0.0,  # Disable for speed
-                presence_penalty=0.0,   # Disable for speed
-                logit_bias={},  # Empty for speed
+                stop=["</s>", "[INST]", "[/INST]", "User:", "Human:"],
             )
             
             if response and 'choices' in response and len(response['choices']) > 0:
-                return response['choices'][0]['message']['content'].strip()
+                content = response['choices'][0]['message']['content'].strip()
+                logger.info(f"Chat response length: {len(content)} chars")
+                return content
             else:
+                logger.warning("Empty response from chat completion")
                 return ""
                 
         except Exception as e:
-            logger.warning(f"Chat completion failed, falling back to simple generation: {e}")
+            logger.error(f"Chat completion failed: {e}")
             # Fallback to simple generation
-            conversation_text = self._format_conversation(messages)
-            return self.generate(conversation_text, **kwargs)
+            try:
+                conversation_text = self._format_conversation(messages)
+                return self.generate(conversation_text, **kwargs)
+            except Exception as e2:
+                logger.error(f"Fallback generation also failed: {e2}")
+                return "I apologize, but I encountered an error generating a response."
     
     def _format_conversation(self, messages: List[Dict[str, str]]) -> str:
         """Format a conversation for simple generation."""

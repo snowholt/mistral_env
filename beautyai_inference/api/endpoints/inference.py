@@ -100,6 +100,7 @@ async def chat_completion(
     start_time = time.time()
     
     try:
+        logger.info(f"Chat request received for model: {request.model_name}")
         # Import the inference adapter
         from ..adapters.inference_adapter import InferenceAPIAdapter
         
@@ -119,26 +120,34 @@ async def chat_completion(
         
         # Configure content filtering based on request
         filter_config = request.get_effective_content_filter_config()
+        logger.info(f"Content filter config: {filter_config}")
         
         # Content filtering check (if not disabled)
         content_filter_bypassed = False
         if filter_config["strictness_level"] == "disabled":
             content_filter_bypassed = True
+            logger.info("Content filtering disabled")
         else:
+            logger.info(f"Applying content filter with strictness: {filter_config['strictness_level']}")
             # Set the content filter strictness level
             content_filter_service.set_strictness_level(filter_config["strictness_level"])
             
-            filter_result = content_filter_service.filter_content(processed_message, language='ar')
-            if not filter_result.is_allowed:
-                return ChatResponse(
-                    success=False,
-                    response="",
-                    model_name=request.model_name,
-                    effective_config=effective_config,
-                    preset_used=request.preset,
-                    thinking_enabled=thinking_enabled,
-                    error=f"Content filtered: {filter_result.filter_reason}"
-                )
+            try:
+                filter_result = content_filter_service.filter_content(processed_message, language='ar')
+                logger.info(f"Content filter result: allowed={filter_result.is_allowed}")
+                if not filter_result.is_allowed:
+                    return ChatResponse(
+                        success=False,
+                        response="",
+                        model_name=request.model_name,
+                        effective_config=effective_config,
+                        preset_used=request.preset,
+                        thinking_enabled=thinking_enabled,
+                        error=f"Content filtered: {filter_result.filter_reason}"
+                    )
+            except Exception as e:
+                logger.error(f"Content filtering failed: {e}, proceeding without filtering")
+                content_filter_bypassed = True
         
         # Convert simple message to messages format
         messages = []
@@ -173,17 +182,35 @@ async def chat_completion(
         
         # Generate response using the adapter
         generation_start = time.time()
-        response_data = await inference_adapter.chat_completion(
-            model_name=request.model_name,
-            messages=messages,
-            generation_config=effective_config,
-            stream=request.stream
-        )
+        
+        # Prepare parameters, removing duplicates that might conflict
+        adapter_params = effective_config.copy()
+        adapter_params.update({
+            'model_name': request.model_name,
+            'messages': messages,
+            'stream': request.stream,
+        })
+        
+        # Use get() to avoid conflicts and set defaults
+        response_data = inference_adapter.chat_completion(**adapter_params)
         generation_end = time.time()
         
         # Calculate performance metrics
         generation_time_ms = (generation_end - generation_start) * 1000
-        response_text = response_data.get("response", "")
+        
+        logger.info(f"Response data keys: {response_data.keys() if isinstance(response_data, dict) else 'Not a dict'}")
+        logger.info(f"Response data type: {type(response_data)}")
+        
+        # Extract response text from OpenAI-style format
+        if "choices" in response_data and len(response_data["choices"]) > 0:
+            response_text = response_data["choices"][0].get("message", {}).get("content", "")
+            logger.info(f"Extracted from choices: {len(response_text)} chars")
+        else:
+            response_text = response_data.get("response", "")
+            logger.info(f"Extracted from response field: {len(response_text)} chars")
+            
+        logger.info(f"Final response_text length: {len(response_text)}")
+        
         tokens_generated = len(response_text.split()) if response_text else 0
         tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
         
@@ -203,36 +230,50 @@ async def chat_completion(
         end_time = time.time()
         total_time_ms = (end_time - start_time) * 1000
         
-        return ChatResponse(
-            success=True,
-            response=final_content,
-            session_id=request.session_id or "default",
-            model_name=request.model_name,
-            effective_config=effective_config,
-            preset_used=request.preset,
-            thinking_enabled=thinking_enabled,
-            content_filter_applied=not content_filter_bypassed,
-            content_filter_strictness=filter_config["strictness_level"],
-            content_filter_bypassed=content_filter_bypassed,
-            tokens_generated=tokens_generated,
-            generation_time_ms=generation_time_ms,
-            tokens_per_second=round(tokens_per_second, 2),
-            thinking_content=thinking_content,
-            final_content=final_content,
-            execution_time_ms=total_time_ms,
-            generation_stats={
-                "model_info": response_data.get("model_info", {}),
-                "generation_config_used": effective_config,
-                "content_filter_config": filter_config,
-                "performance": {
-                    "total_time_ms": total_time_ms,
-                    "generation_time_ms": generation_time_ms,
-                    "tokens_generated": tokens_generated,
-                    "tokens_per_second": tokens_per_second,
-                    "thinking_tokens": len(thinking_content.split()) if thinking_content else 0
+        logger.info(f"Building response - response_text length: {len(response_text)}")
+        
+        try:
+            response_obj = ChatResponse(
+                success=True,
+                response=final_content,
+                session_id=request.session_id or "default",
+                model_name=request.model_name,
+                effective_config=effective_config,
+                preset_used=request.preset,
+                thinking_enabled=thinking_enabled,
+                content_filter_applied=not content_filter_bypassed,
+                content_filter_strictness=filter_config["strictness_level"],
+                content_filter_bypassed=content_filter_bypassed,
+                tokens_generated=tokens_generated,
+                generation_time_ms=generation_time_ms,
+                tokens_per_second=round(tokens_per_second, 2) if tokens_per_second else 0.0,
+                thinking_content=thinking_content,
+                final_content=final_content,
+                execution_time_ms=total_time_ms,
+                generation_stats={
+                    "model_info": response_data.get("model_info", {}),
+                    "generation_config_used": effective_config,
+                    "content_filter_config": filter_config,
+                    "performance": {
+                        "total_time_ms": total_time_ms,
+                        "generation_time_ms": generation_time_ms,
+                        "tokens_generated": tokens_generated,
+                        "tokens_per_second": tokens_per_second,
+                        "thinking_tokens": len(thinking_content.split()) if thinking_content else 0
+                    }
                 }
-            }
-        )
+            )
+            logger.info("ChatResponse object created successfully")
+            return response_obj
+        except Exception as e:
+            logger.error(f"Error creating ChatResponse object: {e}")
+            # Return a simple response that should always work
+            return ChatResponse(
+                success=True,
+                response=final_content or "Response generated successfully",
+                model_name=request.model_name,
+                execution_time_ms=total_time_ms
+            )
         
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}")

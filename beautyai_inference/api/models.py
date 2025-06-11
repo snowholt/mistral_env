@@ -347,6 +347,9 @@ class ChatResponse(APIResponse):
     # Response Metadata
     thinking_content: Optional[str] = None  # If thinking was used, the thinking part
     final_content: Optional[str] = None     # The final answer part
+    
+    # Error information
+    error: Optional[str] = None  # Error message if generation failed
 
 
 # Configuration API Models

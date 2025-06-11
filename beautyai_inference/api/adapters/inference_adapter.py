@@ -47,7 +47,7 @@ class InferenceAPIAdapter(APIServiceAdapter):
             "validate_input": "Validate inference input parameters"
         }
     
-    async def chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
+    def chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
                              max_tokens: Optional[int] = None, 
                              temperature: float = 0.7,
                              stream: bool = False,
@@ -77,7 +77,7 @@ class InferenceAPIAdapter(APIServiceAdapter):
                     model_name, messages, max_tokens, temperature, **kwargs
                 )
             else:
-                return await self._complete_chat_completion(
+                return self._complete_chat_completion(
                     model_name, messages, max_tokens, temperature, **kwargs
                 )
                 
@@ -85,29 +85,49 @@ class InferenceAPIAdapter(APIServiceAdapter):
             logger.error(f"Failed to generate chat completion: {e}")
             raise InferenceError(f"Chat completion failed: {e}")
     
-    async def _complete_chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
+    def _complete_chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
                                        max_tokens: Optional[int], temperature: float, 
                                        **kwargs) -> Dict[str, Any]:
         """Generate non-streaming chat completion."""
         from ...core.model_manager import ModelManager
         
+        logger.info(f"Getting model manager for: {model_name}")
         # Get the loaded model
         model_manager = ModelManager()
         model = model_manager.get_loaded_model(model_name)
         
         if model is None:
+            logger.error(f"Model '{model_name}' is not loaded")
             raise InferenceError(f"Model '{model_name}' is not loaded")
         
-        # Prepare generation parameters
+        logger.info(f"Found model: {type(model)}")
+        
+        # Prepare generation parameters with proper parameter mapping
         generation_params = {
             'temperature': temperature,
             **kwargs
         }
+        
+        # Map max_tokens to max_new_tokens for compatibility with our engines
         if max_tokens:
+            generation_params['max_new_tokens'] = max_tokens
+            # Keep max_tokens for engines that expect it
             generation_params['max_tokens'] = max_tokens
         
-        # Generate response using the model's chat method
-        response_text = model.chat(messages, **generation_params)
+        logger.info(f"Chat generation params: {generation_params}")
+        
+        try:
+            logger.info("Starting model.chat() call...")
+            # Generate response using the model's chat method (this is sync, not async)
+            response_text = model.chat(messages, **generation_params)
+            logger.info(f"Model.chat() completed. Response length: {len(response_text)} characters")
+        except Exception as e:
+            logger.error(f"Error during chat generation: {e}")
+            raise InferenceError(f"Chat generation failed: {e}")
+        
+        if not response_text:
+            logger.warning("Model returned empty response")
+            response_text = "I apologize, but I couldn't generate a response. Please try again."
         
         # Count tokens (rough estimation)
         prompt_text = self._messages_to_prompt(messages)
@@ -148,12 +168,16 @@ class InferenceAPIAdapter(APIServiceAdapter):
         if model is None:
             raise InferenceError(f"Model '{model_name}' is not loaded")
         
-        # Prepare generation parameters
+        # Prepare generation parameters with proper parameter mapping
         generation_params = {
             'temperature': temperature,
             **kwargs
         }
+        
+        # Map max_tokens to max_new_tokens for compatibility with our engines
         if max_tokens:
+            generation_params['max_new_tokens'] = max_tokens
+            # Keep max_tokens for engines that expect it
             generation_params['max_tokens'] = max_tokens
         
         # Generate response using the model's chat method

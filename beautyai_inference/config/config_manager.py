@@ -30,10 +30,20 @@ class ModelConfig:
     model_filename: Optional[str] = None  # Specific filename for GGUF models
     documentation: Optional[Dict[str, str]] = None  # Documentation for the model configuration
     custom_generation_params: Optional[Dict[str, Any]] = None  # Custom generation parameters
+    # Tokenizer-related fields for GGUF models
+    tokenizer_model_id: Optional[str] = None  # Fallback tokenizer model ID
+    tokenizer_fallback: Optional[str] = None  # Alternative tokenizer fallback strategy
+    # Store any extra fields that aren't explicitly defined
+    extra_fields: Optional[Dict[str, Any]] = None
+    
+    def __post_init__(self):
+        """Post-initialization to handle extra fields."""
+        if self.extra_fields is None:
+            self.extra_fields = {}
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert model configuration to a dictionary."""
-        return {
+        result = {
             "model_id": self.model_id,
             "engine_type": self.engine_type,
             "quantization": self.quantization,
@@ -51,6 +61,18 @@ class ModelConfig:
             "documentation": self.documentation,
             "custom_generation_params": self.custom_generation_params,
         }
+        
+        # Add tokenizer fields if they exist
+        if self.tokenizer_model_id is not None:
+            result["tokenizer_model_id"] = self.tokenizer_model_id
+        if self.tokenizer_fallback is not None:
+            result["tokenizer_fallback"] = self.tokenizer_fallback
+            
+        # Add any extra fields
+        if self.extra_fields:
+            result.update(self.extra_fields)
+            
+        return result
 
 
 @dataclass
@@ -121,7 +143,30 @@ class ModelRegistry:
             # Ensure the name in the model matches the key
             model_data_copy = model_data.copy()
             model_data_copy["name"] = name
-            model_config = ModelConfig(**model_data_copy)
+            
+            # Separate known fields from extra fields
+            known_fields = {
+                'model_id', 'engine_type', 'quantization', 'dtype', 'max_new_tokens',
+                'temperature', 'top_p', 'do_sample', 'gpu_memory_utilization', 
+                'tensor_parallel_size', 'name', 'description', 'model_architecture',
+                'model_filename', 'documentation', 'custom_generation_params',
+                'tokenizer_model_id', 'tokenizer_fallback'
+            }
+            
+            config_fields = {}
+            extra_fields = {}
+            
+            for key, value in model_data_copy.items():
+                if key in known_fields:
+                    config_fields[key] = value
+                else:
+                    extra_fields[key] = value
+            
+            # Add extra fields as a dictionary
+            if extra_fields:
+                config_fields['extra_fields'] = extra_fields
+                
+            model_config = ModelConfig(**config_fields)
             registry.models[name] = model_config
             
         return registry
