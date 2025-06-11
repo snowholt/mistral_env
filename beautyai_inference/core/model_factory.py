@@ -48,11 +48,7 @@ class ModelFactory:
                 logger.warning("vLLM not available for Mistral3 model, trying transformers engine")
                 return TransformersEngine(model_config)
                 
-        # Special case for Qwen3 models
-        elif "qwen" in model_id and "3" in model_id:
-            logger.info(f"Detected a Qwen3 model: {model_config.model_id}")
-            logger.info("Using transformers engine for Qwen3 model with optimizations.")
-            return TransformersEngine(model_config)
+        # Note: Removed hardcoded Qwen3 override to respect registry engine configuration
         
         # Normal cases
         if engine_type == "transformers":

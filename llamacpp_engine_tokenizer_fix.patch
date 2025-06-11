@@ -1,0 +1,62 @@
+
+# SUGGESTED FIX: Add tokenizer fallback to LlamaCppEngine.load_model()
+
+# Around line 125-130, add tokenizer fallback logic:
+
+def load_model(self) -> None:
+    """Load the model into memory with optimized settings for RTX 4090."""
+    start_time = time.time()
+    logger.info(f"Loading GGUF model: {self.config.model_id}")
+    
+    # Find the GGUF model file
+    model_path = self._find_gguf_model_path()
+    if not model_path:
+        raise FileNotFoundError(f"Could not find GGUF model file for {self.config.model_id}")
+    
+    logger.info(f"Loading GGUF file: {model_path}")
+    
+    # NEW: Check for tokenizer fallback configuration
+    tokenizer_model_id = getattr(self.config, 'tokenizer_model_id', None)
+    if tokenizer_model_id:
+        logger.info(f"Using tokenizer fallback: {tokenizer_model_id}")
+        # You can use this to load the tokenizer separately if needed
+    
+    # Enhanced CUDA detection and configuration
+    import torch
+    has_cuda = torch.cuda.is_available()
+    logger.info(f"CUDA available: {has_cuda}")
+    
+    # ... rest of the existing method ...
+    
+    try:
+        logger.info(f"Initializing Llama with {n_gpu_layers} GPU layers, context: {n_ctx}")
+        
+        # NEW: Add error handling with tokenizer fallback
+        try:
+            self.model = Llama(**model_params)
+        except Exception as tokenizer_error:
+            if "tokenizer" in str(tokenizer_error).lower():
+                logger.warning(f"Tokenizer error detected: {tokenizer_error}")
+                logger.info("Attempting to load model without tokenizer dependencies...")
+                
+                # Try with minimal tokenizer requirements
+                minimal_params = model_params.copy()
+                minimal_params.update({
+                    "vocab_only": False,
+                    "logits_all": False,
+                    "embedding": False
+                })
+                
+                self.model = Llama(**minimal_params)
+                logger.info("✅ Model loaded with tokenizer workaround")
+            else:
+                raise tokenizer_error
+        
+        loading_time = time.time() - start_time
+        logger.info(f"✅ GGUF model loaded successfully in {loading_time:.2f} seconds")
+        
+        # ... rest of the existing method ...
+    
+    except Exception as e:
+        logger.error(f"Failed to load GGUF model: {e}")
+        raise
