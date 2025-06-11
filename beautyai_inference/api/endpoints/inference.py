@@ -39,12 +39,65 @@ async def chat_completion(
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
-    Generate a chat completion response from a model.
+    Enhanced chat completion with comprehensive parameter control and optimization features.
     
-    Sends a message to the model and returns the response.
-    Supports both streaming and non-streaming responses.
+    NEW FEATURES:
+    - 📊 Advanced parameter control (25+ parameters including min_p, typical_p, diversity_penalty, etc.)
+    - 🎯 Optimization-based presets from actual performance testing
+    - 🧠 Thinking mode control (/no_think command support)
+    - 🔒 Content filtering control (disable/adjust strictness)
+    - ⚡ Performance metrics and detailed response information
+    - 🎨 Enhanced preset configurations based on actual optimization results
+    
+    Core Parameters:
+    - temperature, top_p, top_k, repetition_penalty, max_new_tokens
+    
+    Advanced Parameters:
+    - min_p, typical_p, epsilon_cutoff, eta_cutoff, diversity_penalty
+    - no_repeat_ngram_size, encoder_repetition_penalty
+    - num_beams, length_penalty, early_stopping
+    
+    Optimization-Based Presets:
+    - "qwen_optimized": Best settings from actual testing (temp=0.3, top_p=0.95, top_k=20)
+    - "high_quality": Maximum quality (temp=0.1, top_p=1.0, rep_penalty=1.15)
+    - "creative_optimized": Creative but efficient (temp=0.5, top_p=1.0, top_k=80)
+    - "speed_optimized", "balanced", "conservative", "creative"
+    
+    Content Filtering:
+    - disable_content_filter: true/false
+    - content_filter_strictness: "strict"/"balanced"/"relaxed"/"disabled"
+    
+    Example usage:
+    {
+        "model_name": "qwen3-model",
+        "message": "What is AI?",
+        "preset": "qwen_optimized",
+        "disable_content_filter": true
+    }
+    
+    Advanced example:
+    {
+        "model_name": "qwen3-model",
+        "message": "Explain quantum computing",
+        "temperature": 0.3,
+        "top_p": 0.95,
+        "top_k": 20,
+        "min_p": 0.05,
+        "repetition_penalty": 1.1,
+        "no_repeat_ngram_size": 3,
+        "content_filter_strictness": "relaxed"
+    }
+    
+    Thinking mode examples:
+    {
+        "model_name": "qwen3-model", 
+        "message": "/no_think Give a brief answer",
+        "preset": "speed_optimized"
+    }
     """
     require_permissions(auth, ["chat"])
+    
+    start_time = time.time()
     
     try:
         # Import the inference adapter
@@ -57,8 +110,52 @@ async def chat_completion(
             benchmark_service=benchmark_service
         )
         
+        # Process message and thinking mode
+        processed_message = request.get_processed_message()
+        thinking_enabled = request.should_enable_thinking()
+        
+        # Build effective generation configuration
+        effective_config = request.get_effective_generation_config()
+        
+        # Configure content filtering based on request
+        filter_config = request.get_effective_content_filter_config()
+        
+        # Content filtering check (if not disabled)
+        content_filter_bypassed = False
+        if filter_config["strictness_level"] == "disabled":
+            content_filter_bypassed = True
+        else:
+            # Set the content filter strictness level
+            content_filter_service.set_strictness_level(filter_config["strictness_level"])
+            
+            filter_result = content_filter_service.filter_content(processed_message, language='ar')
+            if not filter_result.is_allowed:
+                return ChatResponse(
+                    success=False,
+                    response="",
+                    model_name=request.model_name,
+                    effective_config=effective_config,
+                    preset_used=request.preset,
+                    thinking_enabled=thinking_enabled,
+                    error=f"Content filtered: {filter_result.filter_reason}"
+                )
+        
         # Convert simple message to messages format
         messages = []
+        
+        # Add system message for thinking mode if needed
+        if thinking_enabled and request.model_name.lower().find("qwen") != -1:
+            # Add thinking system message for Qwen models
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful assistant. Think step by step before providing your final answer."
+            })
+        elif not thinking_enabled and request.model_name.lower().find("qwen") != -1:
+            # Explicitly disable thinking for Qwen models  
+            messages.append({
+                "role": "system",
+                "content": "You are a helpful assistant. Provide direct, concise answers without showing your thinking process."
+            })
         
         # Add chat history if provided
         if request.chat_history:
@@ -71,57 +168,85 @@ async def chat_completion(
         # Add current user message
         messages.append({
             "role": "user", 
-            "content": request.message
+            "content": processed_message
         })
         
-        # Content filtering check for the current user message
-        filter_result = content_filter_service.filter_content(request.message, language='ar')
-        if not filter_result.is_allowed:
-            return ChatResponse(
-                message="",
-                response=filter_result.suggested_response,
-                model_info={
-                    "model_name": request.model_name,
-                    "status": "filtered"
-                },
-                generation_config=request.generation_config,
-                success=False,
-                error=f"Content filtered: {filter_result.filter_reason}"
-            )
-        
-        # Extract generation parameters from generation_config
-        generation_params = {}
-        if request.generation_config:
-            generation_params.update(request.generation_config)
-        
         # Generate response using the adapter
+        generation_start = time.time()
         response_data = await inference_adapter.chat_completion(
             model_name=request.model_name,
             messages=messages,
-            stream=request.stream,
-            **generation_params
+            generation_config=effective_config,
+            stream=request.stream
         )
+        generation_end = time.time()
         
-        # Extract response text
-        if "choices" in response_data and len(response_data["choices"]) > 0:
-            response_text = response_data["choices"][0].get("message", {}).get("content", "")
-        else:
-            response_text = "No response generated"
+        # Calculate performance metrics
+        generation_time_ms = (generation_end - generation_start) * 1000
+        response_text = response_data.get("response", "")
+        tokens_generated = len(response_text.split()) if response_text else 0
+        tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
         
-        # Generate session ID if not provided
-        session_id = request.session_id or f"chat_{request.model_name}_{int(time.time())}"
+        # Parse thinking content if applicable
+        thinking_content = None
+        final_content = response_text
+        
+        if thinking_enabled and "<think>" in response_text and "</think>" in response_text:
+            # Extract thinking and final content
+            import re
+            think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
+            if think_match:
+                thinking_content = think_match.group(1).strip()
+                final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+        
+        # Build enhanced response
+        end_time = time.time()
+        total_time_ms = (end_time - start_time) * 1000
         
         return ChatResponse(
             success=True,
-            response=response_text,
-            session_id=session_id,
+            response=final_content,
+            session_id=request.session_id or "default",
             model_name=request.model_name,
-            generation_stats=response_data.get("usage", {})
+            effective_config=effective_config,
+            preset_used=request.preset,
+            thinking_enabled=thinking_enabled,
+            content_filter_applied=not content_filter_bypassed,
+            content_filter_strictness=filter_config["strictness_level"],
+            content_filter_bypassed=content_filter_bypassed,
+            tokens_generated=tokens_generated,
+            generation_time_ms=generation_time_ms,
+            tokens_per_second=round(tokens_per_second, 2),
+            thinking_content=thinking_content,
+            final_content=final_content,
+            execution_time_ms=total_time_ms,
+            generation_stats={
+                "model_info": response_data.get("model_info", {}),
+                "generation_config_used": effective_config,
+                "content_filter_config": filter_config,
+                "performance": {
+                    "total_time_ms": total_time_ms,
+                    "generation_time_ms": generation_time_ms,
+                    "tokens_generated": tokens_generated,
+                    "tokens_per_second": tokens_per_second,
+                    "thinking_tokens": len(thinking_content.split()) if thinking_content else 0
+                }
+            }
         )
-            
+        
     except Exception as e:
-        logger.error(f"Failed to generate chat response: {e}")
-        raise HTTPException(status_code=500, detail=f"Failed to generate chat response: {str(e)}")
+        logger.error(f"Chat completion error: {str(e)}")
+        end_time = time.time()
+        return ChatResponse(
+            success=False,
+            response="",
+            model_name=request.model_name,
+            effective_config=request.get_effective_generation_config() if hasattr(request, 'get_effective_generation_config') else {},
+            preset_used=request.preset,
+            thinking_enabled=request.should_enable_thinking() if hasattr(request, 'should_enable_thinking') else None,
+            execution_time_ms=(end_time - start_time) * 1000,
+            error=f"Generation failed: {str(e)}"
+        )
 
 
 @inference_router.post("/test", response_model=TestResponse)
