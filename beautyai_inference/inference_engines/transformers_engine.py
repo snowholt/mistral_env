@@ -564,106 +564,113 @@ class TransformersEngine(ModelInterface):
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
         """Generate a response in a conversation."""
-        if not self.model or not self.tokenizer:
-            self.load_model()
-
-        # Extract the last user message for content filtering
-        last_user_message = None
-        for message in reversed(messages):
-            if message.get('role') == 'user':
-                last_user_message = message.get('content', '')
-                break
-        
-        # Apply content filtering if available
-        if last_user_message and self.content_filter:
-            filter_result = self.content_filter.filter_content(last_user_message)
-            if not filter_result.is_allowed:
-                logger.warning(f"Content filtered: {filter_result.filter_reason}")
-                logger.debug(f"Filtered content: {last_user_message[:100]}...")
-                return filter_result.suggested_response or "I apologize, but I cannot assist with that request."
-
-        # Format conversation  
-        enable_thinking = generation_params.get('enable_thinking', False)
-        formatted_prompt = self._format_conversation(messages, enable_thinking)
-
-        # Merge parameters from config and kwargs
+        # Initialize generation_params early to avoid UnboundLocalError
         generation_params = {}
-        if self.config.custom_generation_params:
-            generation_params.update(self.config.custom_generation_params)
+        
+        try:
+            if not self.model or not self.tokenizer:
+                self.load_model()
 
-        # Override with method kwargs
-        generation_params.update({
-            "max_new_tokens": kwargs.get("max_new_tokens", self.config.max_new_tokens),
-            "temperature": kwargs.get("temperature", self.config.temperature),
-            "top_p": kwargs.get("top_p", self.config.top_p),
-            "do_sample": kwargs.get("do_sample", self.config.do_sample),
-        })
+            # Extract the last user message for content filtering
+            last_user_message = None
+            for message in reversed(messages):
+                if message.get('role') == 'user':
+                    last_user_message = message.get('content', '')
+                    break
+            
+            # Apply content filtering if available
+            if last_user_message and self.content_filter:
+                filter_result = self.content_filter.filter_content(last_user_message)
+                if not filter_result.is_allowed:
+                    logger.warning(f"Content filtered: {filter_result.filter_reason}")
+                    logger.debug(f"Filtered content: {last_user_message[:100]}...")
+                    return filter_result.suggested_response or "I apologize, but I cannot assist with that request."
 
-        # Filter out unsupported parameters for transformers pipeline
-        # Comprehensive list of supported parameters for text-generation pipeline
-        supported_params = {
-            'max_new_tokens', 'max_length', 'min_length', 'temperature', 
-            'top_p', 'repetition_penalty', 'length_penalty', 'num_beams', 
-            'early_stopping', 'do_sample', 'pad_token_id', 'eos_token_id', 
-            'use_cache', 'num_return_sequences'
-        }
+            # Merge parameters from config and kwargs first
+            if self.config.custom_generation_params:
+                generation_params.update(self.config.custom_generation_params)
+                
+            # Format conversation  
+            enable_thinking = generation_params.get('enable_thinking', False)
+            formatted_prompt = self._format_conversation(messages, enable_thinking)
 
-        filtered_params = {}
-        unsupported_params = []
-        for param, value in generation_params.items():
-            if param in supported_params:
-                # Additional model-specific filtering
-                if param == 'temperature' and value == 0:
-                    # Some models don't handle temperature=0 well, use a small value
-                    filtered_params[param] = 0.01
-                elif param == 'do_sample' and value is False and 'temperature' in generation_params:
-                    # When do_sample=False, temperature should be ignored
-                    continue
+            # Override with method kwargs
+            generation_params.update({
+                "max_new_tokens": kwargs.get("max_new_tokens", self.config.max_new_tokens),
+                "temperature": kwargs.get("temperature", self.config.temperature),
+                "top_p": kwargs.get("top_p", self.config.top_p),
+                "do_sample": kwargs.get("do_sample", self.config.do_sample),
+            })
+
+            # Filter out unsupported parameters for transformers pipeline
+            # Comprehensive list of supported parameters for text-generation pipeline
+            supported_params = {
+                'max_new_tokens', 'max_length', 'min_length', 'temperature', 
+                'top_p', 'repetition_penalty', 'length_penalty', 'num_beams', 
+                'early_stopping', 'do_sample', 'pad_token_id', 'eos_token_id', 
+                'use_cache', 'num_return_sequences'
+            }
+
+            filtered_params = {}
+            unsupported_params = []
+            for param, value in generation_params.items():
+                if param in supported_params:
+                    # Additional model-specific filtering
+                    if param == 'temperature' and value == 0:
+                        # Some models don't handle temperature=0 well, use a small value
+                        filtered_params[param] = 0.01
+                    elif param == 'do_sample' and value is False and 'temperature' in generation_params:
+                        # When do_sample=False, temperature should be ignored
+                        continue
+                    else:
+                        filtered_params[param] = value
                 else:
-                    filtered_params[param] = value
+                    unsupported_params.append(param)
+                    logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
+            
+            # Only log warnings for unexpected unsupported parameters
+            if unsupported_params:
+                # Common parameters that users might try but aren't supported by transformers
+                common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty', 'logit_bias', 'stream'}
+                unexpected_unsupported = set(unsupported_params) - common_unsupported
+                
+                if unexpected_unsupported:
+                    logger.warning(f"Ignored unexpected unsupported generation parameters for Transformers engine: {list(unexpected_unsupported)}. "
+                                  f"Supported parameters: {sorted(supported_params)}")
+                
+                # Only log info for commonly unsupported params if in debug mode
+                if common_unsupported.intersection(set(unsupported_params)):
+                    logger.debug(f"Note: Parameters {list(common_unsupported.intersection(set(unsupported_params)))} are not supported by Transformers engine (use vLLM for these)")
+
+            # Generate response with warning suppression
+            suppress_transformers_warnings()
+            generated_output = self.generator(
+                formatted_prompt,
+                **filtered_params
+            )
+            
+            # Ensure we get the generated text as a string
+            if isinstance(generated_output, list) and len(generated_output) > 0:
+                response = generated_output[0].get("generated_text", "")
             else:
-                unsupported_params.append(param)
-                logger.debug(f"Ignoring unsupported generation parameter: {param}={value}")
-        
-        # Only log warnings for unexpected unsupported parameters
-        if unsupported_params:
-            # Common parameters that users might try but aren't supported by transformers
-            common_unsupported = {'top_k', 'presence_penalty', 'frequency_penalty', 'logit_bias', 'stream'}
-            unexpected_unsupported = set(unsupported_params) - common_unsupported
+                response = str(generated_output)
             
-            if unexpected_unsupported:
-                logger.warning(f"Ignored unexpected unsupported generation parameters for Transformers engine: {list(unexpected_unsupported)}. "
-                              f"Supported parameters: {sorted(supported_params)}")
-            
-            # Only log info for commonly unsupported params if in debug mode
-            if common_unsupported.intersection(set(unsupported_params)):
-                logger.debug(f"Note: Parameters {list(common_unsupported.intersection(set(unsupported_params)))} are not supported by Transformers engine (use vLLM for these)")
+            # Ensure response is a string
+            if not isinstance(response, str):
+                response = str(response)
 
-        # Generate response with warning suppression
-        suppress_transformers_warnings()
-        generated_output = self.generator(
-            formatted_prompt,
-            **filtered_params
-        )
-        
-        # Ensure we get the generated text as a string
-        if isinstance(generated_output, list) and len(generated_output) > 0:
-            response = generated_output[0].get("generated_text", "")
-        else:
-            response = str(generated_output)
-        
-        # Ensure response is a string
-        if not isinstance(response, str):
-            response = str(response)
-
-        # Extract assistant's reply
-        extracted_reply = self._extract_last_reply(response, formatted_prompt)
-        
-        # Ensure the final result is a string
-        if not isinstance(extracted_reply, str):
-            extracted_reply = str(extracted_reply)
+            # Extract assistant's reply
+            extracted_reply = self._extract_last_reply(response, formatted_prompt)
             
-        return extracted_reply
+            # Ensure the final result is a string
+            if not isinstance(extracted_reply, str):
+                extracted_reply = str(extracted_reply)
+                
+            return extracted_reply
+            
+        except Exception as e:
+            logger.error(f"Error in chat method: {e}")
+            raise RuntimeError(f"Chat generation failed: {e}")
 
     def chat_stream(self, messages: List[Dict[str, str]], callback=None, **kwargs) -> str:
         """Stream a chat response token by token."""
