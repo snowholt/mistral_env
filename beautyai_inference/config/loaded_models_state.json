@@ -1,10 +1,16 @@
 {
-  "timestamp": 1749645117.0883772,
+  "timestamp": 1749646799.7185037,
   "loaded_models": {
+    "qwen3-model": {
+      "model_id": "Qwen/Qwen3-14B",
+      "engine": "transformers",
+      "loaded_at": 1749646799.7185068,
+      "status": "loaded"
+    },
     "qwen3-unsloth-q4ks": {
       "model_id": "unsloth/Qwen3-14B-GGUF",
       "engine": "llama.cpp",
-      "loaded_at": 1749645117.0883787,
+      "loaded_at": 1749646799.7185078,
       "status": "loaded"
     }
   }
