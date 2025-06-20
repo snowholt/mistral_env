@@ -3,6 +3,7 @@ import logging
 from beautyai_inference.config.config_manager import AppConfig
 from beautyai_inference.services.model.lifecycle_service import ModelLifecycleService
 from beautyai_inference.inference_engines.transformers_engine import TransformersEngine
+from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
 def test_whisper_large_v3_turbo_arabic():
     """Test the Whisper Large V3 Turbo Arabic model with a simple MP3 file."""
@@ -39,8 +40,6 @@ def test_whisper_large_v3_turbo_arabic():
         logger.error(f"Audio file not found: {audio_file_path}")
         return
 
-    # Assuming the model uses TransformersEngine for transcription
-
     # Initialize the engine
     engine = TransformersEngine(model_config)
     engine.load_model()
@@ -50,6 +49,10 @@ def test_whisper_large_v3_turbo_arabic():
         logger.info("Setting default chat template for the tokenizer.")
         engine.tokenizer.chat_template = "<s>[INST] {input} [/INST]"
 
+    # Load the processor and model
+    processor = WhisperProcessor.from_pretrained(model_config.model_id)
+    model = WhisperForConditionalGeneration.from_pretrained(model_config.model_id)
+
     # Preprocess the audio file
     import torchaudio
 
@@ -57,9 +60,13 @@ def test_whisper_large_v3_turbo_arabic():
         waveform, sample_rate = torchaudio.load(audio_file_path)
         logger.info(f"Audio file loaded: {audio_file_path}, Sample rate: {sample_rate}")
 
-        # Perform transcription using the model
-        transcription_result = engine.model.transcribe(waveform, sample_rate=sample_rate)
-        logger.info(f"Transcription: {transcription_result}")
+        # Prepare input features
+        input_features = processor(waveform.squeeze().numpy(), sampling_rate=sample_rate, return_tensors="pt").input_features
+
+        # Perform transcription
+        predicted_ids = model.generate(input_features)
+        transcription = processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+        logger.info(f"Transcription: {transcription}")
     except Exception as e:
         logger.error(f"Error during transcription: {e}")
 
