@@ -205,6 +205,7 @@ class Permissions:
     
     # Inference operations
     CHAT = "chat"
+    AUDIO = "audio"
     TEST = "test"
     BENCHMARK = "benchmark"
     
@@ -265,6 +266,7 @@ def get_auth_context() -> AuthContext:
             Permissions.MODEL_LOAD,
             Permissions.MODEL_UNLOAD,
             Permissions.CHAT,
+            Permissions.AUDIO,
             Permissions.TEST,
             Permissions.BENCHMARK,
             Permissions.CONFIG_READ,

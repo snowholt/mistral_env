@@ -1,10 +1,10 @@
 {
-  "timestamp": 1750424956.5008516,
+  "timestamp": 1750439904.28557,
   "loaded_models": {
-    "whisper-large-v3-turbo-arabic": {
-      "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
-      "engine": "transformers",
-      "loaded_at": 1750424956.500854,
+    "qwen3-unsloth-q4ks": {
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "engine": "llama.cpp",
+      "loaded_at": 1750439904.285572,
       "status": "loaded"
     }
   }

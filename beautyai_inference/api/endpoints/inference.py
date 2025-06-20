@@ -925,10 +925,74 @@ async def audio_chat_completion(
         
         # Generate chat response
         try:
-            chat_response = await inference_adapter.chat_completion(chat_request)
-            chat_end_time = time.time()
+            # Convert transcribed message to messages format (same as regular chat endpoint)
+            messages = []
             
-            if not chat_response.success:
+            # Add system message for thinking mode if needed
+            if thinking_enabled and chat_request.model_name.lower().find("qwen") != -1:
+                # Add thinking system message for Qwen models
+                messages.append({
+                    "role": "system",
+                    "content": "You are a helpful assistant. Think step by step before providing your final answer."
+                })
+            elif not thinking_enabled and chat_request.model_name.lower().find("qwen") != -1:
+                # Explicitly disable thinking for Qwen models  
+                messages.append({
+                    "role": "system",
+                    "content": "You are a helpful assistant. Provide direct, concise answers without showing your thinking process."
+                })
+            
+            # Add chat history if provided
+            if chat_request.chat_history:
+                for msg in chat_request.chat_history:
+                    messages.append({
+                        "role": msg.get("role", "user"),
+                        "content": msg.get("content", "")
+                    })
+            
+            # Add current user message (transcribed audio)
+            messages.append({
+                "role": "user", 
+                "content": processed_message
+            })
+            
+            # Prepare parameters for adapter call
+            adapter_params = effective_config.copy()
+            adapter_params.update({
+                'model_name': chat_request.model_name,
+                'messages': messages,
+                'stream': chat_request.stream,
+            })
+            
+            # Generate response using the adapter
+            response_data = inference_adapter.chat_completion(**adapter_params)
+            chat_end_time = time.time()
+            generation_time_ms = (chat_end_time - chat_start_time) * 1000
+            
+            # Extract response text from OpenAI-style format (same as regular chat endpoint)
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                response_text = response_data["choices"][0].get("message", {}).get("content", "")
+            else:
+                response_text = response_data.get("response", "")
+            
+            # Calculate tokens and performance metrics
+            tokens_generated = len(response_text.split()) if response_text else 0
+            tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
+            
+            # Parse thinking content if applicable  
+            thinking_content = None
+            final_content = response_text
+            
+            if thinking_enabled and "<think>" in response_text and "</think>" in response_text:
+                # Extract thinking and final content
+                import re
+                think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
+                if think_match:
+                    thinking_content = think_match.group(1).strip()
+                    final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+            
+            # Check if response generation was successful
+            if not response_text:
                 total_time_ms = (chat_end_time - start_time) * 1000
                 return AudioChatResponse(
                     success=False,
@@ -944,19 +1008,18 @@ async def audio_chat_completion(
                     content_filter_strictness=filter_config["strictness_level"],
                     content_filter_bypassed=content_filter_bypassed,
                     total_processing_time_ms=total_time_ms,
-                    error=chat_response.error,
-                    chat_error=chat_response.error
+                    error="No response generated",
+                    chat_error="Chat generation returned empty response"
                 )
             
             # Step 5: Build comprehensive response
             end_time = time.time()
             total_time_ms = (end_time - start_time) * 1000
-            generation_time_ms = (chat_end_time - chat_start_time) * 1000
             
             return AudioChatResponse(
                 success=True,
-                response=chat_response.response,
-                session_id=chat_response.session_id,
+                response=final_content,
+                session_id=chat_request.session_id or "default",
                 model_name=model_name,
                 
                 # Transcription Information
@@ -966,27 +1029,31 @@ async def audio_chat_completion(
                 transcription_time_ms=transcription_time_ms,
                 
                 # Generation Statistics
-                generation_stats=chat_response.generation_stats,
+                generation_stats={
+                    "tokens_generated": tokens_generated,
+                    "tokens_per_second": tokens_per_second,
+                    "generation_time_ms": generation_time_ms
+                },
                 
                 # Parameter Information
-                effective_config=chat_response.effective_config,
-                preset_used=chat_response.preset_used,
-                thinking_enabled=chat_response.thinking_enabled,
+                effective_config=effective_config,
+                preset_used=chat_request.preset,
+                thinking_enabled=thinking_enabled,
                 
                 # Content Filtering Information
                 content_filter_applied=content_filter_applied,
-                content_filter_strictness=chat_response.content_filter_strictness,
+                content_filter_strictness=filter_config["strictness_level"],
                 content_filter_bypassed=content_filter_bypassed,
                 
                 # Performance Metrics
-                tokens_generated=chat_response.tokens_generated,
+                tokens_generated=tokens_generated,
                 generation_time_ms=generation_time_ms,
-                tokens_per_second=chat_response.tokens_per_second,
+                tokens_per_second=tokens_per_second,
                 total_processing_time_ms=total_time_ms,
                 
                 # Response Metadata
-                thinking_content=chat_response.thinking_content,
-                final_content=chat_response.final_content,
+                thinking_content=thinking_content,
+                final_content=final_content,
                 
                 execution_time_ms=total_time_ms
             )
