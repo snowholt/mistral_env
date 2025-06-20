@@ -11,15 +11,16 @@ import logging
 import time
 from typing import Dict, Any, Optional
 
-from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks
+from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, File, UploadFile, Form
 from ..models import (
-    APIResponse, ChatRequest, ChatResponse, TestRequest, TestResponse,
-    BenchmarkRequest, BenchmarkResponse,
+    APIResponse, ChatRequest, ChatResponse, AudioChatRequest, AudioChatResponse,
+    TestRequest, TestResponse, BenchmarkRequest, BenchmarkResponse,
     SessionSaveRequest, SessionSaveResponse, SessionLoadRequest, SessionLoadResponse
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
 from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
+from ...services.audio_transcription_service import AudioTranscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +32,7 @@ test_service = TestService()
 benchmark_service = BenchmarkService()
 session_service = SessionService()
 content_filter_service = ContentFilterService()
+audio_transcription_service = AudioTranscriptionService()
 
 
 @inference_router.post("/chat", response_model=ChatResponse)
@@ -614,3 +616,413 @@ async def delete_session(
     except Exception as e:
         logger.error(f"Failed to delete session: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+
+@inference_router.post("/audio-chat", response_model=AudioChatResponse)
+async def audio_chat_completion(
+    audio_file: UploadFile = File(...),
+    model_name: str = Form(...),
+    session_id: Optional[str] = Form(None),
+    chat_history: Optional[str] = Form(None),  # JSON string
+    
+    # Whisper Parameters
+    whisper_model_name: Optional[str] = Form("whisper-large-v3-turbo-arabic"),
+    audio_language: Optional[str] = Form("ar"),
+    
+    # Core Generation Parameters
+    temperature: Optional[float] = Form(None),
+    top_p: Optional[float] = Form(None),
+    top_k: Optional[int] = Form(None),
+    repetition_penalty: Optional[float] = Form(None),
+    max_new_tokens: Optional[int] = Form(None),
+    min_new_tokens: Optional[int] = Form(None),
+    do_sample: Optional[bool] = Form(None),
+    
+    # Advanced Sampling Parameters
+    min_p: Optional[float] = Form(None),
+    typical_p: Optional[float] = Form(None),
+    epsilon_cutoff: Optional[float] = Form(None),
+    eta_cutoff: Optional[float] = Form(None),
+    diversity_penalty: Optional[float] = Form(None),
+    encoder_repetition_penalty: Optional[float] = Form(None),
+    no_repeat_ngram_size: Optional[int] = Form(None),
+    
+    # Beam Search Parameters
+    num_beams: Optional[int] = Form(None),
+    num_beam_groups: Optional[int] = Form(None),
+    length_penalty: Optional[float] = Form(None),
+    early_stopping: Optional[bool] = Form(None),
+    
+    # Thinking Mode Control
+    enable_thinking: Optional[bool] = Form(None),
+    thinking_mode: Optional[str] = Form(None),
+    
+    # Content Filtering Control
+    disable_content_filter: bool = Form(False),
+    content_filter_strictness: Optional[str] = Form(None),
+    
+    # Preset Configurations
+    preset: Optional[str] = Form(None),
+    
+    # Legacy support
+    generation_config: Optional[str] = Form(None),  # JSON string
+    stream: bool = Form(False),
+    
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Audio-to-Chat completion with comprehensive parameter control.
+    
+    This endpoint combines audio transcription using Whisper models with 
+    chat completion using the same advanced features as the regular chat endpoint.
+    
+    WORKFLOW:
+    1. 🎙️ Transcribe uploaded audio using Whisper model
+    2. 🤖 Send transcription to chat model for response generation
+    3. 📊 Return both transcription and chat response with full metrics
+    
+    FEATURES:
+    - 🎯 Same parameter control as /chat endpoint (25+ parameters)
+    - 🧠 Thinking mode support (/no_think detection in transcription)
+    - 🔒 Content filtering for both transcription and response
+    - ⚡ Performance metrics for both transcription and generation
+    - 🎨 All optimization-based presets available
+    - 🌍 Multi-language audio support (Arabic default)
+    
+    AUDIO FORMATS SUPPORTED:
+    - WAV, MP3, OGG, FLAC, M4A, WMA
+    
+    WHISPER MODELS:
+    - whisper-large-v3-turbo-arabic (default)
+    - Other registered Whisper models
+    
+    Example usage (multipart/form-data):
+    - audio_file: [audio file binary]
+    - model_name: "qwen3-model"
+    - preset: "qwen_optimized"
+    - whisper_model_name: "whisper-large-v3-turbo-arabic"
+    - audio_language: "ar"
+    - disable_content_filter: true
+    """
+    require_permissions(auth, ["chat", "audio"])
+    
+    start_time = time.time()
+    transcription_start_time = start_time
+    
+    try:
+        logger.info(f"Audio-to-chat request received for model: {model_name}")
+        
+        # Parse JSON fields if provided
+        parsed_chat_history = None
+        if chat_history:
+            try:
+                import json
+                parsed_chat_history = json.loads(chat_history)
+            except json.JSONDecodeError:
+                logger.warning("Invalid chat_history JSON, ignoring")
+        
+        parsed_generation_config = None
+        if generation_config:
+            try:
+                import json
+                parsed_generation_config = json.loads(generation_config)
+            except json.JSONDecodeError:
+                logger.warning("Invalid generation_config JSON, ignoring")
+        
+        # Build AudioChatRequest object from form data
+        audio_request = AudioChatRequest(
+            model_name=model_name,
+            session_id=session_id,
+            chat_history=parsed_chat_history,
+            whisper_model_name=whisper_model_name,
+            audio_language=audio_language,
+            temperature=temperature,
+            top_p=top_p,
+            top_k=top_k,
+            repetition_penalty=repetition_penalty,
+            max_new_tokens=max_new_tokens,
+            min_new_tokens=min_new_tokens,
+            do_sample=do_sample,
+            min_p=min_p,
+            typical_p=typical_p,
+            epsilon_cutoff=epsilon_cutoff,
+            eta_cutoff=eta_cutoff,
+            diversity_penalty=diversity_penalty,
+            encoder_repetition_penalty=encoder_repetition_penalty,
+            no_repeat_ngram_size=no_repeat_ngram_size,
+            num_beams=num_beams,
+            num_beam_groups=num_beam_groups,
+            length_penalty=length_penalty,
+            early_stopping=early_stopping,
+            enable_thinking=enable_thinking,
+            thinking_mode=thinking_mode,
+            disable_content_filter=disable_content_filter,
+            content_filter_strictness=content_filter_strictness,
+            preset=preset,
+            generation_config=parsed_generation_config,
+            stream=stream
+        )
+        
+        # Validate audio file format
+        if not audio_transcription_service.validate_audio_format(audio_file.filename):
+            return AudioChatResponse(
+                success=False,
+                response="",
+                model_name=model_name,
+                transcription="",
+                whisper_model_used=whisper_model_name or "",
+                error="Unsupported audio format",
+                transcription_error=f"Unsupported audio format: {audio_file.filename}"
+            )
+        
+        # Step 1: Load Whisper model if needed
+        if not audio_transcription_service.is_model_loaded():
+            logger.info(f"Loading Whisper model: {whisper_model_name}")
+            if not audio_transcription_service.load_whisper_model(whisper_model_name):
+                return AudioChatResponse(
+                    success=False,
+                    response="",
+                    model_name=model_name,
+                    transcription="",
+                    whisper_model_used=whisper_model_name or "",
+                    error="Failed to load Whisper model",
+                    transcription_error=f"Failed to load Whisper model: {whisper_model_name}"
+                )
+        
+        # Step 2: Transcribe audio
+        logger.info("Starting audio transcription...")
+        transcription_start_time = time.time()
+        
+        # Read audio file
+        audio_bytes = await audio_file.read()
+        
+        # Get file extension for format detection
+        audio_format = audio_file.filename.split('.')[-1].lower() if '.' in audio_file.filename else 'wav'
+        
+        # Transcribe audio
+        transcription = audio_transcription_service.transcribe_audio_bytes(
+            audio_bytes, 
+            audio_format=audio_format, 
+            language=audio_language
+        )
+        
+        transcription_end_time = time.time()
+        transcription_time_ms = (transcription_end_time - transcription_start_time) * 1000
+        
+        if not transcription:
+            return AudioChatResponse(
+                success=False,
+                response="",
+                model_name=model_name,
+                transcription="",
+                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
+                transcription_time_ms=transcription_time_ms,
+                error="Audio transcription failed",
+                transcription_error="Failed to transcribe audio file"
+            )
+        
+        logger.info(f"Audio transcribed successfully: {transcription[:100]}...")
+        
+        # Step 3: Set transcribed message and process for chat
+        audio_request._transcribed_message = transcription
+        
+        # Build ChatRequest from transcription
+        chat_request = ChatRequest(
+            model_name=audio_request.model_name,
+            message=transcription,
+            session_id=audio_request.session_id,
+            chat_history=audio_request.chat_history,
+            temperature=audio_request.temperature,
+            top_p=audio_request.top_p,
+            top_k=audio_request.top_k,
+            repetition_penalty=audio_request.repetition_penalty,
+            max_new_tokens=audio_request.max_new_tokens,
+            min_new_tokens=audio_request.min_new_tokens,
+            do_sample=audio_request.do_sample,
+            min_p=audio_request.min_p,
+            typical_p=audio_request.typical_p,
+            epsilon_cutoff=audio_request.epsilon_cutoff,
+            eta_cutoff=audio_request.eta_cutoff,
+            diversity_penalty=audio_request.diversity_penalty,
+            encoder_repetition_penalty=audio_request.encoder_repetition_penalty,
+            no_repeat_ngram_size=audio_request.no_repeat_ngram_size,
+            num_beams=audio_request.num_beams,
+            num_beam_groups=audio_request.num_beam_groups,
+            length_penalty=audio_request.length_penalty,
+            early_stopping=audio_request.early_stopping,
+            enable_thinking=audio_request.enable_thinking,
+            thinking_mode=audio_request.thinking_mode,
+            disable_content_filter=audio_request.disable_content_filter,
+            content_filter_strictness=audio_request.content_filter_strictness,
+            preset=audio_request.preset,
+            generation_config=audio_request.generation_config,
+            stream=audio_request.stream
+        )
+        
+        # Step 4: Process chat using existing chat logic
+        logger.info("Starting chat generation...")
+        chat_start_time = time.time()
+        
+        # Import the inference adapter
+        from ..adapters.inference_adapter import InferenceAPIAdapter
+        
+        # Create adapter instance with required service dependencies
+        inference_adapter = InferenceAPIAdapter(
+            chat_service=chat_service,
+            test_service=test_service, 
+            benchmark_service=benchmark_service
+        )
+        
+        # Process message and thinking mode
+        processed_message = chat_request.get_processed_message()
+        thinking_enabled = chat_request.should_enable_thinking()
+        
+        # Build effective generation configuration
+        effective_config = chat_request.get_effective_generation_config()
+        
+        # Configure content filtering based on request
+        filter_config = chat_request.get_effective_content_filter_config()
+        logger.info(f"Content filter config: {filter_config}")
+        
+        # Content filtering check (if not disabled)
+        content_filter_bypassed = False
+        content_filter_applied = False
+        if filter_config["strictness_level"] == "disabled":
+            content_filter_bypassed = True
+            logger.info("Content filtering disabled")
+        else:
+            logger.info(f"Applying content filter with strictness: {filter_config['strictness_level']}")
+            content_filter_applied = True
+            # Set the content filter strictness level
+            content_filter_service.set_strictness_level(filter_config["strictness_level"])
+            
+            try:
+                filter_result = content_filter_service.filter_content(processed_message, language=audio_language)
+                logger.info(f"Content filter result: allowed={filter_result.is_allowed}")
+                if not filter_result.is_allowed:
+                    chat_end_time = time.time()
+                    total_time_ms = (chat_end_time - start_time) * 1000
+                    return AudioChatResponse(
+                        success=False,
+                        response="",
+                        model_name=model_name,
+                        transcription=transcription,
+                        whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
+                        transcription_time_ms=transcription_time_ms,
+                        effective_config=effective_config,
+                        preset_used=chat_request.preset,
+                        thinking_enabled=thinking_enabled,
+                        content_filter_applied=content_filter_applied,
+                        content_filter_strictness=filter_config["strictness_level"],
+                        content_filter_bypassed=content_filter_bypassed,
+                        total_processing_time_ms=total_time_ms,
+                        error=f"Content filtered: {filter_result.filter_reason}",
+                        chat_error=f"Content filtered: {filter_result.filter_reason}"
+                    )
+            except Exception as e:
+                logger.error(f"Content filtering failed: {e}, proceeding without filtering")
+                content_filter_bypassed = True
+        
+        # Generate chat response
+        try:
+            chat_response = await inference_adapter.chat_completion(chat_request)
+            chat_end_time = time.time()
+            
+            if not chat_response.success:
+                total_time_ms = (chat_end_time - start_time) * 1000
+                return AudioChatResponse(
+                    success=False,
+                    response="",
+                    model_name=model_name,
+                    transcription=transcription,
+                    whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
+                    transcription_time_ms=transcription_time_ms,
+                    effective_config=effective_config,
+                    preset_used=chat_request.preset,
+                    thinking_enabled=thinking_enabled,
+                    content_filter_applied=content_filter_applied,
+                    content_filter_strictness=filter_config["strictness_level"],
+                    content_filter_bypassed=content_filter_bypassed,
+                    total_processing_time_ms=total_time_ms,
+                    error=chat_response.error,
+                    chat_error=chat_response.error
+                )
+            
+            # Step 5: Build comprehensive response
+            end_time = time.time()
+            total_time_ms = (end_time - start_time) * 1000
+            generation_time_ms = (chat_end_time - chat_start_time) * 1000
+            
+            return AudioChatResponse(
+                success=True,
+                response=chat_response.response,
+                session_id=chat_response.session_id,
+                model_name=model_name,
+                
+                # Transcription Information
+                transcription=transcription,
+                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
+                audio_language_detected=audio_language,
+                transcription_time_ms=transcription_time_ms,
+                
+                # Generation Statistics
+                generation_stats=chat_response.generation_stats,
+                
+                # Parameter Information
+                effective_config=chat_response.effective_config,
+                preset_used=chat_response.preset_used,
+                thinking_enabled=chat_response.thinking_enabled,
+                
+                # Content Filtering Information
+                content_filter_applied=content_filter_applied,
+                content_filter_strictness=chat_response.content_filter_strictness,
+                content_filter_bypassed=content_filter_bypassed,
+                
+                # Performance Metrics
+                tokens_generated=chat_response.tokens_generated,
+                generation_time_ms=generation_time_ms,
+                tokens_per_second=chat_response.tokens_per_second,
+                total_processing_time_ms=total_time_ms,
+                
+                # Response Metadata
+                thinking_content=chat_response.thinking_content,
+                final_content=chat_response.final_content,
+                
+                execution_time_ms=total_time_ms
+            )
+            
+        except Exception as chat_error:
+            logger.error(f"Chat generation error: {str(chat_error)}")
+            end_time = time.time()
+            total_time_ms = (end_time - start_time) * 1000
+            
+            return AudioChatResponse(
+                success=False,
+                response="",
+                model_name=model_name,
+                transcription=transcription,
+                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
+                transcription_time_ms=transcription_time_ms,
+                effective_config=effective_config,
+                preset_used=chat_request.preset,
+                thinking_enabled=thinking_enabled,
+                total_processing_time_ms=total_time_ms,
+                error=f"Chat generation failed: {str(chat_error)}",
+                chat_error=f"Chat generation failed: {str(chat_error)}"
+            )
+        
+    except Exception as e:
+        logger.error(f"Audio-to-chat completion error: {str(e)}")
+        end_time = time.time()
+        total_time_ms = (end_time - start_time) * 1000
+        
+        return AudioChatResponse(
+            success=False,
+            response="",
+            model_name=model_name,
+            transcription="",
+            whisper_model_used=whisper_model_name or "",
+            total_processing_time_ms=total_time_ms,
+            execution_time_ms=total_time_ms,
+            error=f"Audio-to-chat processing failed: {str(e)}"
+        )

@@ -547,3 +547,246 @@ class RestoreResponse(APIResponse):
     backup_name: str = ""
     restored_timestamp: str = ""
     message: str = ""
+
+
+# Audio Chat API Models
+@dataclass
+class AudioChatRequest(APIRequest):
+    """Request for audio-to-chat interaction combining transcription and chat generation."""
+    model_name: str  # Chat model to use for response generation
+    session_id: Optional[str] = None
+    chat_history: Optional[List[Dict[str, str]]] = None
+    
+    # Whisper Transcription Parameters
+    whisper_model_name: Optional[str] = "whisper-large-v3-turbo-arabic"  # Whisper model for transcription
+    audio_language: Optional[str] = "ar"  # Language code for transcription
+    
+    # Core Generation Parameters (Same as ChatRequest)
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    repetition_penalty: Optional[float] = None
+    max_new_tokens: Optional[int] = None
+    min_new_tokens: Optional[int] = None
+    do_sample: Optional[bool] = None
+    
+    # Advanced Sampling Parameters
+    min_p: Optional[float] = None
+    typical_p: Optional[float] = None
+    epsilon_cutoff: Optional[float] = None
+    eta_cutoff: Optional[float] = None
+    diversity_penalty: Optional[float] = None
+    encoder_repetition_penalty: Optional[float] = None
+    no_repeat_ngram_size: Optional[int] = None
+    
+    # Beam Search Parameters
+    num_beams: Optional[int] = None
+    num_beam_groups: Optional[int] = None
+    length_penalty: Optional[float] = None
+    early_stopping: Optional[bool] = None
+    
+    # Thinking Mode Control
+    enable_thinking: Optional[bool] = None
+    thinking_mode: Optional[str] = None
+    
+    # Content Filtering Control
+    disable_content_filter: bool = False
+    content_filter_strictness: Optional[str] = None
+    
+    # Preset Configurations (Same as ChatRequest)
+    preset: Optional[str] = None
+    
+    # Legacy support
+    generation_config: Optional[Dict[str, Any]] = None
+    stream: bool = False
+    
+    def get_effective_generation_config(self) -> Dict[str, Any]:
+        """
+        Build the effective generation configuration from all sources.
+        Priority: Direct parameters > Preset > generation_config > defaults
+        """
+        # Start with preset-based defaults
+        config = self._get_preset_config()
+        
+        # Merge legacy generation_config
+        if self.generation_config:
+            config.update(self.generation_config)
+        
+        # Override with direct parameters (highest priority)
+        direct_params = {
+            # Core parameters
+            'temperature': self.temperature,
+            'top_p': self.top_p,
+            'top_k': self.top_k,
+            'repetition_penalty': self.repetition_penalty,
+            'max_new_tokens': self.max_new_tokens,
+            'min_new_tokens': self.min_new_tokens,
+            'do_sample': self.do_sample,
+            
+            # Advanced sampling
+            'min_p': self.min_p,
+            'typical_p': self.typical_p,
+            'epsilon_cutoff': self.epsilon_cutoff,
+            'eta_cutoff': self.eta_cutoff,
+            'diversity_penalty': self.diversity_penalty,
+            'encoder_repetition_penalty': self.encoder_repetition_penalty,
+            'no_repeat_ngram_size': self.no_repeat_ngram_size,
+            
+            # Beam search
+            'num_beams': self.num_beams,
+            'num_beam_groups': self.num_beam_groups,
+            'length_penalty': self.length_penalty,
+            'early_stopping': self.early_stopping,
+        }
+        
+        # Add non-None direct parameters
+        for key, value in direct_params.items():
+            if value is not None:
+                config[key] = value
+        
+        return config
+    
+    def _get_preset_config(self) -> Dict[str, Any]:
+        """Get base configuration from preset."""
+        presets = {
+            "conservative": {
+                "temperature": 0.1, "top_p": 0.9, "top_k": 10,
+                "repetition_penalty": 1.2, "max_new_tokens": 256
+            },
+            "balanced": {
+                "temperature": 0.3, "top_p": 0.95, "top_k": 40,
+                "repetition_penalty": 1.1, "max_new_tokens": 512
+            },
+            "creative": {
+                "temperature": 0.7, "top_p": 1.0, "top_k": 100,
+                "repetition_penalty": 1.05, "max_new_tokens": 1024
+            },
+            "speed_optimized": {
+                "temperature": 0.2, "top_p": 0.9, "top_k": 20,
+                "repetition_penalty": 1.15, "max_new_tokens": 256
+            },
+            "qwen_optimized": {
+                "temperature": 0.3, "top_p": 0.95, "top_k": 20,
+                "repetition_penalty": 1.1, "max_new_tokens": 512,
+                "min_p": 0.05, "no_repeat_ngram_size": 3
+            },
+            "high_quality": {
+                "temperature": 0.1, "top_p": 1.0, "top_k": 50,
+                "repetition_penalty": 1.15, "max_new_tokens": 1024
+            },
+            "creative_optimized": {
+                "temperature": 0.5, "top_p": 1.0, "top_k": 80,
+                "repetition_penalty": 1.05, "max_new_tokens": 768
+            }
+        }
+        
+        return presets.get(self.preset, presets["balanced"])
+    
+    def get_processed_message(self) -> str:
+        """Get the processed message (this will be the transcription)."""
+        # This will be set after transcription in the service
+        return getattr(self, '_transcribed_message', '')
+    
+    def should_enable_thinking(self) -> bool:
+        """Determine if thinking mode should be enabled."""
+        if self.enable_thinking is not None:
+            return self.enable_thinking
+        
+        # Check thinking mode setting
+        if self.thinking_mode == "force":
+            return True
+        elif self.thinking_mode == "disable":
+            return False
+        
+        # Auto-detect based on transcribed message (will be set later)
+        transcribed_message = self.get_processed_message()
+        return not transcribed_message.startswith("/no_think")
+    
+    def get_effective_content_filter_config(self) -> Dict[str, Any]:
+        """Get the effective content filter configuration."""
+        if self.disable_content_filter:
+            return {"strictness_level": "disabled"}
+        
+        strictness = self.content_filter_strictness or "balanced"
+        return {"strictness_level": strictness}
+
+
+@dataclass 
+class AudioChatResponse(APIResponse):
+    """Response for audio-to-chat interaction with transcription and chat details."""
+    success: bool = True
+    response: str = ""  # Final chat response
+    session_id: str = ""
+    model_name: str = ""  # Chat model used
+    
+    # Transcription Information
+    transcription: str = ""  # What was transcribed from audio
+    whisper_model_used: str = ""  # Whisper model used for transcription
+    audio_language_detected: Optional[str] = None
+    transcription_time_ms: Optional[float] = None
+    
+    # Generation Statistics (Same as ChatResponse)
+    generation_stats: Optional[Dict[str, Any]] = None
+    
+    # Parameter Information
+    effective_config: Optional[Dict[str, Any]] = None
+    preset_used: Optional[str] = None
+    thinking_enabled: Optional[bool] = None
+    
+    # Content Filtering Information
+    content_filter_applied: Optional[bool] = None
+    content_filter_strictness: Optional[str] = None
+    content_filter_bypassed: Optional[bool] = None
+    
+    # Performance Metrics
+    tokens_generated: Optional[int] = None
+    generation_time_ms: Optional[float] = None
+    tokens_per_second: Optional[float] = None
+    total_processing_time_ms: Optional[float] = None  # Total time including transcription
+    
+    # Response Metadata
+    thinking_content: Optional[str] = None
+    final_content: Optional[str] = None
+    
+    # Error information
+    error: Optional[str] = None
+    transcription_error: Optional[str] = None
+    chat_error: Optional[str] = None
+
+
+# Backup/Restore API Models
+@dataclass
+class BackupRequest(APIRequest):
+    """Request to create a configuration backup."""
+    backup_name: str
+    description: Optional[str] = None
+    include_models: bool = True
+    include_cache: bool = False
+
+
+@dataclass
+class BackupResponse(APIResponse):
+    """Response for configuration backup."""
+    success: bool = True
+    backup_name: str = ""
+    timestamp: str = ""
+    file_path: Optional[str] = None
+    size_bytes: Optional[int] = None
+    message: str = ""
+
+
+@dataclass
+class RestoreRequest(APIRequest):
+    """Request to restore configuration from backup."""
+    backup_name: str
+    confirm: bool = False
+    restore_models: bool = True
+
+
+@dataclass
+class RestoreResponse(APIResponse):
+    """Response for configuration restore."""
+    success: bool = True
+    backup_name: str = ""
+    restored_timestamp: str = ""
+    message: str = ""

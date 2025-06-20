@@ -1,200 +1,23 @@
 {
-  "default_model": "qwen3-unsloth-q4ks",
+  "default_model": "default",
   "models": {
     "qwen3-model": {
       "model_id": "Qwen/Qwen3-14B",
       "engine_type": "transformers",
       "quantization": "4bit",
-      "dtype": "bfloat16",
-      "max_new_tokens": 1024,
+      "dtype": "float16",
+      "max_new_tokens": 5000,
+      "temperature": 0,
+      "top_p": 0.95,
+      "do_sample": true,
+      "gpu_memory_utilization": 0.9,
+      "tensor_parallel_size": 1,
       "name": "qwen3-model",
-      "description": "Qwen3 14B model (4-bit quantized) - Transformers engine with thinking mode",
+      "description": "Qwen3 14B model (4-bit quantized)",
       "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-      
-    "deepseek-r1-qwen-14b-multilingual": {
-      "model_id": "lightblue/DeepSeek-R1-Distill-Qwen-14B-Multilingual",
-      "engine_type": "transformers",
-      "quantization": "4bit",
-      "dtype": "bfloat16",
-      "max_new_tokens": 1024,
-      "name": "deepseek-r1-qwen-14b-multilingual",
-      "description": "DeepSeek R1 Distill Qwen 14B Multilingual - Transformers engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "qwen3-official-q4km": {
-      "model_id": "Qwen/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q4_K_M",
-      "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q4_K_M.gguf",
-      "max_new_tokens": 256,
-      "name": "qwen3-official-q4km",
-      "description": "Qwen3 14B Q4_K_M - Official GGUF (8.4GB) - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "qwen3-official-q6k": {
-      "model_id": "Qwen/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q6_K",
-      "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q6_K.gguf",
-      "max_new_tokens": 256,
-      "name": "qwen3-official-q6k",
-      "description": "Qwen3 14B Q6_K - Official GGUF high quality (12GB) - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "qwen3-unsloth-q4ks": {
-      "model_id": "unsloth/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q4_K_S",
-      "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q4_K_S.gguf",
-      "max_new_tokens": 256,
-      "name": "qwen3-unsloth-q4ks",
-      "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "qwen3-unsloth-q4km": {
-      "model_id": "unsloth/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q4_K_M",
-      "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q4_K_M.gguf",
-      "max_new_tokens": 256,
-      "name": "qwen3-unsloth-q4km",
-      "description": "Qwen3 14B Q4_K_M - Unsloth optimized balanced (8.4GB) - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "qwen3-unsloth-q6k": {
-      "model_id": "unsloth/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q6_K",
-      "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q6_K.gguf",
-      "max_new_tokens": 256,
-      "name": "qwen3-unsloth-q6k",
-      "description": "Qwen3 14B Q6_K - Unsloth optimized high quality (12GB) - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "bee1reason-arabic-q4ks": {
-      "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "i1-Q4_K_S",
-      "dtype": "float16",
-      "max_new_tokens": 256,
-      "name": "bee1reason-arabic-q4ks",
-      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_S - Fast Arabic reasoning - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "model_filename": "Bee1reason-arabic-Qwen-14B.i1-Q4_K_S.gguf",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": true
-      }
-    },
-
-    "bee1reason-arabic-q4km-i1": {
-      "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "i1-Q4_K_M",
-      "dtype": "float16",
-      "max_new_tokens": 256,
-      "name": "bee1reason-arabic-q4km-i1",
-      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_M - Balanced Arabic reasoning - LlamaCpp engine with thinking mode",
-      "model_architecture": "causal_lm",
-      "model_filename": "Bee1reason-arabic-Qwen-14B.i1-Q4_K_M.gguf",
-      "custom_generation_params": {
-        "temperature": 0.6,
-        "top_p": 0.95,
-        "top_k": 20,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "enable_thinking": false
-      }
-    },
-
-    "whisper-large-v3-turbo-arabic": {
-      "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
-      "engine_type": "transformers",
-      "quantization": "none",
-      "dtype": "float32",
-      "max_new_tokens": 512,
-      "name": "whisper-large-v3-turbo-arabic",
-      "description": "Whisper Large V3 Turbo Arabic model for audio transcription",
-      "model_architecture": "audio_transcription",
-      "custom_generation_params": {
-        "temperature": 0.7,
-        "top_p": 0.9,
-        "top_k": 50,
-        "do_sample": true
-      }
+      "model_filename": null,
+      "documentation": null,
+      "custom_generation_params": null
     }
-
   }
 }
