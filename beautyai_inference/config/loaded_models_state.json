@@ -1,10 +1,10 @@
 {
-  "timestamp": 1750418551.5006866,
+  "timestamp": 1750419759.4386005,
   "loaded_models": {
     "whisper-large-v3-turbo-arabic": {
       "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
       "engine": "transformers",
-      "loaded_at": 1750418551.500688,
+      "loaded_at": 1750419759.4386017,
       "status": "loaded"
     }
   }

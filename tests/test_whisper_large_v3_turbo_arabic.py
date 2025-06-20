@@ -45,10 +45,21 @@ def test_whisper_large_v3_turbo_arabic():
     engine = TransformersEngine(model_config)
     engine.load_model()
 
-    # Perform transcription
+    # Ensure the tokenizer has a chat template
+    if not hasattr(engine.tokenizer, 'chat_template') or engine.tokenizer.chat_template is None:
+        logger.info("Setting default chat template for the tokenizer.")
+        engine.tokenizer.chat_template = "<s>[INST] {input} [/INST]"
+
+    # Preprocess the audio file
+    import torchaudio
+
     try:
-        transcription = engine.generate(audio_file_path)
-        logger.info(f"Transcription: {transcription}")
+        waveform, sample_rate = torchaudio.load(audio_file_path)
+        logger.info(f"Audio file loaded: {audio_file_path}, Sample rate: {sample_rate}")
+
+        # Perform transcription using the model
+        transcription_result = engine.model.transcribe(waveform, sample_rate=sample_rate)
+        logger.info(f"Transcription: {transcription_result}")
     except Exception as e:
         logger.error(f"Error during transcription: {e}")
 
