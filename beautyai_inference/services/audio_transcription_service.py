@@ -94,6 +94,22 @@ class AudioTranscriptionService(BaseService):
             waveform, sample_rate = torchaudio.load(audio_file_path)
             logger.info(f"Audio file loaded: {audio_file_path}, Sample rate: {sample_rate}")
             
+            # Resample to 16kHz if needed (Whisper requirement)
+            target_sample_rate = 16000
+            if sample_rate != target_sample_rate:
+                logger.info(f"Resampling audio from {sample_rate}Hz to {target_sample_rate}Hz")
+                resampler = torchaudio.transforms.Resample(
+                    orig_freq=sample_rate, 
+                    new_freq=target_sample_rate
+                )
+                waveform = resampler(waveform)
+                sample_rate = target_sample_rate
+            
+            # Convert to mono if stereo
+            if waveform.shape[0] > 1:
+                waveform = waveform.mean(dim=0, keepdim=True)
+                logger.info("Converted stereo to mono")
+            
             # Prepare input features
             input_features = self.whisper_processor(
                 waveform.squeeze().numpy(), 
