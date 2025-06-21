@@ -690,7 +690,7 @@ async def audio_chat_completion(
     - 🌍 Multi-language audio support (Arabic default)
     
     AUDIO FORMATS SUPPORTED:
-    - WAV, MP3, OGG, FLAC, M4A, WMA
+    - WAV, MP3, OGG, FLAC, M4A, WMA, WebM
     
     WHISPER MODELS:
     - whisper-large-v3-turbo-arabic (default)

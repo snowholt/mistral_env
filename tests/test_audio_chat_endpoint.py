@@ -78,7 +78,7 @@ def test_audio_chat_endpoint():
                     print("1. Check server logs for detailed error messages")
                     print("2. Verify the Whisper model is properly loaded")
                     print("3. Ensure the chat model is available")
-                    print("4. Check audio file format compatibility")
+                    print("4. Check audio file format compatibility (supported: WAV, MP3, OGG, FLAC, M4A, WMA, WebM)")
                 
                 return False
 

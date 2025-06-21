@@ -125,7 +125,7 @@ class AudioTranscriptionService(BaseService):
         
         Args:
             audio_bytes: Audio data as bytes
-            audio_format: Audio format (wav, mp3, ogg, etc.)
+            audio_format: Audio format (wav, mp3, ogg, flac, m4a, wma, webm, etc.)
             language: Language code for transcription (default: "ar" for Arabic)
             
         Returns:
@@ -162,7 +162,7 @@ class AudioTranscriptionService(BaseService):
         
         Args:
             audio_stream: Audio stream/file-like object
-            audio_format: Audio format (wav, mp3, ogg, etc.)
+            audio_format: Audio format (wav, mp3, ogg, flac, m4a, wma, webm, etc.)
             language: Language code for transcription (default: "ar" for Arabic)
             
         Returns:
@@ -209,7 +209,7 @@ class AudioTranscriptionService(BaseService):
     
     def get_supported_formats(self) -> list:
         """Get list of supported audio formats."""
-        return ["wav", "mp3", "ogg", "flac", "m4a", "wma"]
+        return ["wav", "mp3", "ogg", "flac", "m4a", "wma", "webm"]
     
     def validate_audio_format(self, format_or_filename: str) -> bool:
         """

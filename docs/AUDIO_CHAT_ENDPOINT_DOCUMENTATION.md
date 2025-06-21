@@ -14,7 +14,7 @@ The `/inference/audio-chat` endpoint provides a complete audio-to-text-to-chat p
 
 ## 🎯 Key Features
 
-- **🎙️ Multi-format Audio Support**: WAV, MP3, OGG, FLAC, M4A, WMA
+- **🎙️ Multi-format Audio Support**: WAV, MP3, OGG, FLAC, M4A, WMA, WebM
 - **🌍 Multi-language Transcription**: Powered by Whisper models with language detection
 - **🤖 Advanced Chat Generation**: Same 25+ parameters as the regular chat endpoint
 - **🧠 Thinking Mode Support**: Automatic detection of `/no_think` commands in transcription
@@ -40,7 +40,7 @@ The `/inference/audio-chat` endpoint provides a complete audio-to-text-to-chat p
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
-| `audio_file` | `File` | Audio file to transcribe (WAV, MP3, OGG, FLAC, M4A, WMA) |
+| `audio_file` | `File` | Audio file to transcribe (WAV, MP3, OGG, FLAC, M4A, WMA, WebM) |
 | `model_name` | `str` | Chat model name for response generation |
 
 ### **Audio & Transcription Parameters**
@@ -315,6 +315,7 @@ print(f"Generation time: {result['generation_time_ms']}ms")
 - **FLAC**: Lossless compression
 - **M4A**: Apple format
 - **WMA**: Windows Media Audio
+- **WebM**: Modern web format, commonly used by browsers
 
 ### **Audio Processing**
 - Automatic resampling to 16kHz for Whisper compatibility
