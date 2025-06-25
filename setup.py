@@ -9,7 +9,7 @@ setup(
     author_email="lumi@beautyai.dev",
     url="https://github.com/lumiai/beautyai-inference",
     packages=find_packages(),
-    python_requires=">=3.10",
+    python_requires=">=3.10,<3.13",
     install_requires=[
         "torch>=2.0.0",
         "transformers>=4.36.0",
@@ -17,9 +17,16 @@ setup(
         "bitsandbytes>=0.41.0",
         "psutil>=5.9.0",
         "argcomplete>=3.0.0",  # Add auto-completion support
+        "torchaudio>=2.0.0",  # Audio processing
+        "numpy>=1.21.0",  # Numerical operations
+        "librosa>=0.9.0",  # Audio analysis
     ],
     extras_require={
         "vllm": ["vllm>=0.2.0"],
+        "tts": [
+            "TTS>=0.22.0; python_version<'3.12'",  # Coqui TTS for XTTS-v2 (Python <3.12 only)
+        ],
+        "audio": ["soundfile>=0.12.0", "sox>=1.4.0"],  # Additional audio dependencies
         "dev": ["black", "isort", "flake8", "pytest"],
     },
     entry_points={
@@ -33,6 +40,8 @@ setup(
         "Intended Audience :: Developers",
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.10",
+        "Programming Language :: Python :: 3.11",
+        "Programming Language :: Python :: 3.12",
         "Topic :: Scientific/Engineering :: Artificial Intelligence",
     ],
 )

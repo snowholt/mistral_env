@@ -9,18 +9,21 @@ Provides REST API endpoints for inference operations including:
 """
 import logging
 import time
+import json
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, File, UploadFile, Form
 from ..models import (
     APIResponse, ChatRequest, ChatResponse, AudioChatRequest, AudioChatResponse,
     TestRequest, TestResponse, BenchmarkRequest, BenchmarkResponse,
-    SessionSaveRequest, SessionSaveResponse, SessionLoadRequest, SessionLoadResponse
+    SessionSaveRequest, SessionSaveResponse, SessionLoadRequest, SessionLoadResponse,
+    VoiceToVoiceRequest, VoiceToVoiceResponse, VoiceToVoiceStatusResponse
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
 from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
 from ...services.audio_transcription_service import AudioTranscriptionService
+from ...config.config_manager import AppConfig
 
 logger = logging.getLogger(__name__)
 
@@ -619,477 +622,286 @@ async def delete_session(
 
 
 @inference_router.post("/audio-chat", response_model=AudioChatResponse)
-async def audio_chat_completion(
+async def audio_chat(
     audio_file: UploadFile = File(...),
-    model_name: str = Form(...),
+    stt_model_name: str = Form("whisper-large-v3-turbo-arabic"),
+    chat_model_name: str = Form("qwen3-unsloth-q4ks"),
+    input_language: str = Form("ar"),
     session_id: Optional[str] = Form(None),
     chat_history: Optional[str] = Form(None),  # JSON string
-    
-    # Whisper Parameters
-    whisper_model_name: Optional[str] = Form("whisper-large-v3-turbo-arabic"),
-    audio_language: Optional[str] = Form("ar"),
-    
-    # Core Generation Parameters
+    temperature: Optional[float] = Form(None),
+    max_new_tokens: Optional[int] = Form(None),
+    top_p: Optional[float] = Form(None),
+    do_sample: Optional[bool] = Form(None),
+    disable_content_filter: bool = Form(False),
+    preset: Optional[str] = Form(None),
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """Audio chat endpoint - converts audio to text, processes with LLM, returns text response."""
+    try:
+        # Read audio file
+        audio_bytes = await audio_file.read()
+        
+        # Create request object
+        request = AudioChatRequest(
+            model_name=chat_model_name,
+            session_id=session_id,
+            chat_history=json.loads(chat_history) if chat_history else None,
+            audio_language=input_language,
+            whisper_model_name=stt_model_name,
+            temperature=temperature,
+            max_new_tokens=max_new_tokens,
+            top_p=top_p,
+            do_sample=do_sample,
+            disable_content_filter=disable_content_filter,
+            preset=preset
+        )
+        
+        # Process audio chat
+        start_time = time.time()
+        
+        # Step 1: Load Whisper model if not already loaded
+        if not audio_transcription_service.whisper_model:
+            logger.info(f"Loading Whisper model: {stt_model_name}")
+            if not audio_transcription_service.load_whisper_model(stt_model_name):
+                raise HTTPException(status_code=500, detail="Failed to load Whisper model")
+        
+        # Step 1: Transcribe audio
+        logger.info("Processing audio chat request...")
+        transcription = audio_transcription_service.transcribe_audio_bytes(
+            audio_bytes=audio_bytes,
+            audio_format=audio_file.filename.split('.')[-1].lower() if '.' in audio_file.filename else 'wav',
+            language=input_language
+        )
+        
+        if not transcription:
+            raise ValidationError("Audio transcription failed")
+        
+        transcription_time = time.time() - start_time
+        
+        # Step 2: Process with chat service
+        chat_request = ChatRequest(
+            messages=[{"role": "user", "content": transcription}],
+            model_name=chat_model_name,
+            session_id=request.session_id,
+            chat_history=request.chat_history,
+            temperature=request.temperature,
+            max_new_tokens=request.max_new_tokens,
+            top_p=request.top_p,
+            do_sample=request.do_sample,
+            disable_content_filter=request.disable_content_filter,
+            preset=request.preset
+        )
+        
+        chat_response = await chat_completion(chat_request, auth)
+        
+        total_time = time.time() - start_time
+        
+        return AudioChatResponse(
+            success=True,
+            response=chat_response.response,
+            session_id=chat_response.session_id,
+            model_name=chat_response.model_name,
+            transcription=transcription,
+            whisper_model_used=stt_model_name,
+            audio_language_detected=input_language,
+            transcription_time_ms=transcription_time * 1000,
+            generation_stats=chat_response.generation_stats,
+            effective_config=chat_response.effective_config,
+            preset_used=chat_response.preset_used,
+            thinking_enabled=chat_response.thinking_enabled,
+            content_filter_applied=chat_response.content_filter_applied,
+            content_filter_strictness=chat_response.content_filter_strictness,
+            content_filter_bypassed=chat_response.content_filter_bypassed,
+            tokens_generated=chat_response.tokens_generated,
+            generation_time_ms=chat_response.generation_time_ms,
+            tokens_per_second=chat_response.tokens_per_second,
+            total_processing_time_ms=total_time * 1000,
+            thinking_content=chat_response.thinking_content,
+            final_content=chat_response.final_content
+        )
+        
+    except Exception as e:
+        logger.error(f"Audio chat processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Audio chat processing failed: {str(e)}")
+
+
+@inference_router.post("/voice-to-voice", response_model=VoiceToVoiceResponse)
+async def voice_to_voice(
+    audio_file: UploadFile = File(...),
+    input_language: str = Form("ar"),
+    output_language: str = Form("ar"),
+    stt_model_name: str = Form("whisper-large-v3-turbo-arabic"),
+    tts_model_name: str = Form("xtts-v2"),
+    chat_model_name: str = Form("qwen3-unsloth-q4ks"),
+    session_id: Optional[str] = Form(None),
+    chat_history: Optional[str] = Form(None),  # JSON string
+    speaker_voice: Optional[str] = Form(None),
+    emotion: str = Form("neutral"),
+    speech_speed: float = Form(1.0),
+    audio_output_format: str = Form("wav"),
     temperature: Optional[float] = Form(None),
     top_p: Optional[float] = Form(None),
     top_k: Optional[int] = Form(None),
     repetition_penalty: Optional[float] = Form(None),
     max_new_tokens: Optional[int] = Form(None),
-    min_new_tokens: Optional[int] = Form(None),
     do_sample: Optional[bool] = Form(None),
-    
-    # Advanced Sampling Parameters
-    min_p: Optional[float] = Form(None),
-    typical_p: Optional[float] = Form(None),
-    epsilon_cutoff: Optional[float] = Form(None),
-    eta_cutoff: Optional[float] = Form(None),
-    diversity_penalty: Optional[float] = Form(None),
-    encoder_repetition_penalty: Optional[float] = Form(None),
-    no_repeat_ngram_size: Optional[int] = Form(None),
-    
-    # Beam Search Parameters
-    num_beams: Optional[int] = Form(None),
-    num_beam_groups: Optional[int] = Form(None),
-    length_penalty: Optional[float] = Form(None),
-    early_stopping: Optional[bool] = Form(None),
-    
-    # Thinking Mode Control
-    enable_thinking: Optional[bool] = Form(None),
-    thinking_mode: Optional[str] = Form(None),
-    
-    # Content Filtering Control
     disable_content_filter: bool = Form(False),
-    content_filter_strictness: Optional[str] = Form(None),
-    
-    # Preset Configurations
+    content_filter_strictness: str = Form("balanced"),
     preset: Optional[str] = Form(None),
-    
-    # Legacy support
-    generation_config: Optional[str] = Form(None),  # JSON string
-    stream: bool = Form(False),
-    
     auth: AuthContext = Depends(get_auth_context)
 ):
-    """
-    Audio-to-Chat completion with comprehensive parameter control.
-    
-    This endpoint combines audio transcription using Whisper models with 
-    chat completion using the same advanced features as the regular chat endpoint.
-    
-    WORKFLOW:
-    1. 🎙️ Transcribe uploaded audio using Whisper model
-    2. 🤖 Send transcription to chat model for response generation
-    3. 📊 Return both transcription and chat response with full metrics
-    
-    FEATURES:
-    - 🎯 Same parameter control as /chat endpoint (25+ parameters)
-    - 🧠 Thinking mode support (/no_think detection in transcription)
-    - 🔒 Content filtering for both transcription and response
-    - ⚡ Performance metrics for both transcription and generation
-    - 🎨 All optimization-based presets available
-    - 🌍 Multi-language audio support (Arabic default)
-    
-    AUDIO FORMATS SUPPORTED:
-    - WAV, MP3, OGG, FLAC, M4A, WMA, WebM
-    
-    WHISPER MODELS:
-    - whisper-large-v3-turbo-arabic (default)
-    - Other registered Whisper models
-    
-    Example usage (multipart/form-data):
-    - audio_file: [audio file binary]
-    - model_name: "qwen3-model"
-    - preset: "qwen_optimized"
-    - whisper_model_name: "whisper-large-v3-turbo-arabic"
-    - audio_language: "ar"
-    - disable_content_filter: true
-    """
-    require_permissions(auth, ["chat", "audio"])
-    
-    start_time = time.time()
-    transcription_start_time = start_time
-    
+    """Complete voice-to-voice conversation: Audio Input → STT → LLM → TTS → Audio Output."""
     try:
-        logger.info(f"Audio-to-chat request received for model: {model_name}")
-        
-        # Parse JSON fields if provided
-        parsed_chat_history = None
-        if chat_history:
-            try:
-                import json
-                parsed_chat_history = json.loads(chat_history)
-            except json.JSONDecodeError:
-                logger.warning("Invalid chat_history JSON, ignoring")
-        
-        parsed_generation_config = None
-        if generation_config:
-            try:
-                import json
-                parsed_generation_config = json.loads(generation_config)
-            except json.JSONDecodeError:
-                logger.warning("Invalid generation_config JSON, ignoring")
-        
-        # Build AudioChatRequest object from form data
-        audio_request = AudioChatRequest(
-            model_name=model_name,
-            session_id=session_id,
-            chat_history=parsed_chat_history,
-            whisper_model_name=whisper_model_name,
-            audio_language=audio_language,
-            temperature=temperature,
-            top_p=top_p,
-            top_k=top_k,
-            repetition_penalty=repetition_penalty,
-            max_new_tokens=max_new_tokens,
-            min_new_tokens=min_new_tokens,
-            do_sample=do_sample,
-            min_p=min_p,
-            typical_p=typical_p,
-            epsilon_cutoff=epsilon_cutoff,
-            eta_cutoff=eta_cutoff,
-            diversity_penalty=diversity_penalty,
-            encoder_repetition_penalty=encoder_repetition_penalty,
-            no_repeat_ngram_size=no_repeat_ngram_size,
-            num_beams=num_beams,
-            num_beam_groups=num_beam_groups,
-            length_penalty=length_penalty,
-            early_stopping=early_stopping,
-            enable_thinking=enable_thinking,
-            thinking_mode=thinking_mode,
-            disable_content_filter=disable_content_filter,
-            content_filter_strictness=content_filter_strictness,
-            preset=preset,
-            generation_config=parsed_generation_config,
-            stream=stream
-        )
-        
-        # Validate audio file format
-        if not audio_transcription_service.validate_audio_format(audio_file.filename):
-            return AudioChatResponse(
-                success=False,
-                response="",
-                model_name=model_name,
-                transcription="",
-                whisper_model_used=whisper_model_name or "",
-                error="Unsupported audio format",
-                transcription_error=f"Unsupported audio format: {audio_file.filename}"
-            )
-        
-        # Step 1: Load Whisper model if needed
-        if not audio_transcription_service.is_model_loaded():
-            logger.info(f"Loading Whisper model: {whisper_model_name}")
-            if not audio_transcription_service.load_whisper_model(whisper_model_name):
-                return AudioChatResponse(
-                    success=False,
-                    response="",
-                    model_name=model_name,
-                    transcription="",
-                    whisper_model_used=whisper_model_name or "",
-                    error="Failed to load Whisper model",
-                    transcription_error=f"Failed to load Whisper model: {whisper_model_name}"
-                )
-        
-        # Step 2: Transcribe audio
-        logger.info("Starting audio transcription...")
-        transcription_start_time = time.time()
+        from ...services.voice_to_voice_service import VoiceToVoiceService
         
         # Read audio file
         audio_bytes = await audio_file.read()
-        
-        # Get file extension for format detection
         audio_format = audio_file.filename.split('.')[-1].lower() if '.' in audio_file.filename else 'wav'
         
-        # Transcribe audio
-        transcription = audio_transcription_service.transcribe_audio_bytes(
-            audio_bytes, 
-            audio_format=audio_format, 
-            language=audio_language
+        logger.info(f"Voice-to-voice request: {len(audio_bytes)} bytes, format: {audio_format}")
+        
+        # Initialize voice-to-voice service
+        v2v_service = VoiceToVoiceService(content_filter_strictness=content_filter_strictness)
+        
+        # Initialize models
+        models_initialized = v2v_service.initialize_models(
+            stt_model=stt_model_name,
+            tts_model=tts_model_name,
+            chat_model=chat_model_name
         )
         
-        transcription_end_time = time.time()
-        transcription_time_ms = (transcription_end_time - transcription_start_time) * 1000
+        if not models_initialized:
+            raise HTTPException(status_code=500, detail="Failed to initialize voice-to-voice models")
         
-        if not transcription:
-            return AudioChatResponse(
-                success=False,
-                response="",
-                model_name=model_name,
-                transcription="",
-                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
-                transcription_time_ms=transcription_time_ms,
-                error="Audio transcription failed",
-                transcription_error="Failed to transcribe audio file"
-            )
+        # Prepare generation config
+        generation_config = {}
+        if temperature is not None:
+            generation_config["temperature"] = temperature
+        if top_p is not None:
+            generation_config["top_p"] = top_p
+        if top_k is not None:
+            generation_config["top_k"] = top_k
+        if repetition_penalty is not None:
+            generation_config["repetition_penalty"] = repetition_penalty
+        if max_new_tokens is not None:
+            generation_config["max_new_tokens"] = max_new_tokens
+        if do_sample is not None:
+            generation_config["do_sample"] = do_sample
         
-        logger.info(f"Audio transcribed successfully: {transcription[:100]}...")
-        
-        # Step 3: Set transcribed message and process for chat
-        audio_request._transcribed_message = transcription
-        
-        # Build ChatRequest from transcription
-        chat_request = ChatRequest(
-            model_name=audio_request.model_name,
-            message=transcription,
-            session_id=audio_request.session_id,
-            chat_history=audio_request.chat_history,
-            temperature=audio_request.temperature,
-            top_p=audio_request.top_p,
-            top_k=audio_request.top_k,
-            repetition_penalty=audio_request.repetition_penalty,
-            max_new_tokens=audio_request.max_new_tokens,
-            min_new_tokens=audio_request.min_new_tokens,
-            do_sample=audio_request.do_sample,
-            min_p=audio_request.min_p,
-            typical_p=audio_request.typical_p,
-            epsilon_cutoff=audio_request.epsilon_cutoff,
-            eta_cutoff=audio_request.eta_cutoff,
-            diversity_penalty=audio_request.diversity_penalty,
-            encoder_repetition_penalty=audio_request.encoder_repetition_penalty,
-            no_repeat_ngram_size=audio_request.no_repeat_ngram_size,
-            num_beams=audio_request.num_beams,
-            num_beam_groups=audio_request.num_beam_groups,
-            length_penalty=audio_request.length_penalty,
-            early_stopping=audio_request.early_stopping,
-            enable_thinking=audio_request.enable_thinking,
-            thinking_mode=audio_request.thinking_mode,
-            disable_content_filter=audio_request.disable_content_filter,
-            content_filter_strictness=audio_request.content_filter_strictness,
-            preset=audio_request.preset,
-            generation_config=audio_request.generation_config,
-            stream=audio_request.stream
+        # Process voice-to-voice conversation
+        result = v2v_service.voice_to_voice_conversation(
+            audio_bytes=audio_bytes,
+            audio_format=audio_format,
+            input_language=input_language,
+            output_language=output_language,
+            session_id=session_id,
+            chat_history=json.loads(chat_history) if chat_history else None,
+            speaker_voice=speaker_voice,
+            emotion=emotion,
+            speech_speed=speech_speed,
+            generation_config=generation_config,
+            disable_content_filter=disable_content_filter
         )
         
-        # Step 4: Process chat using existing chat logic
-        logger.info("Starting chat generation...")
-        chat_start_time = time.time()
+        if not result["success"]:
+            error_message = "; ".join(result.get("errors", ["Unknown error"]))
+            raise HTTPException(status_code=500, detail=f"Voice-to-voice processing failed: {error_message}")
         
-        # Import the inference adapter
-        from ..adapters.inference_adapter import InferenceAPIAdapter
+        # Create response
+        from fastapi.responses import Response
         
-        # Create adapter instance with required service dependencies
-        inference_adapter = InferenceAPIAdapter(
-            chat_service=chat_service,
-            test_service=test_service, 
-            benchmark_service=benchmark_service
+        # Return audio response with metadata in headers
+        response = Response(
+            content=result["response_audio_bytes"],
+            media_type=f"audio/{audio_output_format}",
+            headers={
+                "X-Session-ID": result["session_id"],
+                "X-Transcription": result["transcription"],
+                "X-Response-Text": result["response_text"],
+                "X-Input-Language": result["input_language"],
+                "X-Output-Language": result["output_language"],
+                "X-Total-Time": str(result["metrics"]["total_time_seconds"]),
+                "X-STT-Time": str(result["metrics"]["stt_time_seconds"]),
+                "X-Chat-Time": str(result["metrics"]["chat_time_seconds"]),
+                "X-TTS-Time": str(result["metrics"]["tts_time_seconds"]),
+                "X-Audio-Size": str(result["metrics"]["audio_size_bytes"]),
+                "Content-Disposition": f'attachment; filename="response.{audio_output_format}"'
+            }
         )
         
-        # Process message and thinking mode
-        processed_message = chat_request.get_processed_message()
-        thinking_enabled = chat_request.should_enable_thinking()
-        
-        # Build effective generation configuration
-        effective_config = chat_request.get_effective_generation_config()
-        
-        # Configure content filtering based on request
-        filter_config = chat_request.get_effective_content_filter_config()
-        logger.info(f"Content filter config: {filter_config}")
-        
-        # Content filtering check (if not disabled)
-        content_filter_bypassed = False
-        content_filter_applied = False
-        if filter_config["strictness_level"] == "disabled":
-            content_filter_bypassed = True
-            logger.info("Content filtering disabled")
-        else:
-            logger.info(f"Applying content filter with strictness: {filter_config['strictness_level']}")
-            content_filter_applied = True
-            # Set the content filter strictness level
-            content_filter_service.set_strictness_level(filter_config["strictness_level"])
-            
-            try:
-                filter_result = content_filter_service.filter_content(processed_message, language=audio_language)
-                logger.info(f"Content filter result: allowed={filter_result.is_allowed}")
-                if not filter_result.is_allowed:
-                    chat_end_time = time.time()
-                    total_time_ms = (chat_end_time - start_time) * 1000
-                    return AudioChatResponse(
-                        success=False,
-                        response="",
-                        model_name=model_name,
-                        transcription=transcription,
-                        whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
-                        transcription_time_ms=transcription_time_ms,
-                        effective_config=effective_config,
-                        preset_used=chat_request.preset,
-                        thinking_enabled=thinking_enabled,
-                        content_filter_applied=content_filter_applied,
-                        content_filter_strictness=filter_config["strictness_level"],
-                        content_filter_bypassed=content_filter_bypassed,
-                        total_processing_time_ms=total_time_ms,
-                        error=f"Content filtered: {filter_result.filter_reason}",
-                        chat_error=f"Content filtered: {filter_result.filter_reason}"
-                    )
-            except Exception as e:
-                logger.error(f"Content filtering failed: {e}, proceeding without filtering")
-                content_filter_bypassed = True
-        
-        # Generate chat response
+        # Clean up models to free memory
         try:
-            # Convert transcribed message to messages format (same as regular chat endpoint)
-            messages = []
-            
-            # Add system message for thinking mode if needed
-            if thinking_enabled and chat_request.model_name.lower().find("qwen") != -1:
-                # Add thinking system message for Qwen models
-                messages.append({
-                    "role": "system",
-                    "content": "You are a helpful assistant. Think step by step before providing your final answer."
-                })
-            elif not thinking_enabled and chat_request.model_name.lower().find("qwen") != -1:
-                # Explicitly disable thinking for Qwen models  
-                messages.append({
-                    "role": "system",
-                    "content": "You are a helpful assistant. Provide direct, concise answers without showing your thinking process."
-                })
-            
-            # Add chat history if provided
-            if chat_request.chat_history:
-                for msg in chat_request.chat_history:
-                    messages.append({
-                        "role": msg.get("role", "user"),
-                        "content": msg.get("content", "")
-                    })
-            
-            # Add current user message (transcribed audio)
-            messages.append({
-                "role": "user", 
-                "content": processed_message
-            })
-            
-            # Prepare parameters for adapter call
-            adapter_params = effective_config.copy()
-            adapter_params.update({
-                'model_name': chat_request.model_name,
-                'messages': messages,
-                'stream': chat_request.stream,
-            })
-            
-            # Generate response using the adapter
-            response_data = inference_adapter.chat_completion(**adapter_params)
-            chat_end_time = time.time()
-            generation_time_ms = (chat_end_time - chat_start_time) * 1000
-            
-            # Extract response text from OpenAI-style format (same as regular chat endpoint)
-            if "choices" in response_data and len(response_data["choices"]) > 0:
-                response_text = response_data["choices"][0].get("message", {}).get("content", "")
-            else:
-                response_text = response_data.get("response", "")
-            
-            # Calculate tokens and performance metrics
-            tokens_generated = len(response_text.split()) if response_text else 0
-            tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
-            
-            # Parse thinking content if applicable  
-            thinking_content = None
-            final_content = response_text
-            
-            if thinking_enabled and "<think>" in response_text and "</think>" in response_text:
-                # Extract thinking and final content
-                import re
-                think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
-                if think_match:
-                    thinking_content = think_match.group(1).strip()
-                    final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
-            
-            # Check if response generation was successful
-            if not response_text:
-                total_time_ms = (chat_end_time - start_time) * 1000
-                return AudioChatResponse(
-                    success=False,
-                    response="",
-                    model_name=model_name,
-                    transcription=transcription,
-                    whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
-                    transcription_time_ms=transcription_time_ms,
-                    effective_config=effective_config,
-                    preset_used=chat_request.preset,
-                    thinking_enabled=thinking_enabled,
-                    content_filter_applied=content_filter_applied,
-                    content_filter_strictness=filter_config["strictness_level"],
-                    content_filter_bypassed=content_filter_bypassed,
-                    total_processing_time_ms=total_time_ms,
-                    error="No response generated",
-                    chat_error="Chat generation returned empty response"
-                )
-            
-            # Step 5: Build comprehensive response
-            end_time = time.time()
-            total_time_ms = (end_time - start_time) * 1000
-            
-            return AudioChatResponse(
-                success=True,
-                response=final_content,
-                session_id=chat_request.session_id or "default",
-                model_name=model_name,
-                
-                # Transcription Information
-                transcription=transcription,
-                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
-                audio_language_detected=audio_language,
-                transcription_time_ms=transcription_time_ms,
-                
-                # Generation Statistics
-                generation_stats={
-                    "tokens_generated": tokens_generated,
-                    "tokens_per_second": tokens_per_second,
-                    "generation_time_ms": generation_time_ms
-                },
-                
-                # Parameter Information
-                effective_config=effective_config,
-                preset_used=chat_request.preset,
-                thinking_enabled=thinking_enabled,
-                
-                # Content Filtering Information
-                content_filter_applied=content_filter_applied,
-                content_filter_strictness=filter_config["strictness_level"],
-                content_filter_bypassed=content_filter_bypassed,
-                
-                # Performance Metrics
-                tokens_generated=tokens_generated,
-                generation_time_ms=generation_time_ms,
-                tokens_per_second=tokens_per_second,
-                total_processing_time_ms=total_time_ms,
-                
-                # Response Metadata
-                thinking_content=thinking_content,
-                final_content=final_content,
-                
-                execution_time_ms=total_time_ms
-            )
-            
-        except Exception as chat_error:
-            logger.error(f"Chat generation error: {str(chat_error)}")
-            end_time = time.time()
-            total_time_ms = (end_time - start_time) * 1000
-            
-            return AudioChatResponse(
-                success=False,
-                response="",
-                model_name=model_name,
-                transcription=transcription,
-                whisper_model_used=audio_transcription_service.get_loaded_model_name() or "",
-                transcription_time_ms=transcription_time_ms,
-                effective_config=effective_config,
-                preset_used=chat_request.preset,
-                thinking_enabled=thinking_enabled,
-                total_processing_time_ms=total_time_ms,
-                error=f"Chat generation failed: {str(chat_error)}",
-                chat_error=f"Chat generation failed: {str(chat_error)}"
-            )
+            v2v_service.unload_all_models()
+        except Exception as e:
+            logger.warning(f"Error cleaning up models: {e}")
+        
+        return response
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Voice-to-voice processing failed: {e}")
+        raise HTTPException(status_code=500, detail=f"Voice-to-voice processing failed: {str(e)}")
+
+
+@inference_router.get("/voice-to-voice/status", response_model=VoiceToVoiceStatusResponse)
+async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
+    """Get status of voice-to-voice service and model availability."""
+    try:
+        from ...services.voice_to_voice_service import VoiceToVoiceService
+        
+        # Create temporary service to check model availability
+        v2v_service = VoiceToVoiceService()
+        
+        # Check model configurations
+        app_config = AppConfig()
+        app_config.models_file = "beautyai_inference/config/model_registry.json"
+        app_config.load_model_registry()
+        
+        models_status = {
+            "stt_model": {
+                "available": app_config.model_registry.get_model("whisper-large-v3-turbo-arabic") is not None,
+                "default": "whisper-large-v3-turbo-arabic",
+                "loaded": False
+            },
+            "tts_model": {
+                "available": True,  # XTTS-v2 is always available if TTS library is installed
+                "default": "xtts-v2",
+                "loaded": False
+            },
+            "chat_model": {
+                "available": app_config.model_registry.get_model("qwen3-unsloth-q4ks") is not None,
+                "default": "qwen3-unsloth-q4ks",
+                "loaded": False
+            }
+        }
+        
+        # Check TTS library availability
+        try:
+            from TTS.api import TTS
+            tts_available = True
+        except ImportError:
+            tts_available = False
+        
+        return VoiceToVoiceStatusResponse(
+            success=True,
+            service_available=True,
+            models_status=models_status,
+            supported_languages={
+                "input": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"],
+                "output": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
+            },
+            supported_audio_formats=["wav", "mp3", "ogg", "flac", "m4a", "wma", "webm"],
+            tts_library_available=tts_available,
+            pipeline_stages=["STT (Speech-to-Text)", "LLM (Language Model)", "TTS (Text-to-Speech)"],
+            estimated_setup_time_seconds=60
+        )
         
     except Exception as e:
-        logger.error(f"Audio-to-chat completion error: {str(e)}")
-        end_time = time.time()
-        total_time_ms = (end_time - start_time) * 1000
-        
-        return AudioChatResponse(
+        logger.error(f"Error getting voice-to-voice status: {e}")
+        return VoiceToVoiceStatusResponse(
             success=False,
-            response="",
-            model_name=model_name,
-            transcription="",
-            whisper_model_used=whisper_model_name or "",
-            total_processing_time_ms=total_time_ms,
-            execution_time_ms=total_time_ms,
-            error=f"Audio-to-chat processing failed: {str(e)}"
+            service_available=False,
+            error=str(e)
         )

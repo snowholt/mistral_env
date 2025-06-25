@@ -7,6 +7,7 @@ Supports multiple audio formats and provides integration with the chat system.
 import logging
 import tempfile
 import os
+import time
 from typing import Dict, Any, Optional, BinaryIO
 from pathlib import Path
 
@@ -98,41 +99,46 @@ class AudioTranscriptionService(BaseService):
             target_sample_rate = 16000
             if sample_rate != target_sample_rate:
                 logger.info(f"Resampling audio from {sample_rate}Hz to {target_sample_rate}Hz")
-                resampler = torchaudio.transforms.Resample(
-                    orig_freq=sample_rate, 
-                    new_freq=target_sample_rate
-                )
+                resampler = torchaudio.transforms.Resample(sample_rate, target_sample_rate)
                 waveform = resampler(waveform)
-                sample_rate = target_sample_rate
             
             # Convert to mono if stereo
             if waveform.shape[0] > 1:
-                waveform = waveform.mean(dim=0, keepdim=True)
-                logger.info("Converted stereo to mono")
+                waveform = torch.mean(waveform, dim=0, keepdim=True)
             
-            # Prepare input features
-            input_features = self.whisper_processor(
-                waveform.squeeze().numpy(), 
-                sampling_rate=sample_rate, 
+            # Convert to numpy and flatten
+            audio_array = waveform.squeeze().numpy()
+            
+            # Process with Whisper
+            inputs = self.whisper_processor(
+                audio_array, 
+                sampling_rate=target_sample_rate, 
                 return_tensors="pt"
-            ).input_features
+            )
             
-            # Move to GPU if model is on GPU
-            if next(self.whisper_model.parameters()).is_cuda:
-                input_features = input_features.cuda()
+            # Move inputs to the same device as model
+            if torch.cuda.is_available() and next(self.whisper_model.parameters()).is_cuda:
+                inputs = {k: v.cuda() for k, v in inputs.items()}
             
             # Generate transcription
             with torch.no_grad():
-                predicted_ids = self.whisper_model.generate(input_features)
-                transcription = self.whisper_processor.batch_decode(
-                    predicted_ids, skip_special_tokens=True
-                )[0]
+                predicted_ids = self.whisper_model.generate(
+                    inputs["input_features"],
+                    language=language,
+                    task="transcribe"
+                )
             
-            logger.info(f"Transcription completed: {transcription[:100]}...")
+            # Decode transcription
+            transcription = self.whisper_processor.batch_decode(
+                predicted_ids, 
+                skip_special_tokens=True
+            )[0]
+            
+            logger.info(f"Transcription completed: '{transcription[:100]}...'")
             return transcription.strip()
             
         except Exception as e:
-            logger.error(f"Error during transcription: {e}")
+            logger.error(f"Audio transcription failed: {e}")
             return None
     
     def transcribe_audio_bytes(self, audio_bytes: bytes, audio_format: str = "wav", language: str = "ar") -> Optional[str]:
@@ -148,28 +154,68 @@ class AudioTranscriptionService(BaseService):
             str: Transcribed text, or None if failed
         """
         try:
+            import tempfile
+            import subprocess
+            
             if not self.whisper_model or not self.whisper_processor:
                 logger.error("Whisper model not loaded. Call load_whisper_model() first.")
                 return None
             
-            # Create temporary file
-            with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_file:
+            # Create temporary file for audio conversion in tests directory
+            tests_dir = Path(__file__).parent.parent.parent / "tests"
+            tests_dir.mkdir(exist_ok=True)
+            
+            temp_input_path = tests_dir / f"temp_audio_{int(time.time() * 1000)}.{audio_format}"
+            with open(temp_input_path, 'wb') as temp_file:
                 temp_file.write(audio_bytes)
-                temp_file_path = temp_file.name
             
             try:
-                # Transcribe using the temporary file
-                transcription = self.transcribe_audio_file(temp_file_path, language)
+                # Convert to WAV format using ffmpeg if not already WAV
+                if audio_format.lower() != 'wav':
+                    temp_wav_path = temp_input_path.with_suffix('.wav')
+                    
+                    # Use ffmpeg to convert audio format
+                    conversion_cmd = [
+                        'ffmpeg', '-i', str(temp_input_path), 
+                        '-acodec', 'pcm_s16le',  # Use PCM 16-bit encoding
+                        '-ar', '16000',  # Set sample rate to 16kHz
+                        '-ac', '1',      # Convert to mono
+                        '-y',            # Overwrite output file
+                        str(temp_wav_path)
+                    ]
+                    
+                    result = subprocess.run(
+                        conversion_cmd, 
+                        capture_output=True, 
+                        text=True
+                    )
+                    
+                    if result.returncode != 0:
+                        logger.warning(f"FFmpeg conversion failed, trying direct processing: {result.stderr}")
+                        # Fall back to direct processing
+                        transcription = self.transcribe_audio_file(str(temp_input_path), language)
+                    else:
+                        transcription = self.transcribe_audio_file(str(temp_wav_path), language)
+                        # Clean up converted file
+                        try:
+                            temp_wav_path.unlink()
+                        except:
+                            pass
+                else:
+                    transcription = self.transcribe_audio_file(str(temp_input_path), language)
+                
                 return transcription
+                    
             finally:
-                # Clean up temporary file
+                # Clean up temporary input file
                 try:
-                    os.unlink(temp_file_path)
-                except Exception as e:
-                    logger.warning(f"Failed to delete temporary file {temp_file_path}: {e}")
+                    if temp_input_path.exists():
+                        temp_input_path.unlink()
+                except:
+                    pass
                     
         except Exception as e:
-            logger.error(f"Error during audio bytes transcription: {e}")
+            logger.error(f"Audio bytes transcription failed: {e}")
             return None
     
     def transcribe_audio_stream(self, audio_stream: BinaryIO, audio_format: str = "wav", language: str = "ar") -> Optional[str]:
@@ -187,10 +233,15 @@ class AudioTranscriptionService(BaseService):
         try:
             # Read stream to bytes
             audio_bytes = audio_stream.read()
+            
+            # Reset stream position if possible
+            if hasattr(audio_stream, 'seek'):
+                audio_stream.seek(0)
+            
             return self.transcribe_audio_bytes(audio_bytes, audio_format, language)
             
         except Exception as e:
-            logger.error(f"Error during audio stream transcription: {e}")
+            logger.error(f"Audio stream transcription failed: {e}")
             return None
     
     def is_model_loaded(self) -> bool:
@@ -207,17 +258,16 @@ class AudioTranscriptionService(BaseService):
             if self.whisper_model is not None:
                 del self.whisper_model
                 self.whisper_model = None
-                
+            
             if self.whisper_processor is not None:
                 del self.whisper_processor
                 self.whisper_processor = None
-                
-            self.loaded_model_name = None
             
             # Clear GPU cache if using CUDA
             if torch.cuda.is_available():
                 torch.cuda.empty_cache()
-                
+            
+            self.loaded_model_name = None
             logger.info("Whisper model unloaded successfully")
             
         except Exception as e:
@@ -238,26 +288,40 @@ class AudioTranscriptionService(BaseService):
             bool: True if format is supported, False otherwise
         """
         if "." in format_or_filename:
-            # Extract extension from filename
-            format_str = Path(format_or_filename).suffix.lstrip(".").lower()
+            # Extract format from filename
+            format_str = format_or_filename.split('.')[-1].lower()
         else:
+            # Direct format string
             format_str = format_or_filename.lower()
             
         return format_str in self.get_supported_formats()
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get memory statistics for the transcription service."""
-        stats = {
-            "model_loaded": self.is_model_loaded(),
-            "loaded_model_name": self.loaded_model_name,
-            "gpu_available": torch.cuda.is_available()
-        }
-        
-        if torch.cuda.is_available():
-            stats.update({
-                "gpu_memory_allocated": torch.cuda.memory_allocated(),
-                "gpu_memory_reserved": torch.cuda.memory_reserved(),
-                "gpu_memory_cached": torch.cuda.memory_cached()
-            })
+        try:
+            import psutil
+            process = psutil.Process()
+            memory_info = process.memory_info()
             
-        return stats
+            stats = {
+                "memory_rss_mb": memory_info.rss / (1024 * 1024),
+                "memory_vms_mb": memory_info.vms / (1024 * 1024),
+                "memory_percent": process.memory_percent(),
+                "model_loaded": self.is_model_loaded(),
+                "loaded_model": self.loaded_model_name
+            }
+            
+            # Add GPU memory if available
+            if torch.cuda.is_available() and self.whisper_model is not None:
+                gpu_memory = torch.cuda.memory_allocated() / (1024 * 1024)
+                gpu_cached = torch.cuda.memory_reserved() / (1024 * 1024)
+                stats.update({
+                    "gpu_memory_allocated_mb": gpu_memory,
+                    "gpu_memory_cached_mb": gpu_cached,
+                })
+            
+            return stats
+            
+        except Exception as e:
+            logger.error(f"Error getting memory stats: {e}")
+            return {"error": str(e)}

@@ -754,39 +754,163 @@ class AudioChatResponse(APIResponse):
     chat_error: Optional[str] = None
 
 
-# Backup/Restore API Models
+# Voice-to-Voice API Models
 @dataclass
-class BackupRequest(APIRequest):
-    """Request to create a configuration backup."""
-    backup_name: str
-    description: Optional[str] = None
-    include_models: bool = True
-    include_cache: bool = False
+class VoiceToVoiceRequest(APIRequest):
+    """Request for voice-to-voice conversation with full pipeline control."""
+    session_id: Optional[str] = None
+    chat_history: Optional[List[Dict[str, str]]] = None
+    
+    # Language Settings
+    input_language: str = "ar"  # Language of input audio
+    output_language: str = "ar"  # Language for output audio
+    
+    # Model Selection
+    stt_model_name: Optional[str] = "whisper-large-v3-turbo-arabic"
+    tts_model_name: Optional[str] = "xtts-v2"
+    chat_model_name: Optional[str] = "qwen3-unsloth-q4ks"
+    
+    # TTS Parameters
+    speaker_voice: Optional[str] = None  # Specific speaker voice to use
+    emotion: str = "neutral"  # TTS emotion (neutral, happy, sad, etc.)
+    speech_speed: float = 1.0  # Speech speed multiplier (0.5-2.0)
+    audio_output_format: str = "wav"  # Output audio format
+    
+    # Chat Generation Parameters (subset of ChatRequest)
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    repetition_penalty: Optional[float] = None
+    max_new_tokens: Optional[int] = None
+    do_sample: Optional[bool] = None
+    
+    # Content Filtering
+    disable_content_filter: bool = False
+    content_filter_strictness: Optional[str] = "balanced"
+    
+    # Preset Configurations for quick setup
+    preset: Optional[str] = None  # "arabic_conversation", "english_conversation", "fast_response", "high_quality"
+    
+    def get_effective_generation_config(self) -> Dict[str, Any]:
+        """Get effective generation configuration with preset handling."""
+        # Start with preset if specified
+        config = self._get_preset_config() if self.preset else {}
+        
+        # Override with direct parameters
+        direct_params = {
+            'temperature': self.temperature,
+            'top_p': self.top_p,
+            'top_k': self.top_k,
+            'repetition_penalty': self.repetition_penalty,
+            'max_new_tokens': self.max_new_tokens,
+            'do_sample': self.do_sample,
+        }
+        
+        # Add non-None direct parameters
+        for key, value in direct_params.items():
+            if value is not None:
+                config[key] = value
+        
+        return config
+    
+    def _get_preset_config(self) -> Dict[str, Any]:
+        """Get configuration from preset."""
+        presets = {
+            "arabic_conversation": {
+                "temperature": 0.7, "top_p": 0.95, "max_new_tokens": 512,
+                "repetition_penalty": 1.1, "do_sample": True,
+                "speaker_voice": "ar_speaker_0", "emotion": "neutral", "speech_speed": 1.0
+            },
+            "english_conversation": {
+                "temperature": 0.7, "top_p": 0.95, "max_new_tokens": 512,
+                "repetition_penalty": 1.1, "do_sample": True,
+                "speaker_voice": "en_speaker_0", "emotion": "neutral", "speech_speed": 1.0
+            },
+            "fast_response": {
+                "temperature": 0.3, "top_p": 0.9, "max_new_tokens": 256,
+                "repetition_penalty": 1.15, "do_sample": True,
+                "speech_speed": 1.2
+            },
+            "high_quality": {
+                "temperature": 0.1, "top_p": 1.0, "max_new_tokens": 1024,
+                "repetition_penalty": 1.05, "do_sample": True,
+                "speech_speed": 0.9, "emotion": "professional"
+            }
+        }
+        return presets.get(self.preset, {})
+    
+    def get_effective_content_filter_config(self) -> Dict[str, Any]:
+        """Get effective content filter configuration."""
+        if self.disable_content_filter:
+            return {"strictness_level": "disabled"}
+        
+        strictness = self.content_filter_strictness or "balanced"
+        return {"strictness_level": strictness}
 
 
-@dataclass
-class BackupResponse(APIResponse):
-    """Response for configuration backup."""
+@dataclass 
+class VoiceToVoiceResponse(APIResponse):
+    """Response for voice-to-voice conversation with comprehensive metrics."""
     success: bool = True
-    backup_name: str = ""
-    timestamp: str = ""
-    file_path: Optional[str] = None
-    size_bytes: Optional[int] = None
-    message: str = ""
+    session_id: str = ""
+    
+    # Input Processing
+    transcription: str = ""  # What was transcribed from input audio
+    input_language: str = ""
+    transcription_time_ms: Optional[float] = None
+    
+    # Response Generation
+    response_text: str = ""  # Generated text response
+    response_language: str = ""
+    generation_time_ms: Optional[float] = None
+    
+    # Output Audio
+    # Note: response_audio_bytes will be handled separately as file download
+    audio_output_format: str = "wav"
+    audio_size_bytes: Optional[int] = None
+    audio_generation_time_ms: Optional[float] = None
+    
+    # Model Information
+    models_used: Optional[Dict[str, str]] = None  # {"stt": "model_name", "chat": "model_name", "tts": "model_name"}
+    
+    # Performance Metrics
+    total_processing_time_ms: Optional[float] = None
+    pipeline_metrics: Optional[Dict[str, Any]] = None
+    
+    # Content Filtering
+    content_filter_applied: Optional[bool] = None
+    content_filter_strictness: Optional[str] = None
+    input_filtered: Optional[bool] = None
+    output_filtered: Optional[bool] = None
+    
+    # Configuration Used
+    effective_config: Optional[Dict[str, Any]] = None
+    preset_used: Optional[str] = None
+    
+    # TTS Settings Used
+    speaker_voice_used: Optional[str] = None
+    emotion_used: Optional[str] = None
+    speech_speed_used: Optional[float] = None
+    
+    # Error Information
+    error: Optional[str] = None
+    errors: Optional[List[str]] = None  # Multiple errors if partial failure
+    transcription_error: Optional[str] = None
+    generation_error: Optional[str] = None
+    tts_error: Optional[str] = None
 
 
 @dataclass
-class RestoreRequest(APIRequest):
-    """Request to restore configuration from backup."""
-    backup_name: str
-    confirm: bool = False
-    restore_models: bool = True
-
-
-@dataclass
-class RestoreResponse(APIResponse):
-    """Response for configuration restore."""
+class VoiceToVoiceStatusResponse(APIResponse):
+    """Response for voice-to-voice service status."""
     success: bool = True
-    backup_name: str = ""
-    restored_timestamp: str = ""
-    message: str = ""
+    service_available: bool = False
+    models_status: Optional[Dict[str, Any]] = None
+    supported_languages: Optional[Dict[str, List[str]]] = None  # {"input": [...], "output": [...]}
+    supported_audio_formats: Optional[List[str]] = None
+    available_speakers: Optional[Dict[str, List[str]]] = None  # {"language": ["speaker1", "speaker2"]}
+    tts_library_available: Optional[bool] = None
+    pipeline_stages: Optional[List[str]] = None
+    estimated_setup_time_seconds: Optional[int] = None
+    memory_stats: Optional[Dict[str, Any]] = None
+    error: Optional[str] = None

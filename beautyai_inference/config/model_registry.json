@@ -184,6 +184,42 @@
       "model_filename": null,
       "documentation": null,
       "custom_generation_params": null
+    },
+
+    "xtts-v2": {
+      "model_id": "coqui/XTTS-v2",
+      "engine_type": "xtts",
+      "quantization": null,
+      "max_new_tokens": null,
+      "dtype": "float16",
+      "name": "xtts-v2",
+      "description": "Coqui XTTS-v2 for high-quality multilingual text-to-speech (Mock Mode - TTS library required)",
+      "model_architecture": "xtts",
+      "model_filename": null,
+      "documentation": "https://huggingface.co/coqui/XTTS-v2",
+      "custom_generation_params": {
+        "emotion": "neutral",
+        "speed": 1.0,
+        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
+      }
+    },
+
+    "edge-tts": {
+      "model_id": "microsoft/edge-tts",
+      "engine_type": "edge_tts",
+      "quantization": null,
+      "max_new_tokens": null,
+      "dtype": null,
+      "name": "edge-tts",
+      "description": "Microsoft Edge TTS for high-quality multilingual text-to-speech (Python 3.12+ compatible)",
+      "model_architecture": "edge_tts",
+      "model_filename": null,
+      "documentation": "https://github.com/rany2/edge-tts",
+      "custom_generation_params": {
+        "emotion": "neutral",
+        "speed": 1.0,
+        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
+      }
     }
   }
 }
