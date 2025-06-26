@@ -4,6 +4,8 @@ env/
 ENV/
 virtualenv/
 .venv/
+venv_backup/
+venv-11/
 .env/
 .python-version
 
@@ -47,3 +49,4 @@ refrences/
 .github/
 .vscode/
 beautyai_inference/config/loaded_models_state.json
+
