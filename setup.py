@@ -24,6 +24,9 @@ setup(
         "uvicorn[standard]>=0.24.0",  # ASGI server
         "pydantic>=2.0.0",  # Data validation
         "edge-tts>=6.1.0",  # Edge TTS for Python 3.11+
+        "llama-cpp-python>=0.2.0",  # LlamaCpp for GGUF models and OuteTTS
+        "soundfile>=0.12.0",  # Audio file I/O for OuteTTS
+        "huggingface-hub>=0.20.0",  # For downloading OuteTTS model
         "click>=8.0.0",  # CLI interface library
         "jsonschema>=4.0.0",  # JSON schema validation
         "python-multipart>=0.0.6",  # Form data handling for FastAPI
@@ -31,8 +34,8 @@ setup(
     extras_require={
         "vllm": ["vllm>=0.2.0"],
         "tts": [
-            "TTS>=0.22.0",  # Coqui TTS for XTTS-v2 (Python 3.11)
-            "mecab-python3>=1.0.0",  # Japanese text processing for TTS
+            "soundfile>=0.12.0",  # Audio file I/O for OuteTTS
+            "llama-cpp-python>=0.2.0",  # LlamaCpp for GGUF models
         ],
         "audio": ["soundfile>=0.12.0", "sox>=1.4.0"],  # Additional audio dependencies
         "dev": ["black", "isort", "flake8", "pytest"],

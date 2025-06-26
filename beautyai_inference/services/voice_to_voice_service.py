@@ -53,7 +53,7 @@ class VoiceToVoiceService(BaseService):
         
         # Default models
         self.default_stt_model = "whisper-large-v3-turbo-arabic"
-        self.default_tts_model = "xtts-v2"
+        self.default_tts_model = "oute-tts-1b"
         self.default_chat_model = "qwen3-unsloth-q4ks"
         
         # Session management

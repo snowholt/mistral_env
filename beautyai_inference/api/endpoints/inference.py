@@ -732,7 +732,7 @@ async def voice_to_voice(
     input_language: str = Form("ar"),
     output_language: str = Form("ar"),
     stt_model_name: str = Form("whisper-large-v3-turbo-arabic"),
-    tts_model_name: str = Form("xtts-v2"),
+    tts_model_name: str = Form("oute-tts-1b"),
     chat_model_name: str = Form("qwen3-unsloth-q4ks"),
     session_id: Optional[str] = Form(None),
     chat_history: Optional[str] = Form(None),  # JSON string

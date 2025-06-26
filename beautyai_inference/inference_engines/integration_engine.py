@@ -10,27 +10,27 @@ from ..core.model_interface import ModelInterface
 from ..config.config_manager import ModelConfig
 from .transformers_engine import TransformersEngine
 from .vllm_engine import VLLMEngine
-from .xtts_engine import XTTSEngine
+from .oute_tts_engine import OuteTTSEngine
 
 logger = logging.getLogger(__name__)
 
 class IntegrationEngine(ModelInterface):
-    """Integration Engine combining Transformers, vLLM, and XTTS engines."""
+    """Integration Engine combining Transformers, vLLM, and OuteTTS engines."""
 
     def __init__(self, model_config: ModelConfig):
         """Initialize the engine with a model configuration."""
         self.config = model_config
         self.transformers_engine = None
         self.vllm_engine = None
-        self.xtts_engine = None
+        self.oute_tts_engine = None
 
         # Initialize sub-engines based on configuration
         if model_config.engine_type == "transformers":
             self.transformers_engine = TransformersEngine(model_config)
         elif model_config.engine_type == "vllm":
             self.vllm_engine = VLLMEngine(model_config)
-        elif model_config.engine_type == "xtts":
-            self.xtts_engine = XTTSEngine(model_config)
+        elif model_config.engine_type == "oute_tts":
+            self.oute_tts_engine = OuteTTSEngine(model_config)
         else:
             raise ValueError(f"Unsupported engine type: {model_config.engine_type}")
 
@@ -40,8 +40,8 @@ class IntegrationEngine(ModelInterface):
             self.transformers_engine.load_model()
         if self.vllm_engine:
             self.vllm_engine.load_model()
-        if self.xtts_engine:
-            self.xtts_engine.load_model()
+        if self.oute_tts_engine:
+            self.oute_tts_engine.load_model()
 
     def unload_model(self) -> None:
         """Unload the model from memory and free resources."""
@@ -49,8 +49,8 @@ class IntegrationEngine(ModelInterface):
             self.transformers_engine.unload_model()
         if self.vllm_engine:
             self.vllm_engine.unload_model()
-        if self.xtts_engine:
-            self.xtts_engine.unload_model()
+        if self.oute_tts_engine:
+            self.oute_tts_engine.unload_model()
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text from a prompt or speech from text."""
@@ -58,8 +58,8 @@ class IntegrationEngine(ModelInterface):
             return self.transformers_engine.generate(prompt, **kwargs)
         if self.vllm_engine:
             return self.vllm_engine.generate(prompt, **kwargs)
-        if self.xtts_engine:
-            return self.xtts_engine.generate(prompt, **kwargs)
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.generate(prompt, **kwargs)
         raise RuntimeError("No engine available for generation.")
 
     def chat(self, messages: List[Dict[str, str]], **kwargs) -> str:
@@ -68,8 +68,8 @@ class IntegrationEngine(ModelInterface):
             return self.transformers_engine.chat(messages, **kwargs)
         if self.vllm_engine:
             return self.vllm_engine.chat(messages, **kwargs)
-        if self.xtts_engine:
-            return self.xtts_engine.chat(messages, **kwargs)
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.chat(messages, **kwargs)
         raise RuntimeError("No engine available for chat.")
 
     def benchmark(self, prompt: str, **kwargs) -> Dict[str, Any]:
@@ -78,8 +78,8 @@ class IntegrationEngine(ModelInterface):
             return self.transformers_engine.benchmark(prompt, **kwargs)
         if self.vllm_engine:
             return self.vllm_engine.benchmark(prompt, **kwargs)
-        if self.xtts_engine:
-            return self.xtts_engine.benchmark(prompt, **kwargs)
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.benchmark(prompt, **kwargs)
         raise RuntimeError("No engine available for benchmarking.")
 
     def chat_stream(self, messages: List[Dict[str, str]], callback=None, **kwargs) -> str:
@@ -88,8 +88,8 @@ class IntegrationEngine(ModelInterface):
             return self.transformers_engine.chat_stream(messages, callback, **kwargs)
         if self.vllm_engine:
             return self.vllm_engine.chat_stream(messages, callback, **kwargs)
-        if self.xtts_engine:
-            return self.xtts_engine.chat_stream(messages, callback, **kwargs)
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.chat_stream(messages, callback, **kwargs)
         raise RuntimeError("No engine available for chat streaming.")
 
     def get_memory_stats(self) -> Dict[str, float]:
@@ -98,38 +98,38 @@ class IntegrationEngine(ModelInterface):
             return self.transformers_engine.get_memory_stats()
         if self.vllm_engine:
             return self.vllm_engine.get_memory_stats()
-        if self.xtts_engine:
-            return self.xtts_engine.get_memory_stats()
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_memory_stats()
         raise RuntimeError("No engine available for memory stats.")
 
-    # TTS-specific methods (delegate to XTTS engine)
+    # TTS-specific methods (delegate to OuteTTS engine)
     def text_to_speech(self, text: str, **kwargs) -> str:
-        """Convert text to speech (only available with XTTS engine)."""
-        if self.xtts_engine:
-            return self.xtts_engine.text_to_speech(text, **kwargs)
-        raise RuntimeError("TTS functionality requires XTTS engine")
+        """Convert text to speech (only available with OuteTTS engine)."""
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.text_to_speech(text, **kwargs)
+        raise RuntimeError("TTS functionality requires OuteTTS engine")
 
     def text_to_speech_bytes(self, text: str, **kwargs) -> bytes:
-        """Convert text to speech and return as bytes (only available with XTTS engine)."""
-        if self.xtts_engine:
-            return self.xtts_engine.text_to_speech_bytes(text, **kwargs)
-        raise RuntimeError("TTS functionality requires XTTS engine")
+        """Convert text to speech and return as bytes (only available with OuteTTS engine)."""
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.text_to_speech_bytes(text, **kwargs)
+        raise RuntimeError("TTS functionality requires OuteTTS engine")
 
     def get_supported_languages(self) -> List[str]:
-        """Get supported languages (only available with XTTS engine)."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_supported_languages()
+        """Get supported languages (only available with OuteTTS engine)."""
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_supported_languages()
         return []
 
     def get_available_speakers(self, language: str = None) -> List[str]:
-        """Get available speakers (only available with XTTS engine)."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_available_speakers(language)
+        """Get available speakers (only available with OuteTTS engine)."""
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_available_speakers(language)
         return []
 
     def is_tts_engine(self) -> bool:
         """Check if this is a TTS engine."""
-        return self.xtts_engine is not None
+        return self.oute_tts_engine is not None
 
     def get_engine_type(self) -> str:
         """Get the type of the active engine."""
@@ -137,6 +137,6 @@ class IntegrationEngine(ModelInterface):
             return "transformers"
         elif self.vllm_engine:
             return "vllm"
-        elif self.xtts_engine:
-            return "xtts"
+        elif self.oute_tts_engine:
+            return "oute_tts"
         return "unknown"

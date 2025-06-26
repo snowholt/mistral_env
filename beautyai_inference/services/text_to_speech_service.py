@@ -1,8 +1,8 @@
 """
 Text-to-Speech Service for BeautyAI Framework.
 
-Handles TTS processing using XTTS-v2 model for high-quality multilingual speech synthesis.
-Supports Arabic and English with emotion and speaker control.
+Handles TTS processing using OuteTTS model for high-quality multilingual speech synthesis.
+Supports Arabic and English with emotion and speaker control via GGUF/LlamaCpp backend.
 """
 import logging
 import tempfile
@@ -13,22 +13,22 @@ import io
 
 from .base.base_service import BaseService
 from ..config.config_manager import AppConfig, ModelConfig
-from ..inference_engines.xtts_engine import XTTSEngine
+from ..inference_engines.oute_tts_engine import OuteTTSEngine
 from ..core.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
 
 class TextToSpeechService(BaseService):
-    """Service for text-to-speech conversion using XTTS models."""
+    """Service for text-to-speech conversion using OuteTTS models."""
     
     def __init__(self):
         super().__init__()
         self.model_manager = ModelManager()
-        self.xtts_engine = None
+        self.oute_tts_engine = None
         self.loaded_model_name = None
         
-    def load_tts_model(self, model_name: str = "xtts-v2") -> bool:
+    def load_tts_model(self, model_name: str = "oute-tts-1b") -> bool:
         """
         Load a TTS model for speech synthesis.
         
@@ -51,8 +51,8 @@ class TextToSpeechService(BaseService):
             
             # Load TTS engine
             logger.info(f"Loading TTS model: {model_config.model_id}")
-            self.xtts_engine = XTTSEngine(model_config)
-            self.xtts_engine.load_model()
+            self.oute_tts_engine = OuteTTSEngine(model_config)
+            self.oute_tts_engine.load_model()
             
             self.loaded_model_name = model_name
             logger.info(f"TTS model '{model_name}' loaded successfully")
@@ -86,13 +86,13 @@ class TextToSpeechService(BaseService):
             str: Path to the generated audio file, or None if failed
         """
         try:
-            if not self.xtts_engine:
+            if not self.oute_tts_engine:
                 logger.error("TTS model not loaded. Call load_tts_model() first.")
                 return None
             
             logger.info(f"Converting text to speech: '{text[:50]}...' (language: {language})")
             
-            output_file = self.xtts_engine.text_to_speech(
+            output_file = self.oute_tts_engine.text_to_speech(
                 text=text,
                 language=language,
                 speaker_voice=speaker_voice,
@@ -132,13 +132,13 @@ class TextToSpeechService(BaseService):
             bytes: Audio data as bytes, or None if failed
         """
         try:
-            if not self.xtts_engine:
+            if not self.oute_tts_engine:
                 logger.error("TTS model not loaded. Call load_tts_model() first.")
                 return None
             
             logger.info(f"Converting text to speech bytes: '{text[:50]}...' (language: {language})")
             
-            audio_bytes = self.xtts_engine.text_to_speech_bytes(
+            audio_bytes = self.oute_tts_engine.text_to_speech_bytes(
                 text=text,
                 language=language,
                 speaker_voice=speaker_voice,
@@ -176,11 +176,11 @@ class TextToSpeechService(BaseService):
             io.BytesIO: Audio stream, or None if failed
         """
         try:
-            if not self.xtts_engine:
+            if not self.oute_tts_engine:
                 logger.error("TTS model not loaded. Call load_tts_model() first.")
                 return None
             
-            audio_stream = self.xtts_engine.text_to_speech_stream(
+            audio_stream = self.oute_tts_engine.text_to_speech_stream(
                 text=text,
                 language=language,
                 speaker_voice=speaker_voice,
@@ -196,7 +196,7 @@ class TextToSpeechService(BaseService):
     
     def is_model_loaded(self) -> bool:
         """Check if a TTS model is currently loaded."""
-        return self.xtts_engine is not None and self.xtts_engine.is_model_loaded()
+        return self.oute_tts_engine is not None and self.oute_tts_engine.is_model_loaded()
     
     def get_loaded_model_name(self) -> Optional[str]:
         """Get the name of the currently loaded TTS model."""
@@ -205,9 +205,9 @@ class TextToSpeechService(BaseService):
     def unload_model(self) -> None:
         """Unload the current TTS model to free memory."""
         try:
-            if self.xtts_engine:
-                self.xtts_engine.unload_model()
-                self.xtts_engine = None
+            if self.oute_tts_engine:
+                self.oute_tts_engine.unload_model()
+                self.oute_tts_engine = None
             
             self.loaded_model_name = None
             logger.info("TTS model unloaded successfully")
@@ -217,14 +217,14 @@ class TextToSpeechService(BaseService):
     
     def get_supported_languages(self) -> List[str]:
         """Get list of supported languages."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_supported_languages()
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_supported_languages()
         return ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
     
     def get_available_speakers(self, language: str = None) -> List[str]:
         """Get available speakers for the specified language."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_available_speakers(language)
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_available_speakers(language)
         return []
     
     def validate_language(self, language: str) -> bool:
@@ -233,8 +233,8 @@ class TextToSpeechService(BaseService):
     
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get memory usage statistics for the TTS service."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_memory_stats()
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_memory_stats()
         return {"service": "not_loaded"}
     
     def benchmark_tts(
@@ -245,10 +245,10 @@ class TextToSpeechService(BaseService):
     ) -> Dict[str, Any]:
         """Run a TTS benchmark."""
         try:
-            if not self.xtts_engine:
+            if not self.oute_tts_engine:
                 return {"error": "TTS model not loaded"}
             
-            return self.xtts_engine.benchmark(text, language=language, **kwargs)
+            return self.oute_tts_engine.benchmark(text, language=language, **kwargs)
             
         except Exception as e:
             logger.error(f"TTS benchmark failed: {e}")
@@ -256,8 +256,8 @@ class TextToSpeechService(BaseService):
     
     def get_model_info(self) -> Dict[str, Any]:
         """Get information about the loaded TTS model."""
-        if self.xtts_engine:
-            return self.xtts_engine.get_model_info()
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.get_model_info()
         return {
             "model_name": None,
             "model_id": None,

@@ -15,6 +15,18 @@ try:
 except ImportError:
     LLAMACPP_AVAILABLE = False
 
+try:
+    from ..inference_engines.oute_tts_engine import OuteTTSEngine
+    OUTE_TTS_AVAILABLE = True
+except ImportError:
+    OUTE_TTS_AVAILABLE = False
+
+try:
+    from ..inference_engines.edge_tts_engine import EdgeTTSEngine
+    EDGE_TTS_AVAILABLE = True
+except ImportError:
+    EDGE_TTS_AVAILABLE = False
+
 logger = logging.getLogger(__name__)
 
 
