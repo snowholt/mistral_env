@@ -7,6 +7,7 @@ import logging
 import os
 import time
 import torch
+from datetime import datetime
 from typing import List, Dict, Any, Optional, Union
 from pathlib import Path
 
@@ -32,6 +33,7 @@ class OuteTTSEngine(ModelInterface):
         self.interface = None
         self.model_loaded = False
         self.current_speaker = None
+        self.custom_speakers = {}  # Store custom Arabic speakers
         
         # Configuration for OuteTTS
         self.model_version = outetts.Models.VERSION_1_0_SIZE_1B
@@ -39,34 +41,42 @@ class OuteTTSEngine(ModelInterface):
         self.quantization = outetts.LlamaCppQuantization.FP16
         
         # Speaker configurations (based on actual OuteTTS model capabilities)
-        # Note: OuteTTS model only has English speakers but can synthesize multiple languages
+        # Note: OuteTTS only has English speakers but can synthesize multiple languages
+        # Based on GitHub repository: https://github.com/edwko/OuteTTS
         self.available_speakers = {
             "en": {
-                "female": "en-female-1-neutral",
-                "male": "en-female-1-neutral",  # Only female voice available
-                "neutral": "en-female-1-neutral"
+                "female": "EN-FEMALE-1-NEUTRAL",
+                "male": "en_male_1", 
+                "neutral": "EN-FEMALE-1-NEUTRAL"
             },
             "ar": {
-                "female": "en-female-1-neutral",  # Use English speaker for Arabic text
-                "male": "en-female-1-neutral",   # Use English speaker for Arabic text
-                "neutral": "en-female-1-neutral"
+                "female": "arabic_female_custom",  # Will use custom Arabic speaker
+                "male": "arabic_male_custom",     # Will use custom Arabic speaker  
+                "neutral": "arabic_female_custom"
             },
             "es": {
-                "female": "en-female-1-neutral",  # Use English speaker for Spanish text
-                "male": "en-female-1-neutral",   # Use English speaker for Spanish text
-                "neutral": "en-female-1-neutral"
+                "female": "EN-FEMALE-1-NEUTRAL",  # Use English speaker for Spanish text
+                "male": "en_male_1",             # Use English speaker for Spanish text
+                "neutral": "EN-FEMALE-1-NEUTRAL"
             },
             "fr": {
-                "female": "en-female-1-neutral",  # Use English speaker for French text
-                "male": "en-female-1-neutral",   # Use English speaker for French text
-                "neutral": "en-female-1-neutral"
+                "female": "EN-FEMALE-1-NEUTRAL",  # Use English speaker for French text
+                "male": "en_male_1",             # Use English speaker for French text
+                "neutral": "EN-FEMALE-1-NEUTRAL"
             },
             "de": {
-                "female": "en-female-1-neutral",  # Use English speaker for German text
-                "male": "en-female-1-neutral",   # Use English speaker for German text
-                "neutral": "en-female-1-neutral"
+                "female": "EN-FEMALE-1-NEUTRAL",  # Use English speaker for German text
+                "male": "en_male_1",             # Use English speaker for German text
+                "neutral": "EN-FEMALE-1-NEUTRAL"
             }
         }
+        
+        # Discovered available speakers (will be populated after model loading)
+        self.discovered_speakers = {}
+        
+        # Paths for custom speaker profiles
+        self.speakers_dir = Path("/home/lumi/beautyai/voice_tests/custom_speakers")
+        self.speakers_dir.mkdir(parents=True, exist_ok=True)
         
         # Supported languages
         self.supported_languages = ["en", "ar", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"]
@@ -90,12 +100,24 @@ class OuteTTSEngine(ModelInterface):
             logger.info("Initializing OuteTTS interface...")
             self.interface = outetts.Interface(config=model_config)
             
+            # Discover available speakers
+            logger.info("Discovering available speakers...")
+            self.discovered_speakers = self._discover_actual_speakers()
+            
             # Load a default speaker
             logger.info("Loading default speaker...")
             self.current_speaker = self.interface.load_default_speaker("EN-FEMALE-1-NEUTRAL")
             
+            # Load custom Arabic speaker profiles
+            logger.info("Loading custom Arabic speaker profiles...")
+            self.load_custom_arabic_speakers()
+            
+            # Create Arabic speaker profiles if they don't exist
+            self._create_arabic_speaker_profiles()
+            
             self.model_loaded = True
             logger.info("✅ OuteTTS model loaded successfully")
+            logger.info(f"✅ Available speakers: {list(self.discovered_speakers.keys())}")
             
         except Exception as e:
             logger.error(f"Failed to load OuteTTS model: {e}")
@@ -125,17 +147,64 @@ class OuteTTSEngine(ModelInterface):
 
     def _get_speaker_id(self, language: str, speaker_voice: str = "female") -> str:
         """Get the appropriate speaker ID for the given language and voice."""
-        # If speaker_voice looks like an actual speaker ID, use it directly
-        if speaker_voice and speaker_voice.upper().startswith(("AR-", "EN-", "ES-", "FR-", "DE-")):
-            return speaker_voice
+        
+        # First, check for custom Arabic speakers if language is Arabic
+        if language == "ar":
+            # Check if we have custom Arabic speakers available
+            if self.custom_speakers:
+                for speaker_name, speaker_path in self.custom_speakers.items():
+                    if speaker_voice.lower() in speaker_name.lower():
+                        logger.info(f"Using custom Arabic speaker: {speaker_path}")
+                        return speaker_path
+                        
+            # Check available speakers for custom profiles
+            if language in self.available_speakers:
+                speaker_dict = self.available_speakers[language]
+                mapped_speaker = speaker_dict.get(speaker_voice, speaker_dict.get("female"))
+                if mapped_speaker and mapped_speaker.endswith('.json'):
+                    # Verify the file actually exists
+                    import os
+                    if os.path.exists(mapped_speaker):
+                        logger.info(f"Using custom Arabic profile: {mapped_speaker}")
+                        return mapped_speaker
+                    else:
+                        logger.warning(f"Custom Arabic profile {mapped_speaker} not found, falling back to default")
+        
+        # Check discovered speakers (default speakers)
+        if self.discovered_speakers:
+            discovered_speaker = self.discovered_speakers.get(speaker_voice.lower())
+            if discovered_speaker:
+                logger.info(f"Using discovered speaker: {discovered_speaker}")
+                return discovered_speaker
+                
+            # Try finding any available speaker
+            if self.discovered_speakers.values():
+                first_available = list(self.discovered_speakers.values())[0]
+                logger.info(f"Using first available speaker: {first_available}")
+                return first_available
+        
+        # If speaker_voice looks like an actual speaker ID, verify it exists
+        if speaker_voice and any(speaker_voice.upper().startswith(prefix) for prefix in ["AR-", "EN-", "ES-", "FR-", "DE-"]):
+            # Convert to correct format and check if it exists
+            test_speakers = [speaker_voice, speaker_voice.upper(), speaker_voice.lower()]
+            for test_speaker in test_speakers:
+                if test_speaker in self.discovered_speakers.values():
+                    return test_speaker
             
-        # Otherwise, map gender to speaker ID
+            # If not found, log warning and fallback
+            logger.warning(f"Speaker {speaker_voice} not found in {list(self.discovered_speakers.keys())}")
+            
+        # Use available speakers mapping
         if language in self.available_speakers:
             speaker_dict = self.available_speakers[language]
-            return speaker_dict.get(speaker_voice, speaker_dict.get("female", "EN-FEMALE-1-NEUTRAL"))
+            mapped_speaker = speaker_dict.get(speaker_voice, speaker_dict.get("female", "EN-FEMALE-1-NEUTRAL"))
+            logger.info(f"Using mapped speaker for {language}-{speaker_voice}: {mapped_speaker}")
+            return mapped_speaker
         else:
             # Fallback to English
-            return self.available_speakers["en"].get(speaker_voice, "EN-FEMALE-1-NEUTRAL")
+            fallback_speaker = self.available_speakers["en"].get(speaker_voice, "EN-FEMALE-1-NEUTRAL")
+            logger.info(f"Using fallback speaker: {fallback_speaker}")
+            return fallback_speaker
 
     def text_to_speech(
         self, 
@@ -153,10 +222,19 @@ class OuteTTSEngine(ModelInterface):
         try:
             # Get the appropriate speaker
             speaker_id = self._get_speaker_id(language, speaker_voice)
-            speaker = self.interface.load_default_speaker(speaker_id)
+            
+            # Load speaker (handle both default speakers and custom profiles)
+            if speaker_id.endswith('.json'):
+                # Custom speaker profile
+                logger.info(f"Loading custom speaker profile: {speaker_id}")
+                speaker = self.interface.load_speaker(speaker_id)
+            else:
+                # Default speaker
+                logger.info(f"Loading default speaker: {speaker_id}")
+                speaker = self.interface.load_default_speaker(speaker_id)
             
             # Generate speech
-            logger.info(f"Generating speech for text: '{text[:50]}...'")
+            logger.info(f"Generating speech for text: '{text[:50]}...' (language: {language})")
             output = self.interface.generate(
                 config=outetts.GenerationConfig(
                     text=text,
@@ -379,41 +457,460 @@ class OuteTTSEngine(ModelInterface):
         if not self.model_loaded:
             raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
         
-        actual_speakers = {}
+        return {"available": list(self.discovered_speakers.keys())}
+
+    def _discover_actual_speakers(self) -> Dict[str, str]:
+        """Discover actual available speakers from the OuteTTS model."""
+        discovered = {}
         
         try:
-            # Try to get available speakers from the interface
-            # This is a more accurate way to check what speakers are actually available
-            for lang in ["ar", "en"]:  # Focus on Arabic and English
-                actual_speakers[lang] = []
-                
-                # Common speaker patterns for OuteTTS
-                speaker_patterns = [
-                    f"{lang.upper()}-FEMALE-1-NEUTRAL",
-                    f"{lang.upper()}-MALE-1-NEUTRAL", 
-                    f"{lang.upper()}-FEMALE-2-NEUTRAL",
-                    f"{lang.upper()}-MALE-2-NEUTRAL",
-                    f"{lang.upper()}-FEMALE-1-HAPPY",
-                    f"{lang.upper()}-FEMALE-1-SAD",
-                    f"{lang.upper()}-FEMALE-1-EXCITED"
-                ]
-                
-                for speaker_id in speaker_patterns:
-                    try:
-                        # Try to load the speaker to verify it exists
-                        test_speaker = self.interface.load_default_speaker(speaker_id)
-                        if test_speaker:
-                            actual_speakers[lang].append(speaker_id)
-                            logger.info(f"✅ Found speaker: {speaker_id}")
-                    except Exception as e:
-                        logger.debug(f"Speaker {speaker_id} not available: {e}")
+            # Test common OuteTTS speaker patterns based on GitHub repository
+            # From: https://github.com/edwko/OuteTTS
+            test_speakers = [
+                "EN-FEMALE-1-NEUTRAL",
+                "en_female_1", 
+                "en_female_2",
+                "en_male_1",
+                "en_male_2", 
+                "en_male_3",
+                "en_male_4"
+            ]
+            
+            for speaker_id in test_speakers:
+                try:
+                    # Try to load the speaker to verify it exists
+                    test_speaker = self.interface.load_default_speaker(speaker_id)
+                    if test_speaker:
+                        # Map to simple keys for easy access
+                        if "female" in speaker_id.lower():
+                            key = f"female_{len([k for k in discovered.keys() if 'female' in k]) + 1}"
+                        else:
+                            key = f"male_{len([k for k in discovered.keys() if 'male' in k]) + 1}"
+                            
+                        discovered[key] = speaker_id
+                        discovered[speaker_id.lower().replace("-", "_")] = speaker_id
+                        logger.info(f"✅ Found working speaker: {speaker_id}")
                         
-            return actual_speakers
+                except Exception as e:
+                    logger.debug(f"Speaker {speaker_id} not available: {e}")
+                    
+            # Add default mappings if no speakers found
+            if not discovered:
+                logger.warning("No speakers discovered, using defaults")
+                discovered = {
+                    "female": "EN-FEMALE-1-NEUTRAL",
+                    "male": "EN-FEMALE-1-NEUTRAL",  # Fallback to female if no male
+                    "en_female_1_neutral": "EN-FEMALE-1-NEUTRAL"
+                }
+                        
+            return discovered
             
         except Exception as e:
-            logger.error(f"Failed to identify speakers: {e}")
-            # Fallback to predefined speakers
+            logger.error(f"Failed to discover speakers: {e}")
+            # Fallback
             return {
-                "ar": ["AR-FEMALE-1-NEUTRAL", "AR-MALE-1-NEUTRAL"],
-                "en": ["EN-FEMALE-1-NEUTRAL", "EN-MALE-1-NEUTRAL"]
+                "female": "EN-FEMALE-1-NEUTRAL",
+                "male": "EN-FEMALE-1-NEUTRAL"
             }
+
+    def _create_arabic_speaker_profiles(self) -> None:
+        """Create Arabic speaker profiles from existing English speakers."""
+        try:
+            # For now, we'll map Arabic to the best available English speakers
+            # Later, when Arabic audio samples are provided, we can create custom profiles
+            logger.info("Setting up Arabic speaker profiles...")
+            
+            # Map Arabic speakers to available English speakers
+            if "female" in self.discovered_speakers:
+                self.discovered_speakers["ar_female"] = self.discovered_speakers["female"]
+                self.discovered_speakers["arabic_female"] = self.discovered_speakers["female"]
+                
+            if "male" in self.discovered_speakers:
+                self.discovered_speakers["ar_male"] = self.discovered_speakers["male"]
+                self.discovered_speakers["arabic_male"] = self.discovered_speakers["male"]
+            
+            # Update available speakers with discovered ones
+            for lang in self.available_speakers:
+                if "female" in self.discovered_speakers:
+                    self.available_speakers[lang]["female"] = self.discovered_speakers["female"]
+                if "male" in self.discovered_speakers:
+                    self.available_speakers[lang]["male"] = self.discovered_speakers["male"]
+                    
+            logger.info("✅ Arabic speaker profiles created")
+                    
+        except Exception as e:
+            logger.error(f"Failed to create Arabic speaker profiles: {e}")
+
+    def create_custom_arabic_speaker(self, audio_file_path: str, speaker_name: str = "custom_arabic") -> str:
+        """Create a custom Arabic speaker profile from an audio file.
+        
+        Args:
+            audio_file_path: Path to Arabic audio sample (WAV format recommended)
+            speaker_name: Name for the custom speaker profile
+            
+        Returns:
+            str: Speaker ID for the created profile
+        """
+        if not self.model_loaded:
+            raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
+            
+        try:
+            logger.info(f"Creating custom Arabic speaker from: {audio_file_path}")
+            
+            # Verify audio file exists
+            if not os.path.exists(audio_file_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+            
+            # Create speaker profile from audio
+            custom_speaker = self.interface.create_speaker(audio_file_path)
+            
+            # Save the speaker profile
+            speaker_profile_path = f"/home/lumi/beautyai/voice_tests/{speaker_name}_profile.json"
+            self.interface.save_speaker(custom_speaker, speaker_profile_path)
+            
+            # Add to discovered speakers
+            self.discovered_speakers[speaker_name] = speaker_profile_path
+            self.discovered_speakers[f"{speaker_name}_female"] = speaker_profile_path
+            
+            # Update Arabic speakers mapping
+            self.available_speakers["ar"]["female"] = speaker_profile_path
+            self.available_speakers["ar"]["neutral"] = speaker_profile_path
+            
+            logger.info(f"✅ Custom Arabic speaker '{speaker_name}' created: {speaker_profile_path}")
+            return speaker_profile_path
+            
+        except Exception as e:
+            logger.error(f"Failed to create custom Arabic speaker: {e}")
+            raise RuntimeError(f"Failed to create custom Arabic speaker: {e}")
+
+    def create_arabic_speaker_profile(self, audio_file_path: str, speaker_name: str = "arabic_female", 
+                                    transcript: Optional[str] = None) -> str:
+        """
+        Create a custom Arabic speaker profile from an audio file.
+        
+        Args:
+            audio_file_path: Path to Arabic audio sample (WAV format recommended)
+            speaker_name: Name for the custom speaker profile
+            transcript: Optional transcript of the audio (will auto-transcribe if None)
+            
+        Returns:
+            str: Path to the created speaker profile JSON file
+        """
+        if not self.model_loaded:
+            raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
+            
+        try:
+            logger.info(f"🎤 Creating Arabic speaker profile: {speaker_name}")
+            logger.info(f"📁 Audio file: {audio_file_path}")
+            
+            # Verify audio file exists
+            if not os.path.exists(audio_file_path):
+                raise FileNotFoundError(f"Audio file not found: {audio_file_path}")
+            
+            # Create speaker profile from audio
+            if transcript:
+                logger.info(f"📝 Using provided transcript: {transcript[:50]}...")
+                custom_speaker = self.interface.create_speaker(
+                    audio_path=audio_file_path,
+                    transcript=transcript,
+                    whisper_model="turbo",
+                    whisper_device="cuda" if torch.cuda.is_available() else "cpu"
+                )
+            else:
+                logger.info("🎯 Auto-transcribing audio for speaker profile...")
+                custom_speaker = self.interface.create_speaker(audio_file_path)
+            
+            # Save the speaker profile
+            speaker_profile_path = self.speakers_dir / f"{speaker_name}_profile.json"
+            self.interface.save_speaker(custom_speaker, str(speaker_profile_path))
+            
+            # Store in custom speakers registry
+            self.custom_speakers[speaker_name] = str(speaker_profile_path)
+            
+            # Update Arabic speakers mapping to use custom profile
+            if "female" in speaker_name.lower():
+                self.available_speakers["ar"]["female"] = str(speaker_profile_path)
+                self.available_speakers["ar"]["neutral"] = str(speaker_profile_path)
+            elif "male" in speaker_name.lower():
+                self.available_speakers["ar"]["male"] = str(speaker_profile_path)
+            
+            logger.info(f"✅ Arabic speaker profile created: {speaker_profile_path}")
+            return str(speaker_profile_path)
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to create Arabic speaker profile: {e}")
+            raise RuntimeError(f"Failed to create Arabic speaker profile: {e}")
+
+    def load_custom_speakers(self, speaker_profile_path: str):
+        """
+        Load a custom speaker profile from JSON file.
+        
+        Args:
+            speaker_profile_path: Path to the speaker profile JSON file
+            
+        Returns:
+            Speaker object ready for use in generation
+        """
+        if not self.model_loaded:
+            raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
+            
+        try:
+            if not os.path.exists(speaker_profile_path):
+                raise FileNotFoundError(f"Speaker profile not found: {speaker_profile_path}")
+                
+            logger.info(f"📥 Loading custom speaker profile: {speaker_profile_path}")
+            speaker = self.interface.load_speaker(speaker_profile_path)
+            return speaker
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load custom speaker: {e}")
+            raise RuntimeError(f"Failed to load custom speaker: {e}")
+
+    def load_custom_arabic_speakers(self):
+        """Load custom Arabic speaker profiles from saved JSON files."""
+        try:
+            # Check for Arabic speaker profiles directory
+            profiles_dir = Path("/home/lumi/beautyai/voice_tests/arabic_speaker_profiles")
+            if not profiles_dir.exists():
+                logger.info("Arabic speaker profiles directory not found, creating...")
+                profiles_dir.mkdir(parents=True, exist_ok=True)
+                return
+            
+            # Look for speaker mapping file
+            mapping_file = profiles_dir / "speaker_mapping.json"
+            if mapping_file.exists():
+                import json
+                try:
+                    with open(mapping_file, 'r', encoding='utf-8') as f:
+                        mapping_data = json.load(f)
+                    
+                    if "arabic_speakers" in mapping_data:
+                        self.arabic_speaker_mapping.update(mapping_data["arabic_speakers"])
+                        logger.info(f"✅ Loaded Arabic speaker mapping: {mapping_data['arabic_speakers']}")
+                    
+                    if "profiles" in mapping_data:
+                        profiles = mapping_data["profiles"]
+                        if profiles.get("female") and Path(profiles["female"]).exists():
+                            self.custom_speakers["arabic_female_beautyai"] = profiles["female"]
+                            self.arabic_speaker_mapping["ar-female"] = profiles["female"]
+                            logger.info(f"✅ Loaded female Arabic profile: {profiles['female']}")
+                        
+                        if profiles.get("male") and Path(profiles["male"]).exists():
+                            self.custom_speakers["arabic_male_beautyai"] = profiles["male"]
+                            self.arabic_speaker_mapping["ar-male"] = profiles["male"]
+                            logger.info(f"✅ Loaded male Arabic profile: {profiles['male']}")
+                    
+                except Exception as e:
+                    logger.warning(f"Could not load speaker mapping file: {e}")
+            
+            # Look for individual profile files
+            profile_patterns = [
+                ("arabic_female_beautyai.json", "ar-female", "arabic_female_beautyai"),
+                ("arabic_male_beautyai.json", "ar-male", "arabic_male_beautyai"),
+                ("arabic_female_custom.json", "ar-female", "arabic_female_custom"),
+                ("arabic_male_custom.json", "ar-male", "arabic_male_custom")
+            ]
+            
+            for filename, mapping_key, custom_key in profile_patterns:
+                profile_path = profiles_dir / filename
+                if profile_path.exists():
+                    self.custom_speakers[custom_key] = str(profile_path)
+                    self.arabic_speaker_mapping[mapping_key] = str(profile_path)
+                    logger.info(f"✅ Found Arabic speaker profile: {profile_path}")
+            
+            # Update available speakers for Arabic
+            if self.arabic_speaker_mapping.get("ar-female"):
+                self.available_speakers["ar"]["female"] = self.arabic_speaker_mapping["ar-female"]
+            if self.arabic_speaker_mapping.get("ar-male"):
+                self.available_speakers["ar"]["male"] = self.arabic_speaker_mapping["ar-male"]
+            
+            logger.info(f"✅ Custom Arabic speakers loaded: {len([k for k in self.custom_speakers.keys() if 'arabic' in k])}")
+            
+        except Exception as e:
+            logger.warning(f"Could not load custom Arabic speakers: {e}")
+
+    def get_arabic_speakers(self) -> Dict[str, str]:
+        """Get all available Arabic speaker profiles."""
+        arabic_speakers = {}
+        
+        # Add custom speakers
+        for name, path in self.custom_speakers.items():
+            if "arabic" in name.lower() or "ar" in name.lower():
+                arabic_speakers[name] = path
+                
+        # Add configured Arabic speakers
+        for voice_type, speaker_id in self.available_speakers.get("ar", {}).items():
+            if speaker_id.endswith('.json'):
+                arabic_speakers[f"ar_{voice_type}"] = speaker_id
+                
+        return arabic_speakers
+
+    def test_arabic_speaker(self, speaker_profile_path: str, test_text: str = "مرحبا، هذا اختبار للصوت العربي") -> str:
+        """
+        Test an Arabic speaker profile by generating speech.
+        
+        Args:
+            speaker_profile_path: Path to the speaker profile JSON file
+            test_text: Arabic text to synthesize for testing
+            
+        Returns:
+            str: Path to the generated test audio file
+        """
+        if not self.model_loaded:
+            raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
+            
+        try:
+            logger.info(f"🧪 Testing Arabic speaker: {speaker_profile_path}")
+            
+            # Load the custom speaker
+            speaker = self.load_custom_speaker(speaker_profile_path)
+            
+            # Generate test speech
+            output = self.interface.generate(
+                config=outetts.GenerationConfig(
+                    text=test_text,
+                    generation_type=outetts.GenerationType.CHUNKED,
+                    speaker=speaker,
+                    sampler_config=outetts.SamplerConfig(
+                        temperature=0.4,
+                        top_p=0.9,
+                        top_k=50
+                    ),
+                )
+            )
+            
+            # Save test output
+            test_output_path = self.speakers_dir / f"test_arabic_speaker_{int(time.time())}.wav"
+            output.save(str(test_output_path))
+            
+            logger.info(f"✅ Arabic speaker test completed: {test_output_path}")
+            return str(test_output_path)
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to test Arabic speaker: {e}")
+            raise RuntimeError(f"Failed to test Arabic speaker: {e}")
+
+    def setup_default_arabic_speakers(self, female_audio_path: Optional[str] = None, 
+                                    male_audio_path: Optional[str] = None) -> Dict[str, str]:
+        """
+        Setup default Arabic speakers for the BeautyAI platform.
+        
+        Args:
+            female_audio_path: Path to female Arabic audio sample
+            male_audio_path: Path to male Arabic audio sample
+            
+        Returns:
+            Dict mapping speaker types to profile paths
+        """
+        created_speakers = {}
+        
+        try:
+            logger.info("🎭 Setting up default Arabic speakers for BeautyAI...")
+            
+            # Create female Arabic speaker if audio provided
+            if female_audio_path and os.path.exists(female_audio_path):
+                female_profile = self.create_arabic_speaker_profile(
+                    audio_file_path=female_audio_path,
+                    speaker_name="beautyai_arabic_female"
+                )
+                created_speakers["female"] = female_profile
+                logger.info("✅ Female Arabic speaker created")
+            
+            # Create male Arabic speaker if audio provided  
+            if male_audio_path and os.path.exists(male_audio_path):
+                male_profile = self.create_arabic_speaker_profile(
+                    audio_file_path=male_audio_path,
+                    speaker_name="beautyai_arabic_male"
+                )
+                created_speakers["male"] = male_profile
+                logger.info("✅ Male Arabic speaker created")
+            
+            # Update the default mappings
+            if created_speakers:
+                logger.info("🔧 Updating Arabic speaker mappings...")
+                if "female" in created_speakers:
+                    self.available_speakers["ar"]["female"] = created_speakers["female"]
+                    self.available_speakers["ar"]["neutral"] = created_speakers["female"]
+                if "male" in created_speakers:
+                    self.available_speakers["ar"]["male"] = created_speakers["male"]
+                    
+                logger.info("✅ Default Arabic speakers setup completed")
+            else:
+                logger.warning("⚠️ No Arabic audio files provided, using fallback English speakers")
+                
+            return created_speakers
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to setup Arabic speakers: {e}")
+            return {}
+
+    def register_custom_arabic_speaker(self, speaker_name: str, profile_path: str, gender: str = "female") -> bool:
+        """
+        Register a new custom Arabic speaker profile.
+        
+        Args:
+            speaker_name: Name for the custom speaker
+            profile_path: Path to the speaker profile JSON file
+            gender: Speaker gender ("female" or "male")
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            profile_path = Path(profile_path)
+            if not profile_path.exists():
+                logger.error(f"Speaker profile file not found: {profile_path}")
+                return False
+            
+            # Add to custom speakers
+            self.custom_speakers[speaker_name] = str(profile_path)
+            
+            # Update Arabic speaker mapping
+            mapping_key = f"ar-{gender}"
+            self.arabic_speaker_mapping[mapping_key] = str(profile_path)
+            
+            # Update available speakers
+            self.available_speakers["ar"][gender] = str(profile_path)
+            self.available_speakers["ar"]["neutral"] = str(profile_path)  # Default to this speaker
+            
+            logger.info(f"✅ Registered custom Arabic speaker: {speaker_name} ({gender})")
+            logger.info(f"✅ Profile path: {profile_path}")
+            
+            # Save the mapping for persistence
+            self._save_speaker_mapping()
+            
+            return True
+            
+        except Exception as e:
+            logger.error(f"Failed to register custom Arabic speaker: {e}")
+            return False
+    
+    def _save_speaker_mapping(self):
+        """Save current speaker mapping to persistent storage."""
+        try:
+            profiles_dir = Path("/home/lumi/beautyai/voice_tests/arabic_speaker_profiles")
+            profiles_dir.mkdir(parents=True, exist_ok=True)
+            
+            mapping_file = profiles_dir / "speaker_mapping.json"
+            
+            import json
+            mapping_data = {
+                "arabic_speakers": self.arabic_speaker_mapping,
+                "custom_speakers": self.custom_speakers,
+                "created_at": str(datetime.now()),
+                "profiles": {}
+            }
+            
+            # Extract profile paths for easy access
+            for key, value in self.arabic_speaker_mapping.items():
+                if key in ["ar-female", "ar-male"]:
+                    gender = key.split("-")[1]
+                    mapping_data["profiles"][gender] = value
+            
+            with open(mapping_file, 'w', encoding='utf-8') as f:
+                json.dump(mapping_data, f, indent=2, ensure_ascii=False)
+            
+            logger.info(f"✅ Speaker mapping saved to: {mapping_file}")
+            
+        except Exception as e:
+            logger.warning(f"Could not save speaker mapping: {e}")

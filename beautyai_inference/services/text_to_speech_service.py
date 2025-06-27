@@ -7,6 +7,7 @@ Supports Arabic and English with emotion and speaker control via GGUF/LlamaCpp b
 import logging
 import tempfile
 import os
+import time
 from typing import Dict, Any, Optional, BinaryIO, List
 from pathlib import Path
 import io
@@ -265,3 +266,251 @@ class TextToSpeechService(BaseService):
             "is_loaded": False,
             "supported_languages": self.get_supported_languages()
         }
+    
+    def create_arabic_speaker_profile(
+        self, 
+        audio_file_path: str, 
+        speaker_name: str = "custom_arabic_female"
+    ) -> Optional[str]:
+        """
+        Create a custom Arabic speaker profile from an audio sample.
+        
+        Args:
+            audio_file_path: Path to Arabic audio sample (WAV format recommended)
+            speaker_name: Name for the custom speaker profile
+            
+        Returns:
+            str: Speaker profile path if successful, None if failed
+        """
+        try:
+            if not self.oute_tts_engine:
+                logger.error("TTS model not loaded. Call load_tts_model() first.")
+                return None
+            
+            logger.info(f"Creating Arabic speaker profile from: {audio_file_path}")
+            
+            profile_path = self.oute_tts_engine.create_custom_arabic_speaker(
+                audio_file_path=audio_file_path,
+                speaker_name=speaker_name
+            )
+            
+            logger.info(f"Arabic speaker profile created: {profile_path}")
+            return profile_path
+            
+        except Exception as e:
+            logger.error(f"Failed to create Arabic speaker profile: {e}")
+            return None
+    
+    def get_discovered_speakers(self) -> Dict[str, Any]:
+        """Get all discovered and custom speakers."""
+        try:
+            if not self.oute_tts_engine:
+                return {}
+            
+            return {
+                "discovered": self.oute_tts_engine.discovered_speakers,
+                "available_by_language": self.oute_tts_engine.available_speakers,
+                "arabic_speakers": [
+                    speaker for speaker_name, speaker in self.oute_tts_engine.discovered_speakers.items() 
+                    if "ar" in speaker_name.lower() or "arabic" in speaker_name.lower()
+                ]
+            }
+            
+        except Exception as e:
+            logger.error(f"Failed to get discovered speakers: {e}")
+            return {}
+    
+    def create_arabic_speaker_profile(
+        self, 
+        audio_file_path: str, 
+        speaker_name: str = "arabic_female", 
+        transcript: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Create a custom Arabic speaker profile from an audio file.
+        
+        Args:
+            audio_file_path: Path to Arabic audio sample (WAV format recommended)
+            speaker_name: Name for the custom speaker profile
+            transcript: Optional transcript of the audio
+            
+        Returns:
+            str: Path to the created speaker profile, or None if failed
+        """
+        try:
+            if not self.oute_tts_engine:
+                logger.error("TTS model not loaded. Call load_tts_model() first.")
+                return None
+                
+            logger.info(f"Creating Arabic speaker profile: {speaker_name}")
+            
+            profile_path = self.oute_tts_engine.create_arabic_speaker_profile(
+                audio_file_path=audio_file_path,
+                speaker_name=speaker_name,
+                transcript=transcript
+            )
+            
+            logger.info(f"✅ Arabic speaker profile created: {profile_path}")
+            return profile_path
+            
+        except Exception as e:
+            logger.error(f"Failed to create Arabic speaker profile: {e}")
+            return None
+    
+    def setup_default_arabic_speakers(self, female_audio_path: Optional[str] = None, 
+                                    male_audio_path: Optional[str] = None) -> Dict[str, str]:
+        """
+        Setup default Arabic speakers for the BeautyAI platform.
+        
+        Args:
+            female_audio_path: Path to female Arabic audio sample
+            male_audio_path: Path to male Arabic audio sample
+            
+        Returns:
+            Dict mapping speaker types to profile paths
+        """
+        try:
+            if not self.oute_tts_engine:
+                logger.error("TTS model not loaded. Call load_tts_model() first.")
+                return {}
+                
+            logger.info("Setting up default Arabic speakers...")
+            
+            created_speakers = self.oute_tts_engine.setup_default_arabic_speakers(
+                female_audio_path=female_audio_path,
+                male_audio_path=male_audio_path
+            )
+            
+            logger.info(f"✅ Arabic speakers setup completed: {created_speakers}")
+            return created_speakers
+            
+        except Exception as e:
+            logger.error(f"Failed to setup Arabic speakers: {e}")
+            return {}
+    
+    def get_arabic_speakers(self) -> Dict[str, str]:
+        """Get all available Arabic speaker profiles."""
+        try:
+            if not self.oute_tts_engine:
+                logger.warning("TTS model not loaded.")
+                return {}
+                
+            return self.oute_tts_engine.get_arabic_speakers()
+            
+        except Exception as e:
+            logger.error(f"Failed to get Arabic speakers: {e}")
+            return {}
+    
+    def register_arabic_speaker_profile(self, speaker_name: str, profile_path: str, gender: str = "female") -> bool:
+        """
+        Register a new custom Arabic speaker profile with the TTS service.
+        
+        Args:
+            speaker_name: Name for the custom speaker
+            profile_path: Path to the speaker profile JSON file
+            gender: Speaker gender ("female" or "male")
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            if not self.oute_tts_engine:
+                logger.error("TTS model not loaded. Call load_tts_model() first.")
+                return False
+            
+            success = self.oute_tts_engine.register_custom_arabic_speaker(
+                speaker_name, profile_path, gender
+            )
+            
+            if success:
+                logger.info(f"✅ Arabic speaker registered: {speaker_name} ({gender})")
+                return True
+            else:
+                logger.error(f"❌ Failed to register Arabic speaker: {speaker_name}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Error registering Arabic speaker: {e}")
+            return False
+    
+    def get_available_arabic_speakers(self) -> Dict[str, Any]:
+        """
+        Get information about available Arabic speakers.
+        
+        Returns:
+            Dict containing available Arabic speakers and their details
+        """
+        try:
+            if not self.oute_tts_engine:
+                return {"error": "TTS model not loaded"}
+            
+            arabic_speakers = {}
+            
+            # Get custom speakers
+            for name, path in self.oute_tts_engine.custom_speakers.items():
+                if 'arabic' in name.lower():
+                    arabic_speakers[name] = {
+                        "path": path,
+                        "type": "custom",
+                        "exists": Path(path).exists() if path.endswith('.json') else True
+                    }
+            
+            # Get Arabic speaker mapping
+            arabic_mapping = {}
+            for key, value in self.oute_tts_engine.arabic_speaker_mapping.items():
+                if key.startswith('ar-'):
+                    arabic_mapping[key] = value
+            
+            return {
+                "custom_speakers": arabic_speakers,
+                "arabic_mapping": arabic_mapping,
+                "available_languages": list(self.oute_tts_engine.available_speakers.keys()),
+                "arabic_available": "ar" in self.oute_tts_engine.available_speakers
+            }
+            
+        except Exception as e:
+            logger.error(f"Error getting Arabic speakers: {e}")
+            return {"error": str(e)}
+    
+    def test_arabic_speaker(self, speaker_name: str, test_text: str = None) -> Optional[str]:
+        """
+        Test an Arabic speaker with a sample text.
+        
+        Args:
+            speaker_name: Name of the speaker to test
+            test_text: Optional custom test text
+            
+        Returns:
+            str: Path to the test audio file, or None if failed
+        """
+        try:
+            if not test_text:
+                test_text = "مرحباً بك في عيادة الجمال. هذا اختبار للصوت العربي."
+            
+            # Create test output directory
+            test_dir = Path("/home/lumi/beautyai/voice_tests/arabic_speaker_tests")
+            test_dir.mkdir(parents=True, exist_ok=True)
+            
+            # Generate unique filename
+            import time
+            timestamp = int(time.time())
+            test_output = test_dir / f"test_{speaker_name}_{timestamp}.wav"
+            
+            # Generate speech
+            result = self.text_to_speech(
+                text=test_text,
+                language="ar",
+                speaker_voice=speaker_name,
+                output_path=str(test_output)
+            )
+            
+            if result and Path(result).exists():
+                logger.info(f"✅ Arabic speaker test successful: {result}")
+                return result
+            else:
+                logger.error(f"❌ Arabic speaker test failed for: {speaker_name}")
+                return None
+                
+        except Exception as e:
+            logger.error(f"Error testing Arabic speaker: {e}")
+            return None
