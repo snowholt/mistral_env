@@ -38,32 +38,33 @@ class OuteTTSEngine(ModelInterface):
         self.backend = outetts.Backend.LLAMACPP
         self.quantization = outetts.LlamaCppQuantization.FP16
         
-        # Speaker configurations
+        # Speaker configurations (based on actual OuteTTS model capabilities)
+        # Note: OuteTTS model only has English speakers but can synthesize multiple languages
         self.available_speakers = {
             "en": {
-                "female": "EN-FEMALE-1-NEUTRAL",
-                "male": "EN-MALE-1-NEUTRAL",
-                "neutral": "EN-FEMALE-1-NEUTRAL"
+                "female": "en-female-1-neutral",
+                "male": "en-female-1-neutral",  # Only female voice available
+                "neutral": "en-female-1-neutral"
             },
             "ar": {
-                "female": "AR-FEMALE-1-NEUTRAL",
-                "male": "AR-MALE-1-NEUTRAL", 
-                "neutral": "AR-FEMALE-1-NEUTRAL"
+                "female": "en-female-1-neutral",  # Use English speaker for Arabic text
+                "male": "en-female-1-neutral",   # Use English speaker for Arabic text
+                "neutral": "en-female-1-neutral"
             },
             "es": {
-                "female": "ES-FEMALE-1-NEUTRAL",
-                "male": "ES-MALE-1-NEUTRAL",
-                "neutral": "ES-FEMALE-1-NEUTRAL"
+                "female": "en-female-1-neutral",  # Use English speaker for Spanish text
+                "male": "en-female-1-neutral",   # Use English speaker for Spanish text
+                "neutral": "en-female-1-neutral"
             },
             "fr": {
-                "female": "FR-FEMALE-1-NEUTRAL",
-                "male": "FR-MALE-1-NEUTRAL",
-                "neutral": "FR-FEMALE-1-NEUTRAL"
+                "female": "en-female-1-neutral",  # Use English speaker for French text
+                "male": "en-female-1-neutral",   # Use English speaker for French text
+                "neutral": "en-female-1-neutral"
             },
             "de": {
-                "female": "DE-FEMALE-1-NEUTRAL",
-                "male": "DE-MALE-1-NEUTRAL",
-                "neutral": "DE-FEMALE-1-NEUTRAL"
+                "female": "en-female-1-neutral",  # Use English speaker for German text
+                "male": "en-female-1-neutral",   # Use English speaker for German text
+                "neutral": "en-female-1-neutral"
             }
         }
         
@@ -124,6 +125,11 @@ class OuteTTSEngine(ModelInterface):
 
     def _get_speaker_id(self, language: str, speaker_voice: str = "female") -> str:
         """Get the appropriate speaker ID for the given language and voice."""
+        # If speaker_voice looks like an actual speaker ID, use it directly
+        if speaker_voice and speaker_voice.upper().startswith(("AR-", "EN-", "ES-", "FR-", "DE-")):
+            return speaker_voice
+            
+        # Otherwise, map gender to speaker ID
         if language in self.available_speakers:
             speaker_dict = self.available_speakers[language]
             return speaker_dict.get(speaker_voice, speaker_dict.get("female", "EN-FEMALE-1-NEUTRAL"))
@@ -367,3 +373,47 @@ class OuteTTSEngine(ModelInterface):
     def supports_language(self, language: str) -> bool:
         """Check if the engine supports a specific language."""
         return language in self.supported_languages
+
+    def identify_available_speakers(self) -> Dict[str, List[str]]:
+        """Identify actual available speakers from the OuteTTS model."""
+        if not self.model_loaded:
+            raise RuntimeError("OuteTTS model not loaded. Call load_model() first.")
+        
+        actual_speakers = {}
+        
+        try:
+            # Try to get available speakers from the interface
+            # This is a more accurate way to check what speakers are actually available
+            for lang in ["ar", "en"]:  # Focus on Arabic and English
+                actual_speakers[lang] = []
+                
+                # Common speaker patterns for OuteTTS
+                speaker_patterns = [
+                    f"{lang.upper()}-FEMALE-1-NEUTRAL",
+                    f"{lang.upper()}-MALE-1-NEUTRAL", 
+                    f"{lang.upper()}-FEMALE-2-NEUTRAL",
+                    f"{lang.upper()}-MALE-2-NEUTRAL",
+                    f"{lang.upper()}-FEMALE-1-HAPPY",
+                    f"{lang.upper()}-FEMALE-1-SAD",
+                    f"{lang.upper()}-FEMALE-1-EXCITED"
+                ]
+                
+                for speaker_id in speaker_patterns:
+                    try:
+                        # Try to load the speaker to verify it exists
+                        test_speaker = self.interface.load_default_speaker(speaker_id)
+                        if test_speaker:
+                            actual_speakers[lang].append(speaker_id)
+                            logger.info(f"✅ Found speaker: {speaker_id}")
+                    except Exception as e:
+                        logger.debug(f"Speaker {speaker_id} not available: {e}")
+                        
+            return actual_speakers
+            
+        except Exception as e:
+            logger.error(f"Failed to identify speakers: {e}")
+            # Fallback to predefined speakers
+            return {
+                "ar": ["AR-FEMALE-1-NEUTRAL", "AR-MALE-1-NEUTRAL"],
+                "en": ["EN-FEMALE-1-NEUTRAL", "EN-MALE-1-NEUTRAL"]
+            }

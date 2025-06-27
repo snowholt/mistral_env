@@ -1,0 +1,21 @@
+{
+  "timestamp": "2025-06-27 02:22:54",
+  "edge_tts": {
+    "arabic_tests": 8,
+    "arabic_avg_speed": 40.753050006240514,
+    "arabic_avg_time": 1.3342666923999786,
+    "arabic_success_rate": 100.0,
+    "overall_tests": 11,
+    "overall_avg_speed": 40.64951303470917,
+    "overall_avg_time": 1.2583536018024792
+  },
+  "oute_tts": {
+    "arabic_tests": 0,
+    "arabic_avg_speed": 0,
+    "arabic_avg_time": 0,
+    "arabic_success_rate": 0,
+    "overall_tests": 0,
+    "overall_avg_speed": 0,
+    "overall_avg_time": 0
+  }
+}

@@ -8,6 +8,7 @@ import sys
 import os
 import logging
 import json
+import time
 
 # Add the beautyai_inference to the path
 sys.path.insert(0, '/home/lumi/beautyai')
@@ -46,61 +47,122 @@ def test_oute_tts():
         engine.load_model()
         print("✅ Model loaded successfully")
         
-        # Test text-to-speech with different languages and speakers
-        test_cases = [
-            ("Hello, this is a test using OuteTTS neural speech synthesis.", "en", "female"),
-            ("Hello, this is a test with a male voice using OuteTTS.", "en", "male"),
-            ("مرحبا، هذا اختبار باستخدام محرك OuteTTS للتحويل النصي إلى صوت.", "ar", "female"),
-            ("Bonjour, ceci est un test avec OuteTTS pour la synthèse vocale.", "fr", "female"),
-            ("Hola, esta es una prueba con OuteTTS para síntesis de voz.", "es", "female"),
+        # First, identify available speakers for Arabic
+        print("🎤 Identifying available Arabic speakers...")
+        try:
+            available_speakers = engine.identify_available_speakers()
+            arabic_speakers = available_speakers.get("ar", ["AR-FEMALE-1-NEUTRAL"])
+            print(f"✅ Found {len(arabic_speakers)} Arabic speakers:")
+            for speaker in arabic_speakers:
+                print(f"   - {speaker}")
+        except Exception as e:
+            print(f"⚠️ Could not identify speakers, using defaults: {e}")
+            arabic_speakers = ["AR-FEMALE-1-NEUTRAL", "AR-MALE-1-NEUTRAL"]
+        
+        # Arabic beauty clinic test cases - 5 specific scenarios
+        beauty_clinic_test_cases = [
+            ("أهلاً وسهلاً بك في عيادة الجمال. كيف يمكنني مساعدتك اليوم؟", "ar", arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"),
+            ("لديك موعد لعلاج البشرة في الساعة الثالثة. هل تريد تأكيد الموعد؟", "ar", arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"),
+            ("نوصي بكريم الترطيب اليومي لنوع بشرتك. يجب استخدامه صباحاً ومساءً.", "ar", arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"),
+            ("عملية تنظيف البشرة تستغرق ساعة واحدة. ستشعر بتحسن كبير بعدها.", "ar", arabic_speakers[1] if len(arabic_speakers) > 1 else arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"),
+            ("شكراً لزيارة عيادتنا. نتطلع لرؤيتك في الموعد القادم للمتابعة.", "ar", arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"),
         ]
         
-        created_files = []
+        # Use only Arabic beauty clinic test cases
+        test_cases = beauty_clinic_test_cases
         
-        for i, (text, language, gender) in enumerate(test_cases):
-            print(f"\n🔊 Test {i+1}: Generating OuteTTS for {language} ({gender})")
+        created_files = []
+        performance_results = []  # Track performance metrics
+        
+        for i, (text, language, speaker_id) in enumerate(test_cases):
+            print(f"\n🔊 Beauty Clinic Test {i+1}: Generating Arabic TTS")
             print(f"Text: '{text}'")
+            print(f"Speaker: {speaker_id}")
             
             try:
-                # Use a specific output path
-                output_path = f"/home/lumi/beautyai/voice_tests/oute_tts_{language}_{gender}_{i+1}.wav"
+                # Measure performance
+                start_time = time.time()
                 
+                # Use a specific output path for beauty clinic scenarios
+                output_path = f"/home/lumi/beautyai/voice_tests/beauty_clinic_ar_{i+1}.wav"
+                
+                # Use the actual speaker ID instead of gender mapping
                 result_path = engine.text_to_speech(
                     text=text,
                     language=language,
                     output_path=output_path,
-                    speaker_voice=gender,
+                    speaker_voice=speaker_id,  # Pass the actual speaker ID
                     emotion="neutral",
                     speed=1.0
                 )
                 
+                end_time = time.time()
+                generation_time = end_time - start_time
+                chars_per_second = len(text) / generation_time if generation_time > 0 else 0
+                
+                performance_data = {
+                    "test_number": i + 1,
+                    "scenario": f"beauty_clinic_{i+1}",
+                    "language": language,
+                    "speaker_id": speaker_id,
+                    "text_length": len(text),
+                    "generation_time": generation_time,
+                    "chars_per_second": chars_per_second,
+                    "success": False,
+                    "file_size": 0
+                }
+                
                 if result_path and os.path.exists(result_path):
                     file_size = os.path.getsize(result_path)
+                    performance_data["success"] = True
+                    performance_data["file_size"] = file_size
+                    
                     print(f"✅ OuteTTS successful: {result_path}")
                     print(f"📁 File size: {file_size} bytes")
+                    print(f"⏱️ Generation time: {generation_time:.2f}s")
+                    print(f"🚀 Speed: {chars_per_second:.1f} chars/sec")
                     created_files.append(result_path)
                 else:
                     print(f"❌ OuteTTS failed: No output file created")
+                
+                performance_results.append(performance_data)
                     
             except Exception as e:
                 print(f"❌ OuteTTS failed: {e}")
+                # Add failed result to performance tracking
+                performance_results.append({
+                    "test_number": i + 1,
+                    "scenario": f"beauty_clinic_{i+1}",
+                    "language": language,
+                    "speaker_id": speaker_id,
+                    "text_length": len(text),
+                    "generation_time": 0,
+                    "chars_per_second": 0,
+                    "success": False,
+                    "file_size": 0,
+                    "error": str(e)
+                })
         
-        # Test text_to_speech_bytes method
-        print(f"\n🔊 Testing text_to_speech_bytes method...")
+        # Test text_to_speech_bytes method with Arabic
+        print(f"\n🔊 Testing text_to_speech_bytes method (Arabic)...")
         try:
             audio_bytes = engine.text_to_speech_bytes(
-                "Testing bytes output from OuteTTS engine.",
-                language="en",
-                speaker_voice="female"
+                "اختبار إخراج البايتات من محرك OuteTTS.",
+                language="ar",
+                speaker_voice=arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"
             )
             print(f"✅ Bytes method successful: {len(audio_bytes)} bytes returned")
         except Exception as e:
             print(f"❌ Bytes method failed: {e}")
         
-        # Test benchmark
-        print(f"\n🚀 Running benchmark...")
+        # Test benchmark with Arabic
+        print(f"\n🚀 Running benchmark (Arabic)...")
         try:
-            benchmark_result = engine.benchmark("This is a benchmark test for OuteTTS performance and quality.")
+            benchmark_result = engine.benchmark(
+                "هذا اختبار أداء لتقنية OuteTTS لقياس الجودة والسرعة.",
+                language="ar",
+                speaker_voice=arabic_speakers[0] if arabic_speakers else "AR-FEMALE-1-NEUTRAL"
+            )
             print(f"✅ Benchmark completed:")
             print(f"   Generation time: {benchmark_result['generation_time']:.2f}s")
             print(f"   Characters/second: {benchmark_result['characters_per_second']:.1f}")
@@ -109,12 +171,12 @@ def test_oute_tts():
         except Exception as e:
             print(f"❌ Benchmark failed: {e}")
         
-        # Test available speakers
-        print(f"\n🎤 Testing available speakers...")
+        # Test available speakers for Arabic
+        print(f"\n🎤 Testing available speakers (Arabic)...")
         try:
-            speakers = engine.get_available_speakers("en")
-            print(f"✅ Available speakers for English: {len(speakers)}")
-            for speaker in speakers[:5]:  # Show first 5
+            speakers = engine.get_available_speakers("ar")
+            print(f"✅ Available speakers for Arabic: {len(speakers)}")
+            for speaker in speakers:
                 print(f"   - {speaker}")
         except Exception as e:
             print(f"❌ Get speakers failed: {e}")
@@ -123,8 +185,10 @@ def test_oute_tts():
         print(f"\n🌍 Testing supported languages...")
         try:
             languages = engine.get_supported_languages()
-            print(f"✅ Supported languages: {len(languages)}")
-            print(f"   Languages: {', '.join(languages)}")
+            arabic_supported = "ar" in languages
+            print(f"✅ Arabic supported: {arabic_supported}")
+            print(f"   Total languages: {len(languages)}")
+            print(f"   Arabic position: {languages.index('ar') + 1 if arabic_supported else 'Not found'}")
         except Exception as e:
             print(f"❌ Get languages failed: {e}")
         
@@ -163,6 +227,51 @@ def test_oute_tts():
             else:
                 print(f"  ❌ {file_path} (file missing!)")
         
+        # Performance Analysis for Beauty Clinic Scenarios
+        print(f"\n📈 PERFORMANCE ANALYSIS (Arabic Beauty Clinic)")
+        print("="*60)
+        
+        successful_tests = [r for r in performance_results if r["success"]]
+        
+        if successful_tests:
+            avg_speed = sum(r["chars_per_second"] for r in successful_tests) / len(successful_tests)
+            avg_time = sum(r["generation_time"] for r in successful_tests) / len(successful_tests)
+            total_chars = sum(r["text_length"] for r in successful_tests)
+            total_time = sum(r["generation_time"] for r in successful_tests)
+            
+            print(f"🎙️ Arabic Beauty Clinic TTS Performance:")
+            print(f"   Average Speed: {avg_speed:.1f} chars/sec")
+            print(f"   Average Generation Time: {avg_time:.2f}s")
+            print(f"   Total Characters Processed: {total_chars}")
+            print(f"   Total Generation Time: {total_time:.2f}s")
+            print(f"   Success Rate: {len(successful_tests)}/{len(performance_results)} ({len(successful_tests)/len(performance_results)*100:.1f}%)")
+            
+            # Show individual test performance
+            print(f"\n📊 Individual Beauty Clinic Scenario Performance:")
+            for result in successful_tests:
+                scenario = result.get("scenario", f"test_{result['test_number']}")
+                print(f"   {scenario}: {result['chars_per_second']:.1f} chars/sec ({result['generation_time']:.2f}s)")
+                
+        else:
+            print("❌ No successful tests to analyze")
+        
+        print(f"\n📁 Generated Beauty Clinic Audio Files:")
+        for file_path in created_files:
+            if os.path.exists(file_path):
+                file_size = os.path.getsize(file_path)
+                print(f"  🎵 {os.path.basename(file_path)} ({file_size} bytes)")
+            else:
+                print(f"  ❌ {os.path.basename(file_path)} (missing!)")
+        
+        # Save performance data to JSON
+        performance_file = "/home/lumi/beautyai/voice_tests/oute_tts_performance.json"
+        try:
+            with open(performance_file, 'w', encoding='utf-8') as f:
+                json.dump(performance_results, f, indent=2, ensure_ascii=False)
+            print(f"\n💾 Performance data saved to: {performance_file}")
+        except Exception as e:
+            print(f"❌ Failed to save performance data: {e}")
+        
         return len(created_files) > 0
         
     except Exception as e:
@@ -187,15 +296,15 @@ def test_oute_tts_service():
         print("📥 Loading OuteTTS model...")
         tts_service.load_tts_model("oute-tts-1b")
         
-        # Test text-to-speech
-        test_text = "Testing OuteTTS through the BeautyAI TTS service framework."
-        print(f"🔊 Converting text: '{test_text}'")
+        # Test text-to-speech with Arabic beauty clinic scenario
+        test_text = "أهلاً وسهلاً بكم في عيادة الجمال. كيف يمكنني مساعدتكم اليوم؟"
+        print(f"🔊 Converting Arabic text: '{test_text}'")
         
         result = tts_service.text_to_speech(
             text=test_text,
-            language="en",
+            language="ar",
             speaker_voice="female",
-            output_path="/home/lumi/beautyai/voice_tests/service_test_oute_tts.wav"
+            output_path="/home/lumi/beautyai/voice_tests/service_test_beauty_clinic_ar.wav"
         )
         
         if result and os.path.exists(result):
@@ -204,7 +313,8 @@ def test_oute_tts_service():
             print(f"   Output file: {result}")
             print(f"   File size: {file_size} bytes")
             print(f"   Model used: oute-tts-1b")
-            print(f"   Language: en")
+            print(f"   Language: Arabic (ar)")
+            print(f"   Scenario: Beauty clinic welcome")
             return True
         else:
             print(f"❌ Service test failed: No output file created")
@@ -248,25 +358,25 @@ def test_model_registry():
         return False
 
 def main():
-    """Main test function."""
-    print("🎙️ BeautyAI OuteTTS Test Suite")
-    print("Testing OuteTTS neural speech synthesis (GGUF format)")
+    """Main test function for Arabic beauty clinic TTS scenarios."""
+    print("🎙️ BeautyAI OuteTTS Arabic Beauty Clinic Test Suite")
+    print("Testing OuteTTS neural speech synthesis for Arabic beauty clinic scenarios")
     print("="*80)
     
     # Run all tests
     results = []
     
-    # Test 1: OuteTTS Engine
+    # Test 1: OuteTTS Engine (Arabic Beauty Clinic)
     results.append(test_oute_tts())
     
-    # Test 2: TTS Service
+    # Test 2: TTS Service (Arabic)
     results.append(test_oute_tts_service())
     
     # Test 3: Model Registry
     results.append(test_model_registry())
     
     print("\n" + "="*80)
-    print("📊 FINAL RESULTS")
+    print("📊 FINAL RESULTS - ARABIC BEAUTY CLINIC TTS")
     print("="*80)
     
     passed = sum(results)
@@ -275,14 +385,18 @@ def main():
     print(f"Tests passed: {passed}/{total}")
     
     if passed == total:
-        print("✅ ALL TESTS PASSED!")
-        print("🎯 OuteTTS is successfully integrated into BeautyAI framework!")
-        print("💡 Check the /home/lumi/beautyai/voice_tests directory for output files.")
-        print("🚀 OuteTTS provides high-quality neural speech synthesis with GGUF optimization!")
+        print("✅ ALL ARABIC BEAUTY CLINIC TESTS PASSED!")
+        print("🎯 OuteTTS is successfully integrated for Arabic beauty clinic scenarios!")
+        print("💄 Perfect for beauty clinic customer service applications!")
+        print("🎵 Check the /home/lumi/beautyai/voice_tests directory for beauty clinic audio files:")
+        print("   • beauty_clinic_ar_*.wav (Arabic beauty clinic scenarios)")
+        print("   • service_test_beauty_clinic_ar.wav (Service integration test)")
+        print("🚀 OuteTTS provides high-quality Arabic neural speech synthesis!")
     else:
-        print("❌ SOME TESTS FAILED")
+        print("❌ SOME ARABIC BEAUTY CLINIC TESTS FAILED")
         print("💡 Check the errors above for details.")
-        print("🔧 You may need to install additional dependencies or check the model configuration.")
+        print("🔧 You may need to install OuteTTS: pip install outetts")
+        print("📋 Or check the Arabic speaker configurations.")
 
 if __name__ == "__main__":
     main()

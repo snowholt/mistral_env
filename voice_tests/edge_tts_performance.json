@@ -1,0 +1,112 @@
+[
+  {
+    "test_number": 1,
+    "language": "ar",
+    "gender": "female",
+    "text_length": 42,
+    "generation_time": 1.1069092750549316,
+    "chars_per_second": 37.94348908849436,
+    "success": true,
+    "file_size": 35568
+  },
+  {
+    "test_number": 2,
+    "language": "ar",
+    "gender": "male",
+    "text_length": 42,
+    "generation_time": 1.4030823707580566,
+    "chars_per_second": 29.93409430218146,
+    "success": true,
+    "file_size": 35424
+  },
+  {
+    "test_number": 3,
+    "language": "ar",
+    "gender": "female",
+    "text_length": 62,
+    "generation_time": 1.1711363792419434,
+    "chars_per_second": 52.94003422567365,
+    "success": true,
+    "file_size": 37440
+  },
+  {
+    "test_number": 4,
+    "language": "ar",
+    "gender": "male",
+    "text_length": 62,
+    "generation_time": 1.017967939376831,
+    "chars_per_second": 60.905650955917636,
+    "success": true,
+    "file_size": 37008
+  },
+  {
+    "test_number": 5,
+    "language": "ar",
+    "gender": "female",
+    "text_length": 53,
+    "generation_time": 1.4668018817901611,
+    "chars_per_second": 36.13303245515069,
+    "success": true,
+    "file_size": 31536
+  },
+  {
+    "test_number": 6,
+    "language": "ar",
+    "gender": "male",
+    "text_length": 53,
+    "generation_time": 1.0869395732879639,
+    "chars_per_second": 48.760760305815694,
+    "success": true,
+    "file_size": 32112
+  },
+  {
+    "test_number": 7,
+    "language": "ar",
+    "gender": "female",
+    "text_length": 49,
+    "generation_time": 2.033733367919922,
+    "chars_per_second": 24.093620517283746,
+    "success": true,
+    "file_size": 29232
+  },
+  {
+    "test_number": 8,
+    "language": "ar",
+    "gender": "male",
+    "text_length": 49,
+    "generation_time": 1.3875627517700195,
+    "chars_per_second": 35.31371819940686,
+    "success": true,
+    "file_size": 29232
+  },
+  {
+    "test_number": 9,
+    "language": "en",
+    "gender": "female",
+    "text_length": 47,
+    "generation_time": 1.1360487937927246,
+    "chars_per_second": 41.371462437884766,
+    "success": true,
+    "file_size": 27504
+  },
+  {
+    "test_number": 10,
+    "language": "en",
+    "gender": "male",
+    "text_length": 40,
+    "generation_time": 0.9022538661956787,
+    "chars_per_second": 44.333420447017396,
+    "success": true,
+    "file_size": 21456
+  },
+  {
+    "test_number": 11,
+    "language": "fr",
+    "gender": "female",
+    "text_length": 40,
+    "generation_time": 1.129453420639038,
+    "chars_per_second": 35.41536044697464,
+    "success": true,
+    "file_size": 23760
+  }
+]

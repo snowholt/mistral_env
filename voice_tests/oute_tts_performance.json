@@ -1,0 +1,62 @@
+[
+  {
+    "test_number": 1,
+    "scenario": "beauty_clinic_1",
+    "language": "ar",
+    "speaker_id": "AR-FEMALE-1-NEUTRAL",
+    "text_length": 58,
+    "generation_time": 0,
+    "chars_per_second": 0,
+    "success": false,
+    "file_size": 0,
+    "error": "OuteTTS generation failed: Speaker ar-female-1-neutral not found ['en-female-1-neutral']"
+  },
+  {
+    "test_number": 2,
+    "scenario": "beauty_clinic_2",
+    "language": "ar",
+    "speaker_id": "AR-FEMALE-1-NEUTRAL",
+    "text_length": 63,
+    "generation_time": 0,
+    "chars_per_second": 0,
+    "success": false,
+    "file_size": 0,
+    "error": "OuteTTS generation failed: Speaker ar-female-1-neutral not found ['en-female-1-neutral']"
+  },
+  {
+    "test_number": 3,
+    "scenario": "beauty_clinic_3",
+    "language": "ar",
+    "speaker_id": "AR-FEMALE-1-NEUTRAL",
+    "text_length": 65,
+    "generation_time": 0,
+    "chars_per_second": 0,
+    "success": false,
+    "file_size": 0,
+    "error": "OuteTTS generation failed: Speaker ar-female-1-neutral not found ['en-female-1-neutral']"
+  },
+  {
+    "test_number": 4,
+    "scenario": "beauty_clinic_4",
+    "language": "ar",
+    "speaker_id": "AR-FEMALE-1-NEUTRAL",
+    "text_length": 61,
+    "generation_time": 0,
+    "chars_per_second": 0,
+    "success": false,
+    "file_size": 0,
+    "error": "OuteTTS generation failed: Speaker ar-female-1-neutral not found ['en-female-1-neutral']"
+  },
+  {
+    "test_number": 5,
+    "scenario": "beauty_clinic_5",
+    "language": "ar",
+    "speaker_id": "AR-FEMALE-1-NEUTRAL",
+    "text_length": 61,
+    "generation_time": 0,
+    "chars_per_second": 0,
+    "success": false,
+    "file_size": 0,
+    "error": "OuteTTS generation failed: Speaker ar-female-1-neutral not found ['en-female-1-neutral']"
+  }
+]
