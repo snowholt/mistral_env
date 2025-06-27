@@ -115,6 +115,12 @@ class IntegrationEngine(ModelInterface):
             return self.oute_tts_engine.text_to_speech_bytes(text, **kwargs)
         raise RuntimeError("TTS functionality requires OuteTTS engine")
 
+    def text_to_speech_stream(self, text: str, **kwargs):
+        """Convert text to speech and return as stream (only available with OuteTTS engine)."""
+        if self.oute_tts_engine:
+            return self.oute_tts_engine.text_to_speech_stream(text, **kwargs)
+        raise RuntimeError("TTS functionality requires OuteTTS engine")
+
     def get_supported_languages(self) -> List[str]:
         """Get supported languages (only available with OuteTTS engine)."""
         if self.oute_tts_engine:

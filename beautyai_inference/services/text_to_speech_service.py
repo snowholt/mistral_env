@@ -261,7 +261,7 @@ class TextToSpeechService(BaseService):
         return {
             "model_name": None,
             "model_id": None,
-            "engine_type": "xtts",
+            "engine_type": "oute_tts",
             "is_loaded": False,
             "supported_languages": self.get_supported_languages()
         }

@@ -866,8 +866,8 @@ async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
                 "loaded": False
             },
             "tts_model": {
-                "available": True,  # XTTS-v2 is always available if TTS library is installed
-                "default": "xtts-v2",
+                "available": True,  # OuteTTS is always available if llama-cpp-python is installed
+                "default": "oute-tts-1b",
                 "loaded": False
             },
             "chat_model": {

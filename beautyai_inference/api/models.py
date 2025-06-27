@@ -767,7 +767,7 @@ class VoiceToVoiceRequest(APIRequest):
     
     # Model Selection
     stt_model_name: Optional[str] = "whisper-large-v3-turbo-arabic"
-    tts_model_name: Optional[str] = "xtts-v2"
+    tts_model_name: Optional[str] = "oute-tts-1b"
     chat_model_name: Optional[str] = "qwen3-unsloth-q4ks"
     
     # TTS Parameters

@@ -1,7 +1,7 @@
 """
 Edge TTS Text-to-Speech engine for BeautyAI Framework.
 Uses Microsoft Edge TTS for high-quality multilingual TTS generation.
-This is compatible with Python 3.12+ and works as an alternative to XTTS.
+This is compatible with Python 3.12+ and works as an alternative to OuteTTS.
 """
 
 import logging
@@ -191,7 +191,7 @@ class EdgeTTSEngine(ModelInterface):
         # Ensure the output directory exists
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
         
-        # Use the enhanced mock generation from XTTS engine
+        # Use the enhanced mock generation from OuteTTS engine
         import wave
         import math
         import struct
@@ -202,11 +202,11 @@ class EdgeTTSEngine(ModelInterface):
             wav_file.setframerate(22050)
             
             words = text.split()
-            duration = max(2.0, len(words) * 0.35 + 0.5)  # Slightly faster than XTTS
+            duration = max(2.0, len(words) * 0.35 + 0.5)  # Slightly faster than OuteTTS
             num_samples = int(22050 * duration)
             
             # Edge TTS tends to have cleaner, more consistent voice
-            base_f0 = 160 if language == "ar" else 140  # Slightly different from XTTS
+            base_f0 = 160 if language == "ar" else 140  # Slightly different from OuteTTS
             
             audio_data = []
             for i in range(num_samples):
