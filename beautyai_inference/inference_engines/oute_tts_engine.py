@@ -50,9 +50,9 @@ class OuteTTSEngine(ModelInterface):
                 "neutral": "EN-FEMALE-1-NEUTRAL"
             },
             "ar": {
-                "female": "arabic_female_custom",  # Will use custom Arabic speaker
-                "male": "arabic_male_custom",     # Will use custom Arabic speaker  
-                "neutral": "arabic_female_custom"
+                "female": "arabic_female_premium_19s",  # Use our new premium Arabic speaker
+                "male": "arabic_male_custom",           # Will use custom Arabic speaker  
+                "neutral": "arabic_female_premium_19s"  # Default to premium female
             },
             "es": {
                 "female": "EN-FEMALE-1-NEUTRAL",  # Use English speaker for Spanish text
@@ -233,18 +233,43 @@ class OuteTTSEngine(ModelInterface):
                 logger.info(f"Loading default speaker: {speaker_id}")
                 speaker = self.interface.load_default_speaker(speaker_id)
             
-            # Generate speech
+            # Generate speech with language-optimized parameters
             logger.info(f"Generating speech for text: '{text[:50]}...' (language: {language})")
+            
+            # Optimize sampler config for Arabic language
+            if language == "ar":
+                # Arabic-optimized parameters for better accuracy
+                sampler_config = outetts.SamplerConfig(
+                    temperature=0.2,          # Much lower for Arabic accuracy
+                    top_p=0.75,              # Better control for Arabic morphology
+                    top_k=25,                # Lower for more consistent Arabic pronunciation
+                    repetition_penalty=1.02, # Minimal to avoid breaking Arabic words
+                    repetition_range=32,     # Shorter for Arabic word structure
+                    min_p=0.02              # Lower threshold for Arabic phonemes
+                )
+                generation_type = outetts.GenerationType.SENTENCE  # Better for Arabic sentences
+                max_length = 12288  # Higher for longer Arabic sentences
+            else:
+                # Default parameters for other languages
+                sampler_config = outetts.SamplerConfig(
+                    temperature=0.4,
+                    repetition_penalty=1.1,
+                    repetition_range=64,
+                    top_k=40,
+                    top_p=0.9,
+                    min_p=0.05
+                )
+                generation_type = outetts.GenerationType.CHUNKED
+                max_length = 8192
+            
             output = self.interface.generate(
                 config=outetts.GenerationConfig(
                     text=text,
-                    generation_type=outetts.GenerationType.CHUNKED,
+                    generation_type=generation_type,
                     speaker=speaker,
-                    sampler_config=outetts.SamplerConfig(
-                        temperature=0.4,
-                        top_p=0.9,
-                        top_k=50
-                    ),
+                    sampler_config=sampler_config,
+                    max_length=max_length,
+                    language=language if language != "en" else None  # Explicit language for non-English
                 )
             )
             
@@ -283,17 +308,31 @@ class OuteTTSEngine(ModelInterface):
             speaker_id = self._get_speaker_id(language, speaker_voice)
             speaker = self.interface.load_default_speaker(speaker_id)
             
-            # Generate speech
+            # Generate speech with optimized Arabic parameters
+            if language == "ar":
+                sampler_config = outetts.SamplerConfig(
+                    temperature=0.2,      # Lower for Arabic accuracy
+                    top_p=0.75,          # Better control
+                    top_k=25,            # More consistent
+                    repetition_penalty=1.02,
+                    min_p=0.02
+                )
+                generation_type = outetts.GenerationType.SENTENCE
+            else:
+                sampler_config = outetts.SamplerConfig(
+                    temperature=0.4,
+                    top_p=0.9,
+                    top_k=50
+                )
+                generation_type = outetts.GenerationType.CHUNKED
+            
             output = self.interface.generate(
                 config=outetts.GenerationConfig(
                     text=text,
-                    generation_type=outetts.GenerationType.CHUNKED,
+                    generation_type=generation_type,
                     speaker=speaker,
-                    sampler_config=outetts.SamplerConfig(
-                        temperature=0.4,
-                        top_p=0.9,
-                        top_k=50
-                    ),
+                    sampler_config=sampler_config,
+                    language=language if language != "en" else None
                 )
             )
             
@@ -705,6 +744,7 @@ class OuteTTSEngine(ModelInterface):
             
             # Look for individual profile files
             profile_patterns = [
+                ("arabic_female_premium_19s.json", "ar-female", "arabic_female_premium_19s"),
                 ("arabic_female_beautyai.json", "ar-female", "arabic_female_beautyai"),
                 ("arabic_male_beautyai.json", "ar-male", "arabic_male_beautyai"),
                 ("arabic_female_custom.json", "ar-female", "arabic_female_custom"),

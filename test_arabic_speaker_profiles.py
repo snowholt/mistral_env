@@ -2,12 +2,12 @@
 """
 Arabic Speaker Profile Test Script for BeautyAI Platform.
 
-Tests male and female Arabic speaker profiles with:
+Tests premium Arabic female speaker profile with:
 - Long sentences (complex medical/beauty terminology)
 - Medium sentences (10 words)  
 - Short sentences (3 words)
 
-All outputs saved to voice_tests/arabic_speaker_tests/
+All outputs saved to voice_tests/premium_speaker_tests/
 """
 
 import sys
@@ -28,12 +28,11 @@ logger = logging.getLogger(__name__)
 
 def create_test_directories():
     """Create necessary test directories."""
-    test_dir = Path("/home/lumi/beautyai/voice_tests/arabic_speaker_tests")
+    test_dir = Path("/home/lumi/beautyai/voice_tests/premium_speaker_tests")
     test_dir.mkdir(parents=True, exist_ok=True)
     
     # Create subdirectories for organization
     (test_dir / "female").mkdir(exist_ok=True)
-    (test_dir / "male").mkdir(exist_ok=True)
     (test_dir / "long_sentences").mkdir(exist_ok=True)
     (test_dir / "medium_sentences").mkdir(exist_ok=True)
     (test_dir / "short_sentences").mkdir(exist_ok=True)
@@ -139,17 +138,22 @@ def test_arabic_speaker_profile(
                     # Measure performance
                     start_time = time.time()
                     
-                    # Generate speech
+                    # Generate speech with optimized Arabic parameters
                     output = interface.generate(
                         config=outetts.GenerationConfig(
                             text=sentence,
-                            generation_type=outetts.GenerationType.CHUNKED,
+                            generation_type=outetts.GenerationType.CHUNKED,  # Use CHUNKED instead of SENTENCE
                             speaker=speaker,
                             sampler_config=outetts.SamplerConfig(
-                                temperature=0.4,
-                                top_p=0.9,
-                                top_k=50
+                                temperature=0.0,          # Much lower for Arabic accuracy
+                                top_p=0.75,              # Better control for Arabic morphology
+                                top_k=25,                # Lower for more consistent Arabic
+                                repetition_penalty=1.02, # Minimal to avoid breaking Arabic words
+                                repetition_range=32,     # Shorter for Arabic word structure
+                                min_p=0.02              # Lower threshold for Arabic phonemes
                             ),
+                            max_length=8192            # Use model's actual max_seq_length
+                            # Note: Removed language parameter as it's not supported
                         )
                     )
                     
@@ -159,7 +163,7 @@ def test_arabic_speaker_profile(
                     # Create output path
                     gender = "female" if "female" in speaker_name.lower() else "male"
                     output_filename = f"{gender}_{sentence_type}_{i:02d}.wav"
-                    output_path = test_dir / sentence_type.replace("_sentences", "_sentences") / output_filename
+                    output_path = test_dir / f"{sentence_type}_sentences" / output_filename
                     
                     # Save audio file
                     output.save(str(output_path))
@@ -251,11 +255,11 @@ def save_test_results(results: Dict, output_path: Path):
         print(f"❌ Failed to save results: {e}")
 
 def main():
-    """Main function to run Arabic speaker profile tests."""
+    """Main function to run Arabic premium speaker profile tests."""
     
-    print("🎭 Arabic Speaker Profile Testing Suite")
+    print("🎭 Premium Arabic Speaker Profile Testing Suite")
     print("="*80)
-    print("Testing male and female Arabic speakers with:")
+    print("Testing premium Arabic female speaker with:")
     print("   📏 Long sentences (complex medical/beauty terminology)")
     print("   📝 Medium sentences (exactly 10 words)")
     print("   📋 Short sentences (exactly 3 words)")
@@ -272,23 +276,18 @@ def main():
     print(f"   Medium sentences: {len(test_sentences['medium'])} (10 words each)")
     print(f"   Short sentences: {len(test_sentences['short'])} (3 words each)")
     
-    # Define speaker profiles to test
+    # Define speaker profile to test (premium female only)
     speaker_profiles = [
         {
-            "name": "arabic_female_beautyai",
-            "profile_path": "/home/lumi/beautyai/voice_tests/arabic_speaker_profiles/arabic_female_beautyai.json",
+            "name": "arabic_female_premium_19s",
+            "profile_path": "/home/lumi/beautyai/voice_tests/arabic_speaker_profiles/arabic_female_premium_19s.json",
             "gender": "female"
-        },
-        {
-            "name": "arabic_male_beautyai", 
-            "profile_path": "/home/lumi/beautyai/voice_tests/arabic_speaker_profiles/arabic_male_beautyai.json",
-            "gender": "male"
         }
     ]
     
     all_results = {
         "test_timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
-        "test_description": "Arabic Speaker Profile Comprehensive Testing",
+        "test_description": "Premium Arabic Female Speaker Profile Comprehensive Testing",
         "speaker_results": []
     }
     
@@ -299,7 +298,7 @@ def main():
         gender = speaker_info["gender"]
         
         print(f"\n{'='*80}")
-        print(f"🎤 TESTING {gender.upper()} ARABIC SPEAKER: {speaker_name}")
+        print(f"🎤 TESTING PREMIUM ARABIC SPEAKER: {speaker_name}")
         print(f"{'='*80}")
         
         # Check if profile exists
@@ -325,7 +324,7 @@ def main():
         save_test_results(results, individual_results_path)
     
     # Save combined results
-    combined_results_path = test_dir / "arabic_speaker_tests_complete.json"
+    combined_results_path = test_dir / "premium_speaker_tests_complete.json"
     save_test_results(all_results, combined_results_path)
     
     # Print final summary
@@ -351,7 +350,7 @@ def main():
     
     print(f"\n🎵 Audio files saved in: {test_dir}")
     print(f"📄 Test results saved in: {combined_results_path}")
-    print(f"\n✅ Arabic speaker profile testing completed!")
+    print(f"\n✅ Premium Arabic speaker profile testing completed!")
 
 if __name__ == "__main__":
     main()
