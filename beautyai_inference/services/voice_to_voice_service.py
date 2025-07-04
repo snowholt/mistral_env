@@ -8,6 +8,7 @@ directly to minimize latency and improve performance.
 
 import logging
 import time
+import uuid
 from pathlib import Path
 from typing import Dict, Any, Optional, List, BinaryIO
 
@@ -45,6 +46,7 @@ class VoiceToVoiceService(BaseService):
         self.tts_service = TextToSpeechService()
         self.chat_service = ChatService()
         self.content_filter = ContentFilterService(strictness=content_filter_strictness)
+        self.model_manager = ModelManager()
         
         # Service status
         self.services_loaded = {
@@ -68,6 +70,7 @@ class VoiceToVoiceService(BaseService):
         # Session management
         self.current_session = None
         self.conversation_history = []
+        self.active_sessions = {}
         
         # Performance tracking
         self.performance_stats = {
@@ -79,382 +82,332 @@ class VoiceToVoiceService(BaseService):
         # Output directory for audio files
         self.output_dir = Path("/home/lumi/beautyai/voice_tests/voice_to_voice_outputs")
         self.output_dir.mkdir(parents=True, exist_ok=True)
-        self.chat_model_loaded = False
-        
-        # Default models
-        self.default_stt_model = "whisper-large-v3-turbo-arabic"
-        self.default_tts_model = "oute-tts-1b"
-        self.default_chat_model = "qwen3-unsloth-q4ks"
-        
-        # Session management
-        self.active_sessions = {}
-    
+
     def initialize_models(
         self,
         stt_model: str = None,
+        chat_model: str = None,
         tts_model: str = None,
-        chat_model: str = None
-    ) -> bool:
+        language: str = "ar"
+    ) -> Dict[str, bool]:
         """
         Initialize all required models for voice-to-voice conversation.
         
         Args:
-            stt_model: Speech-to-Text model name
-            tts_model: Text-to-Speech model name  
-            chat_model: Chat model name
+            stt_model: Speech-to-text model identifier
+            chat_model: Chat model identifier
+            tts_model: Text-to-speech model identifier
+            language: Target language code
             
         Returns:
-            bool: True if all models loaded successfully
+            Dict indicating success/failure for each model type
         """
+        # Use defaults if not specified
+        stt_model = stt_model or self.default_config["stt_model"]
+        chat_model = chat_model or self.default_config["chat_model"]
+        tts_model = tts_model or self.default_config["tts_model"]
+        
+        results = {}
+        
         try:
-            stt_model = stt_model or self.default_stt_model
-            tts_model = tts_model or self.default_tts_model
-            chat_model = chat_model or self.default_chat_model
+            # Initialize STT Service
+            logger.info(f"Initializing STT service with model: {stt_model}")
+            results["stt"] = self.stt_service.initialize_model(stt_model)
+            self.services_loaded["stt"] = results["stt"]
             
-            logger.info("Initializing voice-to-voice models...")
+            # Initialize Chat Service
+            logger.info(f"Initializing Chat service with model: {chat_model}")
+            chat_success = self.chat_service.load_model(chat_model)
+            results["chat"] = chat_success
+            self.services_loaded["chat"] = chat_success
             
-            # Load STT model
-            logger.info(f"Loading STT model: {stt_model}")
-            if not self.stt_service.load_whisper_model(stt_model):
-                logger.error(f"Failed to load STT model: {stt_model}")
-                return False
-            self.stt_model_loaded = True
-            logger.info("✓ STT model loaded")
+            # Initialize TTS Service
+            logger.info(f"Initializing TTS service with model: {tts_model}")
+            tts_success = self.tts_service.initialize_engine(tts_model)
+            results["tts"] = tts_success
+            self.services_loaded["tts"] = tts_success
             
-            # Load TTS model
-            logger.info(f"Loading TTS model: {tts_model}")
-            if not self.tts_service.load_tts_model(tts_model):
-                logger.error(f"Failed to load TTS model: {tts_model}")
-                return False
-            self.tts_model_loaded = True
-            logger.info("✓ TTS model loaded")
-            
-            # Load chat model (through model manager)
-            logger.info(f"Loading chat model: {chat_model}")
-            app_config = AppConfig()
-            app_config.models_file = "beautyai_inference/config/model_registry.json"
-            app_config.load_model_registry()
-            
-            chat_model_config = app_config.model_registry.get_model(chat_model)
-            if not chat_model_config:
-                logger.error(f"Chat model configuration not found: {chat_model}")
-                return False
-            
-            if not self.model_manager.is_model_loaded(chat_model):
-                success = self.model_manager.load_model(chat_model_config)
-                if not success:
-                    logger.error(f"Failed to load chat model: {chat_model}")
-                    return False
-            
-            self.chat_model_loaded = True
-            logger.info("✓ Chat model loaded")
-            
-            logger.info("🎉 All voice-to-voice models initialized successfully!")
-            return True
+            logger.info(f"Model initialization results: {results}")
+            return results
             
         except Exception as e:
-            logger.error(f"Error initializing models: {e}")
-            return False
-    
+            logger.error(f"Error during model initialization: {e}")
+            return {"stt": False, "chat": False, "tts": False}
+
     def voice_to_voice_conversation(
         self,
-        audio_bytes: bytes,
-        audio_format: str = "wav",
-        input_language: str = "ar",
-        output_language: str = "ar",
-        session_id: Optional[str] = None,
-        chat_history: Optional[List[Dict[str, str]]] = None,
-        speaker_voice: Optional[str] = None,
-        emotion: str = "neutral",
-        speech_speed: float = 1.0,
-        generation_config: Optional[Dict[str, Any]] = None,
-        disable_content_filter: bool = False
+        audio_file: str,
+        session_id: str = None,
+        language: str = "ar",
+        speaker_voice: str = "female",
+        response_max_length: int = 256,
+        enable_content_filter: bool = True
     ) -> Dict[str, Any]:
         """
-        Complete voice-to-voice conversation pipeline.
+        Process a complete voice-to-voice conversation.
         
         Args:
-            audio_bytes: Input audio data
-            audio_format: Audio format (wav, mp3, etc.)
-            input_language: Language of input audio
-            output_language: Language for output audio
-            session_id: Session identifier for conversation continuity
-            chat_history: Previous conversation history
-            speaker_voice: TTS speaker voice to use
-            emotion: TTS emotion/style
-            speech_speed: TTS speech speed
-            generation_config: LLM generation parameters
-            disable_content_filter: Whether to disable content filtering
+            audio_file: Path to input audio file
+            session_id: Conversation session identifier
+            language: Target language for processing
+            speaker_voice: Voice type for TTS output
+            response_max_length: Maximum response length
+            enable_content_filter: Whether to apply content filtering
             
         Returns:
-            dict: Complete conversation result with metrics
+            Dict containing conversation results and output paths
         """
         start_time = time.time()
-        result = {
-            "success": False,
-            "session_id": session_id or str(uuid.uuid4()),
-            "transcription": "",
-            "response_text": "",
-            "response_audio_path": None,
-            "response_audio_bytes": None,
-            "input_language": input_language,
-            "output_language": output_language,
-            "metrics": {},
-            "errors": []
-        }
+        
+        # Validate models are loaded
+        if not self._validate_models_loaded():
+            return {
+                "success": False,
+                "error": "Required models not loaded. Call initialize_models() first.",
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": 0.0
+            }
+        
+        # Generate session ID if not provided
+        if session_id is None:
+            session_id = str(uuid.uuid4())
         
         try:
-            # Validate models are loaded
-            if not self._validate_models_loaded():
-                result["errors"].append("Not all required models are loaded")
-                return result
-            
             # Step 1: Speech-to-Text
-            logger.info("🎙️ Starting speech-to-text conversion...")
-            stt_start = time.time()
-            
-            transcription = self.stt_service.transcribe_audio_bytes(
-                audio_bytes=audio_bytes,
-                audio_format=audio_format,
-                language=input_language
+            logger.info(f"Starting STT for session {session_id}")
+            transcription_result = self.stt_service.transcribe(
+                audio_file=audio_file,
+                language=language
             )
             
-            stt_end = time.time()
-            stt_time = stt_end - stt_start
+            if not transcription_result.get("success", False):
+                return {
+                    "success": False,
+                    "error": f"STT failed: {transcription_result.get('error', 'Unknown error')}",
+                    "transcription": None,
+                    "response": None,
+                    "audio_output": None,
+                    "processing_time": time.time() - start_time
+                }
             
-            if not transcription:
-                result["errors"].append("Speech-to-text conversion failed")
-                return result
+            transcribed_text = transcription_result["transcription"]
+            logger.info(f"Transcription successful: {transcribed_text[:50]}...")
             
-            result["transcription"] = transcription
-            logger.info(f"✓ Transcription: '{transcription[:100]}...' ({stt_time:.2f}s)")
+            # Step 2: Content filtering (if enabled)
+            if enable_content_filter:
+                filter_result = self.content_filter.filter_content(transcribed_text)
+                if not filter_result["is_safe"]:
+                    return {
+                        "success": False,
+                        "error": f"Content filtered: {filter_result['reason']}",
+                        "transcription": transcribed_text,
+                        "response": None,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
             
-            # Step 2: Content filtering (input)
-            if not disable_content_filter:
-                logger.info("🔒 Applying input content filter...")
-                filter_result = self.content_filter.filter_input(transcription)
-                if not filter_result.is_allowed:
-                    result["errors"].append(f"Content filtered: {filter_result.reason}")
-                    result["transcription"] = filter_result.filtered_content or ""
-                    return result
+            # Step 3: Get conversation history for context
+            conversation_history = self.get_session_history(session_id) or []
             
-            # Step 3: Chat completion
-            logger.info("🤖 Generating chat response...")
-            chat_start = time.time()
+            # Step 4: Chat inference
+            logger.info(f"Starting chat inference for session {session_id}")
+            chat_result = self.chat_service.chat(
+                message=transcribed_text,
+                conversation_history=conversation_history,
+                max_length=response_max_length,
+                language=language
+            )
             
-            # Build chat history
-            messages = chat_history or []
-            messages.append({"role": "user", "content": transcription})
+            if not chat_result.get("success", False):
+                return {
+                    "success": False,
+                    "error": f"Chat failed: {chat_result.get('error', 'Unknown error')}",
+                    "transcription": transcribed_text,
+                    "response": None,
+                    "audio_output": None,
+                    "processing_time": time.time() - start_time
+                }
             
-            # Get chat model config
-            app_config = AppConfig()
-            app_config.models_file = "beautyai_inference/config/model_registry.json"
-            app_config.load_model_registry()
-            chat_model_config = app_config.model_registry.get_model(self.default_chat_model)
-            
-            # Generate response using direct model access for better performance
-            model_instance = self.model_manager.get_loaded_model(self.default_chat_model)
-            if not model_instance:
-                result["errors"].append("Chat model not available")
-                return result
-            
-            # Use generation config or defaults
-            gen_config = generation_config or {
-                "temperature": 0.7,
-                "max_new_tokens": 512,
-                "top_p": 0.95,
-                "do_sample": True,
-                "repetition_penalty": 1.1
-            }
-            
-            response_text = model_instance.chat(messages, **gen_config)
-            
-            chat_end = time.time()
-            chat_time = chat_end - chat_start
-            
-            if not response_text:
-                result["errors"].append("Chat response generation failed")
-                return result
-            
-            result["response_text"] = response_text
-            logger.info(f"✓ Chat response: '{response_text[:100]}...' ({chat_time:.2f}s)")
-            
-            # Step 4: Content filtering (output)
-            if not disable_content_filter:
-                logger.info("🔒 Applying output content filter...")
-                filter_result = self.content_filter.filter_output(response_text)
-                if not filter_result.is_allowed:
-                    result["errors"].append(f"Response filtered: {filter_result.reason}")
-                    result["response_text"] = filter_result.filtered_content or "I apologize, but I cannot provide that response."
+            response_text = chat_result["response"]
+            logger.info(f"Chat response: {response_text[:50]}...")
             
             # Step 5: Text-to-Speech
-            logger.info("🔊 Converting response to speech...")
-            tts_start = time.time()
+            logger.info(f"Starting TTS for session {session_id}")
+            output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
             
-            response_audio_bytes = self.tts_service.text_to_speech_bytes(
-                text=result["response_text"],
-                language=output_language,
-                speaker_voice=speaker_voice,
-                emotion=emotion,
-                speed=speech_speed
+            tts_result = self.tts_service.synthesize(
+                text=response_text,
+                output_path=str(output_audio_path),
+                language=language,
+                voice=speaker_voice
             )
             
-            tts_end = time.time()
-            tts_time = tts_end - tts_start
-            
-            if not response_audio_bytes:
-                result["errors"].append("Text-to-speech conversion failed")
-                return result
-            
-            result["response_audio_bytes"] = response_audio_bytes
-            logger.info(f"✓ TTS completed ({tts_time:.2f}s, {len(response_audio_bytes)} bytes)")
+            if not tts_result.get("success", False):
+                return {
+                    "success": False,
+                    "error": f"TTS failed: {tts_result.get('error', 'Unknown error')}",
+                    "transcription": transcribed_text,
+                    "response": response_text,
+                    "audio_output": None,
+                    "processing_time": time.time() - start_time
+                }
             
             # Step 6: Update session history
-            if session_id:
-                self._update_session(session_id, messages + [{"role": "assistant", "content": response_text}])
+            new_messages = [
+                {"role": "user", "content": transcribed_text},
+                {"role": "assistant", "content": response_text}
+            ]
+            self._update_session(session_id, new_messages)
             
-            # Calculate total metrics
-            total_time = time.time() - start_time
-            result["metrics"] = {
-                "total_time_seconds": total_time,
-                "stt_time_seconds": stt_time,
-                "chat_time_seconds": chat_time,
-                "tts_time_seconds": tts_time,
-                "transcription_length": len(transcription),
-                "response_length": len(result["response_text"]),
-                "audio_size_bytes": len(response_audio_bytes),
-                "processing_efficiency": {
-                    "stt_chars_per_second": len(transcription) / stt_time if stt_time > 0 else 0,
-                    "chat_tokens_per_second": len(result["response_text"].split()) / chat_time if chat_time > 0 else 0,
-                    "tts_chars_per_second": len(result["response_text"]) / tts_time if tts_time > 0 else 0
+            # Calculate metrics
+            processing_time = time.time() - start_time
+            self.performance_stats["total_requests"] += 1
+            self.performance_stats["average_latency"] = (
+                (self.performance_stats["average_latency"] * (self.performance_stats["total_requests"] - 1) + processing_time) /
+                self.performance_stats["total_requests"]
+            )
+            
+            return {
+                "success": True,
+                "session_id": session_id,
+                "transcription": transcribed_text,
+                "response": response_text,
+                "audio_output": str(output_audio_path),
+                "processing_time": processing_time,
+                "metadata": {
+                    "language": language,
+                    "speaker_voice": speaker_voice,
+                    "content_filtered": enable_content_filter,
+                    "audio_duration": transcription_result.get("duration", 0.0)
                 }
             }
             
-            result["success"] = True
-            logger.info(f"🎉 Voice-to-voice conversation completed successfully! ({total_time:.2f}s total)")
-            
-            return result
-            
         except Exception as e:
             logger.error(f"Error in voice-to-voice conversation: {e}")
-            result["errors"].append(str(e))
-            result["metrics"]["total_time_seconds"] = time.time() - start_time
-            return result
-    
+            return {
+                "success": False,
+                "error": str(e),
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": time.time() - start_time
+            }
+
     def voice_to_voice_file(
         self,
         input_audio_path: str,
-        output_audio_path: Optional[str] = None,
-        **kwargs
+        output_audio_path: str = None,
+        config: Dict[str, Any] = None
     ) -> Dict[str, Any]:
         """
-        Voice-to-voice conversation from file input.
+        Process voice-to-voice conversion from file to file.
         
         Args:
             input_audio_path: Path to input audio file
-            output_audio_path: Path to save output audio (optional)
-            **kwargs: Additional parameters for voice_to_voice_conversation
+            output_audio_path: Path for output audio file (optional)
+            config: Configuration overrides
             
         Returns:
-            dict: Conversation result including output audio path
+            Processing results with paths and metadata
         """
-        try:
-            # Read input audio file
-            with open(input_audio_path, 'rb') as f:
-                audio_bytes = f.read()
-            
-            # Detect audio format from file extension
-            audio_format = input_audio_path.split('.')[-1].lower() if '.' in input_audio_path else 'wav'
-            
-            # Process voice-to-voice
-            result = self.voice_to_voice_conversation(
-                audio_bytes=audio_bytes,
-                audio_format=audio_format,
-                **kwargs
-            )
-            
-            # Save output audio if path provided
-            if result["success"] and result["response_audio_bytes"] and output_audio_path:
-                with open(output_audio_path, 'wb') as f:
-                    f.write(result["response_audio_bytes"])
-                result["response_audio_path"] = output_audio_path
-                logger.info(f"Output audio saved to: {output_audio_path}")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"Error in file-based voice-to-voice: {e}")
-            return {
-                "success": False,
-                "errors": [str(e)],
-                "metrics": {}
-            }
-    
+        if config is None:
+            config = self.default_config.copy()
+        
+        # Generate output path if not provided
+        if output_audio_path is None:
+            timestamp = int(time.time())
+            output_audio_path = str(self.output_dir / f"voice_output_{timestamp}.wav")
+        
+        # Use the main conversation method
+        result = self.voice_to_voice_conversation(
+            audio_file=input_audio_path,
+            language=config.get("language", "ar"),
+            speaker_voice=config.get("speaker_voice", "female"),
+            response_max_length=config.get("response_max_length", 256),
+            enable_content_filter=config.get("enable_content_filter", True)
+        )
+        
+        # Copy audio to specified output path if different
+        if result.get("success") and result.get("audio_output") != output_audio_path:
+            try:
+                import shutil
+                shutil.copy2(result["audio_output"], output_audio_path)
+                result["audio_output"] = output_audio_path
+            except Exception as e:
+                logger.warning(f"Could not copy to specified output path: {e}")
+        
+        return result
+
     def _validate_models_loaded(self) -> bool:
-        """Validate that all required models are loaded."""
-        if not self.stt_model_loaded:
-            logger.error("STT model not loaded")
-            return False
-        if not self.tts_model_loaded:
-            logger.error("TTS model not loaded") 
-            return False
-        if not self.chat_model_loaded:
-            logger.error("Chat model not loaded")
-            return False
+        """Check if all required models are loaded."""
+        required_services = ["stt", "tts", "chat"]
+        for service in required_services:
+            if not self.services_loaded.get(service, False):
+                logger.error(f"Service not loaded: {service}")
+                return False
         return True
-    
+
     def _update_session(self, session_id: str, messages: List[Dict[str, str]]) -> None:
-        """Update session history."""
-        self.active_sessions[session_id] = {
-            "messages": messages,
-            "last_updated": time.time()
-        }
-    
+        """Update conversation history for a session."""
+        if session_id not in self.active_sessions:
+            self.active_sessions[session_id] = []
+        self.active_sessions[session_id].extend(messages)
+
     def get_session_history(self, session_id: str) -> Optional[List[Dict[str, str]]]:
         """Get conversation history for a session."""
-        session = self.active_sessions.get(session_id)
-        return session["messages"] if session else None
-    
+        return self.active_sessions.get(session_id)
+
     def clear_session(self, session_id: str) -> bool:
-        """Clear a conversation session."""
+        """Clear conversation history for a session."""
         if session_id in self.active_sessions:
             del self.active_sessions[session_id]
             return True
         return False
-    
+
     def get_models_status(self) -> Dict[str, Any]:
-        """Get status of all loaded models."""
+        """Get comprehensive status of all loaded models."""
         return {
-            "stt_model": {
-                "loaded": self.stt_model_loaded,
-                "model_name": self.stt_service.get_loaded_model_name()
+            "services_loaded": self.services_loaded.copy(),
+            "stt_service": {
+                "status": "loaded" if self.services_loaded.get("stt") else "not_loaded",
+                "details": self.stt_service.get_status() if hasattr(self.stt_service, 'get_status') else {}
             },
-            "tts_model": {
-                "loaded": self.tts_model_loaded,
-                "model_name": self.tts_service.get_loaded_model_name()
+            "tts_service": {
+                "status": "loaded" if self.services_loaded.get("tts") else "not_loaded",
+                "details": self.tts_service.get_status() if hasattr(self.tts_service, 'get_status') else {}
             },
-            "chat_model": {
-                "loaded": self.chat_model_loaded,
-                "model_name": self.default_chat_model
-            }
+            "chat_service": {
+                "status": "loaded" if self.services_loaded.get("chat") else "not_loaded",
+                "details": self.chat_service.get_status() if hasattr(self.chat_service, 'get_status') else {}
+            },
+            "active_sessions": len(self.active_sessions),
+            "performance_stats": self.performance_stats.copy()
         }
-    
+
     def unload_all_models(self) -> None:
         """Unload all models to free memory."""
         try:
-            if self.stt_model_loaded:
+            # Unload STT service
+            if hasattr(self.stt_service, 'unload_model'):
                 self.stt_service.unload_model()
-                self.stt_model_loaded = False
-                
-            if self.tts_model_loaded:
-                self.tts_service.unload_model()
-                self.tts_model_loaded = False
-                
-            if self.chat_model_loaded:
-                # Unload chat model through model manager
-                if self.model_manager.is_model_loaded(self.default_chat_model):
-                    self.model_manager.unload_model(self.default_chat_model)
-                self.chat_model_loaded = False
+            
+            # Unload TTS service
+            if hasattr(self.tts_service, 'unload_all_engines'):
+                self.tts_service.unload_all_engines()
+            
+            # Unload chat models through model manager
+            if hasattr(self.chat_service, 'unload_model'):
+                self.chat_service.unload_model()
+            
+            # Reset service status
+            self.services_loaded = {
+                "stt": False,
+                "tts": False,
+                "chat": False,
+                "content_filter": True
+            }
             
             logger.info("All voice-to-voice models unloaded successfully")
             
@@ -464,7 +417,7 @@ class VoiceToVoiceService(BaseService):
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get comprehensive memory statistics."""
         return {
-            "stt_service": self.stt_service.get_memory_stats(),
-            "tts_service": self.tts_service.get_memory_stats(),
-            "model_manager": self.model_manager.get_memory_usage()
+            "stt_service": self.stt_service.get_memory_stats() if hasattr(self.stt_service, 'get_memory_stats') else {},
+            "tts_service": self.tts_service.get_memory_stats() if hasattr(self.tts_service, 'get_memory_stats') else {},
+            "model_manager": self.model_manager.get_memory_usage() if hasattr(self.model_manager, 'get_memory_usage') else {}
         }
