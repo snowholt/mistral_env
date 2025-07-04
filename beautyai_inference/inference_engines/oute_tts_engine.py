@@ -34,6 +34,7 @@ class OuteTTSEngine(ModelInterface):
         self.model_loaded = False
         self.current_speaker = None
         self.custom_speakers = {}  # Store custom Arabic speakers
+        self.arabic_speaker_mapping = {}  # Mapping for Arabic speaker profiles
         
         # Configuration for OuteTTS
         self.model_version = outetts.Models.VERSION_1_0_SIZE_1B
@@ -161,7 +162,17 @@ class OuteTTSEngine(ModelInterface):
             if language in self.available_speakers:
                 speaker_dict = self.available_speakers[language]
                 mapped_speaker = speaker_dict.get(speaker_voice, speaker_dict.get("female"))
-                if mapped_speaker and mapped_speaker.endswith('.json'):
+                
+                # If mapped_speaker is just a name, construct the full path
+                if mapped_speaker and not mapped_speaker.endswith('.json'):
+                    profiles_dir = Path("/home/lumi/beautyai/voice_tests/arabic_speaker_profiles")
+                    speaker_profile_path = profiles_dir / f"{mapped_speaker}.json"
+                    if speaker_profile_path.exists():
+                        logger.info(f"Using Arabic speaker profile: {speaker_profile_path}")
+                        return str(speaker_profile_path)
+                    else:
+                        logger.warning(f"Arabic profile {speaker_profile_path} not found, falling back to default")
+                elif mapped_speaker and mapped_speaker.endswith('.json'):
                     # Verify the file actually exists
                     import os
                     if os.path.exists(mapped_speaker):
@@ -238,17 +249,17 @@ class OuteTTSEngine(ModelInterface):
             
             # Optimize sampler config for Arabic language
             if language == "ar":
-                # Arabic-optimized parameters for better accuracy
+                # Arabic-optimized parameters for maximum accuracy and clarity
                 sampler_config = outetts.SamplerConfig(
-                    temperature=0.2,          # Much lower for Arabic accuracy
-                    top_p=0.75,              # Better control for Arabic morphology
-                    top_k=25,                # Lower for more consistent Arabic pronunciation
-                    repetition_penalty=1.02, # Minimal to avoid breaking Arabic words
-                    repetition_range=32,     # Shorter for Arabic word structure
-                    min_p=0.02              # Lower threshold for Arabic phonemes
+                    temperature=0.1,          # Very low for maximum Arabic accuracy
+                    top_p=0.65,              # Focused for Arabic morphology
+                    top_k=20,                # Lower for consistent Arabic pronunciation
+                    repetition_penalty=1.01, # Minimal to preserve Arabic word flow
+                    repetition_range=24,     # Optimized for Arabic word structure
+                    min_p=0.015             # Fine-tuned for Arabic phonemes
                 )
                 generation_type = outetts.GenerationType.CHUNKED  # Better for Arabic sentences
-                max_length = 7168  # Keep under 8k limit (model max_seq_length: 8192)
+                max_length = 6800  # Conservative limit for Arabic (well under 8192)
             else:
                 # Default parameters for other languages
                 sampler_config = outetts.SamplerConfig(

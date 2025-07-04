@@ -120,14 +120,18 @@ class AudioTranscriptionService(BaseService):
             if torch.cuda.is_available() and next(self.whisper_model.parameters()).is_cuda:
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             
-            # Generate transcription with proper parameters
+            # Generate transcription with enhanced parameters for better Arabic accuracy
             generation_kwargs = {
                 "input_features": inputs["input_features"],
                 "task": "transcribe",
-                "max_new_tokens": 400,  # Reduced to stay under max_target_positions limit
+                "max_new_tokens": 350,  # Optimized for Arabic text length
                 "return_timestamps": False,
-                "do_sample": False,  # Use deterministic decoding
-                "num_beams": 1,      # Faster than beam search for single outputs
+                "do_sample": False,     # Use deterministic decoding for consistency
+                "num_beams": 3,         # Improved beam search for better accuracy
+                "temperature": 0.0,     # Most conservative for accurate transcription
+                "length_penalty": 1.0,  # Encourage complete transcription
+                "early_stopping": False, # Prevent premature stopping
+                "no_repeat_ngram_size": 3,  # Reduce repetition artifacts
             }
             
             # Add language parameter if specified
