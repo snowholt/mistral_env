@@ -247,8 +247,8 @@ class OuteTTSEngine(ModelInterface):
                     repetition_range=32,     # Shorter for Arabic word structure
                     min_p=0.02              # Lower threshold for Arabic phonemes
                 )
-                generation_type = outetts.GenerationType.SENTENCE  # Better for Arabic sentences
-                max_length = 12288  # Higher for longer Arabic sentences
+                generation_type = outetts.GenerationType.CHUNKED  # Better for Arabic sentences
+                max_length = 7168  # Keep under 8k limit (model max_seq_length: 8192)
             else:
                 # Default parameters for other languages
                 sampler_config = outetts.SamplerConfig(
@@ -268,8 +268,7 @@ class OuteTTSEngine(ModelInterface):
                     generation_type=generation_type,
                     speaker=speaker,
                     sampler_config=sampler_config,
-                    max_length=max_length,
-                    language=language if language != "en" else None  # Explicit language for non-English
+                    max_length=max_length
                 )
             )
             
@@ -317,7 +316,7 @@ class OuteTTSEngine(ModelInterface):
                     repetition_penalty=1.02,
                     min_p=0.02
                 )
-                generation_type = outetts.GenerationType.SENTENCE
+                generation_type = outetts.GenerationType.CHUNKED
             else:
                 sampler_config = outetts.SamplerConfig(
                     temperature=0.4,
@@ -331,8 +330,7 @@ class OuteTTSEngine(ModelInterface):
                     text=text,
                     generation_type=generation_type,
                     speaker=speaker,
-                    sampler_config=sampler_config,
-                    language=language if language != "en" else None
+                    sampler_config=sampler_config
                 )
             )
             
@@ -352,12 +350,10 @@ class OuteTTSEngine(ModelInterface):
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate text-to-speech (compatibility method)."""
         output_path = kwargs.get('output_path', None)
-        language = kwargs.get('language', 'en')
         speaker_voice = kwargs.get('speaker_voice', 'female')
         
         return self.text_to_speech(
             text=prompt,
-            language=language,
             output_path=output_path,
             speaker_voice=speaker_voice
         )
@@ -389,7 +385,6 @@ class OuteTTSEngine(ModelInterface):
             output_path = kwargs.get('output_path', f"benchmark_outetts_{int(time.time())}.wav")
             result_path = self.text_to_speech(
                 text=prompt,
-                language=kwargs.get('language', 'en'),
                 output_path=output_path,
                 speaker_voice=kwargs.get('speaker_voice', 'female')
             )

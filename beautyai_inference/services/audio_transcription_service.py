@@ -120,13 +120,25 @@ class AudioTranscriptionService(BaseService):
             if torch.cuda.is_available() and next(self.whisper_model.parameters()).is_cuda:
                 inputs = {k: v.cuda() for k, v in inputs.items()}
             
-            # Generate transcription
+            # Generate transcription with proper parameters
+            generation_kwargs = {
+                "input_features": inputs["input_features"],
+                "task": "transcribe",
+                "max_new_tokens": 400,  # Reduced to stay under max_target_positions limit
+                "return_timestamps": False,
+                "do_sample": False,  # Use deterministic decoding
+                "num_beams": 1,      # Faster than beam search for single outputs
+            }
+            
+            # Add language parameter if specified
+            if language and language != "auto":
+                generation_kwargs["language"] = language
+                logger.info(f"Transcribing with language: {language}")
+            else:
+                logger.info("Transcribing with automatic language detection")
+            
             with torch.no_grad():
-                predicted_ids = self.whisper_model.generate(
-                    inputs["input_features"],
-                    language=language,
-                    task="transcribe"
-                )
+                predicted_ids = self.whisper_model.generate(**generation_kwargs)
             
             # Decode transcription
             transcription = self.whisper_processor.batch_decode(
