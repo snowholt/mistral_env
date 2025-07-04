@@ -191,23 +191,46 @@
       "custom_generation_params": null
     },
 
-    "oute-tts-1b": {
-      "model_id": "OuteAI/Llama-OuteTTS-1.0-1B-GGUF",
-      "engine_type": "oute_tts",
-      "quantization": "Q4_K_M",
+    "coqui-tts-arabic": {
+      "model_id": "tts_models/ar/tn_arabicspeech/vits",
+      "engine_type": "coqui_tts",
+      "quantization": null,
       "max_new_tokens": null,
       "dtype": "float16",
-      "name": "oute-tts-1b",
-      "description": "OuteAI Llama-OuteTTS 1B - High-quality neural speech synthesis (GGUF)",
-      "model_architecture": "oute_tts",
-      "model_filename": "model.gguf",
-      "documentation": "https://huggingface.co/OuteAI/Llama-OuteTTS-1.0-1B-GGUF",
+      "name": "coqui-tts-arabic",
+      "description": "Coqui TTS Arabic neural voice synthesis with native Arabic language support",
+      "model_architecture": "coqui_tts",
+      "model_filename": null,
+      "documentation": "https://docs.coqui.ai/en/latest/",
       "custom_generation_params": {
         "temperature": 0.7,
-        "top_p": 0.9,
         "emotion": "neutral",
         "speed": 1.0,
-        "supported_languages": ["en", "ar", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"]
+        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"],
+        "voice_cloning": true,
+        "gpu_acceleration": true
+      }
+    },
+
+    "coqui-tts-multilingual": {
+      "model_id": "tts_models/multilingual/multi-dataset/xtts_v2",
+      "engine_type": "coqui_tts",
+      "quantization": null,
+      "max_new_tokens": null,
+      "dtype": "float16",
+      "name": "coqui-tts-multilingual",
+      "description": "Coqui TTS XTTS v2 multilingual model with voice cloning capabilities",
+      "model_architecture": "coqui_tts",
+      "model_filename": null,
+      "documentation": "https://docs.coqui.ai/en/latest/",
+      "custom_generation_params": {
+        "temperature": 0.7,
+        "emotion": "neutral",
+        "speed": 1.0,
+        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"],
+        "voice_cloning": true,
+        "gpu_acceleration": true,
+        "multilingual": true
       }
     },
 

@@ -5,11 +5,11 @@ Integrates Speech-to-Text, Large Language Model, and Text-to-Speech
 to provide seamless voice conversations. This service connects the models
 directly to minimize latency and improve performance.
 """
+
 import logging
 import time
-import uuid
+from pathlib import Path
 from typing import Dict, Any, Optional, List, BinaryIO
-import io
 
 from .base.base_service import BaseService
 from .audio_transcription_service import AudioTranscriptionService
@@ -30,25 +30,55 @@ class VoiceToVoiceService(BaseService):
     
     Features:
     - Direct model-to-model communication for minimal latency
-    - Support for Arabic and English
+    - Support for Arabic and English with Coqui TTS
     - Content filtering
     - Session management
     - Performance metrics tracking
     """
     
     def __init__(self, content_filter_strictness: str = "balanced"):
+        """Initialize the voice-to-voice service."""
         super().__init__()
-        self.model_manager = ModelManager()
         
-        # Initialize sub-services
+        # Core services
         self.stt_service = AudioTranscriptionService()
         self.tts_service = TextToSpeechService()
-        self.chat_service = ChatService(content_filter_strictness)
-        self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
+        self.chat_service = ChatService()
+        self.content_filter = ContentFilterService(strictness=content_filter_strictness)
         
-        # Model loading status
-        self.stt_model_loaded = False
-        self.tts_model_loaded = False
+        # Service status
+        self.services_loaded = {
+            "stt": False,
+            "tts": False,
+            "chat": False,
+            "content_filter": True  # Always available
+        }
+        
+        # Default configurations - use Coqui TTS instead of OuteTTS
+        self.default_config = {
+            "stt_model": "whisper-large-v3-turbo-arabic",
+            "tts_model": "coqui-tts-arabic",  # Changed from OuteTTS
+            "chat_model": "qwen3-unsloth-q4ks",
+            "language": "ar",
+            "speaker_voice": "female",
+            "response_max_length": 256,
+            "enable_content_filter": True
+        }
+        
+        # Session management
+        self.current_session = None
+        self.conversation_history = []
+        
+        # Performance tracking
+        self.performance_stats = {
+            "total_requests": 0,
+            "average_latency": 0.0,
+            "success_rate": 0.0
+        }
+        
+        # Output directory for audio files
+        self.output_dir = Path("/home/lumi/beautyai/voice_tests/voice_to_voice_outputs")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
         self.chat_model_loaded = False
         
         # Default models
