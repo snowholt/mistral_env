@@ -80,7 +80,8 @@ def test_coqui_tts_arabic():
                     word_accuracy = len(common_words) / len(original_words) if original_words else 0
                     
                     # Character similarity (simple metric)
-                    char_accuracy = len(set(test_text)) & len(set(transcription)) / max(len(set(test_text)), 1)
+                    common_chars = set(test_text) & set(transcription)
+                    char_accuracy = len(common_chars) / max(len(set(test_text)), 1)
                     
                     print(f"📊 Word Accuracy: {word_accuracy:.1%}")
                     print(f"📊 Char Accuracy: {char_accuracy:.1%}")

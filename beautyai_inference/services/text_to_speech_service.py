@@ -109,36 +109,36 @@ class TextToSpeechService(BaseService):
                     # Default to Coqui for Arabic optimization
                     engine_type = "coqui"
             
-            # Create model configuration
+            # Direct engine initialization instead of using ModelManager
             if engine_type == "coqui":
-                model_config = ModelConfig(
-                    name=f"coqui-{model_name}",
-                    model_id="tts_models/ar/tn_arabicspeech/vits",  # Default Arabic model
+                from beautyai_inference.inference_engines.coqui_tts_engine import CoquiTTSEngine
+                
+                # Create a minimal ModelConfig for CoquiTTSEngine
+                tts_model_config = ModelConfig(
+                    model_id="tts_models/multilingual/multi-dataset/xtts_v2",
                     engine_type="coqui_tts",
-                    device="cuda" if self._check_gpu_available() else "cpu",
-                    parameters={
-                        "language": "ar",
-                        "speaker": "female",
-                        "quality": "high"
-                    }
+                    name=f"coqui-{model_name}"
                 )
+                
+                self.current_engine = CoquiTTSEngine(tts_model_config)
+                self.current_engine.load_model()  # No parameters needed
+                
             elif engine_type == "edge":
-                model_config = ModelConfig(
-                    name=f"edge-{model_name}",
-                    model_id="ar-SA-ZariyahNeural",  # Default Arabic voice
+                from beautyai_inference.inference_engines.edge_tts_engine import EdgeTTSEngine
+                
+                # Create a minimal ModelConfig for EdgeTTSEngine
+                edge_model_config = ModelConfig(
+                    model_id="ar-SA-ZariyahNeural",
                     engine_type="edge_tts",
-                    device="cpu",  # Edge TTS always uses CPU
-                    parameters={
-                        "language": "ar",
-                        "voice": "ar-SA-ZariyahNeural",
-                        "quality": "medium"
-                    }
+                    name=f"edge-{model_name}"
                 )
+                
+                self.current_engine = EdgeTTSEngine(edge_model_config)
+                self.current_engine.load_model()  # No parameters needed
+                
             else:
                 raise ValueError(f"Unsupported engine type: {engine_type}")
             
-            # Load the model using ModelManager
-            self.current_engine = self.model_manager.load_model(model_config)
             self.current_model = model_name
             self.engine_loaded = True
             

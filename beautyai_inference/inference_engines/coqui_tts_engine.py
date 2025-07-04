@@ -37,18 +37,19 @@ class CoquiTTSEngine(ModelInterface):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # Arabic TTS Models (prioritized for Arabic language)
+        # Available Arabic-capable models in Coqui TTS
         self.arabic_models = {
-            "arabic_female_premium": "tts_models/ar/tn_arabicspeech/vits",      # Best Arabic model
-            "arabic_multilingual": "tts_models/multilingual/multi-dataset/xtts_v2",  # Multilingual with Arabic
-            "arabic_fairseq": "tts_models/ar/tn_arabicspeech/fairseq",          # Alternative Arabic model
+            "arabic_multilingual": "tts_models/multilingual/multi-dataset/xtts_v2",    # Best Arabic support
+            "arabic_bark": "tts_models/multilingual/multi-dataset/bark",              # Alternative multilingual
+            "arabic_your_tts": "tts_models/multilingual/multi-dataset/your_tts",      # Another multilingual option
         }
         
         # Available models by language
         self.language_models = {
             "ar": {
-                "female": "tts_models/ar/tn_arabicspeech/vits",
-                "male": "tts_models/ar/tn_arabicspeech/vits",  # Same model, different speaker
-                "neutral": "tts_models/ar/tn_arabicspeech/vits",
+                "female": "tts_models/multilingual/multi-dataset/xtts_v2",
+                "male": "tts_models/multilingual/multi-dataset/xtts_v2",
+                "neutral": "tts_models/multilingual/multi-dataset/xtts_v2",
                 "multilingual": "tts_models/multilingual/multi-dataset/xtts_v2"
             },
             "en": {
@@ -107,11 +108,11 @@ class CoquiTTSEngine(ModelInterface):
             # Determine the best model to load based on configuration
             if self.config.model_id in self.arabic_models.values():
                 model_name = self.config.model_id
-            elif "arabic" in self.config.model_id.lower():
-                model_name = self.arabic_models["arabic_female_premium"]
+            elif "arabic" in self.config.model_id.lower() or "ar" in self.config.model_id:
+                model_name = self.arabic_models["arabic_multilingual"]
             else:
-                # Default to Arabic model for BeautyAI
-                model_name = self.arabic_models["arabic_female_premium"]
+                # Default to Arabic-capable multilingual model for BeautyAI
+                model_name = self.arabic_models["arabic_multilingual"]
             
             logger.info(f"Initializing Coqui TTS with model: {model_name}")
             logger.info(f"Device: {self.device}")
@@ -232,14 +233,14 @@ class CoquiTTSEngine(ModelInterface):
                     text=text,
                     file_path=str(output_path),
                     speaker=speaker_name,
-                    language=language if language in ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"] else None
+                    language=language if language in ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "ar"] else None
                 )
             else:
                 # Model without speaker support or simple synthesis
                 self.tts.tts_to_file(
                     text=text,
                     file_path=str(output_path),
-                    language=language if language in ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"] else None
+                    language=language if language in ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "ar"] else None
                 )
             
             if output_path.exists():
