@@ -9,8 +9,11 @@ directly to minimize latency and improve performance.
 import logging
 import time
 import uuid
+import json
+import io
+import tempfile
 from pathlib import Path
-from typing import Dict, Any, Optional, List, BinaryIO
+from typing import Dict, Any, Optional, List, BinaryIO, Union
 
 from .base.base_service import BaseService
 from .audio_transcription_service import AudioTranscriptionService
@@ -123,7 +126,7 @@ class VoiceToVoiceService(BaseService):
             
             # Initialize TTS Service
             logger.info(f"Initializing TTS service with model: {tts_model}")
-            tts_success = self.tts_service.initialize_engine(tts_model)
+            tts_success = self.tts_service.load_tts_model(tts_model)  # Fixed method name
             results["tts"] = tts_success
             self.services_loaded["tts"] = tts_success
             
@@ -141,7 +144,8 @@ class VoiceToVoiceService(BaseService):
         language: str = "ar",
         speaker_voice: str = "female",
         response_max_length: int = 256,
-        enable_content_filter: bool = True
+        enable_content_filter: bool = True,
+        **generation_kwargs  # Additional generation parameters
     ) -> Dict[str, Any]:
         """
         Process a complete voice-to-voice conversation.
@@ -237,17 +241,17 @@ class VoiceToVoiceService(BaseService):
             logger.info(f"Starting TTS for session {session_id}")
             output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
             
-            tts_result = self.tts_service.synthesize(
+            tts_audio_path = self.tts_service.text_to_speech(  # Fixed method name
                 text=response_text,
                 output_path=str(output_audio_path),
                 language=language,
-                voice=speaker_voice
+                speaker_voice=speaker_voice
             )
             
-            if not tts_result.get("success", False):
+            if not tts_audio_path:
                 return {
                     "success": False,
-                    "error": f"TTS failed: {tts_result.get('error', 'Unknown error')}",
+                    "error": f"TTS failed: Could not generate audio",
                     "transcription": transcribed_text,
                     "response": response_text,
                     "audio_output": None,
@@ -274,7 +278,7 @@ class VoiceToVoiceService(BaseService):
                 "session_id": session_id,
                 "transcription": transcribed_text,
                 "response": response_text,
-                "audio_output": str(output_audio_path),
+                "audio_output": tts_audio_path,  # Use the actual path returned by TTS
                 "processing_time": processing_time,
                 "metadata": {
                     "language": language,
@@ -286,6 +290,228 @@ class VoiceToVoiceService(BaseService):
             
         except Exception as e:
             logger.error(f"Error in voice-to-voice conversation: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": time.time() - start_time
+            }
+
+    def voice_to_voice_bytes(
+        self,
+        audio_bytes: bytes,
+        audio_format: str = "wav",
+        session_id: str = None,
+        input_language: str = "ar",
+        output_language: str = "ar",
+        speaker_voice: str = "female",
+        enable_content_filter: bool = True,
+        content_filter_strictness: str = "balanced",
+        thinking_mode: bool = False,
+        generation_config: Dict[str, Any] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Process voice-to-voice conversation from audio bytes.
+        
+        Args:
+            audio_bytes: Input audio as bytes
+            audio_format: Audio format (wav, mp3, etc.)
+            session_id: Conversation session identifier
+            input_language: Language of input audio
+            output_language: Language for output audio
+            speaker_voice: Voice type for TTS output
+            enable_content_filter: Whether to apply content filtering
+            content_filter_strictness: Content filter level
+            thinking_mode: Enable thinking mode for LLM
+            generation_config: Additional generation parameters
+            
+        Returns:
+            Dict containing conversation results and output paths
+        """
+        start_time = time.time()
+        
+        if generation_config is None:
+            generation_config = {}
+        
+        # Validate models are loaded
+        if not self._validate_models_loaded():
+            return {
+                "success": False,
+                "error": "Required models not loaded. Call initialize_models() first.",
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": 0.0
+            }
+        
+        # Generate session ID if not provided
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        
+        try:
+            # Save audio bytes to temporary file for STT processing
+            with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_audio:
+                temp_audio.write(audio_bytes)
+                temp_audio_path = temp_audio.name
+            
+            try:
+                # Step 1: Speech-to-Text
+                logger.info(f"Starting STT for session {session_id}")
+                transcription_result = self.stt_service.transcribe(
+                    audio_file=temp_audio_path,
+                    language=input_language
+                )
+                
+                if not transcription_result.get("success", False):
+                    return {
+                        "success": False,
+                        "error": f"STT failed: {transcription_result.get('error', 'Unknown error')}",
+                        "transcription": None,
+                        "response": None,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
+                
+                transcribed_text = transcription_result["transcription"]
+                logger.info(f"Transcription successful: {transcribed_text[:50]}...")
+                
+                # Handle thinking mode
+                if thinking_mode and not transcribed_text.startswith("/no_think"):
+                    # Don't add thinking instruction if already disabled
+                    pass
+                elif "/no_think" in transcribed_text:
+                    thinking_mode = False
+                    transcribed_text = transcribed_text.replace("/no_think", "").strip()
+                
+                # Step 2: Content filtering (if enabled)
+                if enable_content_filter:
+                    # Update content filter strictness
+                    self.content_filter.strictness = content_filter_strictness
+                    filter_result = self.content_filter.filter_content(transcribed_text)
+                    if not filter_result["is_safe"]:
+                        return {
+                            "success": False,
+                            "error": f"Content filtered: {filter_result['reason']}",
+                            "transcription": transcribed_text,
+                            "response": None,
+                            "audio_output": None,
+                            "processing_time": time.time() - start_time
+                        }
+                
+                # Step 3: Get conversation history for context
+                conversation_history = self.get_session_history(session_id) or []
+                
+                # Step 4: Chat inference with enhanced parameters
+                logger.info(f"Starting chat inference for session {session_id}")
+                
+                # Check for thinking mode commands in transcription
+                processed_text = transcribed_text
+                thinking_override = None
+                if "/no_think" in transcribed_text.lower():
+                    processed_text = transcribed_text.replace("/no_think", "").strip()
+                    thinking_override = False
+                    logger.info("User requested no thinking mode via /no_think command")
+                elif "/think" in transcribed_text.lower():
+                    processed_text = transcribed_text.replace("/think", "").strip()
+                    thinking_override = True
+                    logger.info("User requested thinking mode via /think command")
+                
+                # Determine final thinking mode
+                final_thinking_mode = thinking_override if thinking_override is not None else thinking_mode
+                
+                # Prepare chat parameters with full generation config
+                chat_params = {
+                    "message": processed_text,
+                    "conversation_history": conversation_history,
+                    "max_length": generation_config.get("max_new_tokens", 256),
+                    "language": output_language,
+                    "thinking_mode": final_thinking_mode,
+                    **generation_config  # Include all generation parameters
+                }
+                
+                logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}")
+                
+                chat_result = self.chat_service.chat(**chat_params)
+                
+                if not chat_result.get("success", False):
+                    return {
+                        "success": False,
+                        "error": f"Chat failed: {chat_result.get('error', 'Unknown error')}",
+                        "transcription": transcribed_text,
+                        "response": None,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
+                
+                response_text = chat_result["response"]
+                logger.info(f"Chat response: {response_text[:50]}...")
+                
+                # Step 5: Text-to-Speech
+                logger.info(f"Starting TTS for session {session_id}")
+                output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
+                
+                tts_audio_path = self.tts_service.text_to_speech(
+                    text=response_text,
+                    output_path=str(output_audio_path),
+                    language=output_language,
+                    speaker_voice=speaker_voice
+                )
+                
+                if not tts_audio_path:
+                    return {
+                        "success": False,
+                        "error": f"TTS failed: Could not generate audio",
+                        "transcription": transcribed_text,
+                        "response": response_text,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
+                
+                # Step 6: Update session history
+                new_messages = [
+                    {"role": "user", "content": transcribed_text},
+                    {"role": "assistant", "content": response_text}
+                ]
+                self._update_session(session_id, new_messages)
+                
+                # Calculate metrics
+                processing_time = time.time() - start_time
+                self.performance_stats["total_requests"] += 1
+                self.performance_stats["average_latency"] = (
+                    (self.performance_stats["average_latency"] * (self.performance_stats["total_requests"] - 1) + processing_time) /
+                    self.performance_stats["total_requests"]
+                )
+                
+                return {
+                    "success": True,
+                    "session_id": session_id,
+                    "transcription": transcribed_text,
+                    "response": response_text,
+                    "audio_output": tts_audio_path,
+                    "processing_time": processing_time,
+                    "metadata": {
+                        "input_language": input_language,
+                        "output_language": output_language,
+                        "speaker_voice": speaker_voice,
+                        "thinking_mode": final_thinking_mode,
+                        "content_filter_applied": enable_content_filter,
+                        "content_filter_strictness": content_filter_strictness,
+                        "generation_config": generation_config
+                    }
+                }
+                
+            finally:
+                # Clean up temporary file
+                try:
+                    Path(temp_audio_path).unlink()
+                except:
+                    pass
+                    
+        except Exception as e:
+            logger.error(f"Voice-to-voice conversation failed: {e}")
             return {
                 "success": False,
                 "error": str(e),

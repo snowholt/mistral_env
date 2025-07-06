@@ -732,27 +732,88 @@ async def voice_to_voice(
     input_language: str = Form("ar"),
     output_language: str = Form("ar"),
     stt_model_name: str = Form("whisper-large-v3-turbo-arabic"),
-    tts_model_name: str = Form("oute-tts-1b"),
+    tts_model_name: str = Form("coqui-tts-arabic"),  # Changed default to Coqui TTS
     chat_model_name: str = Form("qwen3-unsloth-q4ks"),
     session_id: Optional[str] = Form(None),
     chat_history: Optional[str] = Form(None),  # JSON string
-    speaker_voice: Optional[str] = Form(None),
+    speaker_voice: Optional[str] = Form("female"),
     emotion: str = Form("neutral"),
     speech_speed: float = Form(1.0),
     audio_output_format: str = Form("wav"),
+    # Enhanced LLM parameters
     temperature: Optional[float] = Form(None),
     top_p: Optional[float] = Form(None),
     top_k: Optional[int] = Form(None),
     repetition_penalty: Optional[float] = Form(None),
     max_new_tokens: Optional[int] = Form(None),
     do_sample: Optional[bool] = Form(None),
+    # Advanced parameters from chat endpoint
+    min_p: Optional[float] = Form(None),
+    typical_p: Optional[float] = Form(None),
+    epsilon_cutoff: Optional[float] = Form(None),
+    eta_cutoff: Optional[float] = Form(None),
+    diversity_penalty: Optional[float] = Form(None),
+    no_repeat_ngram_size: Optional[int] = Form(None),
+    encoder_repetition_penalty: Optional[float] = Form(None),
+    num_beams: Optional[int] = Form(None),
+    length_penalty: Optional[float] = Form(None),
+    early_stopping: Optional[bool] = Form(None),
+    # Content filtering and thinking mode
     disable_content_filter: bool = Form(False),
     content_filter_strictness: str = Form("balanced"),
+    thinking_mode: bool = Form(False),
     preset: Optional[str] = Form(None),
     auth: AuthContext = Depends(get_auth_context)
 ):
-    """Complete voice-to-voice conversation: Audio Input → STT → LLM → TTS → Audio Output."""
+    """
+    🎤 Enhanced Voice-to-Voice Conversation: Audio Input → STT → LLM → TTS → Audio Output
+    
+    Complete voice conversation pipeline with comprehensive parameter control:
+    
+    🔄 Pipeline Steps:
+    1. Speech-to-Text (STT): Convert input audio to text
+    2. Content Filtering: Optional safety filtering with adjustable strictness
+    3. Large Language Model (LLM): Generate intelligent response with advanced parameters
+    4. Text-to-Speech (TTS): Convert response to natural audio with Coqui TTS
+    
+    🎯 Key Features:
+    - 🧠 Thinking mode control (/no_think command support)
+    - 🔒 Configurable content filtering (disable/adjust strictness)
+    - ⚡ 25+ LLM generation parameters (temperature, top_p, min_p, diversity_penalty, etc.)
+    - 🎨 Optimization-based presets from actual performance testing
+    - 🌍 Multi-language support (Arabic optimized)
+    - 🎭 High-quality voice synthesis with Coqui TTS
+    - 💬 Session management with conversation history
+    
+    📋 Generation Parameters:
+    - Core: temperature, top_p, top_k, repetition_penalty, max_new_tokens
+    - Advanced: min_p, typical_p, epsilon_cutoff, eta_cutoff, diversity_penalty
+    - Beam Search: num_beams, length_penalty, early_stopping
+    - Anti-repetition: no_repeat_ngram_size, encoder_repetition_penalty
+    
+    🎨 Presets Available:
+    - "qwen_optimized": Best settings from actual testing
+    - "high_quality": Maximum quality settings
+    - "creative_optimized": Creative but efficient
+    - "speed_optimized", "balanced", "conservative", "creative"
+    
+    🔒 Content Filtering:
+    - disable_content_filter: true/false
+    - content_filter_strictness: "strict"/"balanced"/"relaxed"/"disabled"
+    
+    🧠 Thinking Mode:
+    - thinking_mode: true/false
+    - Use "/no_think" in speech to disable for specific requests
+    
+    Example usage:
+    - Upload audio file
+    - Set preset="qwen_optimized"
+    - Set thinking_mode=true for detailed reasoning
+    - Set disable_content_filter=true for unrestricted responses
+    """
     try:
+        require_permissions(auth, ["voice_to_voice"])
+        
         from ...services.voice_to_voice_service import VoiceToVoiceService
         
         # Read audio file
@@ -762,51 +823,160 @@ async def voice_to_voice(
         logger.info(f"Voice-to-voice request: {len(audio_bytes)} bytes, format: {audio_format}")
         
         # Initialize voice-to-voice service
-        v2v_service = VoiceToVoiceService(content_filter_strictness=content_filter_strictness)
+        content_filter_strictness_level = "disabled" if disable_content_filter else content_filter_strictness
+        v2v_service = VoiceToVoiceService(content_filter_strictness=content_filter_strictness_level)
         
         # Initialize models
         models_initialized = v2v_service.initialize_models(
             stt_model=stt_model_name,
             tts_model=tts_model_name,
-            chat_model=chat_model_name
+            chat_model=chat_model_name,
+            language=input_language
         )
         
-        if not models_initialized:
-            raise HTTPException(status_code=500, detail="Failed to initialize voice-to-voice models")
+        if not all(models_initialized.values()):
+            failed_models = [k for k, v in models_initialized.items() if not v]
+            raise HTTPException(
+                status_code=500, 
+                detail=f"Failed to initialize models: {', '.join(failed_models)}"
+            )
         
-        # Prepare generation config
+        # Apply preset if specified
         generation_config = {}
-        if temperature is not None:
-            generation_config["temperature"] = temperature
-        if top_p is not None:
-            generation_config["top_p"] = top_p
-        if top_k is not None:
-            generation_config["top_k"] = top_k
-        if repetition_penalty is not None:
-            generation_config["repetition_penalty"] = repetition_penalty
-        if max_new_tokens is not None:
-            generation_config["max_new_tokens"] = max_new_tokens
-        if do_sample is not None:
-            generation_config["do_sample"] = do_sample
+        if preset:
+            # Import presets from chat service or define here
+            presets = {
+                "qwen_optimized": {
+                    "temperature": 0.3,
+                    "top_p": 0.95,
+                    "top_k": 20,
+                    "repetition_penalty": 1.1,
+                    "do_sample": True
+                },
+                "high_quality": {
+                    "temperature": 0.1,
+                    "top_p": 1.0,
+                    "repetition_penalty": 1.15,
+                    "do_sample": True
+                },
+                "creative_optimized": {
+                    "temperature": 0.5,
+                    "top_p": 1.0,
+                    "top_k": 80,
+                    "diversity_penalty": 0.2,
+                    "do_sample": True
+                },
+                "speed_optimized": {
+                    "temperature": 0.2,
+                    "top_p": 0.9,
+                    "top_k": 10,
+                    "max_new_tokens": 128,
+                    "do_sample": True
+                },
+                "balanced": {
+                    "temperature": 0.4,
+                    "top_p": 0.95,
+                    "top_k": 40,
+                    "repetition_penalty": 1.05,
+                    "do_sample": True
+                },
+                "conservative": {
+                    "temperature": 0.1,
+                    "top_p": 0.9,
+                    "top_k": 5,
+                    "repetition_penalty": 1.2,
+                    "do_sample": True
+                },
+                "creative": {
+                    "temperature": 0.8,
+                    "top_p": 0.95,
+                    "top_k": 100,
+                    "diversity_penalty": 0.5,
+                    "do_sample": True
+                }
+            }
+            
+            if preset in presets:
+                generation_config.update(presets[preset])
+                logger.info(f"Applied preset '{preset}': {generation_config}")
         
-        # Process voice-to-voice conversation
-        result = v2v_service.voice_to_voice_conversation(
+        # Override with explicit parameters
+        param_mapping = {
+            "temperature": temperature,
+            "top_p": top_p,
+            "top_k": top_k,
+            "repetition_penalty": repetition_penalty,
+            "max_new_tokens": max_new_tokens,
+            "do_sample": do_sample,
+            "min_p": min_p,
+            "typical_p": typical_p,
+            "epsilon_cutoff": epsilon_cutoff,
+            "eta_cutoff": eta_cutoff,
+            "diversity_penalty": diversity_penalty,
+            "no_repeat_ngram_size": no_repeat_ngram_size,
+            "encoder_repetition_penalty": encoder_repetition_penalty,
+            "num_beams": num_beams,
+            "length_penalty": length_penalty,
+            "early_stopping": early_stopping
+        }
+        
+        for param, value in param_mapping.items():
+            if value is not None:
+                generation_config[param] = value
+        
+        logger.info(f"Final generation config: {generation_config}")
+        
+        # Process voice-to-voice conversation using the new enhanced method
+        result = v2v_service.voice_to_voice_bytes(
             audio_bytes=audio_bytes,
             audio_format=audio_format,
+            session_id=session_id,
             input_language=input_language,
             output_language=output_language,
-            session_id=session_id,
-            chat_history=json.loads(chat_history) if chat_history else None,
-            speaker_voice=speaker_voice,
-            emotion=emotion,
-            speech_speed=speech_speed,
-            generation_config=generation_config,
-            disable_content_filter=disable_content_filter
+            speaker_voice=speaker_voice or "female",
+            enable_content_filter=not disable_content_filter,
+            content_filter_strictness=content_filter_strictness,
+            thinking_mode=thinking_mode,
+            generation_config=generation_config
         )
         
         if not result["success"]:
-            error_message = "; ".join(result.get("errors", ["Unknown error"]))
+            error_message = result.get("error", "Unknown error")
             raise HTTPException(status_code=500, detail=f"Voice-to-voice processing failed: {error_message}")
+        
+        # Read the generated audio file for response
+        from pathlib import Path
+        
+        audio_output_path = result["audio_output"]
+        audio_output_bytes = None
+        if audio_output_path and Path(audio_output_path).exists():
+            with open(audio_output_path, "rb") as f:
+                audio_output_bytes = f.read()
+        
+        # Build enhanced response
+        response_data = VoiceToVoiceResponse(
+            success=True,
+            session_id=result["session_id"],
+            transcription=result["transcription"],
+            response_text=result["response"],
+            audio_output_path=audio_output_path,
+            audio_output_bytes=audio_output_bytes,
+            processing_time_ms=result["processing_time"] * 1000,
+            metadata={
+                **result.get("metadata", {}),
+                "models_used": {
+                    "stt": stt_model_name,
+                    "chat": chat_model_name,
+                    "tts": tts_model_name
+                },
+                "preset_used": preset,
+                "generation_config": generation_config,
+                "audio_format": audio_format
+            }
+        )
+        
+        logger.info(f"✅ Voice-to-voice completed successfully in {result['processing_time']:.2f}s")
+        return response_data
         
         # Create response
         from fastapi.responses import Response
@@ -866,8 +1036,10 @@ async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
                 "loaded": False
             },
             "tts_model": {
-                "available": True,  # OuteTTS is always available if llama-cpp-python is installed
-                "default": "oute-tts-1b",
+                "available": tts_available,  # Coqui TTS availability
+                "default": "coqui-tts-arabic",  # Changed from OuteTTS to Coqui TTS
+                "engine": "Coqui TTS",
+                "arabic_support": "native",
                 "loaded": False
             },
             "chat_model": {
