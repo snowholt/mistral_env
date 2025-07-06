@@ -1,13 +1,14 @@
 #!/usr/bin/env python3
 """
-Coqui TTS-to-Whisper Accuracy Test for BeautyAI Framework.
-Tests the new Coqui TTS engine with Arabic language for better accuracy.
+Coqui TTS Professional Test Suite for BeautyAI Framework.
+Comprehensive testing of Arabic TTS quality with Whisper transcription validation.
 """
 
 import sys
 import time
 import os
 from pathlib import Path
+from typing import Dict, List, Any
 
 # Add the beautyai_inference package to the path
 sys.path.insert(0, '/home/lumi/beautyai')
@@ -15,196 +16,362 @@ sys.path.insert(0, '/home/lumi/beautyai')
 from beautyai_inference.services.text_to_speech_service import TextToSpeechService
 from beautyai_inference.services.audio_transcription_service import AudioTranscriptionService
 
-def test_coqui_tts_arabic():
-    """Test Coqui TTS with Arabic text for better accuracy than OuteTTS."""
-    print("🎙️ Coqui TTS Arabic Accuracy Test")
-    print("=" * 50)
-    
-    # Test sentences with different complexities
-    test_texts = [
-        "مرحباً بكم في عيادة الجمال المتطورة",
-        "نقدم أحدث علاجات البشرة والوجه",
-        "باستخدام تقنيات الذكاء الاصطناعي المتقدمة",
-        "والليزر الطبي المعتمد عالمياً",
-        "لضمان النتائج المثلى"
+def get_test_cases() -> List[Dict[str, Any]]:
+    """Get comprehensive test cases for different clinic scenarios."""
+    return [
+        # Greeting & Welcome (Short)
+        {
+            "category": "greeting",
+            "length": "short",
+            "text": "أهلاً وسهلاً بكم في عيادة الجمال",
+            "description": "Basic greeting message"
+        },
+        {
+            "category": "greeting", 
+            "length": "medium",
+            "text": "مرحباً بكم في عيادة الجمال المتطورة، نحن هنا لخدمتكم",
+            "description": "Extended welcome message"
+        },
+        
+        # Clinic Services Description (Medium)
+        {
+            "category": "clinic_services",
+            "length": "medium", 
+            "text": "نقدم أحدث علاجات البشرة والوجه باستخدام التقنيات المتقدمة",
+            "description": "General services overview"
+        },
+        {
+            "category": "clinic_services",
+            "length": "long",
+            "text": "عيادتنا متخصصة في علاجات الجمال المتطورة بما في ذلك تجديد البشرة وعلاج التجاعيد والليزر الطبي المعتمد عالمياً لضمان أفضل النتائج للمرضى",
+            "description": "Comprehensive clinic description"
+        },
+        
+        # Botox Treatment Information (Medium/Long)
+        {
+            "category": "botox_treatment",
+            "length": "medium",
+            "text": "البوتوكس علاج آمن وفعال لتقليل التجاعيد والخطوط الدقيقة",
+            "description": "Basic botox information"
+        },
+        {
+            "category": "botox_treatment", 
+            "length": "long",
+            "text": "علاج البوتوكس هو إجراء تجميلي غير جراحي يستخدم لتقليل ظهور التجاعيد والخطوط التعبيرية في الوجه، حيث يتم حقن مادة البوتولينوم في العضلات المستهدفة لمنع انقباضها وبالتالي تقليل التجاعيد",
+            "description": "Detailed botox procedure explanation"
+        },
+        
+        # Appointment Scheduling (Short/Medium)
+        {
+            "category": "appointment",
+            "length": "short",
+            "text": "يمكنكم حجز موعد عبر الهاتف أو الموقع الإلكتروني",
+            "description": "Simple appointment booking info"
+        },
+        {
+            "category": "appointment",
+            "length": "medium", 
+            "text": "لحجز موعدكم، يرجى الاتصال بنا على الرقم المعطى أو زيارة موقعنا الإلكتروني، ونحن متاحون من الأحد إلى الخميس",
+            "description": "Detailed appointment scheduling"
+        },
+        
+        # Consultation Information (Medium/Long)
+        {
+            "category": "consultation",
+            "length": "medium",
+            "text": "نقدم استشارة مجانية مع طبيب متخصص لتحديد العلاج المناسب لكم",
+            "description": "Free consultation offer"
+        },
+        {
+            "category": "consultation",
+            "length": "long", 
+            "text": "خلال الاستشارة الأولية، سيقوم طبيبنا المتخصص بفحص بشرتكم وتقييم احتياجاتكم الخاصة، ومن ثم سيقترح عليكم خطة علاج مخصصة تناسب نوع بشرتكم وأهدافكم التجميلية مع شرح مفصل للإجراءات والنتائج المتوقعة",
+            "description": "Comprehensive consultation process"
+        },
+        
+        # Technical/Medical Terms (Complex)
+        {
+            "category": "technical",
+            "length": "long",
+            "text": "نستخدم تقنيات الذكاء الاصطناعي المتقدمة والليزر الطبي المعتمد من إدارة الغذاء والدواء الأمريكية لضمان النتائج المثلى والسلامة القصوى للمرضى",
+            "description": "Technical medical terminology"
+        }
     ]
+def test_coqui_tts_professional():
+    """Professional Coqui TTS test suite with comprehensive Arabic scenarios."""
+    print("🎙️ Coqui TTS Professional Test Suite")
+    print("=" * 60)
+    
+    # Setup output directory
+    output_dir = Path("/home/lumi/beautyai/voice_tests/coqui_tts_test")
+    output_dir.mkdir(parents=True, exist_ok=True)
+    print(f"📁 Output directory: {output_dir}")
+    
+    # Get test cases
+    test_cases = get_test_cases()
     
     try:
         # Initialize services
-        print("📥 Loading Coqui TTS service...")
+        print("\n📥 Initializing Coqui TTS service...")
         tts_service = TextToSpeechService()
         if not tts_service.load_tts_model("coqui-tts-arabic", "coqui"):
             print("❌ Failed to load Coqui TTS model")
-            return False
+            return None
         
-        print("📥 Loading Whisper transcription service...")
+        print("📥 Initializing Whisper transcription service...")
         transcription_service = AudioTranscriptionService()
         if not transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic"):
             print("❌ Failed to load Whisper model")
-            return False
+            return None
         
-        # Test each sentence
+        # Test results storage
         results = []
-        for i, test_text in enumerate(test_texts):
-            print(f"\n🧪 Test {i+1}/5: '{test_text}'")
+        
+        # Process each test case
+        for i, test_case in enumerate(test_cases, 1):
+            category = test_case["category"]
+            length = test_case["length"]
+            text = test_case["text"]
+            description = test_case["description"]
+            
+            print(f"\n🧪 Test {i}/{len(test_cases)}: {category.title()} ({length})")
+            print(f"📝 Description: {description}")
+            print(f"📜 Text: '{text[:60]}{'...' if len(text) > 60 else ''}'")
+            
+            # Generate meaningful filename
+            filename = f"{category}_{length}_{i:02d}.wav"
+            output_path = output_dir / filename
             
             # Generate Arabic speech with Coqui TTS
-            print(f"🎤 Generating Arabic speech with Coqui TTS...")
-            audio_file = f"coqui_test_{i+1}_{int(time.time())}.wav"
-            
+            print(f"🎤 Generating speech...")
             result_path = tts_service.text_to_speech(
-                text=test_text,
+                text=text,
                 language="ar",
                 speaker_voice="female",
-                output_path=audio_file
+                output_path=str(output_path)
             )
             
             if result_path and os.path.exists(result_path):
-                print(f"✅ Coqui TTS generated: {result_path}")
+                print(f"✅ Audio generated: {filename}")
                 
-                # Transcribe back with Whisper
-                print(f"🧠 Transcribing with Whisper...")
+                # Transcribe with Whisper
+                print(f"🧠 Transcribing...")
                 transcription = transcription_service.transcribe_audio_file(result_path)
                 
                 if transcription:
-                    print(f"📝 RESULTS:")
-                    print(f"Original:    '{test_text}'")
-                    print(f"Transcribed: '{transcription}'")
-                    
-                    # Basic accuracy check
-                    original_words = set(test_text.split())
+                    # Calculate accuracy metrics
+                    original_words = set(text.split())
                     transcribed_words = set(transcription.split())
-                    
-                    # Calculate word overlap
                     common_words = original_words.intersection(transcribed_words)
                     word_accuracy = len(common_words) / len(original_words) if original_words else 0
                     
-                    # Character similarity (simple metric)
-                    common_chars = set(test_text) & set(transcription)
-                    char_accuracy = len(common_chars) / max(len(set(test_text)), 1)
+                    # Character accuracy
+                    common_chars = set(text) & set(transcription)
+                    char_accuracy = len(common_chars) / max(len(set(text)), 1)
                     
-                    print(f"📊 Word Accuracy: {word_accuracy:.1%}")
-                    print(f"📊 Char Accuracy: {char_accuracy:.1%}")
+                    # Length comparison
+                    length_ratio = len(transcription) / len(text) if text else 0
                     
-                    # Success criteria
-                    if len(transcription.strip()) > 5 and word_accuracy > 0.3:
-                        print("✅ SUCCESS: Good transcription quality!")
-                        success = True
+                    # Determine quality
+                    if word_accuracy >= 0.7 and char_accuracy >= 0.8:
+                        quality = "Excellent"
+                        status = "✅"
+                    elif word_accuracy >= 0.5 and char_accuracy >= 0.7:
+                        quality = "Good"
+                        status = "✅"
+                    elif word_accuracy >= 0.3 and char_accuracy >= 0.6:
+                        quality = "Acceptable"
+                        status = "⚠️"
                     else:
-                        print("⚠️ CONCERN: Low transcription quality")
-                        success = False
-                        
+                        quality = "Poor"
+                        status = "❌"
+                    
+                    print(f"{status} Quality: {quality} (Word: {word_accuracy:.1%}, Char: {char_accuracy:.1%})")
+                    
+                    # Store results
                     results.append({
-                        "test": i+1,
-                        "original": test_text,
-                        "transcribed": transcription,
+                        "test_id": i,
+                        "category": category,
+                        "length": length,
+                        "description": description,
+                        "filename": filename,
+                        "original_text": text,
+                        "transcription": transcription,
                         "word_accuracy": word_accuracy,
                         "char_accuracy": char_accuracy,
-                        "success": success
+                        "length_ratio": length_ratio,
+                        "quality": quality,
+                        "status": status
                     })
                     
-                    # Cleanup
-                    try:
-                        os.remove(result_path)
-                    except:
-                        pass
                 else:
                     print("❌ Transcription failed")
                     results.append({
-                        "test": i+1,
-                        "original": test_text,
-                        "transcribed": None,
-                        "success": False
+                        "test_id": i,
+                        "category": category,
+                        "length": length,
+                        "description": description,
+                        "filename": filename,
+                        "original_text": text,
+                        "transcription": None,
+                        "quality": "Failed",
+                        "status": "❌"
                     })
             else:
-                print("❌ Coqui TTS generation failed")
+                print("❌ Speech generation failed")
                 results.append({
-                    "test": i+1,
-                    "original": test_text,
-                    "transcribed": None,
-                    "success": False
+                    "test_id": i,
+                    "category": category,
+                    "length": length,
+                    "description": description,
+                    "filename": "N/A",
+                    "original_text": text,
+                    "transcription": None,
+                    "quality": "Failed",
+                    "status": "❌"
                 })
         
-        # Summary
-        print(f"\n📋 SUMMARY:")
-        print("=" * 30)
-        successful_tests = [r for r in results if r.get("success", False)]
-        print(f"Successful tests: {len(successful_tests)}/{len(results)}")
-        
-        if successful_tests:
-            avg_word_acc = sum(r.get("word_accuracy", 0) for r in successful_tests) / len(successful_tests)
-            avg_char_acc = sum(r.get("char_accuracy", 0) for r in successful_tests) / len(successful_tests)
-            print(f"Average word accuracy: {avg_word_acc:.1%}")
-            print(f"Average char accuracy: {avg_char_acc:.1%}")
-            
-            if avg_word_acc > 0.5:
-                print("🎯 EXCELLENT: Coqui TTS shows good Arabic accuracy!")
-            elif avg_word_acc > 0.3:
-                print("✅ GOOD: Coqui TTS shows reasonable Arabic accuracy")
-            else:
-                print("⚠️ NEEDS IMPROVEMENT: Consider different models or settings")
-        else:
-            print("❌ NO SUCCESSFUL TESTS: Check TTS and Whisper configuration")
-        
-        return len(successful_tests) > 0
+        return results
             
     except Exception as e:
         print(f"❌ Error: {e}")
         import traceback
         traceback.print_exc()
-        return False
+        return None
 
-def test_coqui_vs_outetts_comparison():
-    """Quick comparison to show improvement over OuteTTS."""
-    print("\n🔄 Coqui TTS vs OuteTTS Comparison")
-    print("=" * 40)
+def print_results_report(results: List[Dict[str, Any]]) -> None:
+    """Print comprehensive results in markdown format."""
+    if not results:
+        print("❌ No results to display")
+        return
     
-    comparison_notes = {
-        "OuteTTS Issues": [
-            "❌ Embedded metadata contamination ('ترجمة نانسي قنقر')",
-            "❌ Poor Arabic speaker profile quality",
-            "❌ Inconsistent transcription results",
-            "❌ Limited Arabic language optimization"
-        ],
-        "Coqui TTS Advantages": [
-            "✅ Native Arabic TTS models (tts_models/ar/tn_arabicspeech/vits)",
-            "✅ No metadata contamination issues",
-            "✅ High-quality neural vocoder",
-            "✅ Voice cloning capabilities",
-            "✅ GPU acceleration support",
-            "✅ Multiple language support",
-            "✅ Local processing (no internet required)"
-        ]
-    }
+    # Calculate overall statistics
+    total_tests = len(results)
+    successful_tests = [r for r in results if r.get("word_accuracy", 0) is not None and r.get("word_accuracy", 0) > 0.3]
     
-    for category, points in comparison_notes.items():
-        print(f"\n{category}:")
-        for point in points:
-            print(f"  {point}")
+    if successful_tests:
+        avg_word_acc = sum(r.get("word_accuracy", 0) for r in successful_tests) / len(successful_tests)
+        avg_char_acc = sum(r.get("char_accuracy", 0) for r in successful_tests) / len(successful_tests)
+    else:
+        avg_word_acc = avg_char_acc = 0
     
-    print(f"\n🎯 RECOMMENDATION: Coqui TTS is significantly better for Arabic TTS")
+    # Count by category and quality
+    categories = {}
+    quality_counts = {"Excellent": 0, "Good": 0, "Acceptable": 0, "Poor": 0, "Failed": 0}
+    
+    for result in results:
+        cat = result.get("category", "unknown")
+        quality = result.get("quality", "Failed")
+        
+        if cat not in categories:
+            categories[cat] = {"total": 0, "passed": 0}
+        categories[cat]["total"] += 1
+        
+        if quality in ["Excellent", "Good", "Acceptable"]:
+            categories[cat]["passed"] += 1
+        
+        quality_counts[quality] += 1
+    
+    # Print markdown report
+    print("\n" + "="*80)
+    print("📊 COQUI TTS PROFESSIONAL TEST RESULTS")
+    print("="*80)
+    print()
+    
+    print("```markdown")
+    print("# Coqui TTS Arabic Testing Report")
+    print()
+    print("## 📈 Overall Performance")
+    print(f"- **Total Tests:** {total_tests}")
+    print(f"- **Successful Tests:** {len(successful_tests)}/{total_tests} ({len(successful_tests)/total_tests*100:.1f}%)")
+    print(f"- **Average Word Accuracy:** {avg_word_acc:.1%}")
+    print(f"- **Average Character Accuracy:** {avg_char_acc:.1%}")
+    print()
+    
+    print("## 🎯 Quality Distribution")
+    for quality, count in quality_counts.items():
+        percentage = count/total_tests*100 if total_tests > 0 else 0
+        emoji = {"Excellent": "🟢", "Good": "🔵", "Acceptable": "🟡", "Poor": "🟠", "Failed": "🔴"}.get(quality, "⚪")
+        print(f"- {emoji} **{quality}:** {count} tests ({percentage:.1f}%)")
+    print()
+    
+    print("## 📋 Category Performance")
+    for category, stats in categories.items():
+        success_rate = stats["passed"]/stats["total"]*100 if stats["total"] > 0 else 0
+        emoji = "✅" if success_rate >= 70 else "⚠️" if success_rate >= 50 else "❌"
+        print(f"- {emoji} **{category.replace('_', ' ').title()}:** {stats['passed']}/{stats['total']} ({success_rate:.1f}%)")
+    print()
+    
+    print("## 📝 Detailed Test Results")
+    print()
+    print("| Test | Category | Length | Quality | Word Acc | Char Acc | File |")
+    print("|------|----------|--------|---------|----------|----------|------|")
+    
+    for result in results:
+        test_id = result.get("test_id", "N/A")
+        category = result.get("category", "unknown").replace("_", " ").title()
+        length = result.get("length", "N/A").title()
+        quality = result.get("quality", "Failed")
+        word_acc = result.get("word_accuracy", 0)
+        char_acc = result.get("char_accuracy", 0)
+        filename = result.get("filename", "N/A")
+        
+        word_acc_str = f"{word_acc:.1%}" if word_acc is not None else "N/A"
+        char_acc_str = f"{char_acc:.1%}" if char_acc is not None else "N/A"
+        
+        print(f"| {test_id:02d} | {category} | {length} | {quality} | {word_acc_str} | {char_acc_str} | {filename} |")
+    
+    print()
+    print("## 🔍 Sample Transcriptions")
+    print()
+    
+    # Show a few sample transcriptions
+    for i, result in enumerate(results[:3]):
+        if result.get("transcription"):
+            print(f"### Test {result.get('test_id', i+1)}: {result.get('category', 'unknown').replace('_', ' ').title()}")
+            print(f"**Original:** {result.get('original_text', 'N/A')}")
+            print(f"**Transcribed:** {result.get('transcription', 'N/A')}")
+            print(f"**Quality:** {result.get('quality', 'N/A')} (Word: {result.get('word_accuracy', 0):.1%}, Char: {result.get('char_accuracy', 0):.1%})")
+            print()
+    
+    print("## 🎯 Recommendations")
+    if avg_word_acc >= 0.7:
+        print("- ✅ **Excellent Performance:** Coqui TTS is production-ready for Arabic")
+        print("- 🚀 **Next Steps:** Deploy to production environment")
+    elif avg_word_acc >= 0.5:
+        print("- ✅ **Good Performance:** Coqui TTS shows strong Arabic capabilities") 
+        print("- 🔧 **Optimization:** Consider fine-tuning for specific categories with lower scores")
+    elif avg_word_acc >= 0.3:
+        print("- ⚠️ **Acceptable Performance:** Some improvement needed")
+        print("- 🔧 **Actions:** Review model settings and consider alternative models")
+    else:
+        print("- ❌ **Poor Performance:** Significant improvements required")
+        print("- 🛠️ **Actions:** Debug model configuration and test alternative approaches")
+    
+    print("```")
+    print()
 
 def main():
-    """Main function to test Coqui TTS accuracy."""
+    """Main function to run the professional Coqui TTS test suite."""
     try:
-        print("🚀 Starting Coqui TTS Arabic Accuracy Test")
+        print("🚀 Starting Coqui TTS Professional Test Suite")
         
-        success = test_coqui_tts_arabic()
+        results = test_coqui_tts_professional()
         
-        # Show comparison
-        test_coqui_vs_outetts_comparison()
-        
-        if success:
+        if results:
+            print_results_report(results)
             print("\n✅ Coqui TTS testing completed successfully!")
-            print("🎯 Ready to use Coqui TTS as the primary TTS engine")
+            print("🎯 Check the detailed report above for comprehensive analysis")
+            return True
         else:
-            print("\n❌ Coqui TTS testing encountered issues")
+            print("\n❌ Coqui TTS testing failed")
             print("🔧 Check model configuration and try again")
-        
-        return success
+            return False
             
     except Exception as e:
         print(f"❌ Main execution failed: {e}")
+        import traceback
+        traceback.print_exc()
         return False
 
 if __name__ == "__main__":
