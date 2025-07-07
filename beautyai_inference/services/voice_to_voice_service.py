@@ -1,7 +1,9 @@
 """
 Voice-to-Voice Service for BeautyAI Framework.
 
-Integrates Speech-to-Text, Large Language Model, and Text-to-Speech 
+Integrates Speech-to-Text, Large Language Model, and Text-to-Sp            # Initialize STT service
+            logger.info(f"Initializing STT service with model: {stt_model}")
+            results["stt"] = self.stt_service.load_whisper_model(stt_model)h 
 to provide seamless voice conversations. This service connects the models
 directly to minimize latency and improve performance.
 """
@@ -12,6 +14,7 @@ import uuid
 import json
 import io
 import tempfile
+import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, BinaryIO, Union
 
@@ -48,7 +51,7 @@ class VoiceToVoiceService(BaseService):
         self.stt_service = AudioTranscriptionService()
         self.tts_service = TextToSpeechService()
         self.chat_service = ChatService()
-        self.content_filter = ContentFilterService(strictness=content_filter_strictness)
+        self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.model_manager = ModelManager()
         
         # Service status
@@ -69,6 +72,56 @@ class VoiceToVoiceService(BaseService):
             "response_max_length": 256,
             "enable_content_filter": True
         }
+        
+        # Output directory for temporary files
+        self.output_dir = Path("/home/lumi/beautyai/voice_tests/voice_to_voice_outputs")
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Session management
+        self.active_sessions = {}
+        
+        # Performance tracking
+        self.performance_stats = {
+            "total_requests": 0,
+            "average_latency": 0.0,
+            "success_rate": 0.0
+        }
+    
+    @staticmethod
+    def _remove_thinking_content(text: str) -> str:
+        """
+        Remove thinking blocks from the model response before TTS processing.
+        
+        This ensures that only the final user-facing response is converted to speech,
+        not the internal reasoning process.
+        
+        Args:
+            text: Raw model response that may contain <think>...</think> blocks
+            
+        Returns:
+            str: Clean response text without thinking content
+        """
+        if not text:
+            return text
+        
+        # Remove thinking blocks using regex
+        # This handles both <think>...</think> and any malformed variations
+        thinking_pattern = r'<think>.*?</think>'
+        cleaned_text = re.sub(thinking_pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Remove any standalone <think> or </think> tags that might remain
+        cleaned_text = re.sub(r'</?think>', '', cleaned_text, flags=re.IGNORECASE)
+        
+        # Clean up extra whitespace and newlines
+        cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)  # Multiple newlines to single
+        cleaned_text = cleaned_text.strip()
+        
+        # If the result is empty after cleaning, return a default response
+        if not cleaned_text or cleaned_text.isspace():
+            logger.warning("Response was empty after removing thinking content")
+            return "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
+        
+        return cleaned_text
         
         # Session management
         self.current_session = None
@@ -115,7 +168,7 @@ class VoiceToVoiceService(BaseService):
         try:
             # Initialize STT Service
             logger.info(f"Initializing STT service with model: {stt_model}")
-            results["stt"] = self.stt_service.initialize_model(stt_model)
+            results["stt"] = self.stt_service.load_whisper_model(stt_model)
             self.services_loaded["stt"] = results["stt"]
             
             # Initialize Chat Service
@@ -202,10 +255,15 @@ class VoiceToVoiceService(BaseService):
             # Step 2: Content filtering (if enabled)
             if enable_content_filter:
                 filter_result = self.content_filter.filter_content(transcribed_text)
-                if not filter_result["is_safe"]:
+                # Convert FilterResult object to dict for compatibility
+                filter_dict = {
+                    "is_safe": filter_result.is_allowed,
+                    "reason": filter_result.filter_reason or "Content not allowed"
+                }
+                if not filter_dict["is_safe"]:
                     return {
                         "success": False,
-                        "error": f"Content filtered: {filter_result['reason']}",
+                        "error": f"Content filtered: {filter_dict['reason']}",
                         "transcription": transcribed_text,
                         "response": None,
                         "audio_output": None,
@@ -237,12 +295,16 @@ class VoiceToVoiceService(BaseService):
             response_text = chat_result["response"]
             logger.info(f"Chat response: {response_text[:50]}...")
             
-            # Step 5: Text-to-Speech
+            # Step 5: Clean response text for TTS (remove thinking content)
+            clean_response_text = self._remove_thinking_content(response_text)
+            logger.info(f"Clean response for TTS: {clean_response_text[:50]}...")
+            
+            # Step 6: Text-to-Speech
             logger.info(f"Starting TTS for session {session_id}")
             output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
             
             tts_audio_path = self.tts_service.text_to_speech(  # Fixed method name
-                text=response_text,
+                text=clean_response_text,
                 output_path=str(output_audio_path),
                 language=language,
                 speaker_voice=speaker_voice
@@ -391,10 +453,15 @@ class VoiceToVoiceService(BaseService):
                     # Update content filter strictness
                     self.content_filter.strictness = content_filter_strictness
                     filter_result = self.content_filter.filter_content(transcribed_text)
-                    if not filter_result["is_safe"]:
+                    # Convert FilterResult object to dict for compatibility
+                    filter_dict = {
+                        "is_safe": filter_result.is_allowed,
+                        "reason": filter_result.filter_reason or "Content not allowed"
+                    }
+                    if not filter_dict["is_safe"]:
                         return {
                             "success": False,
-                            "error": f"Content filtered: {filter_result['reason']}",
+                            "error": f"Content filtered: {filter_dict['reason']}",
                             "transcription": transcribed_text,
                             "response": None,
                             "audio_output": None,
@@ -449,12 +516,16 @@ class VoiceToVoiceService(BaseService):
                 response_text = chat_result["response"]
                 logger.info(f"Chat response: {response_text[:50]}...")
                 
-                # Step 5: Text-to-Speech
+                # Step 5: Clean response text for TTS (remove thinking content)
+                clean_response_text = self._remove_thinking_content(response_text)
+                logger.info(f"Clean response for TTS: {clean_response_text[:50]}...")
+                
+                # Step 6: Text-to-Speech
                 logger.info(f"Starting TTS for session {session_id}")
                 output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
                 
                 tts_audio_path = self.tts_service.text_to_speech(
-                    text=response_text,
+                    text=clean_response_text,
                     output_path=str(output_audio_path),
                     language=output_language,
                     speaker_voice=speaker_voice

@@ -11,7 +11,7 @@ This service handles interactive chat functionality including:
 import logging
 import sys
 import time
-from typing import Dict, Any, Optional, Generator
+from typing import Dict, Any, Optional, Generator, List
 from uuid import uuid4
 
 from ..base.base_service import BaseService
@@ -31,6 +31,99 @@ class ChatService(BaseService):
         self.model_manager = ModelManager()
         self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
+    
+    def load_model(self, model_name: str) -> bool:
+        """
+        Load a model for chat inference.
+        
+        Args:
+            model_name: Name of the model to load
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            # Get model configuration
+            app_config = AppConfig()
+            app_config.models_file = "beautyai_inference/config/model_registry.json"
+            app_config.load_model_registry()
+            
+            model_config = app_config.model_registry.get_model(model_name)
+            if not model_config:
+                logger.error(f"Model configuration for '{model_name}' not found.")
+                return False
+            
+            # Load the model using the model manager
+            model = self._ensure_model_loaded(model_name, model_config)
+            return model is not None
+            
+        except Exception as e:
+            logger.error(f"Failed to load chat model '{model_name}': {e}")
+            return False
+    
+    def chat(self, message: str, conversation_history: Optional[List[Dict[str, str]]] = None, 
+             max_length: int = 256, language: str = "ar", thinking_mode: bool = False,
+             **generation_config) -> Dict[str, Any]:
+        """
+        Single chat inference for API/service integration.
+        
+        Args:
+            message: User message
+            conversation_history: Previous conversation messages
+            max_length: Maximum response length
+            language: Response language
+            thinking_mode: Enable thinking mode
+            **generation_config: Additional generation parameters
+            
+        Returns:
+            Dict with success status and response
+        """
+        try:
+            # Get the first loaded model (assume it's the one we want)
+            loaded_models = list(self.model_manager._loaded_models.keys())
+            if not loaded_models:
+                return {"success": False, "error": "No model loaded", "response": None}
+            
+            model_name = loaded_models[0]
+            model = self.model_manager.get_loaded_model(model_name)
+            
+            if not model:
+                return {"success": False, "error": f"Model {model_name} not available", "response": None}
+            
+            # Build prompt with conversation history
+            prompt_parts = []
+            
+            if conversation_history:
+                for msg in conversation_history:
+                    if msg.get("role") == "user":
+                        prompt_parts.append(f"User: {msg.get('content', '')}")
+                    elif msg.get("role") == "assistant":
+                        prompt_parts.append(f"Assistant: {msg.get('content', '')}")
+            
+            prompt_parts.append(f"User: {message}")
+            prompt_parts.append("Assistant:")
+            
+            prompt = "\n".join(prompt_parts)
+            
+            # Generate response
+            generation_params = {
+                "max_new_tokens": max_length,
+                "temperature": generation_config.get("temperature", 0.7),
+                "top_p": generation_config.get("top_p", 0.9),
+                "do_sample": generation_config.get("do_sample", True),
+                **{k: v for k, v in generation_config.items() if k not in ["max_new_tokens", "temperature", "top_p", "do_sample"]}
+            }
+            
+            response = model.generate(prompt, **generation_params)
+            
+            if response and response.strip():
+                return {"success": True, "response": response.strip()}
+            else:
+                return {"success": False, "error": "Empty response generated", "response": None}
+                
+        except Exception as e:
+            logger.error(f"Chat inference error: {e}")
+            return {"success": False, "error": str(e), "response": None}
     
     def start_chat(self, model_name: str, model_config: ModelConfig, 
                    generation_config: Dict[str, Any]) -> int:

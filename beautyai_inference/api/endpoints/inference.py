@@ -1029,6 +1029,13 @@ async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
         app_config.models_file = "beautyai_inference/config/model_registry.json"
         app_config.load_model_registry()
         
+        # Check TTS library availability first
+        try:
+            from TTS.api import TTS
+            tts_available = True
+        except ImportError:
+            tts_available = False
+        
         models_status = {
             "stt_model": {
                 "available": app_config.model_registry.get_model("whisper-large-v3-turbo-arabic") is not None,
@@ -1048,13 +1055,6 @@ async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
                 "loaded": False
             }
         }
-        
-        # Check TTS library availability
-        try:
-            from TTS.api import TTS
-            tts_available = True
-        except ImportError:
-            tts_available = False
         
         return VoiceToVoiceStatusResponse(
             success=True,

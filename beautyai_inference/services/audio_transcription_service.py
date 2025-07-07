@@ -71,6 +71,35 @@ class AudioTranscriptionService(BaseService):
             logger.error(f"Failed to load Whisper model '{model_name}': {e}")
             return False
     
+    def transcribe(self, audio_file: str = None, audio_bytes: bytes = None, language: str = "ar") -> Dict[str, Any]:
+        """
+        Transcribe audio with a unified interface for voice-to-voice service.
+        
+        Args:
+            audio_file: Path to audio file (if using file)
+            audio_bytes: Audio bytes (if using bytes)
+            language: Language code for transcription
+            
+        Returns:
+            Dict with success status and transcription result
+        """
+        try:
+            if audio_file:
+                transcription = self.transcribe_audio_file(audio_file, language)
+            elif audio_bytes:
+                transcription = self.transcribe_audio_bytes(audio_bytes, "wav", language)
+            else:
+                return {"success": False, "error": "No audio input provided", "transcription": None}
+            
+            if transcription:
+                return {"success": True, "transcription": transcription}
+            else:
+                return {"success": False, "error": "Transcription failed", "transcription": None}
+                
+        except Exception as e:
+            logger.error(f"Transcription error: {e}")
+            return {"success": False, "error": str(e), "transcription": None}
+    
     def transcribe_audio_file(self, audio_file_path: str, language: str = "ar") -> Optional[str]:
         """
         Transcribe an audio file.
