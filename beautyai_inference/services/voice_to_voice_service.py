@@ -501,7 +501,18 @@ class VoiceToVoiceService(BaseService):
                 
                 logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}")
                 
-                chat_result = self.chat_service.chat(**chat_params)
+                try:
+                    chat_result = self.chat_service.chat(**chat_params)
+                except Exception as chat_error:
+                    logger.error(f"Chat service error: {chat_error}")
+                    return {
+                        "success": False,
+                        "error": f"Chat service failed: {str(chat_error)}",
+                        "transcription": transcribed_text,
+                        "response": None,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
                 
                 if not chat_result.get("success", False):
                     return {
@@ -524,12 +535,23 @@ class VoiceToVoiceService(BaseService):
                 logger.info(f"Starting TTS for session {session_id}")
                 output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
                 
-                tts_audio_path = self.tts_service.text_to_speech(
-                    text=clean_response_text,
-                    output_path=str(output_audio_path),
-                    language=output_language,
-                    speaker_voice=speaker_voice
-                )
+                try:
+                    tts_audio_path = self.tts_service.text_to_speech(
+                        text=clean_response_text,
+                        output_path=str(output_audio_path),
+                        language=output_language,
+                        speaker_voice=speaker_voice
+                    )
+                except Exception as tts_error:
+                    logger.error(f"TTS service error: {tts_error}")
+                    return {
+                        "success": False,
+                        "error": f"TTS service failed: {str(tts_error)}",
+                        "transcription": transcribed_text,
+                        "response": response_text,
+                        "audio_output": None,
+                        "processing_time": time.time() - start_time
+                    }
                 
                 if not tts_audio_path:
                     return {

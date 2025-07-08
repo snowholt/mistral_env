@@ -949,64 +949,42 @@ async def voice_to_voice(
         
         audio_output_path = result["audio_output"]
         audio_output_bytes = None
+        audio_size = None
         if audio_output_path and Path(audio_output_path).exists():
             with open(audio_output_path, "rb") as f:
                 audio_output_bytes = f.read()
+                audio_size = len(audio_output_bytes)
         
-        # Build enhanced response
+        # Build enhanced response using correct field names
         response_data = VoiceToVoiceResponse(
             success=True,
             session_id=result["session_id"],
             transcription=result["transcription"],
             response_text=result["response"],
-            audio_output_path=audio_output_path,
-            audio_output_bytes=audio_output_bytes,
-            processing_time_ms=result["processing_time"] * 1000,
-            metadata={
-                **result.get("metadata", {}),
-                "models_used": {
-                    "stt": stt_model_name,
-                    "chat": chat_model_name,
-                    "tts": tts_model_name
-                },
-                "preset_used": preset,
-                "generation_config": generation_config,
-                "audio_format": audio_format
+            input_language=input_language,
+            response_language=output_language,
+            total_processing_time_ms=result["processing_time"] * 1000,
+            audio_output_format=audio_output_format,
+            audio_size_bytes=audio_size,
+            models_used={
+                "stt": stt_model_name,
+                "chat": chat_model_name,
+                "tts": tts_model_name
+            },
+            preset_used=preset,
+            effective_config=generation_config,
+            speaker_voice_used=speaker_voice,
+            content_filter_applied=not disable_content_filter,
+            content_filter_strictness=content_filter_strictness,
+            data={
+                "audio_output_path": audio_output_path,
+                "audio_output_available": audio_output_bytes is not None,
+                **result.get("metadata", {})
             }
         )
         
         logger.info(f"✅ Voice-to-voice completed successfully in {result['processing_time']:.2f}s")
         return response_data
-        
-        # Create response
-        from fastapi.responses import Response
-        
-        # Return audio response with metadata in headers
-        response = Response(
-            content=result["response_audio_bytes"],
-            media_type=f"audio/{audio_output_format}",
-            headers={
-                "X-Session-ID": result["session_id"],
-                "X-Transcription": result["transcription"],
-                "X-Response-Text": result["response_text"],
-                "X-Input-Language": result["input_language"],
-                "X-Output-Language": result["output_language"],
-                "X-Total-Time": str(result["metrics"]["total_time_seconds"]),
-                "X-STT-Time": str(result["metrics"]["stt_time_seconds"]),
-                "X-Chat-Time": str(result["metrics"]["chat_time_seconds"]),
-                "X-TTS-Time": str(result["metrics"]["tts_time_seconds"]),
-                "X-Audio-Size": str(result["metrics"]["audio_size_bytes"]),
-                "Content-Disposition": f'attachment; filename="response.{audio_output_format}"'
-            }
-        )
-        
-        # Clean up models to free memory
-        try:
-            v2v_service.unload_all_models()
-        except Exception as e:
-            logger.warning(f"Error cleaning up models: {e}")
-        
-        return response
         
     except HTTPException:
         raise
