@@ -90,9 +90,25 @@ class ChatService(BaseService):
             if not model:
                 return {"success": False, "error": f"Model {model_name} not available", "response": None}
             
-            # Build prompt with conversation history
+            # Build prompt with system message for language and behavior
             prompt_parts = []
             
+            # Add system prompt based on language
+            if language == "ar":
+                system_prompt = """أنت طبيب متخصص في الطب التجميلي والعلاجات غير الجراحية. يجب عليك الإجابة باللغة العربية فقط. 
+قدم معلومات طبية دقيقة ومفيدة حول العلاجات التجميلية مثل البوتوكس والفيلر. 
+اجعل إجاباتك واضحة ومختصرة ومناسبة للمرضى العرب.
+مهم جداً: أجب باللغة العربية فقط ولا تستخدم أي لغة أخرى."""
+                prompt_parts.append(f"System: {system_prompt}")
+                
+                # Add extra Arabic instruction as user message to reinforce
+                prompt_parts.append("User: من فضلك أجب باللغة العربية فقط")
+                prompt_parts.append("Assistant: سأجيب باللغة العربية.")
+            else:
+                system_prompt = "You are a helpful and intelligent assistant. Answer all questions clearly and helpfully in English."
+                prompt_parts.append(f"System: {system_prompt}")
+            
+            # Add conversation history
             if conversation_history:
                 for msg in conversation_history:
                     if msg.get("role") == "user":
@@ -105,25 +121,78 @@ class ChatService(BaseService):
             
             prompt = "\n".join(prompt_parts)
             
-            # Generate response
+            # Generate response with optimized parameters for language consistency
             generation_params = {
                 "max_new_tokens": max_length,
-                "temperature": generation_config.get("temperature", 0.7),
-                "top_p": generation_config.get("top_p", 0.9),
+                "temperature": generation_config.get("temperature", 0.3),  # Lower temperature for more consistent language
+                "top_p": generation_config.get("top_p", 0.8),
                 "do_sample": generation_config.get("do_sample", True),
-                **{k: v for k, v in generation_config.items() if k not in ["max_new_tokens", "temperature", "top_p", "do_sample"]}
+                "repetition_penalty": generation_config.get("repetition_penalty", 1.1),
+                **{k: v for k, v in generation_config.items() if k not in ["max_new_tokens", "temperature", "top_p", "do_sample", "repetition_penalty"]}
             }
+            
+            logger.info(f"Generating response for language: {language}")
+            logger.debug(f"Full prompt: {prompt}")
             
             response = model.generate(prompt, **generation_params)
             
             if response and response.strip():
-                return {"success": True, "response": response.strip()}
+                # Clean the response to remove any thinking content or unwanted text
+                cleaned_response = self._clean_response(response.strip(), language)
+                logger.info(f"Generated response (first 100 chars): {cleaned_response[:100]}")
+                return {"success": True, "response": cleaned_response}
             else:
                 return {"success": False, "error": "Empty response generated", "response": None}
                 
         except Exception as e:
             logger.error(f"Chat inference error: {e}")
             return {"success": False, "error": str(e), "response": None}
+    
+    def _clean_response(self, response: str, language: str = "ar") -> str:
+        """
+        Clean the model response to ensure proper language and remove unwanted content.
+        
+        Args:
+            response: Raw model response
+            language: Target language
+            
+        Returns:
+            str: Cleaned response
+        """
+        # Remove any thinking tags or content
+        import re
+        
+        # Remove thinking blocks
+        response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL | re.IGNORECASE)
+        response = re.sub(r'<thinking>.*?</thinking>', '', response, flags=re.DOTALL | re.IGNORECASE)
+        response = re.sub(r'</?think>', '', response, flags=re.IGNORECASE)
+        response = re.sub(r'</?thinking>', '', response, flags=re.IGNORECASE)
+        
+        # Remove common thinking patterns in English
+        thinking_patterns = [
+            r"Let me think.*?(?=\n|$)",
+            r"I need to think.*?(?=\n|$)",
+            r"First, let me.*?(?=\n|$)",
+            r"Okay, the user is asking.*?(?=\n|$)",
+            r"From what I remember.*?(?=\n|$)",
+            r".*?is asking about.*?(?=\n|$)"
+        ]
+        
+        for pattern in thinking_patterns:
+            response = re.sub(pattern, '', response, flags=re.IGNORECASE | re.MULTILINE)
+        
+        # Clean up whitespace
+        response = re.sub(r'\n\s*\n', '\n', response)
+        response = response.strip()
+        
+        # If response is empty or too short, provide a default
+        if not response or len(response.strip()) < 5:
+            if language == "ar":
+                return "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
+            else:
+                return "I apologize, I couldn't provide a clear answer. Could you please rephrase your question?"
+        
+        return response
     
     def start_chat(self, model_name: str, model_config: ModelConfig, 
                    generation_config: Dict[str, Any]) -> int:

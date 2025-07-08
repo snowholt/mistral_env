@@ -78,9 +78,19 @@ def test_voice_to_voice_endpoint():
             try:
                 result = response.json()
                 print(f"📝 Transcription: {result.get('transcription', 'N/A')}")
-                print(f"💬 Response: {result.get('response_text', 'N/A')[:100]}...")
-                print(f"⏱️ Processing Time: {result.get('processing_time_ms', 'N/A')}ms")
-                print(f"🎵 Audio Output: {result.get('audio_output_path', 'N/A')}")
+                response_text = result.get('response_text', 'N/A')
+                print(f"💬 Response: {response_text[:100]}...")
+                
+                # Check for thinking content in response
+                if '<think>' in response_text or '</think>' in response_text:
+                    print("⚠️  WARNING: Response contains thinking content!")
+                    print(f"🔍 Full response: {response_text}")
+                else:
+                    print("✅ Response is clean (no thinking content)")
+                
+                print(f"⏱️ Processing Time: {result.get('total_processing_time_ms', 'N/A')}ms")
+                print(f"🎵 Audio Available: {result.get('data', {}).get('audio_output_available', False)}")
+                print(f"🎵 Audio Path: {result.get('data', {}).get('audio_output_path', 'N/A')}")
             except json.JSONDecodeError:
                 print("Response is not JSON (might be audio bytes)")
                 print(f"Content type: {response.headers.get('content-type')}")

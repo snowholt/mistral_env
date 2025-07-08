@@ -946,21 +946,30 @@ async def voice_to_voice(
         
         # Read the generated audio file for response
         from pathlib import Path
+        import base64
         
         audio_output_path = result["audio_output"]
         audio_output_bytes = None
+        audio_output_base64 = None
         audio_size = None
         if audio_output_path and Path(audio_output_path).exists():
             with open(audio_output_path, "rb") as f:
                 audio_output_bytes = f.read()
                 audio_size = len(audio_output_bytes)
+                # Encode audio as base64 for JSON response
+                audio_output_base64 = base64.b64encode(audio_output_bytes).decode('utf-8')
+        
+        # Clean the response text for API response (remove thinking content)
+        # Import the static method from the service
+        from ...services.voice_to_voice_service import VoiceToVoiceService
+        clean_response_text = VoiceToVoiceService._remove_thinking_content(result["response"])
         
         # Build enhanced response using correct field names
         response_data = VoiceToVoiceResponse(
             success=True,
             session_id=result["session_id"],
             transcription=result["transcription"],
-            response_text=result["response"],
+            response_text=clean_response_text,  # Use cleaned response instead of raw response
             input_language=input_language,
             response_language=output_language,
             total_processing_time_ms=result["processing_time"] * 1000,
@@ -979,6 +988,8 @@ async def voice_to_voice(
             data={
                 "audio_output_path": audio_output_path,
                 "audio_output_available": audio_output_bytes is not None,
+                "audio_output_base64": audio_output_base64,  # Include base64 encoded audio
+                "raw_response_with_thinking": result["response"],  # Keep original for debugging
                 **result.get("metadata", {})
             }
         )

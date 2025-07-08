@@ -104,7 +104,9 @@ class VoiceToVoiceService(BaseService):
         if not text:
             return text
         
-        # Remove thinking blocks using regex
+        logger.debug(f"Original text: {text[:100]}...")
+        
+        # Remove thinking blocks using regex (case insensitive, multiline)
         # This handles both <think>...</think> and any malformed variations
         thinking_pattern = r'<think>.*?</think>'
         cleaned_text = re.sub(thinking_pattern, '', text, flags=re.DOTALL | re.IGNORECASE)
@@ -112,14 +114,26 @@ class VoiceToVoiceService(BaseService):
         # Remove any standalone <think> or </think> tags that might remain
         cleaned_text = re.sub(r'</?think>', '', cleaned_text, flags=re.IGNORECASE)
         
+        # Also handle common variations that might appear
+        cleaned_text = re.sub(r'</?thinking>', '', cleaned_text, flags=re.IGNORECASE)
+        cleaned_text = re.sub(r'</?thought>', '', cleaned_text, flags=re.IGNORECASE)
+        
         # Clean up extra whitespace and newlines
         cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)  # Multiple newlines to single
+        cleaned_text = re.sub(r'^\s+', '', cleaned_text, flags=re.MULTILINE)  # Leading whitespace on lines
         cleaned_text = cleaned_text.strip()
+        
+        logger.debug(f"Cleaned text: {cleaned_text[:100]}...")
         
         # If the result is empty after cleaning, return a default response
         if not cleaned_text or cleaned_text.isspace():
             logger.warning("Response was empty after removing thinking content")
-            return "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
+            default_response = "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
+            logger.info(f"Using default response: {default_response}")
+            return default_response
+        
+        # Log the final cleaned text for verification
+        logger.debug(f"✅ Thinking content removed. Clean response length: {len(cleaned_text)} chars")
         
         return cleaned_text
         
@@ -303,8 +317,12 @@ class VoiceToVoiceService(BaseService):
             logger.info(f"Starting TTS for session {session_id}")
             output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
             
+            # Extra safety: Always clean text before TTS
+            final_clean_text = self._remove_thinking_content(clean_response_text)
+            logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
+            
             tts_audio_path = self.tts_service.text_to_speech(  # Fixed method name
-                text=clean_response_text,
+                text=final_clean_text,
                 output_path=str(output_audio_path),
                 language=language,
                 speaker_voice=speaker_voice
@@ -536,8 +554,12 @@ class VoiceToVoiceService(BaseService):
                 output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
                 
                 try:
+                    # Extra safety: Always clean text before TTS
+                    final_clean_text = self._remove_thinking_content(clean_response_text)
+                    logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
+                    
                     tts_audio_path = self.tts_service.text_to_speech(
-                        text=clean_response_text,
+                        text=final_clean_text,
                         output_path=str(output_audio_path),
                         language=output_language,
                         speaker_voice=speaker_voice
