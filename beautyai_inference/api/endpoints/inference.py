@@ -123,6 +123,10 @@ async def chat_completion(
         # Build effective generation configuration
         effective_config = request.get_effective_generation_config()
         
+        # **FIX: Explicitly add thinking mode to generation config**
+        effective_config['enable_thinking'] = thinking_enabled
+        logger.info(f"Thinking mode set to: {thinking_enabled}")
+        
         # Configure content filtering based on request
         filter_config = request.get_effective_content_filter_config()
         logger.info(f"Content filter config: {filter_config}")
