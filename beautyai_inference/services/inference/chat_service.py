@@ -18,6 +18,7 @@ from ..base.base_service import BaseService
 from ...config.config_manager import AppConfig, ModelConfig
 from ...core.model_manager import ModelManager
 from ...utils.memory_utils import clear_terminal_screen
+from ...utils.language_detection import language_detector, suggest_response_language
 from .content_filter_service import ContentFilterService
 
 logger = logging.getLogger(__name__)
@@ -62,16 +63,16 @@ class ChatService(BaseService):
             return False
     
     def chat(self, message: str, conversation_history: Optional[List[Dict[str, str]]] = None, 
-             max_length: int = 256, language: str = "ar", thinking_mode: bool = False,
+             max_length: int = 256, language: str = "auto", thinking_mode: bool = False,
              **generation_config) -> Dict[str, Any]:
         """
-        Single chat inference for API/service integration.
+        Single chat inference for API/service integration with automatic language detection.
         
         Args:
             message: User message
             conversation_history: Previous conversation messages
             max_length: Maximum response length
-            language: Response language
+            language: Response language ("auto" for automatic detection, or specific code)
             thinking_mode: Enable thinking mode
             **generation_config: Additional generation parameters
             
@@ -90,11 +91,20 @@ class ChatService(BaseService):
             if not model:
                 return {"success": False, "error": f"Model {model_name} not available", "response": None}
             
+            # 🔍 Automatic Language Detection
+            if language == "auto":
+                detected_language = suggest_response_language(message, conversation_history)
+                logger.info(f"🌍 Auto-detected language: {detected_language} for message: '{message[:50]}...'")
+                response_language = detected_language
+            else:
+                response_language = language
+                logger.info(f"🌍 Using specified language: {response_language}")
+            
             # Build prompt with system message for language and behavior
             prompt_parts = []
             
-            # Add system prompt based on language
-            if language == "ar":
+            # Add system prompt based on detected/specified language
+            if response_language == "ar":
                 system_prompt = """أنت طبيب متخصص في الطب التجميلي والعلاجات غير الجراحية. يجب عليك الإجابة باللغة العربية فقط. 
 قدم معلومات طبية دقيقة ومفيدة حول العلاجات التجميلية مثل البوتوكس والفيلر. 
 اجعل إجاباتك واضحة ومختصرة ومناسبة للمرضى العرب.
@@ -104,8 +114,17 @@ class ChatService(BaseService):
                 # Add extra Arabic instruction as user message to reinforce
                 prompt_parts.append("User: من فضلك أجب باللغة العربية فقط")
                 prompt_parts.append("Assistant: سأجيب باللغة العربية.")
-            else:
-                system_prompt = "You are a helpful and intelligent assistant. Answer all questions clearly and helpfully in English."
+            elif response_language == "es":
+                system_prompt = "Eres un médico especializado en medicina estética y tratamientos no quirúrgicos. Debes responder solo en español. Proporciona información médica precisa y útil sobre tratamientos estéticos como botox y rellenos. Haz que tus respuestas sean claras, concisas y apropiadas para pacientes hispanohablantes."
+                prompt_parts.append(f"System: {system_prompt}")
+            elif response_language == "fr":
+                system_prompt = "Vous êtes un médecin spécialisé en médecine esthétique et en traitements non chirurgicaux. Vous devez répondre uniquement en français. Fournissez des informations médicales précises et utiles sur les traitements esthétiques comme le botox et les fillers. Rendez vos réponses claires, concises et appropriées pour les patients francophones."
+                prompt_parts.append(f"System: {system_prompt}")
+            elif response_language == "de":
+                system_prompt = "Sie sind ein Arzt, der sich auf ästhetische Medizin und nicht-chirurgische Behandlungen spezialisiert hat. Sie müssen nur auf Deutsch antworten. Stellen Sie präzise und nützliche medizinische Informationen über ästhetische Behandlungen wie Botox und Filler zur Verfügung. Machen Sie Ihre Antworten klar, prägnant und angemessen für deutschsprachige Patienten."
+                prompt_parts.append(f"System: {system_prompt}")
+            else:  # Default to English
+                system_prompt = "You are a doctor specialized in aesthetic medicine and non-surgical treatments. You must respond only in English. Provide accurate and useful medical information about aesthetic treatments like botox and fillers. Make your responses clear, concise, and appropriate for English-speaking patients."
                 prompt_parts.append(f"System: {system_prompt}")
             
             # Add conversation history
@@ -131,16 +150,21 @@ class ChatService(BaseService):
                 **{k: v for k, v in generation_config.items() if k not in ["max_new_tokens", "temperature", "top_p", "do_sample", "repetition_penalty"]}
             }
             
-            logger.info(f"Generating response for language: {language}")
+            logger.info(f"Generating response for language: {response_language}")
             logger.debug(f"Full prompt: {prompt}")
             
             response = model.generate(prompt, **generation_params)
             
             if response and response.strip():
                 # Clean the response to remove any thinking content or unwanted text
-                cleaned_response = self._clean_response(response.strip(), language)
+                cleaned_response = self._clean_response(response.strip(), response_language)
                 logger.info(f"Generated response (first 100 chars): {cleaned_response[:100]}")
-                return {"success": True, "response": cleaned_response}
+                return {
+                    "success": True, 
+                    "response": cleaned_response,
+                    "detected_language": response_language,
+                    "language_confidence": 1.0 if language != "auto" else 0.8  # Add confidence score
+                }
             else:
                 return {"success": False, "error": "Empty response generated", "response": None}
                 
@@ -185,11 +209,18 @@ class ChatService(BaseService):
         response = re.sub(r'\n\s*\n', '\n', response)
         response = response.strip()
         
-        # If response is empty or too short, provide a default
+        # If response is empty or too short, provide a default in the correct language
         if not response or len(response.strip()) < 5:
+            logger.warning("Response was empty after removing thinking content")
             if language == "ar":
                 return "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
-            else:
+            elif language == "es":
+                return "Lo siento, no pude proporcionar una respuesta clara. ¿Podrías reformular tu pregunta?"
+            elif language == "fr":
+                return "Désolé, je n'ai pas pu fournir une réponse claire. Pourriez-vous reformuler votre question ?"
+            elif language == "de":
+                return "Entschuldigung, ich konnte keine klare Antwort geben. Könnten Sie Ihre Frage umformulieren?"
+            else:  # English default
                 return "I apologize, I couldn't provide a clear answer. Could you please rephrase your question?"
         
         return response

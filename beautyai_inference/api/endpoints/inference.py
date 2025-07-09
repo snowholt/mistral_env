@@ -161,19 +161,92 @@ async def chat_completion(
         # Convert simple message to messages format
         messages = []
         
-        # Add system message for thinking mode if needed
+        # Determine response language - use auto detection if set to "auto"
+        response_language = getattr(request, 'response_language', 'auto')
+        if response_language == 'auto':
+            # Import language detection utility
+            from ...utils.language_detection import suggest_response_language
+            detected_language = suggest_response_language(processed_message, request.chat_history)
+            logger.info(f"🌍 Auto-detected response language: {detected_language} for message: '{processed_message[:50]}...'")
+            response_language = detected_language
+        
+        # Add system message for thinking mode and language if needed
         if thinking_enabled and request.model_name.lower().find("qwen") != -1:
-            # Add thinking system message for Qwen models
-            messages.append({
-                "role": "system",
-                "content": "You are a helpful assistant. Think step by step before providing your final answer."
-            })
+            # Add language-specific thinking system message for Qwen models
+            if response_language == "ar":
+                messages.append({
+                    "role": "system",
+                    "content": "أنت مساعد ذكي ومفيد. فكر خطوة بخطوة قبل تقديم إجابتك النهائية. يجب أن تجيب باللغة العربية فقط."
+                })
+            elif response_language == "es":
+                messages.append({
+                    "role": "system", 
+                    "content": "Eres un asistente útil e inteligente. Piensa paso a paso antes de dar tu respuesta final. Debes responder solo en español."
+                })
+            elif response_language == "fr":
+                messages.append({
+                    "role": "system",
+                    "content": "Vous êtes un assistant utile et intelligent. Réfléchissez étape par étape avant de donner votre réponse finale. Vous devez répondre uniquement en français."
+                })
+            elif response_language == "de":
+                messages.append({
+                    "role": "system",
+                    "content": "Sie sind ein hilfreicher und intelligenter Assistent. Denken Sie Schritt für Schritt nach, bevor Sie Ihre endgültige Antwort geben. Sie müssen nur auf Deutsch antworten."
+                })
+            else:  # English default
+                messages.append({
+                    "role": "system",
+                    "content": "You are a helpful assistant. Think step by step before providing your final answer. You must respond only in English."
+                })
         elif not thinking_enabled and request.model_name.lower().find("qwen") != -1:
-            # Explicitly disable thinking for Qwen models  
-            messages.append({
-                "role": "system",
-                "content": "You are a helpful assistant. Provide direct, concise answers without showing your thinking process."
-            })
+            # Explicitly disable thinking for Qwen models with language specification
+            if response_language == "ar":
+                messages.append({
+                    "role": "system",
+                    "content": "أنت مساعد ذكي ومفيد. قدم إجابات مباشرة وموجزة دون إظهار عملية تفكيرك. يجب أن تجيب باللغة العربية فقط."
+                })
+            elif response_language == "es":
+                messages.append({
+                    "role": "system",
+                    "content": "Eres un asistente útil e inteligente. Proporciona respuestas directas y concisas sin mostrar tu proceso de pensamiento. Debes responder solo en español."
+                })
+            elif response_language == "fr":
+                messages.append({
+                    "role": "system",
+                    "content": "Vous êtes un assistant utile et intelligent. Fournissez des réponses directes et concises sans montrer votre processus de réflexion. Vous devez répondre uniquement en français."
+                })
+            elif response_language == "de":
+                messages.append({
+                    "role": "system",
+                    "content": "Sie sind ein hilfreicher und intelligenter Assistent. Geben Sie direkte, prägnante Antworten, ohne Ihren Denkprozess zu zeigen. Sie müssen nur auf Deutsch antworten."
+                })
+            else:  # English default
+                messages.append({
+                    "role": "system",
+                    "content": "You are a helpful assistant. Provide direct, concise answers without showing your thinking process. You must respond only in English."
+                })
+        elif response_language != "en":
+            # Add language-specific system message for non-English languages
+            if response_language == "ar":
+                messages.append({
+                    "role": "system",
+                    "content": "أنت مساعد ذكي ومفيد. يجب أن تجيب باللغة العربية فقط."
+                })
+            elif response_language == "es":
+                messages.append({
+                    "role": "system",
+                    "content": "Eres un asistente útil e inteligente. Debes responder solo en español."
+                })
+            elif response_language == "fr":
+                messages.append({
+                    "role": "system",
+                    "content": "Vous êtes un assistant utile et intelligent. Vous devez répondre uniquement en français."
+                })
+            elif response_language == "de":
+                messages.append({
+                    "role": "system",
+                    "content": "Sie sind ein hilfreicher und intelligenter Assistent. Sie müssen nur auf Deutsch antworten."
+                })
         
         # Add chat history if provided
         if request.chat_history:
@@ -733,8 +806,8 @@ async def audio_chat(
 @inference_router.post("/voice-to-voice", response_model=VoiceToVoiceResponse)
 async def voice_to_voice(
     audio_file: UploadFile = File(...),
-    input_language: str = Form("ar"),
-    output_language: str = Form("ar"),
+    input_language: str = Form("auto"),  # Changed default to "auto"
+    output_language: str = Form("auto"),  # Changed default to "auto"
     stt_model_name: str = Form("whisper-large-v3-turbo-arabic"),
     tts_model_name: str = Form("coqui-tts-arabic"),  # Changed default to Coqui TTS
     chat_model_name: str = Form("qwen3-unsloth-q4ks"),
@@ -770,24 +843,39 @@ async def voice_to_voice(
     auth: AuthContext = Depends(get_auth_context)
 ):
     """
-    🎤 Enhanced Voice-to-Voice Conversation: Audio Input → STT → LLM → TTS → Audio Output
+    🎤 Enhanced Voice-to-Voice Conversation with Automatic Language Detection: Audio Input → STT → LLM → TTS → Audio Output
     
-    Complete voice conversation pipeline with comprehensive parameter control:
+    Complete voice conversation pipeline with intelligent language matching:
+    
+    🌍 Automatic Language Detection:
+    - Set input_language="auto" for automatic input language detection
+    - Set output_language="auto" to automatically match the input language
+    - Smart language detection based on text content and conversation history
+    - Supports Arabic, English, Spanish, French, German with confidence scoring
     
     🔄 Pipeline Steps:
     1. Speech-to-Text (STT): Convert input audio to text
-    2. Content Filtering: Optional safety filtering with adjustable strictness
-    3. Large Language Model (LLM): Generate intelligent response with advanced parameters
-    4. Text-to-Speech (TTS): Convert response to natural audio with Coqui TTS
+    2. Language Detection: Automatically detect input language from transcription
+    3. Content Filtering: Optional safety filtering with adjustable strictness
+    4. Large Language Model (LLM): Generate intelligent response in matching language
+    5. Text-to-Speech (TTS): Convert response to natural audio with Coqui TTS
     
     🎯 Key Features:
     - 🧠 Thinking mode control (/no_think command support)
     - 🔒 Configurable content filtering (disable/adjust strictness)
     - ⚡ 25+ LLM generation parameters (temperature, top_p, min_p, diversity_penalty, etc.)
     - 🎨 Optimization-based presets from actual performance testing
-    - 🌍 Multi-language support (Arabic optimized)
+    - 🌍 Multi-language support with automatic detection (Arabic optimized)
     - 🎭 High-quality voice synthesis with Coqui TTS
     - 💬 Session management with conversation history
+    
+    🌍 Language Support:
+    - Arabic (ar): Native support with specialized prompts
+    - English (en): Full support with medical terminology
+    - Spanish (es): Medical aesthetics support
+    - French (fr): Aesthetic medicine support  
+    - German (de): Beauty treatment support
+    - Auto Detection: Set "auto" for intelligent language matching
     
     📋 Generation Parameters:
     - Core: temperature, top_p, top_k, repetition_penalty, max_new_tokens
@@ -809,11 +897,12 @@ async def voice_to_voice(
     - thinking_mode: true/false
     - Use "/no_think" in speech to disable for specific requests
     
-    Example usage:
+    Example usage with auto language detection:
     - Upload audio file
-    - Set preset="qwen_optimized"
+    - Set input_language="auto" and output_language="auto"
+    - System will automatically detect Arabic/English and respond in same language
+    - Set preset="qwen_optimized" for best performance
     - Set thinking_mode=true for detailed reasoning
-    - Set disable_content_filter=true for unrestricted responses
     """
     try:
         require_permissions(auth, ["voice_to_voice"])
@@ -974,8 +1063,8 @@ async def voice_to_voice(
             session_id=result["session_id"],
             transcription=result["transcription"],
             response_text=clean_response_text,  # Use cleaned response instead of raw response
-            input_language=input_language,
-            response_language=output_language,
+            input_language=result.get("detected_input_language", input_language),
+            response_language=result.get("response_language", output_language),
             total_processing_time_ms=result["processing_time"] * 1000,
             audio_output_format=audio_output_format,
             audio_size_bytes=audio_size,
@@ -994,6 +1083,9 @@ async def voice_to_voice(
                 "audio_output_available": audio_output_bytes is not None,
                 "audio_output_base64": audio_output_base64,  # Include base64 encoded audio
                 "raw_response_with_thinking": result["response"],  # Keep original for debugging
+                "language_auto_detected": result.get("language_auto_detected", False),
+                "detected_input_language": result.get("detected_input_language"),
+                "language_detection_confidence": result.get("metadata", {}).get("language_detection_confidence", 1.0),
                 **result.get("metadata", {})
             }
         )

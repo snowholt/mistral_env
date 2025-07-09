@@ -25,6 +25,7 @@ from .inference.chat_service import ChatService
 from .inference.content_filter_service import ContentFilterService
 from ..config.config_manager import AppConfig, ModelConfig
 from ..core.model_manager import ModelManager
+from ..utils.language_detection import language_detector, suggest_response_language
 
 logger = logging.getLogger(__name__)
 
@@ -384,8 +385,8 @@ class VoiceToVoiceService(BaseService):
         audio_bytes: bytes,
         audio_format: str = "wav",
         session_id: str = None,
-        input_language: str = "ar",
-        output_language: str = "ar",
+        input_language: str = "auto",
+        output_language: str = "auto",
         speaker_voice: str = "female",
         enable_content_filter: bool = True,
         content_filter_strictness: str = "balanced",
@@ -394,14 +395,14 @@ class VoiceToVoiceService(BaseService):
         **kwargs
     ) -> Dict[str, Any]:
         """
-        Process voice-to-voice conversation from audio bytes.
+        Process voice-to-voice conversation from audio bytes with automatic language detection.
         
         Args:
             audio_bytes: Input audio as bytes
             audio_format: Audio format (wav, mp3, etc.)
             session_id: Conversation session identifier
-            input_language: Language of input audio
-            output_language: Language for output audio
+            input_language: Language of input audio ("auto" for detection)
+            output_language: Language for output audio ("auto" for matching input)
             speaker_voice: Voice type for TTS output
             enable_content_filter: Whether to apply content filtering
             content_filter_strictness: Content filter level
@@ -438,11 +439,15 @@ class VoiceToVoiceService(BaseService):
                 temp_audio_path = temp_audio.name
             
             try:
-                # Step 1: Speech-to-Text
+                # Step 1: Speech-to-Text with automatic language detection
                 logger.info(f"Starting STT for session {session_id}")
+                
+                # Determine input language for STT
+                stt_language = input_language if input_language != "auto" else "ar"  # Default fallback
+                
                 transcription_result = self.stt_service.transcribe(
                     audio_file=temp_audio_path,
-                    language=input_language
+                    language=stt_language
                 )
                 
                 if not transcription_result.get("success", False):
@@ -457,6 +462,32 @@ class VoiceToVoiceService(BaseService):
                 
                 transcribed_text = transcription_result["transcription"]
                 logger.info(f"Transcription successful: {transcribed_text[:50]}...")
+                
+                # 🔍 Language Detection Phase
+                detected_input_language = None
+                response_language = None
+                
+                if input_language == "auto" or output_language == "auto":
+                    # Detect language from transcribed text
+                    detected_language, confidence = language_detector.detect_language(transcribed_text)
+                    detected_input_language = detected_language
+                    logger.info(f"🌍 Detected input language: {detected_language} (confidence: {confidence:.3f})")
+                    
+                    # Get conversation history for better language detection
+                    conversation_history = self.get_session_history(session_id) or []
+                    suggested_language = suggest_response_language(transcribed_text, conversation_history)
+                    
+                    # Determine final output language
+                    if output_language == "auto":
+                        response_language = suggested_language
+                        logger.info(f"🌍 Auto-determined response language: {response_language}")
+                    else:
+                        response_language = output_language
+                else:
+                    # Use specified languages
+                    detected_input_language = input_language
+                    response_language = output_language
+                    logger.info(f"🌍 Using specified languages: input={input_language}, output={output_language}")
                 
                 # Handle thinking mode
                 if thinking_mode and not transcribed_text.startswith("/no_think"):
@@ -507,17 +538,17 @@ class VoiceToVoiceService(BaseService):
                 # Determine final thinking mode
                 final_thinking_mode = thinking_override if thinking_override is not None else thinking_mode
                 
-                # Prepare chat parameters with full generation config
+                # Prepare chat parameters with full generation config and language matching
                 chat_params = {
                     "message": processed_text,
                     "conversation_history": conversation_history,
                     "max_length": generation_config.get("max_new_tokens", 256),
-                    "language": output_language,
+                    "language": response_language,  # Use detected/determined response language
                     "thinking_mode": final_thinking_mode,
                     **generation_config  # Include all generation parameters
                 }
                 
-                logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}")
+                logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}, response_language={response_language}")
                 
                 try:
                     chat_result = self.chat_service.chat(**chat_params)
@@ -549,8 +580,8 @@ class VoiceToVoiceService(BaseService):
                 clean_response_text = self._remove_thinking_content(response_text)
                 logger.info(f"Clean response for TTS: {clean_response_text[:50]}...")
                 
-                # Step 6: Text-to-Speech
-                logger.info(f"Starting TTS for session {session_id}")
+                # Step 6: Text-to-Speech with matching language
+                logger.info(f"Starting TTS for session {session_id} in language: {response_language}")
                 output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
                 
                 try:
@@ -561,7 +592,7 @@ class VoiceToVoiceService(BaseService):
                     tts_audio_path = self.tts_service.text_to_speech(
                         text=final_clean_text,
                         output_path=str(output_audio_path),
-                        language=output_language,
+                        language=response_language,  # Use the determined response language
                         speaker_voice=speaker_voice
                     )
                 except Exception as tts_error:
@@ -607,14 +638,18 @@ class VoiceToVoiceService(BaseService):
                     "response": response_text,
                     "audio_output": tts_audio_path,
                     "processing_time": processing_time,
+                    "detected_input_language": detected_input_language,
+                    "response_language": response_language,
+                    "language_auto_detected": input_language == "auto" or output_language == "auto",
                     "metadata": {
-                        "input_language": input_language,
-                        "output_language": output_language,
+                        "input_language": detected_input_language or input_language,
+                        "output_language": response_language,
                         "speaker_voice": speaker_voice,
                         "thinking_mode": final_thinking_mode,
                         "content_filter_applied": enable_content_filter,
                         "content_filter_strictness": content_filter_strictness,
-                        "generation_config": generation_config
+                        "generation_config": generation_config,
+                        "language_detection_confidence": chat_result.get("language_confidence", 1.0)
                     }
                 }
                 

@@ -109,11 +109,14 @@ class ModelLoadResponse(APIResponse):
 # Chat API Models
 @dataclass
 class ChatRequest(APIRequest):
-    """Enhanced request for chat interaction with direct parameter access."""
+    """Enhanced request for chat interaction with direct parameter access and automatic language detection."""
     model_name: str
     message: str
     session_id: Optional[str] = None
     chat_history: Optional[List[Dict[str, str]]] = None
+    
+    # Language Control
+    response_language: str = "auto"  # "auto" for automatic detection, or specific language code
     
     # Core Generation Parameters (Direct Access)
     temperature: Optional[float] = None
