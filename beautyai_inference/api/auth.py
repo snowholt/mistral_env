@@ -414,6 +414,34 @@ def validate_api_key(api_key: str) -> Optional[AuthContext]:
     return None
 
 
+async def get_auth_context_ws(websocket, token: Optional[str] = None) -> AuthContext:
+    """
+    WebSocket authentication dependency.
+    
+    Args:
+        websocket: WebSocket connection
+        token: Optional token from query parameters
+        
+    Returns:
+        AuthContext with authentication information
+        
+    Note:
+        This is a placeholder implementation. In production, implement
+        proper WebSocket authentication using tokens, cookies, or headers.
+    """
+    # TODO: Implement WebSocket authentication
+    # For now, return a mock authenticated context for development
+    return AuthContext(
+        user_id="ws_user",
+        username="websocket_user", 
+        roles=["user"],
+        permissions=["voice_to_voice", "chat", "audio_chat"],
+        authenticated=True,
+        token=token,
+        token_type="websocket"
+    )
+
+
 def create_auth_middleware():
     """
     Create FastAPI middleware for authentication.

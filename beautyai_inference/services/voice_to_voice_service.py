@@ -790,6 +790,115 @@ class VoiceToVoiceService(BaseService):
         except Exception as e:
             logger.error(f"Error unloading models: {e}")
     
+    async def voice_to_voice_async(
+        self,
+        audio_path: str,
+        stt_model_name: str = None,
+        tts_model_name: str = None,
+        chat_model_name: str = None,
+        session_id: Optional[str] = None,
+        chat_history: Optional[List[Dict[str, str]]] = None,
+        input_language: str = "auto",
+        output_language: str = "auto",
+        speaker_voice: str = "female",
+        emotion: str = "neutral",
+        speech_speed: float = 1.0,
+        audio_output_format: str = "wav",
+        disable_content_filter: bool = False,
+        content_filter_strictness: str = "balanced",
+        thinking_mode: bool = False,
+        preset: Optional[str] = None,
+        **generation_params
+    ) -> Dict[str, Any]:
+        """
+        Async version of voice_to_voice for WebSocket support.
+        
+        This method provides the same functionality as voice_to_voice_bytes
+        but is designed for async/await usage in WebSocket connections.
+        
+        Args:
+            audio_path: Path to input audio file
+            stt_model_name: Speech-to-text model name
+            tts_model_name: Text-to-speech model name  
+            chat_model_name: Chat model name
+            session_id: Session ID for conversation continuity
+            chat_history: Previous conversation messages
+            input_language: Input audio language (auto-detect if "auto")
+            output_language: Output audio language (auto-match if "auto")
+            speaker_voice: TTS voice type (female, male, neutral)
+            emotion: TTS emotion (neutral, happy, sad, professional)
+            speech_speed: TTS speech speed multiplier
+            audio_output_format: Output audio format (wav, mp3, ogg)
+            disable_content_filter: Whether to disable content filtering
+            content_filter_strictness: Content filter level
+            thinking_mode: Whether to enable thinking mode
+            preset: Generation preset name
+            **generation_params: Additional LLM parameters
+            
+        Returns:
+            Dict containing:
+            - success: bool
+            - transcription: str
+            - response_text: str  
+            - audio_output_path: str
+            - audio_output_format: str
+            - session_id: str
+            - models_used: Dict[str, str]
+            - processing_time: float
+            - thinking_mode: bool
+            - content_filter_applied: bool
+            - input_language: str
+            - output_language: str
+            - error: Optional[str]
+        """
+        import asyncio
+        
+        try:
+            # Run the synchronous voice_to_voice_bytes in a thread pool
+            # to avoid blocking the event loop
+            loop = asyncio.get_event_loop()
+            
+            # Prepare arguments for voice_to_voice_bytes
+            kwargs = {
+                "audio_path": audio_path,
+                "stt_model_name": stt_model_name,
+                "tts_model_name": tts_model_name,
+                "chat_model_name": chat_model_name,
+                "session_id": session_id,
+                "chat_history": chat_history,
+                "input_language": input_language,
+                "output_language": output_language,
+                "speaker_voice": speaker_voice,
+                "emotion": emotion,
+                "speech_speed": speech_speed,
+                "audio_output_format": audio_output_format,
+                "disable_content_filter": disable_content_filter,
+                "content_filter_strictness": content_filter_strictness,
+                "thinking_mode": thinking_mode,
+                "preset": preset,
+                **generation_params
+            }
+            
+            # Run in thread pool to avoid blocking
+            result = await loop.run_in_executor(
+                None,  # Use default thread pool
+                lambda: self.voice_to_voice_bytes(**kwargs)
+            )
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"Async voice-to-voice processing failed: {e}")
+            return {
+                "success": False,
+                "error": f"Async processing failed: {str(e)}",
+                "transcription": "",
+                "response_text": "",
+                "audio_output_path": "",
+                "session_id": session_id or "",
+                "processing_time": 0.0
+            }
+
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get comprehensive memory statistics."""
         return {
