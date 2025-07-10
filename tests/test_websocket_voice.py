@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 class WebSocketVoiceClient:
     """WebSocket client for testing voice conversations."""
     
-    def __init__(self, base_url: str = "ws://localhost:8000"):
+    def __init__(self, base_url: str = "ws://dev.gmai.sa:8000"):
         self.base_url = base_url
         self.websocket = None
         self.session_id = f"test_session_{int(time.time())}"
@@ -258,7 +258,9 @@ async def test_websocket_voice_conversation():
                 print(f"❌ Test failed: {response.get('error', 'Unknown error')}")
         
         except Exception as e:
+            import traceback
             print(f"❌ Test exception: {e}")
+            print(f"Full traceback:\n{traceback.format_exc()}")
         
         finally:
             # Disconnect

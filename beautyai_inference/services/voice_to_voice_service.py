@@ -549,11 +549,16 @@ class VoiceToVoiceService(BaseService):
                 }
                 
                 logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}, response_language={response_language}")
+                logger.info(f"🔍 Debug - Full chat_params: {chat_params}")
                 
                 try:
+                    logger.info("🚀 Calling chat service...")
                     chat_result = self.chat_service.chat(**chat_params)
+                    logger.info(f"✅ Chat service returned: success={chat_result.get('success', False)}")
                 except Exception as chat_error:
-                    logger.error(f"Chat service error: {chat_error}")
+                    import traceback
+                    logger.error(f"❌ Chat service error: {chat_error}")
+                    logger.error(f"❌ Chat service traceback: {traceback.format_exc()}")
                     return {
                         "success": False,
                         "error": f"Chat service failed: {str(chat_error)}",
@@ -858,25 +863,25 @@ class VoiceToVoiceService(BaseService):
             # to avoid blocking the event loop
             loop = asyncio.get_event_loop()
             
+            # Read audio file to bytes for voice_to_voice_bytes method
+            with open(audio_path, 'rb') as f:
+                audio_bytes = f.read()
+            
+            # Determine audio format from file extension
+            audio_format = Path(audio_path).suffix.lstrip('.').lower() or 'wav'
+            
             # Prepare arguments for voice_to_voice_bytes
             kwargs = {
-                "audio_path": audio_path,
-                "stt_model_name": stt_model_name,
-                "tts_model_name": tts_model_name,
-                "chat_model_name": chat_model_name,
+                "audio_bytes": audio_bytes,
+                "audio_format": audio_format,
                 "session_id": session_id,
-                "chat_history": chat_history,
                 "input_language": input_language,
                 "output_language": output_language,
                 "speaker_voice": speaker_voice,
-                "emotion": emotion,
-                "speech_speed": speech_speed,
-                "audio_output_format": audio_output_format,
-                "disable_content_filter": disable_content_filter,
+                "enable_content_filter": not disable_content_filter,
                 "content_filter_strictness": content_filter_strictness,
                 "thinking_mode": thinking_mode,
-                "preset": preset,
-                **generation_params
+                "generation_config": generation_params
             }
             
             # Run in thread pool to avoid blocking

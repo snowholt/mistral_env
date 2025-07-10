@@ -917,3 +917,31 @@ class VoiceToVoiceStatusResponse(APIResponse):
     estimated_setup_time_seconds: Optional[int] = None
     memory_stats: Optional[Dict[str, Any]] = None
     error: Optional[str] = None
+
+
+@dataclass
+class VoiceConversationSession(APIRequest):
+    """WebSocket voice conversation session configuration."""
+    session_id: Optional[str] = None
+    input_language: str = "auto"
+    output_language: str = "auto"
+    stt_model_name: str = "whisper-large-v3-turbo-arabic"
+    tts_model_name: str = "coqui-tts-arabic"
+    chat_model_name: str = "qwen3-unsloth-q4ks"
+    speaker_voice: str = "female"
+    emotion: str = "neutral"
+    speech_speed: float = 1.0
+    audio_output_format: str = "wav"
+    
+    # Advanced parameters
+    temperature: Optional[float] = None
+    top_p: Optional[float] = None
+    top_k: Optional[int] = None
+    repetition_penalty: Optional[float] = None
+    max_new_tokens: Optional[int] = None
+    
+    # Content filtering
+    disable_content_filter: bool = False
+    content_filter_strictness: str = "balanced"
+    thinking_mode: bool = False
+    preset: Optional[str] = None

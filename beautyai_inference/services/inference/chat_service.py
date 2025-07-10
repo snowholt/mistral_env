@@ -169,7 +169,9 @@ class ChatService(BaseService):
                 return {"success": False, "error": "Empty response generated", "response": None}
                 
         except Exception as e:
+            import traceback
             logger.error(f"Chat inference error: {e}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return {"success": False, "error": str(e), "response": None}
     
     def _clean_response(self, response: str, language: str = "ar") -> str:

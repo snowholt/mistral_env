@@ -247,6 +247,10 @@ class ModelValidationService(BaseService):
             if param_name not in valid_params:
                 logger.warning(f"Unknown generation parameter: {param_name}")
             
+            # Skip validation for None values (optional parameters)
+            if param_value is None:
+                continue
+                
             # Type validation for numeric parameters
             numeric_params = {'max_new_tokens', 'max_length', 'min_length', 'top_k', 'num_beams'}
             if param_name in numeric_params and not isinstance(param_value, int):
@@ -260,11 +264,11 @@ class ModelValidationService(BaseService):
             if param_name in bool_params and not isinstance(param_value, bool):
                 errors.append(f"Parameter '{param_name}' must be a boolean, got {type(param_value).__name__}")
             
-            # Value range validation
-            if param_name == 'temperature' and (param_value < 0 or param_value > 2):
+            # Value range validation (skip None values)
+            if param_name == 'temperature' and param_value is not None and (param_value < 0 or param_value > 2):
                 errors.append("Temperature must be between 0 and 2")
             
-            if param_name == 'top_p' and (param_value < 0 or param_value > 1):
+            if param_name == 'top_p' and param_value is not None and (param_value < 0 or param_value > 1):
                 errors.append("top_p must be between 0 and 1")
         
         return errors

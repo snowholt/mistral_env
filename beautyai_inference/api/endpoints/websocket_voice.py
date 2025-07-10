@@ -158,6 +158,39 @@ class WebSocketVoiceManager:
                 temp_audio_path = temp_file.name
             
             try:
+                # Auto-initialize models if not loaded
+                if not self.voice_service._validate_models_loaded():
+                    logger.info("Models not loaded, initializing automatically...")
+                    
+                    # Get model names from config
+                    stt_model = config.get("stt_model_name", "whisper-large-v3-turbo-arabic")
+                    tts_model = config.get("tts_model_name", "coqui-tts-arabic")
+                    chat_model = config.get("chat_model_name", "qwen3-unsloth-q4ks")
+                    language = config.get("input_language", "ar")
+                    
+                    # Initialize models
+                    init_result = self.voice_service.initialize_models(
+                        stt_model=stt_model,
+                        tts_model=tts_model,
+                        chat_model=chat_model,
+                        language=language
+                    )
+                    
+                    if not all(init_result.values()):
+                        failed_models = [k for k, v in init_result.items() if not v]
+                        error_msg = f"Failed to initialize models: {', '.join(failed_models)}"
+                        logger.error(error_msg)
+                        
+                        await self.send_message(connection_id, {
+                            "type": "voice_response",
+                            "success": False,
+                            "timestamp": time.time(),
+                            "error": error_msg
+                        })
+                        return {"success": False, "error": error_msg}
+                    
+                    logger.info("✅ Models initialized successfully")
+                
                 # Prepare voice-to-voice request
                 v2v_request = {
                     "audio_path": temp_audio_path,
@@ -168,8 +201,10 @@ class WebSocketVoiceManager:
                 
                 # Process voice-to-voice
                 start_time = time.time()
+                logger.info(f"🎯 Starting voice-to-voice processing with request: {v2v_request}")
                 result = await self.voice_service.voice_to_voice_async(**v2v_request)
                 processing_time = time.time() - start_time
+                logger.info(f"✅ Voice-to-voice processing completed in {processing_time:.2f}s")
                 
                 if result.get("success", False):
                     # Update conversation history
@@ -247,7 +282,9 @@ class WebSocketVoiceManager:
                     pass
         
         except Exception as e:
+            import traceback
             logger.error(f"Error processing voice message for {connection_id}: {e}")
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             await self.send_message(connection_id, {
                 "type": "voice_response",
                 "success": False,

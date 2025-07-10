@@ -406,7 +406,9 @@
 
         function getWebSocketURL() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const host = window.location.host || 'localhost:8000';
+            // Use the same hostname but always use port 8000 for WebSocket
+            const hostname = window.location.hostname || 'localhost';
+            const wsHost = `${hostname}:8000`;
             
             // Build query parameters from settings
             const params = new URLSearchParams({
@@ -420,7 +422,7 @@
                 session_id: `browser_${Date.now()}`
             });
             
-            return `${protocol}//${host}/ws/voice-conversation?${params.toString()}`;
+            return `${protocol}//${wsHost}/ws/voice-conversation?${params.toString()}`;
         }
 
         function connectWebSocket() {
