@@ -406,9 +406,19 @@
 
         function getWebSocketURL() {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-            // Use the same hostname but always use port 8000 for WebSocket
-            const hostname = window.location.hostname || 'localhost';
-            const wsHost = `${hostname}:8000`;
+            
+            // Use api.gmai.sa for API calls when on production
+            let apiHost;
+            if (window.location.hostname === 'dev.gmai.sa') {
+                // Production: use api.gmai.sa subdomain
+                apiHost = 'api.gmai.sa';
+            } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                // Development: use localhost with port
+                apiHost = 'localhost:8000';
+            } else {
+                // Fallback: use same hostname with port 8000
+                apiHost = `${window.location.hostname}:8000`;
+            }
             
             // Build query parameters from settings
             const params = new URLSearchParams({
@@ -422,7 +432,7 @@
                 session_id: `browser_${Date.now()}`
             });
             
-            return `${protocol}//${wsHost}/ws/voice-conversation?${params.toString()}`;
+            return `${protocol}//${apiHost}/ws/voice-conversation?${params.toString()}`;
         }
 
         function connectWebSocket() {
