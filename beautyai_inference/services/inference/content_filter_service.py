@@ -281,8 +281,24 @@ class ContentFilterService(BaseService):
         # Count medical/beauty related words
         medical_word_count = 0
         for word in words:
+            # Check the word as-is
             if word in self.allowed_medical_keywords:
                 medical_word_count += 1
+            # For Arabic words, also check without definite article prefix "ال"
+            elif word.startswith('ال') and len(word) > 2:
+                word_without_al = word[2:]  # Remove "ال" prefix
+                if word_without_al in self.allowed_medical_keywords:
+                    medical_word_count += 1
+            # For Arabic words, also check without other common prefixes
+            elif word.startswith('و') and len(word) > 1:  # "و" prefix (and)
+                word_without_wa = word[1:]
+                if word_without_wa in self.allowed_medical_keywords:
+                    medical_word_count += 1
+                # Also check without "ال" after removing "و"
+                elif word_without_wa.startswith('ال') and len(word_without_wa) > 2:
+                    word_clean = word_without_wa[2:]
+                    if word_clean in self.allowed_medical_keywords:
+                        medical_word_count += 1
         
         # Calculate relevance score
         relevance_ratio = medical_word_count / len(words) if words else 0
@@ -294,12 +310,12 @@ class ContentFilterService(BaseService):
             elif self.strictness_level == "balanced":
                 threshold = 0.4  # 40% of words must be medical for short texts
             else:  # "relaxed"
-                threshold = 0.3  # 30% of words must be medical for short texts
+                threshold = 0.2  # 20% of words must be medical for short texts (more lenient)
         else:  # Longer texts can have lower density
             if self.strictness_level == "strict":
                 threshold = 0.3  # 30% of words must be medical
             elif self.strictness_level == "balanced":
-                threshold = 0.2  # 20% of words must be medical  
+                threshold = 0.15  # 15% of words must be medical (more lenient)
             else:  # "relaxed"
                 threshold = 0.1  # 10% of words must be medical
         
@@ -309,6 +325,18 @@ class ContentFilterService(BaseService):
             has_question_word = any(word in question_words for word in words)
             if has_question_word and medical_word_count > 0:
                 return True
+        
+        # Special case for beauty/medical facility inquiries
+        clinic_words = ['عيادة', 'مركز', 'clinic', 'center']
+        beauty_words = ['تجميل', 'جمال', 'beauty', 'cosmetic', 'aesthetic']
+        service_words = ['خدمات', 'خدمة', 'services', 'service']
+        
+        has_clinic = any(any(clinic_word in word for clinic_word in clinic_words) for word in words)
+        has_beauty = any(any(beauty_word in word for beauty_word in beauty_words) for word in words)
+        has_service = any(any(service_word in word for service_word in service_words) for word in words)
+        
+        if has_clinic and (has_beauty or has_service):
+            return True
         
         return relevance_ratio >= threshold
     

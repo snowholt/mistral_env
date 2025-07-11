@@ -420,16 +420,29 @@
                 apiHost = `${window.location.hostname}:8000`;
             }
             
-            // Build query parameters from settings
+            // Build SIMPLIFIED query parameters - rely on server-side voice-optimized defaults
             const params = new URLSearchParams({
-                input_language: document.getElementById('language-select').value,
-                output_language: document.getElementById('language-select').value,
-                speaker_voice: document.getElementById('voice-select').value,
-                emotion: document.getElementById('emotion-select').value,
-                speech_speed: document.getElementById('speed-range').value,
-                thinking_mode: document.getElementById('thinking-mode').value,
-                preset: document.getElementById('preset-select').value,
-                session_id: `browser_${Date.now()}`
+                // Essential parameters only
+                preset: document.getElementById('preset-select').value || 'qwen_optimized',
+                session_id: `browser_${Date.now()}`,
+                
+                // Only include non-default settings to keep URL clean
+                ...(document.getElementById('language-select').value !== 'auto' && {
+                    input_language: document.getElementById('language-select').value,
+                    output_language: document.getElementById('language-select').value
+                }),
+                ...(document.getElementById('voice-select').value !== 'female' && {
+                    speaker_voice: document.getElementById('voice-select').value
+                }),
+                ...(document.getElementById('emotion-select').value !== 'neutral' && {
+                    emotion: document.getElementById('emotion-select').value
+                }),
+                ...(document.getElementById('speed-range').value !== '1.0' && {
+                    speech_speed: document.getElementById('speed-range').value
+                }),
+                ...(document.getElementById('thinking-mode').value === 'true' && {
+                    thinking_mode: 'true'
+                })
             });
             
             return `${protocol}//${apiHost}/ws/voice-conversation?${params.toString()}`;

@@ -241,13 +241,94 @@ class LlamaCppEngine(ModelInterface):
         formatted_prompt = self._format_prompt(prompt)
         
         # Optimized generation parameters for MAXIMUM speed on RTX 4090
+        
+        # Get temperature from kwargs, config, or custom_generation_params
+        temperature = kwargs.get("temperature")
+        if temperature is None:
+            temperature = getattr(self.config, 'temperature', None)
+            if temperature is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                temperature = self.config.custom_generation_params.get('temperature', 0.01)
+            if temperature is None:
+                temperature = 0.01
+        
+        # Ensure temperature is not None and is a valid float
+        try:
+            temperature = float(temperature) if temperature is not None else 0.01
+            # Validate temperature range
+            if temperature <= 0:
+                temperature = 0.01
+            elif temperature > 2.0:
+                temperature = 2.0
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid temperature value: {temperature}, using default 0.01")
+            temperature = 0.01
+        
+        # Get top_p from kwargs, config, or custom_generation_params
+        top_p = kwargs.get("top_p")
+        if top_p is None:
+            top_p = getattr(self.config, 'top_p', None)
+            if top_p is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                top_p = self.config.custom_generation_params.get('top_p', 0.5)
+            if top_p is None:
+                top_p = 0.5
+        
+        # Ensure top_p is not None and is a valid float
+        try:
+            top_p = float(top_p) if top_p is not None else 0.5
+            # Validate top_p range
+            if top_p <= 0:
+                top_p = 0.1
+            elif top_p > 1.0:
+                top_p = 1.0
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid top_p value: {top_p}, using default 0.5")
+            top_p = 0.5
+        
+        # Get top_k from kwargs or custom_generation_params
+        top_k = kwargs.get("top_k")
+        if top_k is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+            top_k = self.config.custom_generation_params.get('top_k', 1)
+        if top_k is None:
+            top_k = 1
+            
+        # Ensure top_k is not None and is a valid int
+        try:
+            top_k = int(top_k) if top_k is not None else 1
+            # Validate top_k range
+            if top_k <= 0:
+                top_k = 1
+            elif top_k > 100:
+                top_k = 100
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid top_k value: {top_k}, using default 1")
+            top_k = 1
+            
+        # Get repeat_penalty from kwargs or custom_generation_params  
+        repeat_penalty = kwargs.get("repeat_penalty", kwargs.get("repetition_penalty"))
+        if repeat_penalty is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+            repeat_penalty = self.config.custom_generation_params.get('repetition_penalty', 1.0)
+        if repeat_penalty is None:
+            repeat_penalty = 1.0
+        
+        # Ensure repeat_penalty is not None and is a valid float
+        try:
+            repeat_penalty = float(repeat_penalty) if repeat_penalty is not None else 1.0
+            # Validate repeat_penalty range
+            if repeat_penalty <= 0:
+                repeat_penalty = 1.0
+            elif repeat_penalty > 2.0:
+                repeat_penalty = 2.0
+        except (TypeError, ValueError):
+            logger.warning(f"Invalid repeat_penalty value: {repeat_penalty}, using default 1.0")
+            repeat_penalty = 1.0
+        
         response = self.model(
             formatted_prompt,
             max_tokens=kwargs.get("max_new_tokens", min(self.config.max_new_tokens, 64)),  # Extremely short for speed
-            temperature=kwargs.get("temperature", getattr(self.config, 'temperature', 0.01)),  # Near-greedy
-            top_p=kwargs.get("top_p", 0.5),  # Ultra-aggressive for speed
-            top_k=kwargs.get("top_k", 1),  # Maximum speed - nearly greedy
-            repeat_penalty=kwargs.get("repeat_penalty", 1.0),  # Disabled for speed
+            temperature=temperature,  # Near-greedy
+            top_p=top_p,  # Ultra-aggressive for speed
+            top_k=top_k,  # Maximum speed - nearly greedy
+            repeat_penalty=repeat_penalty,  # Disabled for speed
             echo=False,
             stop=["</s>", "[INST]", "[/INST]", "User:", "\n\n\n"],
             # Ultra-aggressive speed optimizations
@@ -282,10 +363,86 @@ class LlamaCppEngine(ModelInterface):
         try:
             max_tokens = kwargs.get("max_new_tokens", kwargs.get("max_tokens", 
                                                                  min(self.config.max_new_tokens, 256)))
-            temperature = kwargs.get("temperature", getattr(self.config, 'temperature', 0.7))
-            top_p = kwargs.get("top_p", 0.9)
-            top_k = kwargs.get("top_k", 40)
-            repeat_penalty = kwargs.get("repeat_penalty", kwargs.get("repetition_penalty", 1.1))
+            
+            # Get temperature from kwargs, config, or custom_generation_params
+            temperature = kwargs.get("temperature")
+            if temperature is None:
+                temperature = getattr(self.config, 'temperature', None)
+                if temperature is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                    temperature = self.config.custom_generation_params.get('temperature', 0.7)
+                if temperature is None:
+                    temperature = 0.7
+            
+            # Ensure temperature is not None and is a valid float
+            try:
+                temperature = float(temperature) if temperature is not None else 0.7
+                # Validate temperature range
+                if temperature <= 0:
+                    temperature = 0.1
+                elif temperature > 2.0:
+                    temperature = 2.0
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid temperature value: {temperature}, using default 0.7")
+                temperature = 0.7
+            
+            # Get top_p from kwargs, config, or custom_generation_params
+            top_p = kwargs.get("top_p")
+            if top_p is None:
+                top_p = getattr(self.config, 'top_p', None)
+                if top_p is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                    top_p = self.config.custom_generation_params.get('top_p', 0.9)
+                if top_p is None:
+                    top_p = 0.9
+            
+            # Ensure top_p is not None and is a valid float
+            try:
+                top_p = float(top_p) if top_p is not None else 0.9
+                # Validate top_p range
+                if top_p <= 0:
+                    top_p = 0.1
+                elif top_p > 1.0:
+                    top_p = 1.0
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid top_p value: {top_p}, using default 0.9")
+                top_p = 0.9
+            
+            # Get top_k from kwargs or custom_generation_params
+            top_k = kwargs.get("top_k")
+            if top_k is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                top_k = self.config.custom_generation_params.get('top_k', 40)
+            if top_k is None:
+                top_k = 40
+                
+            # Ensure top_k is not None and is a valid int
+            try:
+                top_k = int(top_k) if top_k is not None else 40
+                # Validate top_k range
+                if top_k <= 0:
+                    top_k = 1
+                elif top_k > 100:
+                    top_k = 100
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid top_k value: {top_k}, using default 40")
+                top_k = 40
+                
+            # Get repeat_penalty from kwargs or custom_generation_params
+            repeat_penalty = kwargs.get("repeat_penalty", kwargs.get("repetition_penalty"))
+            if repeat_penalty is None and hasattr(self.config, 'custom_generation_params') and self.config.custom_generation_params:
+                repeat_penalty = self.config.custom_generation_params.get('repetition_penalty', 1.1)
+            if repeat_penalty is None:
+                repeat_penalty = 1.1
+            
+            # Ensure repeat_penalty is not None and is a valid float
+            try:
+                repeat_penalty = float(repeat_penalty) if repeat_penalty is not None else 1.1
+                # Validate repeat_penalty range
+                if repeat_penalty <= 0:
+                    repeat_penalty = 1.0
+                elif repeat_penalty > 2.0:
+                    repeat_penalty = 2.0
+            except (TypeError, ValueError):
+                logger.warning(f"Invalid repeat_penalty value: {repeat_penalty}, using default 1.1")
+                repeat_penalty = 1.1
             
             logger.info(f"Chat parameters: max_tokens={max_tokens}, temp={temperature}, top_p={top_p}, top_k={top_k}")
             

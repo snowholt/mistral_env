@@ -191,12 +191,71 @@ class WebSocketVoiceManager:
                     
                     logger.info("✅ Models initialized successfully")
                 
-                # Prepare voice-to-voice request
+                # Prepare voice-to-voice request with sanitized parameters
+                # Filter out None values to prevent engine errors
+                sanitized_config = {k: v for k, v in config.items() if v is not None}
+                
+                # Voice-optimized defaults for fast response (prioritizing voice conversation quality)
+                voice_optimized_defaults = {
+                    # Core generation parameters - optimized for voice conversation
+                    "temperature": 0.7,           # Balanced creativity for natural conversation
+                    "top_p": 0.9,                 # High diversity for natural speech patterns  
+                    "top_k": 40,                  # Reasonable vocabulary selection
+                    "repetition_penalty": 1.1,   # Slight penalty to avoid repetition
+                    "max_new_tokens": 128,        # Shorter responses for voice (faster processing)
+                    
+                    # Audio settings - optimized for streaming
+                    "speech_speed": 1.0,          # Normal speech speed
+                    "emotion": "neutral",         # Neutral emotion for consistency
+                    "audio_output_format": "wav", # WAV format for better quality
+                    
+                    # Voice conversation specific
+                    "thinking_mode": False,       # Disable thinking for voice (faster response)
+                    "disable_content_filter": False,  # Keep content filtering enabled
+                    "content_filter_strictness": "balanced",
+                    
+                    # Model selection - use defaults if not specified
+                    "stt_model_name": "whisper-large-v3-turbo-arabic",
+                    "tts_model_name": "coqui-tts-arabic", 
+                    "chat_model_name": "qwen3-unsloth-q4ks",
+                    "input_language": "auto",
+                    "output_language": "auto",
+                    "speaker_voice": "female"
+                }
+                
+                # Merge with voice-optimized defaults (config values take precedence if not None)
+                final_config = voice_optimized_defaults.copy()
+                for key, value in sanitized_config.items():
+                    if value is not None:  # Only override if the value is not None
+                        final_config[key] = value
+                
+                # Special handling for preset-based configurations
+                preset = final_config.get("preset")
+                if preset == "speed_optimized":
+                    # Ultra-fast settings for maximum speed
+                    final_config.update({
+                        "temperature": 0.1,
+                        "top_p": 0.7,
+                        "top_k": 20,
+                        "max_new_tokens": 64,
+                        "repetition_penalty": 1.0
+                    })
+                elif preset == "high_quality":
+                    # Higher quality but slower settings
+                    final_config.update({
+                        "temperature": 0.8,
+                        "top_p": 0.95,
+                        "top_k": 50,
+                        "max_new_tokens": 256,
+                        "repetition_penalty": 1.15
+                    })
+                # "qwen_optimized" and None use the default voice_optimized_defaults
+                
                 v2v_request = {
                     "audio_path": temp_audio_path,
                     "session_id": session_id,
                     "chat_history": connection["conversation_history"],
-                    **config  # Include all configuration parameters
+                    **final_config  # Include final optimized configuration parameters
                 }
                 
                 # Process voice-to-voice
@@ -205,6 +264,7 @@ class WebSocketVoiceManager:
                 result = await self.voice_service.voice_to_voice_async(**v2v_request)
                 processing_time = time.time() - start_time
                 logger.info(f"✅ Voice-to-voice processing completed in {processing_time:.2f}s")
+                logger.info(f"🔍 Voice service result: success={result.get('success')}, has_audio_path={result.get('audio_output_path') is not None}")
                 
                 if result.get("success", False):
                     # Update conversation history
@@ -215,12 +275,16 @@ class WebSocketVoiceManager:
                     
                     # Read generated audio file
                     audio_output_path = result.get("audio_output_path")
+                    logger.info(f"🎵 Audio output path: {audio_output_path}")
+                    
                     if audio_output_path and Path(audio_output_path).exists():
+                        logger.info(f"✅ Audio file exists, size: {Path(audio_output_path).stat().st_size} bytes")
                         with open(audio_output_path, "rb") as audio_file:
                             audio_bytes = audio_file.read()
                         
                         # Encode audio as base64 for WebSocket transmission
                         audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                        logger.info(f"🎵 Audio encoded as base64: {len(audio_base64)} chars, {len(audio_bytes)} bytes")
                         
                         # Send processing completed message with audio
                         await self.send_message(connection_id, {
@@ -252,16 +316,30 @@ class WebSocketVoiceManager:
                         return {"success": True, "processing_time": processing_time}
                     
                     else:
-                        # No audio generated
+                        # No audio generated - send text-only response with detailed error info
+                        logger.warning(f"❌ No audio generated. Path: {audio_output_path}, Exists: {Path(audio_output_path).exists() if audio_output_path else False}")
                         await self.send_message(connection_id, {
                             "type": "voice_response",
-                            "success": False,
+                            "success": True,  # Mark as success since transcription/chat worked
                             "timestamp": time.time(),
-                            "error": "Audio generation failed",
+                            "session_id": session_id,
                             "transcription": result.get("transcription", ""),
-                            "response_text": result.get("response_text", "")
+                            "response_text": result.get("response_text", ""),
+                            "audio_base64": None,
+                            "audio_format": None, 
+                            "audio_size_bytes": 0,
+                            "processing_time_ms": processing_time * 1000,
+                            "models_used": result.get("models_used", {}),
+                            "warning": "Audio generation failed, text-only response",
+                            "metadata": {
+                                "thinking_mode": result.get("thinking_mode", False),
+                                "content_filter_applied": result.get("content_filter_applied", False),
+                                "input_language": result.get("input_language", "auto"),
+                                "output_language": result.get("output_language", "auto"),
+                                "audio_generation_failed": True
+                            }
                         })
-                        return {"success": False, "error": "Audio generation failed"}
+                        return {"success": True, "processing_time": processing_time, "warning": "Audio generation failed"}
                 
                 else:
                     # Processing failed

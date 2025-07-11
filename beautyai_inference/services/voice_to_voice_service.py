@@ -44,7 +44,7 @@ class VoiceToVoiceService(BaseService):
     - Performance metrics tracking
     """
     
-    def __init__(self, content_filter_strictness: str = "balanced"):
+    def __init__(self, content_filter_strictness: str = "relaxed"):
         """Initialize the voice-to-voice service."""
         super().__init__()
         
@@ -454,10 +454,18 @@ class VoiceToVoiceService(BaseService):
                     return {
                         "success": False,
                         "error": f"STT failed: {transcription_result.get('error', 'Unknown error')}",
-                        "transcription": None,
-                        "response": None,
-                        "audio_output": None,
-                        "processing_time": time.time() - start_time
+                        "transcription": "",
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "STT failed"}
                     }
                 
                 transcribed_text = transcription_result["transcription"]
@@ -539,13 +547,32 @@ class VoiceToVoiceService(BaseService):
                 final_thinking_mode = thinking_override if thinking_override is not None else thinking_mode
                 
                 # Prepare chat parameters with full generation config and language matching
+                # Sanitize generation_config to remove None values that cause engine errors
+                sanitized_generation_config = {}
+                if generation_config:
+                    sanitized_generation_config = {k: v for k, v in generation_config.items() if v is not None}
+                
+                # Voice-optimized defaults for better performance
+                voice_chat_defaults = {
+                    "temperature": 0.7,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "repetition_penalty": 1.1,
+                    "max_new_tokens": 128  # Shorter responses for voice conversations
+                }
+                
+                # Apply defaults for missing parameters
+                for key, default_value in voice_chat_defaults.items():
+                    if key not in sanitized_generation_config:
+                        sanitized_generation_config[key] = default_value
+                
                 chat_params = {
                     "message": processed_text,
                     "conversation_history": conversation_history,
-                    "max_length": generation_config.get("max_new_tokens", 256),
+                    "max_length": sanitized_generation_config.get("max_new_tokens", 128),
                     "language": response_language,  # Use detected/determined response language
                     "thinking_mode": final_thinking_mode,
-                    **generation_config  # Include all generation parameters
+                    **sanitized_generation_config  # Include sanitized generation parameters
                 }
                 
                 logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}, response_language={response_language}")
@@ -563,9 +590,17 @@ class VoiceToVoiceService(BaseService):
                         "success": False,
                         "error": f"Chat service failed: {str(chat_error)}",
                         "transcription": transcribed_text,
-                        "response": None,
-                        "audio_output": None,
-                        "processing_time": time.time() - start_time
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "Chat service failed"}
                     }
                 
                 if not chat_result.get("success", False):
@@ -573,9 +608,17 @@ class VoiceToVoiceService(BaseService):
                         "success": False,
                         "error": f"Chat failed: {chat_result.get('error', 'Unknown error')}",
                         "transcription": transcribed_text,
-                        "response": None,
-                        "audio_output": None,
-                        "processing_time": time.time() - start_time
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "Chat failed"}
                     }
                 
                 response_text = chat_result["response"]
@@ -606,9 +649,17 @@ class VoiceToVoiceService(BaseService):
                         "success": False,
                         "error": f"TTS service failed: {str(tts_error)}",
                         "transcription": transcribed_text,
-                        "response": response_text,
-                        "audio_output": None,
-                        "processing_time": time.time() - start_time
+                        "response_text": response_text,
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "TTS service failed"}
                     }
                 
                 if not tts_audio_path:
@@ -616,9 +667,17 @@ class VoiceToVoiceService(BaseService):
                         "success": False,
                         "error": f"TTS failed: Could not generate audio",
                         "transcription": transcribed_text,
-                        "response": response_text,
-                        "audio_output": None,
-                        "processing_time": time.time() - start_time
+                        "response_text": response_text,
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "TTS failed"}
                     }
                 
                 # Step 6: Update session history
@@ -640,12 +699,19 @@ class VoiceToVoiceService(BaseService):
                     "success": True,
                     "session_id": session_id,
                     "transcription": transcribed_text,
-                    "response": response_text,
+                    "response_text": response_text,  # Consistent with WebSocket expectation
                     "audio_output": tts_audio_path,
+                    "audio_output_path": tts_audio_path,  # Add both keys for compatibility
+                    "audio_output_format": "wav",  # Add format information
                     "processing_time": processing_time,
                     "detected_input_language": detected_input_language,
                     "response_language": response_language,
                     "language_auto_detected": input_language == "auto" or output_language == "auto",
+                    "models_used": {  # Add models used information
+                        "stt": getattr(self.stt_service, 'current_model_name', 'unknown'),
+                        "chat": getattr(self.chat_service, 'current_model_name', 'unknown'),
+                        "tts": getattr(self.tts_service, 'current_model_name', 'unknown')
+                    },
                     "metadata": {
                         "input_language": detected_input_language or input_language,
                         "output_language": response_language,
@@ -667,12 +733,16 @@ class VoiceToVoiceService(BaseService):
                     
         except Exception as e:
             logger.error(f"Voice-to-voice conversation failed: {e}")
+            import traceback
+            logger.error(f"Voice-to-voice traceback: {traceback.format_exc()}")
             return {
                 "success": False,
                 "error": str(e),
-                "transcription": None,
-                "response": None,
+                "transcription": "",
+                "response_text": "",
                 "audio_output": None,
+                "audio_output_path": None,
+                "audio_output_format": None,
                 "processing_time": time.time() - start_time
             }
 
