@@ -30,7 +30,7 @@ def run_edge_tts_test():
     print("="*80)
     
     try:
-        import test_edge_tts
+        import tests.voice_features.tts.test_edge_tts as test_edge_tts
         success = test_edge_tts.test_edge_tts()
         return success, "edge_tts_performance.json"
     except Exception as e:
@@ -43,7 +43,7 @@ def run_oute_tts_test():
     print("="*80)
     
     try:
-        import test_oute_tts
+        import tests.voice_features.tts.test_oute_tts as test_oute_tts
         success = test_oute_tts.test_oute_tts()
         return success, "oute_tts_performance.json"
     except Exception as e:

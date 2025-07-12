@@ -497,13 +497,22 @@ class VoiceToVoiceService(BaseService):
                     response_language = output_language
                     logger.info(f"🌍 Using specified languages: input={input_language}, output={output_language}")
                 
-                # Handle thinking mode
-                if thinking_mode and not transcribed_text.startswith("/no_think"):
-                    # Don't add thinking instruction if already disabled
-                    pass
+                # 🚫 VOICE-TO-VOICE: Add \no_think prefix by default for faster responses
+                # This ensures voice conversations are quick and don't include thinking content
+                if not transcribed_text.startswith("/no_think") and "/think" not in transcribed_text.lower():
+                    # Add \no_think prefix to disable thinking mode by default in voice conversations
+                    transcribed_text = f"/no_think {transcribed_text}"
+                    thinking_mode = False
+                    logger.info("🚫 Added /no_think prefix for voice-to-voice speed optimization")
                 elif "/no_think" in transcribed_text:
                     thinking_mode = False
+                    # Remove /no_think from text but keep thinking_mode=False
                     transcribed_text = transcribed_text.replace("/no_think", "").strip()
+                elif "/think" in transcribed_text.lower():
+                    # User explicitly requested thinking mode - honor it
+                    thinking_mode = True
+                    transcribed_text = transcribed_text.replace("/think", "").strip()
+                    logger.info("🧠 User explicitly requested thinking mode via /think command")
                 
                 # Step 2: Content filtering (if enabled)
                 if enable_content_filter:
@@ -531,9 +540,11 @@ class VoiceToVoiceService(BaseService):
                 # Step 4: Chat inference with enhanced parameters
                 logger.info(f"Starting chat inference for session {session_id}")
                 
-                # Check for thinking mode commands in transcription
+                # 🚫 VOICE-TO-VOICE: Process transcribed text for thinking mode
+                # By default, add \no_think prefix for faster voice responses
                 processed_text = transcribed_text
                 thinking_override = None
+                
                 if "/no_think" in transcribed_text.lower():
                     processed_text = transcribed_text.replace("/no_think", "").strip()
                     thinking_override = False
@@ -542,6 +553,12 @@ class VoiceToVoiceService(BaseService):
                     processed_text = transcribed_text.replace("/think", "").strip()
                     thinking_override = True
                     logger.info("User requested thinking mode via /think command")
+                else:
+                    # 🚫 DEFAULT BEHAVIOR: Add \no_think for voice-to-voice speed
+                    if not processed_text.startswith("/no_think"):
+                        processed_text = f"/no_think {processed_text}"
+                        thinking_override = False
+                        logger.info("🚫 Added /no_think prefix by default for voice-to-voice speed optimization")
                 
                 # Determine final thinking mode
                 final_thinking_mode = thinking_override if thinking_override is not None else thinking_mode
@@ -554,7 +571,7 @@ class VoiceToVoiceService(BaseService):
                 
                 # Voice-optimized defaults for better performance
                 voice_chat_defaults = {
-                    "temperature": 0.7,
+                    "temperature": 0.3,
                     "top_p": 0.9,
                     "top_k": 40,
                     "repetition_penalty": 1.1,
@@ -879,7 +896,7 @@ class VoiceToVoiceService(BaseService):
         emotion: str = "neutral",
         speech_speed: float = 1.0,
         audio_output_format: str = "wav",
-        disable_content_filter: bool = False,
+        disable_content_filter: bool = True,
         content_filter_strictness: str = "balanced",
         thinking_mode: bool = False,
         preset: Optional[str] = None,
