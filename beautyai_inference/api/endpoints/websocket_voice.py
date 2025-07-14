@@ -273,15 +273,25 @@ class WebSocketVoiceManager:
                         {"role": "assistant", "content": result.get("response_text", "")}
                     ])
                     
-                    # Read generated audio file
+                    # Get audio bytes directly from voice service result
+                    audio_bytes = result.get("audio_output_bytes")
                     audio_output_path = result.get("audio_output_path")
+                    
+                    logger.info(f"🎵 Audio bytes from service: {len(audio_bytes) if audio_bytes else 0} bytes")
                     logger.info(f"🎵 Audio output path: {audio_output_path}")
                     
-                    if audio_output_path and Path(audio_output_path).exists():
-                        logger.info(f"✅ Audio file exists, size: {Path(audio_output_path).stat().st_size} bytes")
+                    # Use direct audio bytes if available, fallback to file reading
+                    if audio_bytes:
+                        logger.info(f"✅ Using direct audio bytes: {len(audio_bytes)} bytes")
+                    elif audio_output_path and Path(audio_output_path).exists():
+                        logger.info(f"✅ Reading audio from file: {Path(audio_output_path).stat().st_size} bytes")
                         with open(audio_output_path, "rb") as audio_file:
                             audio_bytes = audio_file.read()
-                        
+                    else:
+                        logger.error("❌ No audio bytes or file available")
+                        audio_bytes = None
+                    
+                    if audio_bytes:
                         # Check audio size and handle large files
                         max_frame_size = 800000  # 800KB limit (leave buffer for JSON overhead)
                         
@@ -335,40 +345,39 @@ class WebSocketVoiceManager:
                                     "output_language": result.get("output_language", "auto")
                                 }
                             })
-                        
-                        # Clean up temporary audio file
-                        try:
-                            Path(audio_output_path).unlink()
-                        except:
-                            pass
-                        
-                        return {"success": True, "processing_time": processing_time}
-                    
                     else:
-                        # No audio generated - send text-only response with detailed error info
-                        logger.warning(f"❌ No audio generated. Path: {audio_output_path}, Exists: {Path(audio_output_path).exists() if audio_output_path else False}")
+                        # No audio available - send text-only response
+                        logger.warning("⚠️ No audio data available, sending text-only response")
                         await self.send_message(connection_id, {
                             "type": "voice_response",
-                            "success": True,  # Mark as success since transcription/chat worked
+                            "success": True,
                             "timestamp": time.time(),
                             "session_id": session_id,
                             "transcription": result.get("transcription", ""),
                             "response_text": result.get("response_text", ""),
                             "audio_base64": None,
-                            "audio_format": None, 
+                            "audio_format": "wav",
                             "audio_size_bytes": 0,
                             "processing_time_ms": processing_time * 1000,
                             "models_used": result.get("models_used", {}),
-                            "warning": "Audio generation failed, text-only response",
+                            "warning": "No audio data generated",
                             "metadata": {
                                 "thinking_mode": result.get("thinking_mode", False),
                                 "content_filter_applied": result.get("content_filter_applied", False),
                                 "input_language": result.get("input_language", "auto"),
                                 "output_language": result.get("output_language", "auto"),
-                                "audio_generation_failed": True
+                                "audio_missing": True
                             }
                         })
-                        return {"success": True, "processing_time": processing_time, "warning": "Audio generation failed"}
+                        
+                    # Clean up temporary audio file if it exists
+                    if audio_output_path:
+                        try:
+                            Path(audio_output_path).unlink()
+                        except:
+                            pass
+                        
+                    return {"success": True, "processing_time": processing_time}
                 
                 else:
                     # Processing failed

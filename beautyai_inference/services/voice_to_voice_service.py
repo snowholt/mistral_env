@@ -654,10 +654,19 @@ class VoiceToVoiceService(BaseService):
                     final_clean_text = self._remove_thinking_content(clean_response_text)
                     logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
                     
+                    # Generate audio to file path for compatibility and bytes for WebSocket
                     tts_audio_path = self.tts_service.text_to_speech(
                         text=final_clean_text,
                         output_path=str(output_audio_path),
                         language=response_language,  # Use the determined response language
+                        speaker_voice=speaker_voice
+                    )
+                    
+                    # Also generate audio bytes for direct WebSocket usage
+                    logger.info(f"Generating TTS bytes for WebSocket transmission...")
+                    tts_audio_bytes = self.tts_service.text_to_speech_bytes(
+                        text=final_clean_text,
+                        language=response_language,
                         speaker_voice=speaker_voice
                     )
                 except Exception as tts_error:
@@ -668,6 +677,7 @@ class VoiceToVoiceService(BaseService):
                         "transcription": transcribed_text,
                         "response_text": response_text,
                         "audio_output_path": None,
+                        "audio_output_bytes": None,
                         "audio_output_format": "wav",
                         "session_id": session_id,
                         "processing_time": time.time() - start_time,
@@ -679,13 +689,14 @@ class VoiceToVoiceService(BaseService):
                         "metadata": {"error": "TTS service failed"}
                     }
                 
-                if not tts_audio_path:
+                if not tts_audio_path and not tts_audio_bytes:
                     return {
                         "success": False,
                         "error": f"TTS failed: Could not generate audio",
                         "transcription": transcribed_text,
                         "response_text": response_text,
                         "audio_output_path": None,
+                        "audio_output_bytes": None,
                         "audio_output_format": "wav",
                         "session_id": session_id,
                         "processing_time": time.time() - start_time,
@@ -719,6 +730,7 @@ class VoiceToVoiceService(BaseService):
                     "response_text": response_text,  # Consistent with WebSocket expectation
                     "audio_output": tts_audio_path,
                     "audio_output_path": tts_audio_path,  # Add both keys for compatibility
+                    "audio_output_bytes": tts_audio_bytes,  # Add bytes for WebSocket direct transmission
                     "audio_output_format": "wav",  # Add format information
                     "processing_time": processing_time,
                     "detected_input_language": detected_input_language,
