@@ -1,0 +1,426 @@
+[
+  {
+    "test_name": "localhost_basic_arabic",
+    "endpoint": "localhost",
+    "config": "basic_arabic",
+    "url": "ws://localhost:8000/ws/voice-conversation?input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_basic_arabic_1752497351",
+    "success": true,
+    "connection_time": 0.007952451705932617,
+    "total_time": 23.74093723297119,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm if this is a name or a phrase that needs translating.\nAssuming it's a person's name, like Nancy Qanqur, then there might be no direct translation needed. However, sometimes names are transliterated into another language rather than translated directly.\nIf the user wants the Arabic transliteration of \"Nancy Qanqur,\" I would need to convert each letter or sound into its corresponding Arabic script characters.\nFor example:\n- Nancy could be \u0646\u0627\u0646\u0633\u064a\n- Qanqur might be",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "6a74ff08-1184-4644-b746-bb0ba7663084",
+        "session_id": "test_basic_arabic_1752497351",
+        "timestamp": 1752497351.243639,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497351.244988,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497374.976032,
+        "session_id": "test_basic_arabic_1752497351",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm if this is a name or a phrase that needs translating.\nAssuming it's a person's name, like Nancy Qanqur, then there might be no direct translation needed. However, sometimes names are transliterated into another language rather than translated directly.\nIf the user wants the Arabic transliteration of \"Nancy Qanqur,\" I would need to convert each letter or sound into its corresponding Arabic script characters.\nFor example:\n- Nancy could be \u0646\u0627\u0646\u0633\u064a\n- Qanqur might be",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1916204,
+        "processing_time_ms": 7270.356893539429,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1916204 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "localhost_basic_english",
+    "endpoint": "localhost",
+    "config": "basic_english",
+    "url": "ws://localhost:8000/ws/voice-conversation?input_language=en&output_language=en&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_basic_english_1752497376",
+    "success": true,
+    "connection_time": 0.0020203590393066406,
+    "total_time": 6.818888187408447,
+    "error": null,
+    "transcription": "/no_think Thank you.",
+    "response_text": "Okay, the user said \"Thank you.\" I need to respond appropriately. Since they thanked me, a polite and friendly reply is needed.\nI should make sure the response is in English, as per the system instructions. Also, considering the context of aesthetic medicine, maybe add a brief offer for further assistance. But keep it concise and not too pushy.\nLet me check if there's any other instruction I need to follow. The user is likely a patient who has received information about aesthetic treatments. They thanked me, so my response should acknowledge their thanks and be open to helping them further if needed.\nYou're welcome!",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "2d28138a-39f2-4e96-91d5-21dea0602d0f",
+        "session_id": "test_basic_english_1752497376",
+        "timestamp": 1752497376.9814432,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497376.9823923,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497383.7976096,
+        "session_id": "test_basic_english_1752497376",
+        "transcription": "/no_think Thank you.",
+        "response_text": "Okay, the user said \"Thank you.\" I need to respond appropriately. Since they thanked me, a polite and friendly reply is needed.\nI should make sure the response is in English, as per the system instructions. Also, considering the context of aesthetic medicine, maybe add a brief offer for further assistance. But keep it concise and not too pushy.\nLet me check if there's any other instruction I need to follow. The user is likely a patient who has received information about aesthetic treatments. They thanked me, so my response should acknowledge their thanks and be open to helping them further if needed.\nYou're welcome!",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1938284,
+        "processing_time_ms": 6814.629316329956,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1938284 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "localhost_auto_detection",
+    "endpoint": "localhost",
+    "config": "auto_detection",
+    "url": "ws://localhost:8000/ws/voice-conversation?input_language=auto&output_language=auto&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_auto_detection_1752497385",
+    "success": true,
+    "connection_time": 0.0014390945434570312,
+    "total_time": 6.812863826751709,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqar\". First, I need to check if this is a proper noun, like a name. If it's a name, translating it might not be appropriate. However, the user specifically asked for a translation.\nNext, I should consider whether \"Nancy Qanqar\" is a real person or a fictional character. If it's a known figure, there might be an established translation. But if it's unknown, I need to proceed with the best possible approach.\nAnother angle: sometimes names are transliterated rather than translated. For example, \"",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "b127ee76-f3ae-4e4d-a734-3cd25a57f48a",
+        "session_id": "test_auto_detection_1752497385",
+        "timestamp": 1752497385.8024101,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497385.8032737,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497392.6129615,
+        "session_id": "test_auto_detection_1752497385",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqar\". First, I need to check if this is a proper noun, like a name. If it's a name, translating it might not be appropriate. However, the user specifically asked for a translation.\nNext, I should consider whether \"Nancy Qanqar\" is a real person or a fictional character. If it's a known figure, there might be an established translation. But if it's unknown, I need to proceed with the best possible approach.\nAnother angle: sometimes names are transliterated rather than translated. For example, \"",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1926988,
+        "processing_time_ms": 6809.034824371338,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1926988 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "localhost_speed_optimized",
+    "endpoint": "localhost",
+    "config": "speed_optimized",
+    "url": "ws://localhost:8000/ws/voice-conversation?input_language=auto&output_language=auto&speaker_voice=female&preset=speed_optimized&thinking_mode=false&temperature=0.1&max_new_tokens=64&session_id=test_speed_optimized_1752497394",
+    "success": true,
+    "connection_time": 0.0014467239379882812,
+    "total_time": 3.207958459854126,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly the user is asking for. The name \"Nancy Qanqur\" seems to be a person's name, possibly a public figure or someone known in a specific context.\nThe",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "2afc013e-e373-4530-b4b6-027aa8d23752",
+        "session_id": "test_speed_optimized_1752497394",
+        "timestamp": 1752497394.617828,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497394.618662,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497397.8236105,
+        "session_id": "test_speed_optimized_1752497394",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly the user is asking for. The name \"Nancy Qanqur\" seems to be a person's name, possibly a public figure or someone known in a specific context.\nThe",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 868012,
+        "processing_time_ms": 3204.496145248413,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (868012 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "nginx_proxy_basic_arabic",
+    "endpoint": "nginx_proxy",
+    "config": "basic_arabic",
+    "url": "wss://api.gmai.sa/ws/voice-conversation?input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_basic_arabic_1752497399",
+    "success": true,
+    "connection_time": 0.0034012794494628906,
+    "total_time": 6.783525466918945,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly needs translating. The name \"Nancy Qanqur\" might be a person's name, possibly an Arabic transliteration.\nThe user mentioned translating it into Arabic, but since the original is already in Arabic script (assuming Qanqur is an Arabic name), maybe the user wants it translated into another language or just verified as an Arabic name.\nAnother angle: \"Nancy\" is typically an English name, while \"Qanqur\" sounds like an Arabic transliteration. So perhaps the",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "0f8bf1c0-25a0-479c-a7f1-d9333d0a1b1e",
+        "session_id": "test_basic_arabic_1752497399",
+        "timestamp": 1752497399.8419068,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497399.8429477,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497406.6211264,
+        "session_id": "test_basic_arabic_1752497399",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly needs translating. The name \"Nancy Qanqur\" might be a person's name, possibly an Arabic transliteration.\nThe user mentioned translating it into Arabic, but since the original is already in Arabic script (assuming Qanqur is an Arabic name), maybe the user wants it translated into another language or just verified as an Arabic name.\nAnother angle: \"Nancy\" is typically an English name, while \"Qanqur\" sounds like an Arabic transliteration. So perhaps the",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1863404,
+        "processing_time_ms": 6777.570486068726,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1863404 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "nginx_proxy_basic_english",
+    "endpoint": "nginx_proxy",
+    "config": "basic_english",
+    "url": "wss://api.gmai.sa/ws/voice-conversation?input_language=en&output_language=en&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_basic_english_1752497408",
+    "success": true,
+    "connection_time": 0.0032999515533447266,
+    "total_time": 4.62390398979187,
+    "error": null,
+    "transcription": "/no_think Thank you.",
+    "response_text": "Okay, the user said \"Thank you.\" I need to respond appropriately. Since they thanked me, a polite and friendly response is needed.\nI should make sure to keep it concise and in line with the previous instructions. Maybe add an emoji to keep the tone warm and approachable.\nYou're welcome! If you have any questions about aesthetic treatments or need recommendations, feel free to ask. \ud83d\ude0a",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "203a5006-de12-41fb-b790-24abb1b9b2b4",
+        "session_id": "test_basic_english_1752497408",
+        "timestamp": 1752497408.6382394,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497408.6394124,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497413.2582877,
+        "session_id": "test_basic_english_1752497408",
+        "transcription": "/no_think Thank you.",
+        "response_text": "Okay, the user said \"Thank you.\" I need to respond appropriately. Since they thanked me, a polite and friendly response is needed.\nI should make sure to keep it concise and in line with the previous instructions. Maybe add an emoji to keep the tone warm and approachable.\nYou're welcome! If you have any questions about aesthetic treatments or need recommendations, feel free to ask. \ud83d\ude0a",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1328940,
+        "processing_time_ms": 4618.32857131958,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1328940 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "nginx_proxy_auto_detection",
+    "endpoint": "nginx_proxy",
+    "config": "auto_detection",
+    "url": "wss://api.gmai.sa/ws/voice-conversation?input_language=auto&output_language=auto&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&session_id=test_auto_detection_1752497415",
+    "success": true,
+    "connection_time": 0.0032415390014648438,
+    "total_time": 16.738606691360474,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqar\" into Arabic. First, I need to confirm if this is a proper noun that requires transliteration rather than translation.\n\"Nancy\" is a given name, so it's typically transliterated into Arabic script. The surname \"Qanqar\" also appears to be a family name, possibly of Arab origin or another ethnicity.\nIn Arabic transliteration, the name \"Nancy Qanqar\" would likely be written as \"\u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0627\u0631\". Here, each letter is approximated using Arabic characters that are closest in sound.",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "53e72fed-9731-4875-9ccb-faac0cacb786",
+        "session_id": "test_auto_detection_1752497415",
+        "timestamp": 1752497415.2753956,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497415.2763898,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497432.010103,
+        "session_id": "test_auto_detection_1752497415",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqar\" into Arabic. First, I need to confirm if this is a proper noun that requires transliteration rather than translation.\n\"Nancy\" is a given name, so it's typically transliterated into Arabic script. The surname \"Qanqar\" also appears to be a family name, possibly of Arab origin or another ethnicity.\nIn Arabic transliteration, the name \"Nancy Qanqar\" would likely be written as \"\u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0627\u0631\". Here, each letter is approximated using Arabic characters that are closest in sound.",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 1858796,
+        "processing_time_ms": 6766.993284225464,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (1858796 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  },
+  {
+    "test_name": "nginx_proxy_speed_optimized",
+    "endpoint": "nginx_proxy",
+    "config": "speed_optimized",
+    "url": "wss://api.gmai.sa/ws/voice-conversation?input_language=auto&output_language=auto&speaker_voice=female&preset=speed_optimized&thinking_mode=false&temperature=0.1&max_new_tokens=64&session_id=test_speed_optimized_1752497434",
+    "success": true,
+    "connection_time": 0.005819797515869141,
+    "total_time": 3.2082107067108154,
+    "error": null,
+    "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+    "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly the user is asking for. The name \"Nancy Qanqur\" seems to be a person's name, possibly a public figure or someone known in a specific context.\nThe",
+    "audio_received": false,
+    "audio_size": 0,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "4edb1d97-ceb6-452f-9da5-01d9edccd785",
+        "session_id": "test_speed_optimized_1752497434",
+        "timestamp": 1752497434.0309758,
+        "message": "Voice conversation WebSocket connected successfully"
+      },
+      {
+        "type": "processing_started",
+        "timestamp": 1752497434.0320241,
+        "message": "Processing your voice message..."
+      },
+      {
+        "type": "voice_response",
+        "success": true,
+        "timestamp": 1752497437.2328734,
+        "session_id": "test_speed_optimized_1752497434",
+        "transcription": "/no_think \u062a\u0631\u062c\u0645\u0629 \u0646\u0627\u0646\u0633\u064a \u0642\u0646\u0642\u0631",
+        "response_text": "Okay, the user asked for a translation of \"Nancy Qanqur.\" First, I need to confirm what exactly the user is asking for. The name \"Nancy Qanqur\" seems to be a person's name, possibly a public figure or someone known in a specific context.\nThe",
+        "audio_base64": null,
+        "audio_format": "wav",
+        "audio_size_bytes": 854700,
+        "processing_time_ms": 3200.32000541687,
+        "models_used": {
+          "stt": "unknown",
+          "chat": "unknown",
+          "tts": "unknown"
+        },
+        "warning": "Audio too large (854700 bytes) for WebSocket transmission",
+        "metadata": {
+          "thinking_mode": false,
+          "content_filter_applied": false,
+          "input_language": "auto",
+          "output_language": "auto",
+          "audio_too_large": true
+        }
+      }
+    ]
+  }
+]

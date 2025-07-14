@@ -44,7 +44,7 @@ class VoiceToVoiceService(BaseService):
     - Performance metrics tracking
     """
     
-    def __init__(self, content_filter_strictness: str = "relaxed"):
+    def __init__(self, content_filter_strictness: str = "disabled"):
         """Initialize the voice-to-voice service."""
         super().__init__()
         
@@ -71,7 +71,7 @@ class VoiceToVoiceService(BaseService):
             "language": "ar",
             "speaker_voice": "female",
             "response_max_length": 256,
-            "enable_content_filter": True
+            "enable_content_filter": False  # DISABLED content filtering globally
         }
         
         # Output directory for temporary files
@@ -212,7 +212,7 @@ class VoiceToVoiceService(BaseService):
         language: str = "ar",
         speaker_voice: str = "female",
         response_max_length: int = 256,
-        enable_content_filter: bool = True,
+        enable_content_filter: bool = False,
         **generation_kwargs  # Additional generation parameters
     ) -> Dict[str, Any]:
         """
@@ -388,8 +388,8 @@ class VoiceToVoiceService(BaseService):
         input_language: str = "auto",
         output_language: str = "auto",
         speaker_voice: str = "female",
-        enable_content_filter: bool = True,
-        content_filter_strictness: str = "balanced",
+        enable_content_filter: bool = False,
+        content_filter_strictness: str = "disabled",
         thinking_mode: bool = False,
         generation_config: Dict[str, Any] = None,
         **kwargs

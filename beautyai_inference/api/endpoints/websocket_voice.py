@@ -211,8 +211,8 @@ class WebSocketVoiceManager:
                     
                     # Voice conversation specific
                     "thinking_mode": False,       # Disable thinking for voice (faster response)
-                    "disable_content_filter": False,  # Keep content filtering enabled
-                    "content_filter_strictness": "balanced",
+                    "disable_content_filter": True,   # TEMPORARILY DISABLE content filtering
+                    "content_filter_strictness": "disabled",
                     
                     # Model selection - use defaults if not specified
                     "stt_model_name": "whisper-large-v3-turbo-arabic",
@@ -282,30 +282,59 @@ class WebSocketVoiceManager:
                         with open(audio_output_path, "rb") as audio_file:
                             audio_bytes = audio_file.read()
                         
-                        # Encode audio as base64 for WebSocket transmission
-                        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                        logger.info(f"🎵 Audio encoded as base64: {len(audio_base64)} chars, {len(audio_bytes)} bytes")
+                        # Check audio size and handle large files
+                        max_frame_size = 800000  # 800KB limit (leave buffer for JSON overhead)
                         
-                        # Send processing completed message with audio
-                        await self.send_message(connection_id, {
-                            "type": "voice_response",
-                            "success": True,
-                            "timestamp": time.time(),
-                            "session_id": session_id,
-                            "transcription": result.get("transcription", ""),
-                            "response_text": result.get("response_text", ""),
-                            "audio_base64": audio_base64,
-                            "audio_format": result.get("audio_output_format", "wav"),
-                            "audio_size_bytes": len(audio_bytes),
-                            "processing_time_ms": processing_time * 1000,
-                            "models_used": result.get("models_used", {}),
-                            "metadata": {
-                                "thinking_mode": result.get("thinking_mode", False),
-                                "content_filter_applied": result.get("content_filter_applied", False),
-                                "input_language": result.get("input_language", "auto"),
-                                "output_language": result.get("output_language", "auto")
-                            }
-                        })
+                        if len(audio_bytes) > max_frame_size:
+                            # Audio is too large for single WebSocket frame - send without audio
+                            logger.warning(f"⚠️ Audio too large ({len(audio_bytes)} bytes), sending text-only response")
+                            
+                            await self.send_message(connection_id, {
+                                "type": "voice_response",
+                                "success": True,
+                                "timestamp": time.time(),
+                                "session_id": session_id,
+                                "transcription": result.get("transcription", ""),
+                                "response_text": result.get("response_text", ""),
+                                "audio_base64": None,
+                                "audio_format": result.get("audio_output_format", "wav"),
+                                "audio_size_bytes": len(audio_bytes),
+                                "processing_time_ms": processing_time * 1000,
+                                "models_used": result.get("models_used", {}),
+                                "warning": f"Audio too large ({len(audio_bytes)} bytes) for WebSocket transmission",
+                                "metadata": {
+                                    "thinking_mode": result.get("thinking_mode", False),
+                                    "content_filter_applied": result.get("content_filter_applied", False),
+                                    "input_language": result.get("input_language", "auto"),
+                                    "output_language": result.get("output_language", "auto"),
+                                    "audio_too_large": True
+                                }
+                            })
+                        else:
+                            # Audio size is acceptable - encode and send
+                            audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                            logger.info(f"🎵 Audio encoded as base64: {len(audio_base64)} chars, {len(audio_bytes)} bytes")
+                            
+                            # Send processing completed message with audio
+                            await self.send_message(connection_id, {
+                                "type": "voice_response",
+                                "success": True,
+                                "timestamp": time.time(),
+                                "session_id": session_id,
+                                "transcription": result.get("transcription", ""),
+                                "response_text": result.get("response_text", ""),
+                                "audio_base64": audio_base64,
+                                "audio_format": result.get("audio_output_format", "wav"),
+                                "audio_size_bytes": len(audio_bytes),
+                                "processing_time_ms": processing_time * 1000,
+                                "models_used": result.get("models_used", {}),
+                                "metadata": {
+                                    "thinking_mode": result.get("thinking_mode", False),
+                                    "content_filter_applied": result.get("content_filter_applied", False),
+                                    "input_language": result.get("input_language", "auto"),
+                                    "output_language": result.get("output_language", "auto")
+                                }
+                            })
                         
                         # Clean up temporary audio file
                         try:

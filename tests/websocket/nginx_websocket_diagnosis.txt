@@ -1,0 +1,41 @@
+================================================================================
+🔧 NGINX WEBSOCKET DIAGNOSIS REPORT
+================================================================================
+📅 Test Date: 2025-07-12 21:38:25
+
+📊 TEST SUMMARY:
+   Localhost WebSocket: ✅ WORKS
+   Nginx WebSocket: ✅ WORKS
+   Nginx HTTP API: ✅ WORKS
+
+🔍 DIAGNOSIS:
+   ✅ NO ISSUE: Both localhost and nginx WebSocket work
+   📌 The problem may be intermittent or client-side
+
+📋 NGINX LOG ERRORS:
+   - 2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: "GET /.circleci/configs/development.yml HTTP/1.1", upstream: "http://127.0.0.1:5001/.circleci/configs/development.yml", host: "dev.gmai.sa"
+   - 2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: "GET /helpers/utility.js HTTP/1.1", upstream: "http://127.0.0.1:5001/helpers/utility.js", host: "dev.gmai.sa"
+   - 2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: "GET /server/s3.js HTTP/1.1", upstream: "http://127.0.0.1:5001/server/s3.js", host: "dev.gmai.sa"
+
+💡 RECOMMENDATIONS:
+
+📋 DETAILED TEST RESULTS:
+------------------------------------------------------------
+✅ PASS localhost_websocket
+   Time: 0.006s
+
+✅ PASS nginx_websocket
+   Time: 0.004s
+
+✅ PASS nginx_http_api
+   Time: 0.004s
+
+❌ FAIL curl_websocket
+
+✅ PASS nginx_logs
+
+✅ PASS nginx_config
+
+✅ PASS websocket_headers
+
+================================================================================

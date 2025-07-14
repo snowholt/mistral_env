@@ -1,0 +1,176 @@
+{
+  "test_timestamp": "2025-07-12 17:04:07 UTC",
+  "test_summary": {
+    "total_tests": 4,
+    "successful_tests": 4,
+    "failed_tests": 0
+  },
+  "results": [
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.012694835662841797,
+      "url": "ws://localhost:8000/ws/voice-conversation?session_id=test_session_1752339818&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "942fb17b-9fc9-47e7-8065-d4a743da9e47",
+          "session_id": "test_session_1752339818",
+          "timestamp": 1752339818.7595189,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752339837.7271037,
+            "error": "Content filtered: Content is outside medical/beauty domain"
+          },
+          "timing": {
+            "send_time": 0.00022673606872558594,
+            "response_time": 15.96086573600769,
+            "total_time": 15.961124181747437
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752339840.8677623,
+            "error": "Content filtered: Content is outside medical/beauty domain"
+          },
+          "timing": {
+            "send_time": 0.0001964569091796875,
+            "response_time": 0.13444948196411133,
+            "total_time": 0.13467717170715332
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": true,
+      "total_time": 0,
+      "successful_audio_tests": 2,
+      "total_audio_tests": 2
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.0012135505676269531,
+      "url": "ws://api.gmai.sa:8000/ws/voice-conversation?session_id=test_session_1752339840&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "54e89202-f27c-477a-a63c-17961abee9ef",
+          "session_id": "test_session_1752339840",
+          "timestamp": 1752339840.869513,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752339844.0074842,
+            "error": "Content filtered: Content is outside medical/beauty domain"
+          },
+          "timing": {
+            "send_time": 0.0002257823944091797,
+            "response_time": 0.13219380378723145,
+            "total_time": 0.13245368003845215
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752339847.1453915,
+            "error": "Content filtered: Content is outside medical/beauty domain"
+          },
+          "timing": {
+            "send_time": 0.0002048015594482422,
+            "response_time": 0.1321430206298828,
+            "total_time": 0.13238120079040527
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": true,
+      "total_time": 0,
+      "successful_audio_tests": 2,
+      "total_audio_tests": 2
+    }
+  ]
+}

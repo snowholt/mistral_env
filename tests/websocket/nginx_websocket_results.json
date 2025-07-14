@@ -1,0 +1,132 @@
+{
+  "localhost_websocket": {
+    "test": "localhost_websocket",
+    "success": true,
+    "connection_time": 0.005979061126708984,
+    "error": null,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "4bed6942-db78-4c14-89e3-0c807b8d57b1",
+        "session_id": "debug_localhost",
+        "timestamp": 1752356298.0575755,
+        "message": "Voice conversation WebSocket connected successfully"
+      }
+    ]
+  },
+  "nginx_websocket": {
+    "test": "nginx_websocket",
+    "success": true,
+    "connection_time": 0.0038411617279052734,
+    "error": null,
+    "ssl_error": null,
+    "messages_received": [
+      {
+        "type": "connection_established",
+        "connection_id": "3ede7134-f77e-40fe-a1e4-257d22c9b346",
+        "session_id": "debug_nginx",
+        "timestamp": 1752356299.073266,
+        "message": "Voice conversation WebSocket connected successfully"
+      }
+    ]
+  },
+  "nginx_http_api": {
+    "test": "nginx_http_api",
+    "success": true,
+    "response_time": 0.00386810302734375,
+    "status_code": 200,
+    "error": null
+  },
+  "curl_websocket": {
+    "test": "curl_websocket_upgrade",
+    "success": false,
+    "output": "  % Total    % Received % Xferd  Average Speed   Time    Time     Time  Current\n                                 Dload  Upload   Total   Spent    Left  Speed\n\n  0     0    0     0    0     0      0      0 --:--:-- --:--:-- --:--:--     0* Host api.gmai.sa:443 was resolved.\n* IPv6: (none)\n* IPv4: 127.0.0.1\n*   Trying 127.0.0.1:443...\n* Connected to api.gmai.sa (127.0.0.1) port 443\n* ALPN: curl offers h2,http/1.1\n} [5 bytes data]\n* TLSv1.3 (OUT), TLS handshake, Client hello (1):\n} [512 bytes data]\n* TLSv1.3 (IN), TLS handshake, Server hello (2):\n{ [122 bytes data]\n* TLSv1.3 (IN), TLS handshake, Encrypted Extensions (8):\n{ [19 bytes data]\n* TLSv1.3 (IN), TLS handshake, Certificate (11):\n{ [2038 bytes data]\n* TLSv1.3 (IN), TLS handshake, CERT verify (15):\n{ [78 bytes data]\n* TLSv1.3 (IN), TLS handshake, Finished (20):\n{ [52 bytes data]\n* TLSv1.3 (OUT), TLS change cipher, Change cipher spec (1):\n} [1 bytes data]\n* TLSv1.3 (OUT), TLS handshake, Finished (20):\n} [52 bytes data]\n* SSL connection using TLSv1.3 / TLS_AES_256_GCM_SHA384 / X25519 / id-ecPublicKey\n* ALPN: server accepted h2\n* Server certificate:\n*  subject: CN=api.gmai.sa\n*  start date: Jul 11 01:30:10 2025 GMT\n*  expire date: Oct  9 01:30:09 2025 GMT\n*  issuer: C=US; O=Let's Encrypt; CN=E6\n*  SSL certificate verify result: unable to get local issuer certificate (20), continuing anyway.\n*   Certificate level 0: Public key type EC/prime256v1 (256/128 Bits/secBits), signed using ecdsa-with-SHA384\n*   Certificate level 1: Public key type EC/secp384r1 (384/192 Bits/secBits), signed using sha256WithRSAEncryption\n{ [5 bytes data]\n* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):\n{ [57 bytes data]\n* TLSv1.3 (IN), TLS handshake, Newsession Ticket (4):\n{ [57 bytes data]\n* old SSL session ID is stale, removing\n{ [5 bytes data]\n* using HTTP/2\n* [HTTP/2] [1] OPENED stream for https://api.gmai.sa/ws/voice-conversation\n* [HTTP/2] [1] [:method: GET]\n* [HTTP/2] [1] [:scheme: https]\n* [HTTP/2] [1] [:authority: api.gmai.sa]\n* [HTTP/2] [1] [:path: /ws/voice-conversation]\n* [HTTP/2] [1] [user-agent: curl/8.5.0]\n* [HTTP/2] [1] [accept: */*]\n* [HTTP/2] [1] [sec-websocket-version: 13]\n* [HTTP/2] [1] [sec-websocket-key: dGhlIHNhbXBsZSBub25jZQ==]\n} [5 bytes data]\n> GET /ws/voice-conversation HTTP/2\n> Host: api.gmai.sa\n> User-Agent: curl/8.5.0\n> Accept: */*\n> Connection: Upgrade\n> Upgrade: websocket\n> Sec-WebSocket-Version: 13\n> Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\n> \n{ [5 bytes data]\n< HTTP/2 404 \n< server: nginx/1.24.0 (Ubuntu)\n< date: Sat, 12 Jul 2025 21:38:21 GMT\n< content-type: application/json\n< content-length: 22\n< access-control-allow-origin: https://dev.gmai.sa\n< access-control-allow-methods: GET, POST, PUT, DELETE, OPTIONS\n< access-control-allow-headers: Content-Type, Authorization, X-Requested-With\n< access-control-allow-credentials: true\n< \n{ [22 bytes data]\n\n100    22  100    22    0     0   6624      0 --:--:-- --:--:-- --:--:--  7333\n* Connection #0 to host api.gmai.sa left intact\n",
+    "error": null
+  },
+  "nginx_logs": {
+    "test": "nginx_logs",
+    "success": true,
+    "recent_errors": [
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /config.json HTTP/1.1\", upstream: \"http://127.0.0.1:5001/config.json\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /app.py HTTP/1.1\", upstream: \"http://127.0.0.1:5001/app.py\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /apis/config/config.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/apis/config/config.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /apis/controllers/users.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/apis/controllers/users.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/routes-4aug.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/routes-4aug.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/routes.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/routes.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/s3_config.json HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/s3_config.json\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /.circleci/configs/development.yml HTTP/1.1\", upstream: \"http://127.0.0.1:5001/.circleci/configs/development.yml\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /helpers/utility.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/helpers/utility.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server/s3.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server/s3.js\", host: \"dev.gmai.sa\""
+    ],
+    "websocket_errors": [
+      "2025/07/12 21:08:47 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /public/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/public/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:47 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /public/js/main.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/public/js/main.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:47 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /react-app/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/react-app/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:50 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /react-app/.env.production HTTP/1.1\", upstream: \"http://127.0.0.1:5001/react-app/.env.production\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:50 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /scripts/nodemailer.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/scripts/nodemailer.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:50 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /s3.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/s3.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:50 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /secured/phpinfo.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/secured/phpinfo.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:50 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server-info HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server-info\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server-info.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server-info.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server/config/database.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server/config/database.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /service/email_service.py HTTP/1.1\", upstream: \"http://127.0.0.1:5001/service/email_service.py\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /settings.py HTTP/1.1\", upstream: \"http://127.0.0.1:5001/settings.py\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /shared/config/config.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/shared/config/config.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /site/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/site/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:51 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /sms.py HTTP/1.1\", upstream: \"http://127.0.0.1:5001/sms.py\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /static/js/main.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/static/js/main.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /storage/logs/laravel.log HTTP/1.1\", upstream: \"http://127.0.0.1:5001/storage/logs/laravel.log\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /swagger.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/swagger.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /swagger.json HTTP/1.1\", upstream: \"http://127.0.0.1:5001/swagger.json\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /test.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/test.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /test_phpinfo.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/test_phpinfo.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:55 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /user/config/config.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/user/config/config.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:56 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /user/controllers/index.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/user/controllers/index.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:56 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /vendor/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/vendor/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:56 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /web/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/web/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:56 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /website/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/website/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:57 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /wp-config HTTP/1.1\", upstream: \"http://127.0.0.1:5001/wp-config\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:57 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /wp-config.php.bak HTTP/1.1\", upstream: \"http://127.0.0.1:5001/wp-config.php.bak\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:57 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /wp-content/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/wp-content/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /xampp/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/xampp/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /xampp/phpinfo.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/xampp/phpinfo.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET / HTTP/1.1\", upstream: \"http://127.0.0.1:5001/\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /www/.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/www/.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /config.env HTTP/1.1\", upstream: \"http://127.0.0.1:5001/config.env\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /.env_sample HTTP/1.1\", upstream: \"http://127.0.0.1:5001/.env_sample\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:08:59 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /static/js/main.141b0494.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/static/js/main.141b0494.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /static/js/2.ca066a4b.chunk.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/static/js/2.ca066a4b.chunk.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /static/js/main.e85f7a37.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/static/js/main.e85f7a37.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server_info.php HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server_info.php\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /config.json HTTP/1.1\", upstream: \"http://127.0.0.1:5001/config.json\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /app.py HTTP/1.1\", upstream: \"http://127.0.0.1:5001/app.py\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /apis/config/config.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/apis/config/config.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /apis/controllers/users.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/apis/controllers/users.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/routes-4aug.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/routes-4aug.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/routes.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/routes.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:00 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /configs/s3_config.json HTTP/1.1\", upstream: \"http://127.0.0.1:5001/configs/s3_config.json\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /.circleci/configs/development.yml HTTP/1.1\", upstream: \"http://127.0.0.1:5001/.circleci/configs/development.yml\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /helpers/utility.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/helpers/utility.js\", host: \"dev.gmai.sa\"",
+      "2025/07/12 21:09:01 [error] 2166053#2166053: *3453 connect() failed (111: Connection refused) while connecting to upstream, client: 185.177.72.202, server: dev.gmai.sa, request: \"GET /server/s3.js HTTP/1.1\", upstream: \"http://127.0.0.1:5001/server/s3.js\", host: \"dev.gmai.sa\""
+    ],
+    "error": null
+  },
+  "nginx_config": {
+    "test": "nginx_config",
+    "success": true,
+    "config_issues": [],
+    "recommendations": [],
+    "error": null
+  },
+  "websocket_headers": {
+    "test": "websocket_headers",
+    "success": true,
+    "handshake_details": {
+      "state": "1",
+      "local_address": "('127.0.0.1', 39378)",
+      "remote_address": "('127.0.0.1', 443)"
+    },
+    "error": null
+  }
+}
