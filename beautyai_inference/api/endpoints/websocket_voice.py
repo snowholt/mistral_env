@@ -202,7 +202,7 @@ class WebSocketVoiceManager:
                     "top_p": 0.9,                 # High diversity for natural speech patterns  
                     "top_k": 40,                  # Reasonable vocabulary selection
                     "repetition_penalty": 1.1,   # Slight penalty to avoid repetition
-                    "max_new_tokens": 128,        # Shorter responses for voice (faster processing)
+                    "max_new_tokens": 256,        # Shorter responses for voice (reduced from 128 for faster processing and smaller audio)
                     
                     # Audio settings - optimized for streaming
                     "speech_speed": 1.0,          # Normal speech speed
@@ -237,7 +237,7 @@ class WebSocketVoiceManager:
                         "temperature": 0.1,
                         "top_p": 0.7,
                         "top_k": 20,
-                        "max_new_tokens": 64,
+                        "max_new_tokens": 256,
                         "repetition_penalty": 1.0
                     })
                 elif preset == "high_quality":
@@ -293,7 +293,7 @@ class WebSocketVoiceManager:
                     
                     if audio_bytes:
                         # Check audio size and handle large files
-                        max_frame_size = 800000  # 800KB limit (leave buffer for JSON overhead)
+                        max_frame_size = 5000000  # 5MB limit (increased from 5MB for better audio support)
                         
                         if len(audio_bytes) > max_frame_size:
                             # Audio is too large for single WebSocket frame - send without audio

@@ -70,7 +70,7 @@ class VoiceToVoiceService(BaseService):
             "chat_model": "qwen3-unsloth-q4ks",
             "language": "ar",
             "speaker_voice": "female",
-            "response_max_length": 256,
+            "response_max_length": 128,  # Reduced from 256 to keep audio under 1MB for WebSocket
             "enable_content_filter": False  # DISABLED content filtering globally
         }
         

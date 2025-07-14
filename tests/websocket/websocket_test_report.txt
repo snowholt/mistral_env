@@ -1,7 +1,7 @@
 ================================================================================
 🧪 BEAUTYAI WEBSOCKET VOICE-TO-VOICE TEST REPORT
 ================================================================================
-📅 Test Date: 2025-07-14 14:13:43
+📅 Test Date: 2025-07-14 16:12:43
 📊 Total Tests: 8
 ✅ Passed: 6
 ❌ Failed: 2
@@ -20,55 +20,61 @@
 📋 DETAILED TEST RESULTS:
 ------------------------------------------------------------
 ✅ PASS localhost_basic_arabic
-   Connection: 0.01s
-   Total Time: 27.84s
+   Connection: 2.69s
+   Total Time: 25.71s
    Transcription: /no_think ترجمة نانسي قنقر...
    Response: Okay, the user asked for a translation of "Nancy Qanqur." First, I need to confirm if this is a name...
+   Audio: 810156 bytes
 
 ❌ FAIL localhost_basic_english
    Connection: 0.00s
-   Total Time: 3.12s
+   Total Time: 2.03s
 
 ✅ PASS localhost_auto_detection
    Connection: 0.00s
-   Total Time: 17.89s
+   Total Time: 9.45s
    Transcription: /no_think ترجمة نانسي قنقر...
-   Response: Next, considering the user's previous interaction where they requested responses only in Arabic, and...
+   Response: Next, considering the user...
+   Audio: 129100 bytes
 
 ✅ PASS localhost_speed_optimized
    Connection: 0.00s
-   Total Time: 5.09s
+   Total Time: 5.20s
    Transcription: /no_think ترجمة نانسي قنقر...
    Response: Okay, the user asked for a translation of "Nancy Qanqur." First, I need to confirm if "Nancy Qanqur"...
+   Audio: 766092 bytes
 
 ✅ PASS nginx_proxy_basic_arabic
    Connection: 0.00s
-   Total Time: 8.39s
+   Total Time: 1.99s
    Transcription: /no_think ترجمة نانسي قنقر...
-   Response: The user might be referring to someone named Nancy Qanqar, possibly a public figure or someone known...
+   Response: The user might be referring to someone named Nancy Qan...
+   Audio: 211532 bytes
 
 ❌ FAIL nginx_proxy_basic_english
    Connection: 0.00s
-   Total Time: 3.07s
+   Total Time: 1.95s
 
 ✅ PASS nginx_proxy_auto_detection
    Connection: 0.00s
-   Total Time: 19.18s
+   Total Time: 13.64s
    Transcription: /no_think ترجمة نانسي قنقر...
    Response: Okay, the user asked for a translation of "Nancy Qanqar." First, I need to figure out what "Qanqar" ...
+   Audio: 979628 bytes
 
 ✅ PASS nginx_proxy_speed_optimized
    Connection: 0.01s
-   Total Time: 6.67s
+   Total Time: 5.72s
    Transcription: /no_think ترجمة نانسي قنقر...
    Response: Okay, the user asked for a translation of "Nancy Qanqur." First, I need to confirm what exactly the ...
+   Audio: 892588 bytes
 
 💡 RECOMMENDATIONS:
 ------------------------------
 🔍 Most common errors:
    2x: None
 
-⚡ Average processing time: 14.18s
-🎵 Audio generation rate: 0/6 (0.0%)
+⚡ Average processing time: 10.28s
+🎵 Audio generation rate: 6/6 (100.0%)
 
 ================================================================================

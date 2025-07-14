@@ -174,7 +174,7 @@ class VoiceWebSocketTester:
             
             # Connect to WebSocket
             logger.info("🚀 Attempting WebSocket connection...")
-            async with websockets.connect(url, ssl=ssl_context) as websocket:
+            async with websockets.connect(url, ssl=ssl_context, max_size=None) as websocket:
                 connection_time = time.time() - start_time
                 test_result["connection_time"] = connection_time
                 logger.info(f"✅ WebSocket connected in {connection_time:.2f}s")
