@@ -349,7 +349,7 @@ class WebSocketVoiceManager:
                             logger.info(f"🎵 Audio encoded as base64: {len(audio_base64)} chars, {len(audio_bytes)} bytes")
                             
                             # Send processing completed message with audio
-                            await self.send_message(connection_id, {
+                            voice_response = {
                                 "type": "voice_response",
                                 "success": True,
                                 "timestamp": time.time(),
@@ -367,7 +367,15 @@ class WebSocketVoiceManager:
                                     "input_language": result.get("input_language", "auto"),
                                     "output_language": result.get("output_language", "auto")
                                 }
-                            })
+                            }
+                            
+                            # Debug: Log the response structure (without full audio data)
+                            debug_response = voice_response.copy()
+                            if "audio_base64" in debug_response and debug_response["audio_base64"]:
+                                debug_response["audio_base64"] = f"[BASE64_AUDIO_DATA_{len(debug_response['audio_base64'])}_CHARS]"
+                            logger.info(f"🔍 Sending voice_response: {debug_response}")
+                            
+                            await self.send_message(connection_id, voice_response)
                     else:
                         # No audio available - send text-only response
                         logger.warning("⚠️ No audio data available, sending text-only response")
