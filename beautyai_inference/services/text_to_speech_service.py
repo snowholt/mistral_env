@@ -85,12 +85,12 @@ class TextToSpeechService(BaseService):
         self.output_dir = Path("/home/lumi/beautyai/voice_tests/tts_outputs")
         self.output_dir.mkdir(parents=True, exist_ok=True)
 
-    def load_tts_model(self, model_name: str = "coqui-arabic", engine_type: str = None) -> bool:
+    def load_tts_model(self, model_name: str = "coqui-multilingual", engine_type: str = None) -> bool:
         """
         Load a TTS model for text-to-speech generation.
         
         Args:
-            model_name: Name of the model to load
+            model_name: Name of the model to load (e.g., "coqui-tts-arabic", "coqui-tts-english", "coqui-tts-multilingual")
             engine_type: Preferred engine type ("coqui" or "edge")
             
         Returns:
@@ -109,13 +109,26 @@ class TextToSpeechService(BaseService):
                     # Default to Coqui for Arabic optimization
                     engine_type = "coqui"
             
+            # Language-specific model mapping for better TTS quality
+            language_model_mapping = {
+                "coqui-tts-arabic": "tts_models/multilingual/multi-dataset/xtts_v2",  # Best for Arabic
+                "coqui-tts-english": "tts_models/multilingual/multi-dataset/xtts_v2",  # Use multilingual for English too
+                "coqui-tts-multilingual": "tts_models/multilingual/multi-dataset/xtts_v2",  # Best multilingual model
+                "coqui-arabic": "tts_models/multilingual/multi-dataset/xtts_v2",  # Legacy support
+                "coqui-english": "tts_models/multilingual/multi-dataset/xtts_v2",  # Legacy support
+            }
+            
             # Direct engine initialization instead of using ModelManager
             if engine_type == "coqui":
                 from beautyai_inference.inference_engines.coqui_tts_engine import CoquiTTSEngine
                 
+                # Get the appropriate Coqui model ID based on the model name
+                model_id = language_model_mapping.get(model_name, "tts_models/multilingual/multi-dataset/xtts_v2")
+                logger.info(f"Using Coqui model ID: {model_id}")
+                
                 # Create a minimal ModelConfig for CoquiTTSEngine
                 tts_model_config = ModelConfig(
-                    model_id="tts_models/multilingual/multi-dataset/xtts_v2",
+                    model_id=model_id,
                     engine_type="coqui_tts",
                     name=f"coqui-{model_name}"
                 )
@@ -126,9 +139,19 @@ class TextToSpeechService(BaseService):
             elif engine_type == "edge":
                 from beautyai_inference.inference_engines.edge_tts_engine import EdgeTTSEngine
                 
+                # Edge TTS model selection based on language
+                edge_model_mapping = {
+                    "edge-tts-arabic": "ar-SA-ZariyahNeural",
+                    "edge-tts-english": "en-US-JennyNeural", 
+                    "edge-tts-multilingual": "ar-SA-ZariyahNeural"  # Default to Arabic
+                }
+                
+                model_id = edge_model_mapping.get(model_name, "ar-SA-ZariyahNeural")
+                logger.info(f"Using Edge model ID: {model_id}")
+                
                 # Create a minimal ModelConfig for EdgeTTSEngine
                 edge_model_config = ModelConfig(
-                    model_id="ar-SA-ZariyahNeural",
+                    model_id=model_id,
                     engine_type="edge_tts",
                     name=f"edge-{model_name}"
                 )
@@ -142,11 +165,13 @@ class TextToSpeechService(BaseService):
             self.current_model = model_name
             self.engine_loaded = True
             
-            logger.info(f"✅ TTS model loaded: {model_name} ({engine_type})")
+            logger.info(f"✅ TTS model loaded: {model_name} ({engine_type}) -> {model_id if 'model_id' in locals() else 'unknown'}")
             return True
             
         except Exception as e:
             logger.error(f"Failed to load TTS model {model_name}: {e}")
+            import traceback
+            logger.error(f"TTS loading traceback: {traceback.format_exc()}")
             self.engine_loaded = False
             return False
 
@@ -554,3 +579,92 @@ class TextToSpeechService(BaseService):
                 logger.warning(f"Engine {engine_name} test failed: {e}")
         
         return results
+
+    def generate_speech(
+        self,
+        text: str,
+        output_path: str,
+        voice: str = "female",
+        language: str = "auto",
+        emotion: str = "neutral",
+        speed: float = 1.0
+    ) -> Dict[str, Any]:
+        """
+        Generate speech with automatic model selection based on language.
+        This method is specifically designed for the voice_to_voice_service integration.
+        
+        Args:
+            text: Text to convert to speech
+            output_path: Path to save the audio file
+            voice: Voice type (female, male, neutral)
+            language: Target language (ar, en, auto, etc.)
+            emotion: Emotion/style for the voice
+            speed: Speech speed multiplier
+            
+        Returns:
+            Dict containing success status and details
+        """
+        try:
+            logger.info(f"🎤 Generating speech for language: {language}, voice: {voice}")
+            
+            # Determine appropriate TTS model based on language
+            if language == "auto" or language == "multilingual":
+                model_name = "coqui-tts-multilingual"
+            elif language == "ar":
+                model_name = "coqui-tts-arabic"
+            elif language == "en":
+                model_name = "coqui-tts-english"
+            else:
+                # Fallback to multilingual for other languages
+                model_name = "coqui-tts-multilingual"
+                logger.info(f"Using multilingual model for language: {language}")
+            
+            # Load appropriate model if not already loaded or if different model needed
+            current_model_ok = (
+                self.engine_loaded and 
+                self.current_model and 
+                model_name in self.current_model
+            )
+            
+            if not current_model_ok:
+                logger.info(f"Loading TTS model: {model_name}")
+                if not self.load_tts_model(model_name, "coqui"):
+                    return {
+                        "success": False,
+                        "error": f"Failed to load TTS model: {model_name}",
+                        "output_path": None
+                    }
+            
+            # Generate speech using the loaded engine
+            result_path = self.text_to_speech(
+                text=text,
+                language=language,
+                speaker_voice=voice,
+                output_path=output_path
+            )
+            
+            if result_path and os.path.exists(result_path):
+                logger.info(f"✅ Speech generated successfully: {result_path}")
+                return {
+                    "success": True,
+                    "output_path": result_path,
+                    "model_used": self.current_model,
+                    "language": language,
+                    "voice": voice
+                }
+            else:
+                return {
+                    "success": False,
+                    "error": "TTS generation failed - no output file created",
+                    "output_path": None
+                }
+                
+        except Exception as e:
+            logger.error(f"Speech generation failed: {e}")
+            import traceback
+            logger.error(f"Speech generation traceback: {traceback.format_exc()}")
+            return {
+                "success": False,
+                "error": str(e),
+                "output_path": None
+            }

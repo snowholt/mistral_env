@@ -162,18 +162,41 @@ class WebSocketVoiceManager:
                 if not self.voice_service._validate_models_loaded():
                     logger.info("Models not loaded, initializing automatically...")
                     
-                    # Get model names from config
+                    # Get language settings for proper model selection
+                    input_language = config.get("input_language", "auto")
+                    output_language = config.get("output_language", "auto")
+                    
+                    # Determine appropriate language for model initialization
+                    init_language = "auto"  # Default to auto for language detection
+                    if output_language != "auto":
+                        init_language = output_language
+                    elif input_language != "auto":
+                        init_language = input_language
+                    
+                    logger.info(f"Initializing models for language: {init_language}")
+                    
+                    # Get model names from config with language-appropriate defaults
                     stt_model = config.get("stt_model_name", "whisper-large-v3-turbo-arabic")
-                    tts_model = config.get("tts_model_name", "coqui-tts-arabic")
                     chat_model = config.get("chat_model_name", "qwen3-unsloth-q4ks")
-                    language = config.get("input_language", "ar")
+                    
+                    # Select TTS model based on language
+                    tts_model = config.get("tts_model_name")
+                    if not tts_model:
+                        if init_language == "en":
+                            tts_model = "coqui-tts-english"
+                        elif init_language == "ar":
+                            tts_model = "coqui-tts-arabic"
+                        else:  # auto or other languages
+                            tts_model = "coqui-tts-multilingual"
+                    
+                    logger.info(f"Selected models: STT={stt_model}, TTS={tts_model}, Chat={chat_model}")
                     
                     # Initialize models
                     init_result = self.voice_service.initialize_models(
                         stt_model=stt_model,
                         tts_model=tts_model,
                         chat_model=chat_model,
-                        language=language
+                        language=init_language
                     )
                     
                     if not all(init_result.values()):
@@ -214,9 +237,9 @@ class WebSocketVoiceManager:
                     "disable_content_filter": True,   # TEMPORARILY DISABLE content filtering
                     "content_filter_strictness": "disabled",
                     
-                    # Model selection - use defaults if not specified
+                    # Model selection - use defaults if not specified with language-specific TTS
                     "stt_model_name": "whisper-large-v3-turbo-arabic",
-                    "tts_model_name": "coqui-tts-arabic", 
+                    "tts_model_name": None,  # Will be auto-selected based on language
                     "chat_model_name": "qwen3-unsloth-q4ks",
                     "input_language": "auto",
                     "output_language": "auto",
@@ -424,7 +447,7 @@ async def websocket_voice_conversation(
     
     # Model configuration
     stt_model_name: str = Query("whisper-large-v3-turbo-arabic", description="Speech-to-text model"),
-    tts_model_name: str = Query("coqui-tts-arabic", description="Text-to-speech model"),
+    tts_model_name: Optional[str] = Query(None, description="Text-to-speech model (auto-selected based on language if not specified)"),
     chat_model_name: str = Query("qwen3-unsloth-q4ks", description="Chat model"),
     
     # Audio settings
@@ -441,8 +464,8 @@ async def websocket_voice_conversation(
     max_new_tokens: Optional[int] = Query(None, description="Maximum new tokens"),
     
     # Content filtering and thinking mode
-    disable_content_filter: bool = Query(False, description="Disable content filtering"),
-    content_filter_strictness: str = Query("balanced", description="Content filter strictness"),
+    disable_content_filter: bool = Query(True, description="Disable content filtering (default: True for voice conversations)"),
+    content_filter_strictness: str = Query("disabled", description="Content filter strictness (default: disabled for voice)"),
     thinking_mode: bool = Query(False, description="Enable thinking mode"),
     preset: Optional[str] = Query(None, description="Generation preset"),
     

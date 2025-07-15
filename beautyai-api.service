@@ -11,7 +11,7 @@ WorkingDirectory=/home/lumi/beautyai
 Environment=PATH=/home/lumi/beautyai/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 Environment=PYTHONPATH=/home/lumi/beautyai
 Environment=CUDA_VISIBLE_DEVICES=0
-ExecStart=/home/lumi/beautyai/venv/bin/uvicorn beautyai_inference.api.app:app --host 0.0.0.0 --port 8000 --reload
+ExecStart=/home/lumi/beautyai/venv/bin/python /home/lumi/beautyai/run_server.py
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed
 KillSignal=SIGINT

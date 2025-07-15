@@ -1,0 +1,128 @@
+{
+  "test_timestamp": "2025-07-15 02:08:09 UTC",
+  "test_summary": {
+    "total_tests": 4,
+    "successful_tests": 2,
+    "failed_tests": 2
+  },
+  "results": [
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.012575149536132812,
+      "url": "ws://localhost:8000/ws/voice-conversation?session_id=test_session_1752545212&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "f53d2114-7919-4691-8197-bc23a6708976",
+          "session_id": "test_session_1752545212",
+          "timestamp": 1752545212.4731295,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": false,
+          "error": "No response received within timeout",
+          "response_summary": {},
+          "response_data": null,
+          "timing": {
+            "send_time": 0.00025081634521484375,
+            "response_time": 29.32697343826294,
+            "total_time": 29.32726216316223
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": false,
+          "error": "No response received within timeout",
+          "response_summary": {},
+          "response_data": null,
+          "timing": {
+            "send_time": 0.00021529197692871094,
+            "response_time": 10.628520965576172,
+            "total_time": 10.628772735595703
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": false,
+      "total_time": 0,
+      "successful_audio_tests": 0,
+      "total_audio_tests": 2
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.0013134479522705078,
+      "url": "ws://api.gmai.sa:8000/ws/voice-conversation?session_id=test_session_1752545258&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "2c8a968e-8744-4df6-899a-8882ab952c93",
+          "session_id": "test_session_1752545258",
+          "timestamp": 1752545258.4421933,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": false,
+          "error": "No response received within timeout",
+          "response_summary": {},
+          "response_data": null,
+          "timing": {
+            "send_time": 0.00023746490478515625,
+            "response_time": 13.21973967552185,
+            "total_time": 13.220027208328247
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": false,
+          "error": "No response received within timeout",
+          "response_summary": {},
+          "response_data": null,
+          "timing": {
+            "send_time": 0.0002117156982421875,
+            "response_time": 12.024821043014526,
+            "total_time": 12.025069236755371
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": false,
+      "total_time": 0,
+      "successful_audio_tests": 0,
+      "total_audio_tests": 2
+    }
+  ]
+}

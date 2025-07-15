@@ -1,0 +1,176 @@
+{
+  "test_timestamp": "2025-07-15 01:57:07 UTC",
+  "test_summary": {
+    "total_tests": 4,
+    "successful_tests": 4,
+    "failed_tests": 0
+  },
+  "results": [
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.012675046920776367,
+      "url": "ws://localhost:8000/ws/voice-conversation?session_id=test_session_1752544614&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "2e8c86ab-effd-487d-ab30-d0d2436db9ee",
+          "session_id": "test_session_1752544614",
+          "timestamp": 1752544614.9719784,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544617.9804096,
+            "error": "Processing error: 'VoiceToVoiceService' object has no attribute '_validate_models_loaded'"
+          },
+          "timing": {
+            "send_time": 0.00025010108947753906,
+            "response_time": 0.0022504329681396484,
+            "total_time": 0.0025353431701660156
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544620.9875426,
+            "error": "Processing error: 'VoiceToVoiceService' object has no attribute '_validate_models_loaded'"
+          },
+          "timing": {
+            "send_time": 0.00022125244140625,
+            "response_time": 0.0017800331115722656,
+            "total_time": 0.0020411014556884766
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": true,
+      "total_time": 0,
+      "successful_audio_tests": 2,
+      "total_audio_tests": 2
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 0.0010726451873779297,
+      "url": "ws://api.gmai.sa:8000/ws/voice-conversation?session_id=test_session_1752544620&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "8aeacc10-c502-4636-ba2f-2906d180687f",
+          "session_id": "test_session_1752544620",
+          "timestamp": 1752544620.9890897,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544623.9966943,
+            "error": "Processing error: 'VoiceToVoiceService' object has no attribute '_validate_models_loaded'"
+          },
+          "timing": {
+            "send_time": 0.00024390220642089844,
+            "response_time": 0.0020589828491210938,
+            "total_time": 0.0023381710052490234
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544627.0035608,
+            "error": "Processing error: 'VoiceToVoiceService' object has no attribute '_validate_models_loaded'"
+          },
+          "timing": {
+            "send_time": 0.0002167224884033203,
+            "response_time": 0.0016167163848876953,
+            "total_time": 0.0018682479858398438
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": true,
+      "total_time": 0,
+      "successful_audio_tests": 2,
+      "total_audio_tests": 2
+    }
+  ]
+}

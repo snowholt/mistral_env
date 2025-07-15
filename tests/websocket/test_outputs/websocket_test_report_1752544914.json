@@ -1,0 +1,102 @@
+{
+  "test_timestamp": "2025-07-15 02:01:54 UTC",
+  "test_summary": {
+    "total_tests": 3,
+    "successful_tests": 2,
+    "failed_tests": 1
+  },
+  "results": [
+    {
+      "endpoint": "ws://localhost:8000",
+      "test_name": "Localhost (Direct) - Basic Connection",
+      "success": false,
+      "error": "Connection timeout after 15.0s",
+      "connection_time": null,
+      "url": "ws://localhost:8000/ws/voice-conversation?session_id=test_session_1752544864&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {}
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Basic Connection",
+      "success": true,
+      "error": null,
+      "connection_time": 8.573773622512817,
+      "url": "ws://api.gmai.sa:8000/ws/voice-conversation?session_id=test_session_1752544875&input_language=ar&output_language=ar&speaker_voice=female&preset=qwen_optimized&thinking_mode=false&emotion=neutral&speech_speed=1.0",
+      "debug_info": {
+        "establishment_message": {
+          "type": "connection_established",
+          "connection_id": "3570112f-aace-4417-b8ac-496068d8365f",
+          "session_id": "test_session_1752544875",
+          "timestamp": 1752544884.1654935,
+          "message": "Voice conversation WebSocket connected successfully"
+        }
+      }
+    },
+    {
+      "endpoint": "ws://api.gmai.sa:8000",
+      "test_name": "api.gmai.sa (nginx proxy) - Voice Tests",
+      "audio_tests": [
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544911.1686928,
+            "error": "'VoiceToVoiceService' object has no attribute 'get_session_history'"
+          },
+          "timing": {
+            "send_time": 0.00033164024353027344,
+            "response_time": 23.99641990661621,
+            "total_time": 23.99681043624878
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        },
+        {
+          "audio_file": "/home/lumi/beautyai/voice_tests/input_test_questions/botox_ar.wav",
+          "success": true,
+          "error": null,
+          "response_summary": {
+            "transcription": "N/A",
+            "response_text": "N/A",
+            "has_audio": false,
+            "audio_size": 0,
+            "processing_time_ms": 0,
+            "models_used": {}
+          },
+          "response_data": {
+            "type": "voice_response",
+            "success": false,
+            "timestamp": 1752544914.3109374,
+            "error": "'VoiceToVoiceService' object has no attribute 'get_session_history'"
+          },
+          "timing": {
+            "send_time": 0.00023698806762695312,
+            "response_time": 0.13568854331970215,
+            "total_time": 0.13596248626708984
+          },
+          "debug_info": {
+            "audio_size_bytes": 96078,
+            "audio_format": "wav"
+          }
+        }
+      ],
+      "success": true,
+      "total_time": 0,
+      "successful_audio_tests": 2,
+      "total_audio_tests": 2
+    }
+  ]
+}

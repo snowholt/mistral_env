@@ -92,10 +92,10 @@ class WebSocketVoiceTestClient:
             
             self.log_debug(f"🔗 Attempting connection to: {url}")
             
-            # Try connection with timeout
+            # Try connection with timeout and no size limit
             self.connection_start_time = time.time()
             self.websocket = await asyncio.wait_for(
-                websockets.connect(url), 
+                websockets.connect(url, max_size=None), 
                 timeout=timeout
             )
             connection_time = time.time() - self.connection_start_time

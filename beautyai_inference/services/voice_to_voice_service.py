@@ -63,15 +63,23 @@ class VoiceToVoiceService(BaseService):
             "content_filter": True  # Always available
         }
         
-        # Default configurations - use Coqui TTS instead of OuteTTS
+        # Default configurations - enhanced for multilingual support
         self.default_config = {
             "stt_model": "whisper-large-v3-turbo-arabic",
-            "tts_model": "coqui-tts-arabic",  # Changed from OuteTTS
+            "tts_model": "coqui-tts-multilingual",  # Changed to multilingual for auto-detection
             "chat_model": "qwen3-unsloth-q4ks",
-            "language": "ar",
+            "language": "auto",  # Changed from "ar" to "auto" for automatic detection
             "speaker_voice": "female",
             "response_max_length": 128,  # Reduced from 256 to keep audio under 1MB for WebSocket
-            "enable_content_filter": False  # DISABLED content filtering globally
+            "enable_content_filter": False  # DISABLED content filtering globally by default
+        }
+        
+        # Language-specific TTS model mapping
+        self.language_tts_models = {
+            "ar": "coqui-tts-arabic",
+            "en": "coqui-tts-english", 
+            "auto": "coqui-tts-multilingual",
+            "default": "coqui-tts-multilingual"
         }
         
         # Output directory for temporary files
@@ -159,7 +167,7 @@ class VoiceToVoiceService(BaseService):
         stt_model: str = None,
         chat_model: str = None,
         tts_model: str = None,
-        language: str = "ar"
+        language: str = "auto"
     ) -> Dict[str, bool]:
         """
         Initialize all required models for voice-to-voice conversation.
@@ -168,7 +176,7 @@ class VoiceToVoiceService(BaseService):
             stt_model: Speech-to-text model identifier
             chat_model: Chat model identifier
             tts_model: Text-to-speech model identifier
-            language: Target language code
+            language: Target language code (auto for automatic detection)
             
         Returns:
             Dict indicating success/failure for each model type
@@ -176,7 +184,16 @@ class VoiceToVoiceService(BaseService):
         # Use defaults if not specified
         stt_model = stt_model or self.default_config["stt_model"]
         chat_model = chat_model or self.default_config["chat_model"]
-        tts_model = tts_model or self.default_config["tts_model"]
+        
+        # Select appropriate TTS model based on language
+        if not tts_model:
+            if language == "auto":
+                tts_model = self.language_tts_models["auto"]
+            else:
+                tts_model = self.language_tts_models.get(language, self.language_tts_models["default"])
+        
+        logger.info(f"Initializing models for language: {language}")
+        logger.info(f"Selected TTS model: {tts_model}")
         
         results = {}
         
@@ -192,9 +209,9 @@ class VoiceToVoiceService(BaseService):
             results["chat"] = chat_success
             self.services_loaded["chat"] = chat_success
             
-            # Initialize TTS Service
+            # Initialize TTS Service with language-specific model
             logger.info(f"Initializing TTS service with model: {tts_model}")
-            tts_success = self.tts_service.load_tts_model(tts_model)  # Fixed method name
+            tts_success = self.tts_service.load_tts_model(tts_model, "coqui")  # Force Coqui engine
             results["tts"] = tts_success
             self.services_loaded["tts"] = tts_success
             
@@ -322,22 +339,24 @@ class VoiceToVoiceService(BaseService):
             final_clean_text = self._remove_thinking_content(clean_response_text)
             logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
             
-            tts_audio_path = self.tts_service.text_to_speech(  # Fixed method name
+            tts_result = self.tts_service.generate_speech(
                 text=final_clean_text,
                 output_path=str(output_audio_path),
-                language=language,
-                speaker_voice=speaker_voice
+                voice=speaker_voice,
+                language=language
             )
             
-            if not tts_audio_path:
+            if not tts_result.get("success"):
                 return {
                     "success": False,
-                    "error": f"TTS failed: Could not generate audio",
+                    "error": f"TTS failed: {tts_result.get('error', 'Could not generate audio')}",
                     "transcription": transcribed_text,
                     "response": response_text,
                     "audio_output": None,
                     "processing_time": time.time() - start_time
                 }
+            
+            tts_audio_path = tts_result.get("output_path")
             
             # Step 6: Update session history
             new_messages = [
@@ -654,13 +673,35 @@ class VoiceToVoiceService(BaseService):
                     final_clean_text = self._remove_thinking_content(clean_response_text)
                     logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
                     
-                    # Generate audio to file path for compatibility and bytes for WebSocket
-                    tts_audio_path = self.tts_service.text_to_speech(
+                    # Generate audio using the enhanced generate_speech method
+                    tts_result = self.tts_service.generate_speech(
                         text=final_clean_text,
                         output_path=str(output_audio_path),
-                        language=response_language,  # Use the determined response language
-                        speaker_voice=speaker_voice
+                        voice=speaker_voice,
+                        language=response_language  # Use the determined response language
                     )
+                    
+                    if not tts_result.get("success"):
+                        logger.error(f"TTS generation failed: {tts_result.get('error', 'Unknown error')}")
+                        return {
+                            "success": False,
+                            "error": f"TTS failed: {tts_result.get('error', 'Could not generate audio')}",
+                            "transcription": transcribed_text,
+                            "response_text": response_text,
+                            "audio_output_path": None,
+                            "audio_output_bytes": None,
+                            "audio_output_format": "wav",
+                            "session_id": session_id,
+                            "processing_time": time.time() - start_time,
+                            "models_used": {
+                                "stt": "whisper-large-v3-turbo-arabic", 
+                                "chat": "qwen3-unsloth-q4ks", 
+                                "tts": self.tts_service.current_model or "unknown"
+                            },
+                            "metadata": {"error": "TTS generation failed"}
+                        }
+                    
+                    tts_audio_path = tts_result.get("output_path")
                     
                     # Also generate audio bytes for direct WebSocket usage
                     logger.info(f"Generating TTS bytes for WebSocket transmission...")
@@ -727,7 +768,405 @@ class VoiceToVoiceService(BaseService):
                     "success": True,
                     "session_id": session_id,
                     "transcription": transcribed_text,
-                    "response_text": response_text,  # Consistent with WebSocket expectation
+                    "response": response_text,
+                    "audio_output": tts_audio_path,  # Use the actual path returned by TTS
+                    "processing_time": processing_time,
+                    "metadata": {
+                        "language": input_language,  # Fixed: use input_language instead of undefined language
+                        "speaker_voice": speaker_voice,
+                        "content_filtered": enable_content_filter,
+                        "audio_duration": transcription_result.get("duration", 0.0)
+                    }
+                }
+            
+            finally:
+                # Clean up temporary file
+                try:
+                    Path(temp_audio_path).unlink()
+                except:
+                    pass
+            
+        except Exception as e:
+            logger.error(f"Error in voice-to-voice conversation: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": time.time() - start_time
+            }
+
+    def voice_to_voice_bytes(
+        self,
+        audio_bytes: bytes,
+        audio_format: str = "wav",
+        session_id: str = None,
+        input_language: str = "auto",
+        output_language: str = "auto",
+        speaker_voice: str = "female",
+        enable_content_filter: bool = False,
+        content_filter_strictness: str = "disabled",
+        thinking_mode: bool = False,
+        generation_config: Dict[str, Any] = None,
+        **kwargs
+    ) -> Dict[str, Any]:
+        """
+        Process voice-to-voice conversation from audio bytes with automatic language detection.
+        
+        Args:
+            audio_bytes: Input audio as bytes
+            audio_format: Audio format (wav, mp3, etc.)
+            session_id: Conversation session identifier
+            input_language: Language of input audio ("auto" for detection)
+            output_language: Language for output audio ("auto" for matching input)
+            speaker_voice: Voice type for TTS output
+            enable_content_filter: Whether to apply content filtering
+            content_filter_strictness: Content filter level
+            thinking_mode: Enable thinking mode for LLM
+            generation_config: Additional generation parameters
+            
+        Returns:
+            Dict containing conversation results and output paths
+        """
+        start_time = time.time()
+        
+        if generation_config is None:
+            generation_config = {}
+        
+        # Validate models are loaded
+        if not self._validate_models_loaded():
+            return {
+                "success": False,
+                "error": "Required models not loaded. Call initialize_models() first.",
+                "transcription": None,
+                "response": None,
+                "audio_output": None,
+                "processing_time": 0.0
+            }
+        
+        # Generate session ID if not provided
+        if session_id is None:
+            session_id = str(uuid.uuid4())
+        
+        try:
+            # Save audio bytes to temporary file for STT processing
+            with tempfile.NamedTemporaryFile(suffix=f".{audio_format}", delete=False) as temp_audio:
+                temp_audio.write(audio_bytes)
+                temp_audio_path = temp_audio.name
+            
+            try:
+                # Step 1: Speech-to-Text with automatic language detection
+                logger.info(f"Starting STT for session {session_id}")
+                
+                # Determine input language for STT
+                stt_language = input_language if input_language != "auto" else "ar"  # Default fallback
+                
+                transcription_result = self.stt_service.transcribe(
+                    audio_file=temp_audio_path,
+                    language=stt_language
+                )
+                
+                if not transcription_result.get("success", False):
+                    return {
+                        "success": False,
+                        "error": f"STT failed: {transcription_result.get('error', 'Unknown error')}",
+                        "transcription": "",
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "STT failed"}
+                    }
+                
+                transcribed_text = transcription_result["transcription"]
+                logger.info(f"Transcription successful: {transcribed_text[:50]}...")
+                
+                # 🔍 Language Detection Phase
+                detected_input_language = None
+                response_language = None
+                
+                if input_language == "auto" or output_language == "auto":
+                    # Detect language from transcribed text
+                    detected_language, confidence = language_detector.detect_language(transcribed_text)
+                    detected_input_language = detected_language
+                    logger.info(f"🌍 Detected input language: {detected_language} (confidence: {confidence:.3f})")
+                    
+                    # Get conversation history for better language detection
+                    conversation_history = self.get_session_history(session_id) or []
+                    suggested_language = suggest_response_language(transcribed_text, conversation_history)
+                    
+                    # Determine final output language
+                    if output_language == "auto":
+                        response_language = suggested_language
+                        logger.info(f"🌍 Auto-determined response language: {response_language}")
+                    else:
+                        response_language = output_language
+                else:
+                    # Use specified languages
+                    detected_input_language = input_language
+                    response_language = output_language
+                    logger.info(f"🌍 Using specified languages: input={input_language}, output={output_language}")
+                
+                # 🚫 VOICE-TO-VOICE: Add \no_think prefix by default for faster responses
+                # This ensures voice conversations are quick and don't include thinking content
+                if not transcribed_text.startswith("/no_think") and "/think" not in transcribed_text.lower():
+                    # Add \no_think prefix to disable thinking mode by default in voice conversations
+                    transcribed_text = f"/no_think {transcribed_text}"
+                    thinking_mode = False
+                    logger.info("🚫 Added /no_think prefix for voice-to-voice speed optimization")
+                elif "/no_think" in transcribed_text:
+                    thinking_mode = False
+                    # Remove /no_think from text but keep thinking_mode=False
+                    transcribed_text = transcribed_text.replace("/no_think", "").strip()
+                elif "/think" in transcribed_text.lower():
+                    # User explicitly requested thinking mode - honor it
+                    thinking_mode = True
+                    transcribed_text = transcribed_text.replace("/think", "").strip()
+                    logger.info("🧠 User explicitly requested thinking mode via /think command")
+                
+                # Step 2: Content filtering (if enabled)
+                if enable_content_filter:
+                    # Update content filter strictness
+                    self.content_filter.strictness = content_filter_strictness
+                    filter_result = self.content_filter.filter_content(transcribed_text)
+                    # Convert FilterResult object to dict for compatibility
+                    filter_dict = {
+                        "is_safe": filter_result.is_allowed,
+                        "reason": filter_result.filter_reason or "Content not allowed"
+                    }
+                    if not filter_dict["is_safe"]:
+                        return {
+                            "success": False,
+                            "error": f"Content filtered: {filter_dict['reason']}",
+                            "transcription": transcribed_text,
+                            "response": None,
+                            "audio_output": None,
+                            "processing_time": time.time() - start_time
+                        }
+                
+                # Step 3: Get conversation history for context
+                conversation_history = self.get_session_history(session_id) or []
+                
+                # Step 4: Chat inference with enhanced parameters
+                logger.info(f"Starting chat inference for session {session_id}")
+                
+                # 🚫 VOICE-TO-VOICE: Process transcribed text for thinking mode
+                # By default, add \no_think prefix for faster voice responses
+                processed_text = transcribed_text
+                thinking_override = None
+                
+                if "/no_think" in transcribed_text.lower():
+                    processed_text = transcribed_text.replace("/no_think", "").strip()
+                    thinking_override = False
+                    logger.info("User requested no thinking mode via /no_think command")
+                elif "/think" in transcribed_text.lower():
+                    processed_text = transcribed_text.replace("/think", "").strip()
+                    thinking_override = True
+                    logger.info("User requested thinking mode via /think command")
+                else:
+                    # 🚫 DEFAULT BEHAVIOR: Add \no_think for voice-to-voice speed
+                    if not processed_text.startswith("/no_think"):
+                        processed_text = f"/no_think {processed_text}"
+                        thinking_override = False
+                        logger.info("🚫 Added /no_think prefix by default for voice-to-voice speed optimization")
+                
+                # Determine final thinking mode
+                final_thinking_mode = thinking_override if thinking_override is not None else thinking_mode
+                
+                # Prepare chat parameters with full generation config and language matching
+                # Sanitize generation_config to remove None values that cause engine errors
+                sanitized_generation_config = {}
+                if generation_config:
+                    sanitized_generation_config = {k: v for k, v in generation_config.items() if v is not None}
+                
+                # Voice-optimized defaults for better performance
+                voice_chat_defaults = {
+                    "temperature": 0.3,
+                    "top_p": 0.9,
+                    "top_k": 40,
+                    "repetition_penalty": 1.1,
+                    "max_new_tokens": 128  # Shorter responses for voice conversations
+                }
+                
+                # Apply defaults for missing parameters
+                for key, default_value in voice_chat_defaults.items():
+                    if key not in sanitized_generation_config:
+                        sanitized_generation_config[key] = default_value
+                
+                chat_params = {
+                    "message": processed_text,
+                    "conversation_history": conversation_history,
+                    "max_length": sanitized_generation_config.get("max_new_tokens", 128),
+                    "language": response_language,  # Use detected/determined response language
+                    "thinking_mode": final_thinking_mode,
+                    **sanitized_generation_config  # Include sanitized generation parameters
+                }
+                
+                logger.info(f"Chat parameters: thinking_mode={final_thinking_mode}, content_filter={enable_content_filter}, response_language={response_language}")
+                logger.info(f"🔍 Debug - Full chat_params: {chat_params}")
+                
+                try:
+                    logger.info("🚀 Calling chat service...")
+                    chat_result = self.chat_service.chat(**chat_params)
+                    logger.info(f"✅ Chat service returned: success={chat_result.get('success', False)}")
+                except Exception as chat_error:
+                    import traceback
+                    logger.error(f"❌ Chat service error: {chat_error}")
+                    logger.error(f"❌ Chat service traceback: {traceback.format_exc()}")
+                    return {
+                        "success": False,
+                        "error": f"Chat service failed: {str(chat_error)}",
+                        "transcription": transcribed_text,
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "Chat service failed"}
+                    }
+                
+                if not chat_result.get("success", False):
+                    return {
+                        "success": False,
+                        "error": f"Chat failed: {chat_result.get('error', 'Unknown error')}",
+                        "transcription": transcribed_text,
+                        "response_text": "",
+                        "audio_output_path": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "Chat failed"}
+                    }
+                
+                response_text = chat_result["response"]
+                logger.info(f"Chat response: {response_text[:50]}...")
+                
+                # Step 5: Clean response text for TTS (remove thinking content)
+                clean_response_text = self._remove_thinking_content(response_text)
+                logger.info(f"Clean response for TTS: {clean_response_text[:50]}...")
+                
+                # Step 6: Text-to-Speech with matching language
+                logger.info(f"Starting TTS for session {session_id} in language: {response_language}")
+                output_audio_path = self.output_dir / f"response_{session_id}_{int(time.time())}.wav"
+                
+                try:
+                    # Extra safety: Always clean text before TTS
+                    final_clean_text = self._remove_thinking_content(clean_response_text)
+                    logger.info(f"Final TTS text (first 100 chars): {final_clean_text[:100]}...")
+                    
+                    # Generate audio using the enhanced generate_speech method
+                    tts_result = self.tts_service.generate_speech(
+                        text=final_clean_text,
+                        output_path=str(output_audio_path),
+                        voice=speaker_voice,
+                        language=response_language  # Use the determined response language
+                    )
+                    
+                    if not tts_result.get("success"):
+                        logger.error(f"TTS generation failed: {tts_result.get('error', 'Unknown error')}")
+                        return {
+                            "success": False,
+                            "error": f"TTS failed: {tts_result.get('error', 'Could not generate audio')}",
+                            "transcription": transcribed_text,
+                            "response_text": response_text,
+                            "audio_output_path": None,
+                            "audio_output_bytes": None,
+                            "audio_output_format": "wav",
+                            "session_id": session_id,
+                            "processing_time": time.time() - start_time,
+                            "models_used": {
+                                "stt": "whisper-large-v3-turbo-arabic", 
+                                "chat": "qwen3-unsloth-q4ks", 
+                                "tts": self.tts_service.current_model or "unknown"
+                            },
+                            "metadata": {"error": "TTS generation failed"}
+                        }
+                    
+                    tts_audio_path = tts_result.get("output_path")
+                    
+                    # Also generate audio bytes for direct WebSocket usage
+                    logger.info(f"Generating TTS bytes for WebSocket transmission...")
+                    tts_audio_bytes = self.tts_service.text_to_speech_bytes(
+                        text=final_clean_text,
+                        language=response_language,
+                        speaker_voice=speaker_voice
+                    )
+                except Exception as tts_error:
+                    logger.error(f"TTS service error: {tts_error}")
+                    return {
+                        "success": False,
+                        "error": f"TTS service failed: {str(tts_error)}",
+                        "transcription": transcribed_text,
+                        "response_text": response_text,
+                        "audio_output_path": None,
+                        "audio_output_bytes": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "TTS service failed"}
+                    }
+                
+                if not tts_audio_path and not tts_audio_bytes:
+                    return {
+                        "success": False,
+                        "error": f"TTS failed: Could not generate audio",
+                        "transcription": transcribed_text,
+                        "response_text": response_text,
+                        "audio_output_path": None,
+                        "audio_output_bytes": None,
+                        "audio_output_format": "wav",
+                        "session_id": session_id,
+                        "processing_time": time.time() - start_time,
+                        "models_used": {
+                            "stt": "whisper-large-v3-turbo-arabic", 
+                            "chat": "qwen3-unsloth-q4ks", 
+                            "tts": "coqui-tts-arabic"
+                        },
+                        "metadata": {"error": "TTS failed"}
+                    }
+                
+                # Step 6: Update session history
+                new_messages = [
+                    {"role": "user", "content": transcribed_text},
+                    {"role": "assistant", "content": response_text}
+                ]
+                self._update_session(session_id, new_messages)
+                
+                # Calculate metrics
+                processing_time = time.time() - start_time
+                self.performance_stats["total_requests"] += 1
+                self.performance_stats["average_latency"] = (
+                    (self.performance_stats["average_latency"] * (self.performance_stats["total_requests"] - 1) + processing_time) /
+                    self.performance_stats["total_requests"]
+                )
+                
+                return {
+                    "success": True,
+                    "session_id": session_id,
+                    "transcription": transcribed_text,
+                    "response": response_text,  # Consistent with WebSocket expectation
                     "audio_output": tts_audio_path,
                     "audio_output_path": tts_audio_path,  # Add both keys for compatibility
                     "audio_output_bytes": tts_audio_bytes,  # Add bytes for WebSocket direct transmission
@@ -748,7 +1187,7 @@ class VoiceToVoiceService(BaseService):
                         "thinking_mode": final_thinking_mode,
                         "content_filter_applied": enable_content_filter,
                         "content_filter_strictness": content_filter_strictness,
-                        "generation_config": generation_config,
+                        "generation_config": sanitized_generation_config,
                         "language_detection_confidence": chat_result.get("language_confidence", 1.0)
                     }
                 }
@@ -805,7 +1244,6 @@ class VoiceToVoiceService(BaseService):
             audio_file=input_audio_path,
             language=config.get("language", "ar"),
             speaker_voice=config.get("speaker_voice", "female"),
-            response_max_length=config.get("response_max_length", 256),
             enable_content_filter=config.get("enable_content_filter", True)
         )
         
@@ -814,31 +1252,8 @@ class VoiceToVoiceService(BaseService):
             try:
                 import shutil
                 shutil.copy2(result["audio_output"], output_audio_path)
-                result["audio_output"] = output_audio_path
             except Exception as e:
                 logger.warning(f"Could not copy to specified output path: {e}")
-        
-        return result
-
-    def _validate_models_loaded(self) -> bool:
-        """Check if all required models are loaded."""
-        required_services = ["stt", "tts", "chat"]
-        for service in required_services:
-            if not self.services_loaded.get(service, False):
-                logger.error(f"Service not loaded: {service}")
-                return False
-        return True
-
-    def _update_session(self, session_id: str, messages: List[Dict[str, str]]) -> None:
-        """Update conversation history for a session."""
-        if session_id not in self.active_sessions:
-            self.active_sessions[session_id] = []
-        self.active_sessions[session_id].extend(messages)
-
-    def get_session_history(self, session_id: str) -> Optional[List[Dict[str, str]]]:
-        """Get conversation history for a session."""
-        return self.active_sessions.get(session_id)
-
     def clear_session(self, session_id: str) -> bool:
         """Clear conversation history for a session."""
         if session_id in self.active_sessions:
@@ -909,10 +1324,11 @@ class VoiceToVoiceService(BaseService):
         speech_speed: float = 1.0,
         audio_output_format: str = "wav",
         disable_content_filter: bool = True,
-        content_filter_strictness: str = "balanced",
+        content_filter_strictness: str = "disabled",
         thinking_mode: bool = False,
         preset: Optional[str] = None,
-        **generation_params
+        generation_config: Optional[Dict[str, Any]] = None,
+        **kwargs
     ) -> Dict[str, Any]:
         """
         Async version of voice_to_voice for WebSocket support.
@@ -945,6 +1361,7 @@ class VoiceToVoiceService(BaseService):
             - transcription: str
             - response_text: str  
             - audio_output_path: str
+            - audio_output_base64: bytes
             - audio_output_format: str
             - session_id: str
             - models_used: Dict[str, str]
@@ -970,38 +1387,164 @@ class VoiceToVoiceService(BaseService):
             audio_format = Path(audio_path).suffix.lstrip('.').lower() or 'wav'
             
             # Prepare arguments for voice_to_voice_bytes
-            kwargs = {
+            kwargs_for_sync = {
                 "audio_bytes": audio_bytes,
                 "audio_format": audio_format,
                 "session_id": session_id,
+                "chat_history": chat_history,
                 "input_language": input_language,
                 "output_language": output_language,
                 "speaker_voice": speaker_voice,
+                "emotion": emotion,
+                "speech_speed": speech_speed,
+                "audio_output_format": audio_output_format,
                 "enable_content_filter": not disable_content_filter,
                 "content_filter_strictness": content_filter_strictness,
                 "thinking_mode": thinking_mode,
-                "generation_config": generation_params
+                "preset": preset,
+                "generation_config": generation_config,
+                **kwargs  # Include any additional parameters
             }
             
             # Run in thread pool to avoid blocking
             result = await loop.run_in_executor(
                 None,  # Use default thread pool
-                lambda: self.voice_to_voice_bytes(**kwargs)
+                lambda: self.voice_to_voice_bytes(**kwargs_for_sync)
             )
+            
+            # Ensure audio_output_base64 is set for WebSocket compatibility
+            if result.get("success") and result.get("audio_output_bytes"):
+                result["audio_output_base64"] = result["audio_output_bytes"]
             
             return result
             
         except Exception as e:
             logger.error(f"Async voice-to-voice processing failed: {e}")
+            import traceback
+            logger.error(f"Async voice-to-voice traceback: {traceback.format_exc()}")
             return {
                 "success": False,
                 "error": f"Async processing failed: {str(e)}",
                 "transcription": "",
                 "response_text": "",
                 "audio_output_path": "",
+                "audio_output_base64": None,
                 "session_id": session_id or "",
-                "processing_time": 0.0
+                "processing_time": 0.0,
+                "input_language": input_language,
+                "output_language": output_language
             }
+
+    def _validate_models_loaded(self) -> bool:
+        """
+        Validate that all required models are loaded.
+        
+        Returns:
+            bool: True if all models are loaded, False otherwise
+        """
+        try:
+            # Check if services are loaded
+            stt_loaded = self.services_loaded.get("stt", False)
+            chat_loaded = self.services_loaded.get("chat", False)
+            tts_loaded = self.services_loaded.get("tts", False)
+            
+            # Additional validation - check if services actually have loaded models
+            if stt_loaded and hasattr(self.stt_service, 'whisper_model'):
+                stt_loaded = self.stt_service.whisper_model is not None
+            
+            if chat_loaded and hasattr(self.chat_service, 'model'):
+                chat_loaded = self.chat_service.model is not None
+                
+            if tts_loaded and hasattr(self.tts_service, 'tts_model'):
+                tts_loaded = self.tts_service.tts_model is not None
+            
+            all_loaded = stt_loaded and chat_loaded and tts_loaded
+            
+            if not all_loaded:
+                logger.warning(f"Model validation failed - STT: {stt_loaded}, Chat: {chat_loaded}, TTS: {tts_loaded}")
+            
+            return all_loaded
+            
+        except Exception as e:
+            logger.error(f"Error validating models: {e}")
+            return False
+
+    def get_session_history(self, session_id: str) -> Optional[List[Dict[str, str]]]:
+        """
+        Get conversation history for a session.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            List of conversation messages or None if session not found
+        """
+        if not session_id:
+            return None
+            
+        return self.active_sessions.get(session_id, {}).get("history", [])
+
+    def update_session_history(self, session_id: str, user_message: str, assistant_response: str):
+        """
+        Update conversation history for a session.
+        
+        Args:
+            session_id: Session identifier
+            user_message: User's message to add
+            assistant_response: Assistant's response to add
+        """
+        if not session_id:
+            return
+            
+        if session_id not in self.active_sessions:
+            self.active_sessions[session_id] = {"history": []}
+        
+        # Add user message
+        self.active_sessions[session_id]["history"].append({
+            "role": "user",
+            "content": user_message
+        })
+        
+        # Add assistant response
+        self.active_sessions[session_id]["history"].append({
+            "role": "assistant", 
+            "content": assistant_response
+        })
+        
+        # Keep only last 20 messages to prevent memory bloat
+        if len(self.active_sessions[session_id]["history"]) > 20:
+            self.active_sessions[session_id]["history"] = self.active_sessions[session_id]["history"][-20:]
+
+    def clear_session_history(self, session_id: str):
+        """
+        Clear conversation history for a session.
+        
+        Args:
+            session_id: Session identifier
+        """
+        if session_id in self.active_sessions:
+            self.active_sessions[session_id]["history"] = []
+
+    def _update_session(self, session_id: str, new_messages: List[Dict[str, str]]):
+        """
+        Update session with new messages.
+        
+        Args:
+            session_id: Session identifier
+            new_messages: List of messages to add
+        """
+        if not session_id:
+            return
+            
+        if session_id not in self.active_sessions:
+            self.active_sessions[session_id] = {"history": []}
+        
+        # Add all new messages
+        self.active_sessions[session_id]["history"].extend(new_messages)
+        
+        # Keep only last 20 messages to prevent memory bloat
+        if len(self.active_sessions[session_id]["history"]) > 20:
+            self.active_sessions[session_id]["history"] = self.active_sessions[session_id]["history"][-20:]
 
     def get_memory_stats(self) -> Dict[str, Any]:
         """Get comprehensive memory statistics."""
