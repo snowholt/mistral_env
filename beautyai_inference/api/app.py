@@ -12,6 +12,7 @@ import logging
 # Import the routers
 from .endpoints import health_router, models_router, inference_router, config_router, system_router
 from .endpoints.websocket_voice import websocket_voice_router
+from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
@@ -42,6 +43,7 @@ app.include_router(inference_router)
 app.include_router(config_router)
 app.include_router(system_router)
 app.include_router(websocket_voice_router)
+app.include_router(websocket_simple_voice_router)
 
 
 @app.on_event("startup")
@@ -73,7 +75,8 @@ async def root():
             "inference": "/inference",
             "config": "/config",
             "system": "/system",
-            "websocket_voice": "/ws/voice-conversation"
+            "websocket_voice": "/ws/voice-conversation",
+            "websocket_simple_voice": "/ws/simple-voice-chat"
         }
     }
 

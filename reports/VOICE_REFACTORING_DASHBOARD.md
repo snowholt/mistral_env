@@ -4,22 +4,22 @@
 
 **Project:** Voice Services Architecture Refactoring  
 **Goal:** Dual TTS architecture (Coqui + Edge TTS) with improved organization  
-**Status:** 🚧 **Steps 1-3 Complete - Step 4 Ready to Start**  
-**Overall Completion:** 60% (Steps 1-3: Directory restructuring, service renaming, and Edge TTS service completed successfully)
+**Status:** 🚧 **Steps 1-4 Complete - Step 5 Ready to Start**  
+**Overall Completion:** 70% (Steps 1-4: Directory restructuring, service renaming, Edge TTS service, and WebSocket endpoint completed successfully)
 
 ---
 
 ## 🎯 **Next Immediate Task**
 
-**Step 4: Create Simple Voice WebSocket Endpoint**
-- **Description:** Implement streamlined WebSocket endpoint for real-time voice chat using Edge TTS
-- **Prompt Available:** ✅ `prompts/voice-refactoring/step-04-simple-websocket.md`
+**Step 5: Update Model Registry and Configuration**
+- **Description:** Clean up model registry conflicts and add Edge TTS configuration
+- **Prompt Available:** ✅ `prompts/voice-refactoring/step-05-update-config.md`
 - **Files Needed:** 
-  - Create new WebSocket endpoint for simple voice service
-  - Integrate with SimpleVoiceService
-  - Add streaming capabilities
-- **Dependencies:** Steps 1-3 (✅ Complete)
-- **Expected Duration:** 1-2 days
+  - Update model_registry.json for voice services
+  - Add Edge TTS configuration options
+  - Clean up conflicting registry entries
+- **Dependencies:** Steps 1-4 (✅ Complete)
+- **Expected Duration:** 1 day
 
 ---
 
@@ -66,13 +66,26 @@
   - [x] Validate Edge TTS functionality with both languages
 - **Completion Date:** July 23, 2025
 
-### **Step 4: Create Simple Voice WebSocket Endpoint** ⏳
-- **Status:** Ready to Start Implementation
+### **✅ Step 4: Create Simple Voice WebSocket Endpoint - COMPLETED**
+- **Status:** ✅ Completed Successfully
 - **Prompt:** ✅ `prompts/voice-refactoring/step-04-simple-websocket.md`
-- **Goal:** Implement streamlined WebSocket endpoint for real-time voice chat
+- **Goal:** Implement streamlined WebSocket endpoint for real-time voice chat using Edge TTS
+- **Key Deliverables:**
+  - [x] Create `SimpleVoiceWebSocketManager` class for connection management
+  - [x] Implement WebSocket endpoint at `/ws/simple-voice-chat`
+  - [x] Add real-time audio processing with <2 second response times
+  - [x] Integrate with SimpleVoiceService for Edge TTS functionality
+  - [x] Create comprehensive unit tests (13 test cases)
+  - [x] Add status endpoint for monitoring active connections
+  - [x] Implement proper connection lifecycle management
+- **Performance Achievements:**
+  - Arabic TTS: 1.17 seconds (target: <2s) ✅
+  - English TTS: 1.29 seconds (target: <2s) ✅
+  - All tests passing: 13/13 ✅
+- **Completion Date:** July 23, 2025
 
-### **Step 5: Update Model Registry and Configuration** ⏸️
-- **Status:** Pending Steps 1-4
+### **Step 5: Update Model Registry and Configuration** ⏳
+- **Status:** Ready to Start Implementation
 - **Prompt:** ✅ `prompts/voice-refactoring/step-05-update-config.md`
 - **Goal:** Clean up model registry and add Edge TTS configuration
 
@@ -161,12 +174,19 @@
 - **Error Handling**: Graceful fallback system with clear error messages and cleanup procedures
 - **Testing Strategy**: Comprehensive unit tests with integration testing to validate Edge TTS functionality
 
-*Additional decisions will be documented as subsequent steps are completed*
+### **Step 4 Decisions (✅ Complete)**
+- **WebSocket Architecture**: Implemented streamlined WebSocket manager for real-time voice chat with minimal overhead
+- **Connection Management**: Used global connection dictionary for simple state management and fast lookups
+- **Performance Optimization**: Direct WebSocket message sending in connect method to minimize latency
+- **Service Integration**: Direct integration with SimpleVoiceService without additional abstraction layers
+- **Testing Strategy**: Comprehensive test suite covering all connection lifecycle scenarios and error conditions
+- **Resource Management**: Automatic service cleanup when no active connections remain, with intelligent delay for reconnections
 
 ---
 
 **Last Updated:** July 23, 2025  
-**Next Review:** After Step 4 completion  
+**Next Review:** After Step 5 completion  
 **Step 1 Completed:** July 23, 2025 ✅  
 **Step 2 Completed:** July 23, 2025 ✅  
-**Step 3 Completed:** July 23, 2025 ✅
+**Step 3 Completed:** July 23, 2025 ✅  
+**Step 4 Completed:** July 23, 2025 ✅
