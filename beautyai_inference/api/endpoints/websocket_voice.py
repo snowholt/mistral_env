@@ -22,7 +22,7 @@ from starlette.websockets import WebSocketState
 
 from ..auth import AuthContext, get_auth_context_ws
 from ..models import VoiceConversationSession
-from ...services.voice_to_voice_service import VoiceToVoiceService
+from ...services.voice.conversation.advanced_voice_service import VoiceToVoiceService
 # Audio utilities will be handled inline
 from ...core.model_manager import ModelManager
 

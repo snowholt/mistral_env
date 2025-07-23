@@ -14,7 +14,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from beautyai_inference.services.inference.content_filter_service import ContentFilterService
-from beautyai_inference.services.audio_transcription_service import AudioTranscriptionService
+from beautyai_inference.services.voice.transcription.audio_transcription_service import AudioTranscriptionService
 
 async def debug_content_filter():
     """Debug content filtering for voice-to-voice tests."""

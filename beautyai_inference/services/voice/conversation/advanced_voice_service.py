@@ -18,14 +18,14 @@ import re
 from pathlib import Path
 from typing import Dict, Any, Optional, List, BinaryIO, Union
 
-from .base.base_service import BaseService
-from .audio_transcription_service import AudioTranscriptionService
-from .text_to_speech_service import TextToSpeechService
-from .inference.chat_service import ChatService
-from .inference.content_filter_service import ContentFilterService
-from ..config.config_manager import AppConfig, ModelConfig
-from ..core.model_manager import ModelManager
-from ..utils.language_detection import language_detector, suggest_response_language
+from ...base.base_service import BaseService
+from ..transcription.audio_transcription_service import AudioTranscriptionService
+from ..synthesis.unified_tts_service import TextToSpeechService
+from ...inference.chat_service import ChatService
+from ...inference.content_filter_service import ContentFilterService
+from ....config.config_manager import AppConfig, ModelConfig
+from ....core.model_manager import ModelManager
+from ....utils.language_detection import language_detector, suggest_response_language
 
 logger = logging.getLogger(__name__)
 

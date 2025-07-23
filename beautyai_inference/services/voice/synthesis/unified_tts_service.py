@@ -9,9 +9,9 @@ import time
 from pathlib import Path
 from typing import Dict, Any, Optional, List, Union
 
-from .base.base_service import BaseService
-from ..config.config_manager import AppConfig, ModelConfig
-from ..core.model_manager import ModelManager
+from ...base.base_service import BaseService
+from ....config.config_manager import AppConfig, ModelConfig
+from ....core.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ from ..models import (
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
 from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
-from ...services.audio_transcription_service import AudioTranscriptionService
+from ...services.voice.transcription.audio_transcription_service import AudioTranscriptionService
 from ...config.config_manager import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -907,7 +907,7 @@ async def voice_to_voice(
     try:
         require_permissions(auth, ["voice_to_voice"])
         
-        from ...services.voice_to_voice_service import VoiceToVoiceService
+        from ...services.voice.conversation.advanced_voice_service import VoiceToVoiceService
         
         # Read audio file
         audio_bytes = await audio_file.read()
@@ -1054,7 +1054,7 @@ async def voice_to_voice(
         
         # Clean the response text for API response (remove thinking content)
         # Import the static method from the service
-        from ...services.voice_to_voice_service import VoiceToVoiceService
+        from ...services.voice.conversation.advanced_voice_service import VoiceToVoiceService
         clean_response_text = VoiceToVoiceService._remove_thinking_content(result["response"])
         
         # Build enhanced response using correct field names
@@ -1104,7 +1104,7 @@ async def voice_to_voice(
 async def voice_to_voice_status(auth: AuthContext = Depends(get_auth_context)):
     """Get status of voice-to-voice service and model availability."""
     try:
-        from ...services.voice_to_voice_service import VoiceToVoiceService
+        from ...services.voice.conversation.advanced_voice_service import VoiceToVoiceService
         
         # Create temporary service to check model availability
         v2v_service = VoiceToVoiceService()

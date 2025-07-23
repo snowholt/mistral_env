@@ -15,9 +15,9 @@ import torch
 import torchaudio
 from transformers import WhisperProcessor, WhisperForConditionalGeneration
 
-from .base.base_service import BaseService
-from ..config.config_manager import AppConfig, ModelConfig
-from ..core.model_manager import ModelManager
+from ...base.base_service import BaseService
+from ....config.config_manager import AppConfig, ModelConfig
+from ....core.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 

@@ -22,7 +22,7 @@ logger = logging.getLogger(__name__)
 # Import BeautyAI services
 sys.path.append('/home/lumi/beautyai')
 
-from beautyai_inference.services.text_to_speech_service import TextToSpeechService
+from beautyai_inference.services.voice.synthesis.unified_tts_service import TextToSpeechService
 
 def test_tts_bytes():
     """Test TTS bytes generation specifically."""
