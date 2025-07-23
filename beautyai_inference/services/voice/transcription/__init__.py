@@ -4,6 +4,12 @@ Audio Transcription Services Module.
 Contains services for converting audio to text using various speech recognition models.
 """
 
-from .audio_transcription_service import AudioTranscriptionService
+from .audio_transcription_service import WhisperTranscriptionService
 
-__all__ = ["AudioTranscriptionService"]
+# Backward compatibility alias
+AudioTranscriptionService = WhisperTranscriptionService
+
+__all__ = [
+    "WhisperTranscriptionService",
+    "AudioTranscriptionService"  # Backward compatibility
+]

@@ -22,7 +22,7 @@ from starlette.websockets import WebSocketState
 
 from ..auth import AuthContext, get_auth_context_ws
 from ..models import VoiceConversationSession
-from ...services.voice.conversation.advanced_voice_service import VoiceToVoiceService
+from ...services.voice.conversation.advanced_voice_service import AdvancedVoiceConversationService
 # Audio utilities will be handled inline
 from ...core.model_manager import ModelManager
 
@@ -38,7 +38,7 @@ class WebSocketVoiceManager:
     """Manages WebSocket voice conversation connections."""
     
     def __init__(self):
-        self.voice_service = VoiceToVoiceService()
+        self.voice_service = AdvancedVoiceConversationService()
         self.model_manager = ModelManager()
         
     async def connect(

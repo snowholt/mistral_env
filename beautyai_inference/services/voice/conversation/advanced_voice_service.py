@@ -19,8 +19,8 @@ from pathlib import Path
 from typing import Dict, Any, Optional, List, BinaryIO, Union
 
 from ...base.base_service import BaseService
-from ..transcription.audio_transcription_service import AudioTranscriptionService
-from ..synthesis.unified_tts_service import TextToSpeechService
+from ..transcription.audio_transcription_service import WhisperTranscriptionService
+from ..synthesis.unified_tts_service import UnifiedTTSService
 from ...inference.chat_service import ChatService
 from ...inference.content_filter_service import ContentFilterService
 from ....config.config_manager import AppConfig, ModelConfig
@@ -30,7 +30,7 @@ from ....utils.language_detection import language_detector, suggest_response_lan
 logger = logging.getLogger(__name__)
 
 
-class VoiceToVoiceService(BaseService):
+class AdvancedVoiceConversationService(BaseService):
     """
     Complete voice-to-voice conversation service.
     
@@ -49,8 +49,8 @@ class VoiceToVoiceService(BaseService):
         super().__init__()
         
         # Core services
-        self.stt_service = AudioTranscriptionService()
-        self.tts_service = TextToSpeechService()
+        self.stt_service = WhisperTranscriptionService()
+        self.tts_service = UnifiedTTSService()
         self.chat_service = ChatService()
         self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.model_manager = ModelManager()

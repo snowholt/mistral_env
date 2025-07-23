@@ -50,3 +50,4 @@ refrences/
 .vscode/
 beautyai_inference/config/loaded_models_state.json
 
+copilot_resources/plans

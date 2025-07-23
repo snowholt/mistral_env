@@ -8,12 +8,22 @@ Organized voice-related services:
 """
 
 # Import all services for easy access
-from .transcription.audio_transcription_service import AudioTranscriptionService
-from .synthesis.unified_tts_service import TextToSpeechService  # Keep original class name for compatibility
-from .conversation.advanced_voice_service import VoiceToVoiceService  # Keep original class name for compatibility
+from .transcription.audio_transcription_service import WhisperTranscriptionService
+from .synthesis.unified_tts_service import UnifiedTTSService
+from .conversation.advanced_voice_service import AdvancedVoiceConversationService
+
+# Backward compatibility aliases - maintain old names for existing code
+AudioTranscriptionService = WhisperTranscriptionService
+TextToSpeechService = UnifiedTTSService  
+VoiceToVoiceService = AdvancedVoiceConversationService
 
 __all__ = [
+    # New descriptive names
+    "WhisperTranscriptionService",
+    "UnifiedTTSService", 
+    "AdvancedVoiceConversationService",
+    # Backward compatibility aliases
     "AudioTranscriptionService",
-    "TextToSpeechService", 
+    "TextToSpeechService",
     "VoiceToVoiceService"
 ]

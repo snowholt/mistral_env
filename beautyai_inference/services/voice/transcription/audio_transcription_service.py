@@ -22,7 +22,7 @@ from ....core.model_manager import ModelManager
 logger = logging.getLogger(__name__)
 
 
-class AudioTranscriptionService(BaseService):
+class WhisperTranscriptionService(BaseService):
     """Service for audio transcription using Whisper models."""
     
     def __init__(self):

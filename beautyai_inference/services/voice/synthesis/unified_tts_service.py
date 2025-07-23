@@ -16,7 +16,7 @@ from ....core.model_manager import ModelManager
 logger = logging.getLogger(__name__)
 
 
-class TextToSpeechService(BaseService):
+class UnifiedTTSService(BaseService):
     """
     Unified Text-to-Speech service supporting multiple TTS engines.
     
