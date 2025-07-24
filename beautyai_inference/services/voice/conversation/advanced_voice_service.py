@@ -24,6 +24,7 @@ from ..synthesis.unified_tts_service import UnifiedTTSService
 from ...inference.chat_service import ChatService
 from ...inference.content_filter_service import ContentFilterService
 from ....config.config_manager import AppConfig, ModelConfig
+from ....config.configuration_manager import ConfigurationManager
 from ....core.model_manager import ModelManager
 from ....utils.language_detection import language_detector, suggest_response_language
 
@@ -55,6 +56,10 @@ class AdvancedVoiceConversationService(BaseService):
         self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.model_manager = ModelManager()
         
+        # Configuration manager for registry-based configuration
+        self.config_manager = ConfigurationManager()
+        self.service_config = self.config_manager.get_service_config("advanced_voice_service")
+        
         # Service status
         self.services_loaded = {
             "stt": False,
@@ -72,14 +77,6 @@ class AdvancedVoiceConversationService(BaseService):
             "speaker_voice": "female",
             "response_max_length": 128,  # Reduced from 256 to keep audio under 1MB for WebSocket
             "enable_content_filter": False  # DISABLED content filtering globally by default
-        }
-        
-        # Language-specific TTS model mapping
-        self.language_tts_models = {
-            "ar": "coqui-tts-arabic",
-            "en": "coqui-tts-english", 
-            "auto": "coqui-tts-multilingual",
-            "default": "coqui-tts-multilingual"
         }
         
         # Output directory for temporary files
@@ -188,9 +185,23 @@ class AdvancedVoiceConversationService(BaseService):
         # Select appropriate TTS model based on language
         if not tts_model:
             if language == "auto":
-                tts_model = self.language_tts_models["auto"]
+                # Use multilingual model for auto-detection
+                tts_model = self.config_manager.get_coqui_model_config().get("model_name", "coqui-tts-multilingual")
+                # Convert to service-friendly name
+                if "multilingual" in tts_model or "xtts_v2" in tts_model:
+                    tts_model = "coqui-tts-multilingual"
             else:
-                tts_model = self.language_tts_models.get(language, self.language_tts_models["default"])
+                # Use language-specific model from service configuration
+                service_config = self.config_manager.get_service_config("advanced_voice_service")
+                supported_languages = service_config.get("supported_languages", ["ar", "en"])
+                
+                if language in supported_languages:
+                    # Use the configured Coqui model (typically multilingual)
+                    coqui_config = self.config_manager.get_coqui_model_config()
+                    tts_model = "coqui-tts-multilingual"  # Standardized name for the service
+                else:
+                    # Fallback to multilingual for unsupported languages
+                    tts_model = "coqui-tts-multilingual"
         
         logger.info(f"Initializing models for language: {language}")
         logger.info(f"Selected TTS model: {tts_model}")

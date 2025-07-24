@@ -4,21 +4,21 @@
 
 **Project:** Voice Services Architecture Refactoring  
 **Goal:** Dual TTS architecture (Coqui + Edge TTS) with improved organization  
-**Status:** 🚧 **Steps 1-4 Complete - Step 5 Ready to Start**  
-**Overall Completion:** 70% (Steps 1-4: Directory restructuring, service renaming, Edge TTS service, and WebSocket endpoint completed successfully)
+**Status:** 🚧 **Steps 1-5 Complete - Step 6 Ready to Start**  
+**Overall Completion:** 80% (Steps 1-5: Directory restructuring, service renaming, Edge TTS service, WebSocket endpoint, and configuration system completed successfully)
 
 ---
 
 ## 🎯 **Next Immediate Task**
 
-**Step 5: Update Model Registry and Configuration**
-- **Description:** Clean up model registry conflicts and add Edge TTS configuration
-- **Prompt Available:** ✅ `prompts/voice-refactoring/step-05-update-config.md`
+**Step 6: Update API Router Registration**
+- **Description:** Register new endpoints and update API documentation
+- **Prompt Available:** ✅ `prompts/voice-refactoring/step-06-api-router.md`
 - **Files Needed:** 
-  - Update model_registry.json for voice services
-  - Add Edge TTS configuration options
-  - Clean up conflicting registry entries
-- **Dependencies:** Steps 1-4 (✅ Complete)
+  - Update API router registrations
+  - Add endpoint documentation
+  - Update API versioning
+- **Dependencies:** Steps 1-5 (✅ Complete)
 - **Expected Duration:** 1 day
 
 ---
@@ -84,13 +84,26 @@
   - All tests passing: 13/13 ✅
 - **Completion Date:** July 23, 2025
 
-### **Step 5: Update Model Registry and Configuration** ⏳
-- **Status:** Ready to Start Implementation
+### **✅ Step 5: Update Model Registry and Configuration** - COMPLETED
+- **Status:** ✅ Completed Successfully
 - **Prompt:** ✅ `prompts/voice-refactoring/step-05-update-config.md`
-- **Goal:** Clean up model registry and add Edge TTS configuration
+- **Goal:** Clean up model registry conflicts and add Edge TTS configuration
+- **Key Deliverables:**
+  - [x] Remove hardcoded language_tts_models mapping from AdvancedVoiceConversationService
+  - [x] Update AdvancedVoiceConversationService to use ConfigurationManager for TTS model selection
+  - [x] Ensure proper service isolation (Simple service uses Edge TTS, Advanced uses Coqui TTS)
+  - [x] Validate configuration system integration with comprehensive tests
+  - [x] Create Step 5 integration test suite (12 test cases, 100% passing)
+  - [x] Confirm backward compatibility maintained
+- **Performance Achievements:**
+  - Configuration conflicts resolved ✅
+  - Service isolation implemented ✅
+  - Hardcoded mappings eliminated ✅
+  - All existing functionality preserved ✅
+- **Completion Date:** July 24, 2025
 
-### **Step 6: Update API Router Registration** ⏸️
-- **Status:** Pending Steps 1-5
+### **Step 6: Update API Router Registration** ⏳
+- **Status:** Ready to Start Implementation
 - **Prompt:** ✅ `prompts/voice-refactoring/step-06-api-router.md`
 - **Goal:** Register new endpoints and update API documentation
 

@@ -1,6 +1,117 @@
 {
-  
   "default_model": "qwen3-unsloth-q4ks",
+  "edge_tts_voices": {
+    "arabic": {
+      "voices": {
+        "male": {
+          "primary": "ar-SA-HamedNeural",
+          "quality": "high",
+          "region": "Saudi Arabia"
+        },
+        "female": {
+          "primary": "ar-SA-ZariyahNeural", 
+          "quality": "high",
+          "region": "Saudi Arabia"
+        }
+      },
+      "fallbacks": {
+        "male": ["ar-EG-ShakirNeural", "ar-AE-HamzaNeural"],
+        "female": ["ar-EG-SalmaNeural", "ar-AE-FatimaNeural"]
+      }
+    },
+    "english": {
+      "voices": {
+        "male": {
+          "primary": "en-US-AriaNeural",
+          "quality": "high", 
+          "region": "United States"
+        },
+        "female": {
+          "primary": "en-US-JennyNeural",
+          "quality": "high",
+          "region": "United States"
+        }
+      },
+      "fallbacks": {
+        "male": ["en-GB-RyanNeural", "en-AU-WilliamNeural"],
+        "female": ["en-GB-SoniaNeural", "en-AU-NatashaNeural"]
+      }
+    }
+  },
+  "coqui_tts_models": {
+    "xtts_v2": {
+      "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
+      "languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
+      "features": ["voice_cloning", "multilingual", "emotion_control"],
+      "memory_requirements": {
+        "min_ram_gb": 8,
+        "min_vram_gb": 4,
+        "recommended_vram_gb": 8
+      }
+    }
+  },
+  "service_configurations": {
+    "simple_voice_service": {
+      "tts_engine": "edge_tts",
+      "supported_languages": ["ar", "en"],
+      "default_voices": {
+        "ar": {
+          "male": "ar-SA-HamedNeural",
+          "female": "ar-SA-ZariyahNeural"
+        },
+        "en": {
+          "male": "en-US-AriaNeural",
+          "female": "en-US-JennyNeural"
+        }
+      },
+      "performance_config": {
+        "target_response_time_ms": 2000,
+        "enable_caching": true,
+        "stream_audio": true
+      }
+    },
+    "advanced_voice_service": {
+      "tts_engine": "coqui_tts",
+      "model": "xtts_v2",
+      "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
+      "features": {
+        "voice_cloning": true,
+        "emotion_control": true,
+        "language_detection": true,
+        "content_filtering": true
+      },
+      "performance_config": {
+        "target_response_time_ms": 8000,
+        "enable_gpu_optimization": true,
+        "quantization": "4bit"
+      }
+    }
+  },
+  "service_defaults": {
+    "simple_voice_service": {
+      "audio_format": "wav",
+      "sample_rate": 22050,
+      "channels": 1,
+      "bit_depth": 16,
+      "compression": "none",
+      "streaming": {
+        "enabled": true,
+        "chunk_size": 1024,
+        "buffer_size": 4096
+      }
+    },
+    "advanced_voice_service": {
+      "audio_format": "wav",
+      "sample_rate": 22050,
+      "channels": 1,
+      "bit_depth": 16,
+      "model_loading": {
+        "lazy_loading": true,
+        "cache_models": true,
+        "unload_after_minutes": 10
+      }
+    }
+  },
   "models": {
     "qwen3-model": {
       "model_id": "Qwen/Qwen3-14B",

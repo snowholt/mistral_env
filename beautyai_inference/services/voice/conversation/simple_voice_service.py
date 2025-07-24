@@ -18,9 +18,7 @@ from typing import Dict, Any, Optional, Union, List
 from dataclasses import dataclass
 import edge_tts
 
-# We'll import these when needed - simplified for now
-# from ...voice.transcription.audio_transcription_service import WhisperTranscriptionService
-# from ....core.model_manager import ModelManager
+from ....config.configuration_manager import ConfigurationManager
 
 
 @dataclass
@@ -57,6 +55,10 @@ class SimpleVoiceService:
         """
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
+        self.config_manager = ConfigurationManager()
+        
+        # Get service configuration from registry
+        self.service_config = self.config_manager.get_service_config("simple_voice_service")
         
         # Service configuration
         self.temp_dir = Path(tempfile.gettempdir()) / "beautyai_simple_voice"
@@ -65,19 +67,52 @@ class SimpleVoiceService:
         # Core services - will be initialized later
         self.transcription_service = None
         
-        # Voice mappings for Edge TTS
-        self.voice_mappings = self._setup_voice_mappings()
+        # Voice mappings from configuration
+        self.voice_mappings = self._setup_voice_mappings_from_config()
         
-        # Default settings
-        self.default_voice = "ar-SA-ZariyahNeural"  # Arabic female voice
-        self.default_english_voice = "en-US-AriaNeural"  # English female voice
+        # Default settings from configuration
+        self.default_arabic_voice = self.config_manager.get_edge_tts_voice("arabic", "female")
+        self.default_english_voice = self.config_manager.get_edge_tts_voice("english", "female")
         self.speech_rate = "+0%"
         self.speech_pitch = "+0Hz"
         
-        self.logger.info("SimpleVoiceService initialized")
+        self.logger.info("SimpleVoiceService initialized with registry configuration")
     
-    def _setup_voice_mappings(self) -> Dict[str, VoiceMapping]:
-        """Set up voice mappings for different languages and genders."""
+    def _setup_voice_mappings_from_config(self) -> Dict[str, VoiceMapping]:
+        """Set up voice mappings from configuration manager."""
+        mappings = {}
+        
+        try:
+            # Get Edge TTS voices from configuration
+            arabic_voices = self.config_manager.get_edge_tts_voices_for_language("arabic")
+            english_voices = self.config_manager.get_edge_tts_voices_for_language("english")
+            
+            # Setup Arabic voices
+            if "male" in arabic_voices:
+                mappings["ar_male"] = VoiceMapping("ar-SA", "male", arabic_voices["male"], "Arabic Male")
+            if "female" in arabic_voices:
+                mappings["ar_female"] = VoiceMapping("ar-SA", "female", arabic_voices["female"], "Arabic Female")
+            
+            # Setup English voices
+            if "male" in english_voices:
+                mappings["en_male"] = VoiceMapping("en-US", "male", english_voices["male"], "English Male")
+            if "female" in english_voices:
+                mappings["en_female"] = VoiceMapping("en-US", "female", english_voices["female"], "English Female")
+            
+            # Add fallbacks from legacy setup if config is incomplete
+            if not mappings:
+                self.logger.warning("No voices found in configuration, using fallback mappings")
+                return self._setup_fallback_voice_mappings()
+            
+            self.logger.info(f"Loaded {len(mappings)} voice mappings from configuration")
+            return mappings
+            
+        except Exception as e:
+            self.logger.error(f"Error loading voice mappings from config: {e}")
+            return self._setup_fallback_voice_mappings()
+    
+    def _setup_fallback_voice_mappings(self) -> Dict[str, VoiceMapping]:
+        """Set up fallback voice mappings if configuration fails."""
         return {
             # Arabic voices
             "ar_female": VoiceMapping("ar-SA", "female", "ar-SA-ZariyahNeural", "Zariyah (Arabic Female)"),
@@ -86,10 +121,6 @@ class SimpleVoiceService:
             # English voices  
             "en_female": VoiceMapping("en-US", "female", "en-US-AriaNeural", "Aria (English Female)"),
             "en_male": VoiceMapping("en-US", "male", "en-US-GuyNeural", "Guy (English Male)"),
-            
-            # Additional Arabic variants
-            "ar_eg_female": VoiceMapping("ar-EG", "female", "ar-EG-SalmaNeural", "Salma (Egyptian Female)"),
-            "ar_eg_male": VoiceMapping("ar-EG", "male", "ar-EG-ShakirNeural", "Shakir (Egyptian Male)"),
         }
     
     async def initialize(self) -> None:
@@ -101,7 +132,7 @@ class SimpleVoiceService:
             # self.transcription_service = WhisperTranscriptionService()
             self.logger.info("Transcription service placeholder - will be implemented")
             
-            # Test Edge TTS availability
+            # Test Edge TTS availability with configured voice
             await self._test_edge_tts()
             
             self.logger.info("SimpleVoiceService initialized successfully")
@@ -111,17 +142,17 @@ class SimpleVoiceService:
             raise Exception(f"Service initialization failed: {e}")
     
     async def _test_edge_tts(self) -> None:
-        """Test Edge TTS functionality."""
+        """Test Edge TTS functionality with configured voice."""
         try:
-            # Test with a simple phrase
-            communicate = edge_tts.Communicate("Test", self.default_voice)
+            # Test with a simple phrase using configured default voice
+            communicate = edge_tts.Communicate("Test", self.default_arabic_voice)
             test_file = self.temp_dir / "test_edge_tts.wav"
             
             await communicate.save(str(test_file))
             
             if test_file.exists():
                 test_file.unlink()  # Clean up
-                self.logger.info("Edge TTS test successful")
+                self.logger.info(f"Edge TTS test successful with voice: {self.default_arabic_voice}")
             else:
                 raise Exception("Edge TTS test failed - no output file generated")
                 
@@ -206,9 +237,9 @@ class SimpleVoiceService:
         if voice_key in self.voice_mappings:
             return self.voice_mappings[voice_key].voice_id
         
-        # Fallback to default voices
+        # Fallback to default voices from configuration
         if language == 'ar':
-            return self.default_voice
+            return self.default_arabic_voice
         else:
             return self.default_english_voice
     
@@ -401,6 +432,7 @@ class SimpleVoiceService:
             "temp_directory": str(self.temp_dir),
             "temp_files_count": len(temp_files),
             "available_voices": len(self.voice_mappings),
-            "default_arabic_voice": self.default_voice,
-            "default_english_voice": self.default_english_voice
+            "default_arabic_voice": self.default_arabic_voice,
+            "default_english_voice": self.default_english_voice,
+            "service_config": self.service_config.get("performance_config", {})
         }

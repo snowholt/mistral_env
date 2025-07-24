@@ -11,6 +11,7 @@ from typing import Dict, Any, Optional, List, Union
 
 from ...base.base_service import BaseService
 from ....config.config_manager import AppConfig, ModelConfig
+from ....config.configuration_manager import ConfigurationManager
 from ....core.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
@@ -37,9 +38,14 @@ class UnifiedTTSService(BaseService):
         super().__init__()
         
         self.model_manager = ModelManager()
+        self.config_manager = ConfigurationManager()
         self.current_engine = None
         self.current_model = None
         self.engine_loaded = False
+        
+        # Get service configuration from registry
+        self.service_config = self.config_manager.get_service_config("advanced_voice_service")
+        self.coqui_config = self.config_manager.get_coqui_model_config()
         
         # Supported engines in order of preference
         self.supported_engines = {
@@ -50,11 +56,7 @@ class UnifiedTTSService(BaseService):
                 "quality": "high",
                 "gpu_required": False,
                 "voice_cloning": True,
-                "default_models": {
-                    "ar": "tts_models/ar/tn_arabicspeech/vits",
-                    "en": "tts_models/en/ljspeech/vits",
-                    "multilingual": "tts_models/multilingual/multi-dataset/xtts_v2"
-                }
+                "default_model": self.coqui_config.get("model_name", "tts_models/multilingual/multi-dataset/xtts_v2")
             },
             "edge": {
                 "name": "Edge TTS",
@@ -63,23 +65,16 @@ class UnifiedTTSService(BaseService):
                 "quality": "medium",
                 "gpu_required": False,
                 "voice_cloning": False,
-                "default_models": {
-                    "ar": "ar-SA-ZariyahNeural",
-                    "en": "en-US-JennyNeural",
-                    "multilingual": "edge-tts-multilingual"
-                }
+                "default_model": "edge-tts-multilingual"
             }
         }
         
-        # Language preferences for engine selection
+        # Language preferences for engine selection (from configuration)
+        supported_languages = self.config_manager.get_supported_languages("advanced_voice_service")
         self.language_engine_preferences = {
-            "ar": ["coqui", "edge"],  # Prefer Coqui for Arabic
-            "en": ["coqui", "edge"],
-            "es": ["coqui", "edge"],
-            "fr": ["coqui", "edge"],
-            "de": ["coqui", "edge"],
-            "default": ["coqui", "edge"]
+            lang: ["coqui", "edge"] for lang in supported_languages
         }
+        self.language_engine_preferences["default"] = ["coqui", "edge"]
         
         # Output directory
         self.output_dir = Path("/home/lumi/beautyai/voice_tests/tts_outputs")
@@ -109,22 +104,13 @@ class UnifiedTTSService(BaseService):
                     # Default to Coqui for Arabic optimization
                     engine_type = "coqui"
             
-            # Language-specific model mapping for better TTS quality
-            language_model_mapping = {
-                "coqui-tts-arabic": "tts_models/multilingual/multi-dataset/xtts_v2",  # Best for Arabic
-                "coqui-tts-english": "tts_models/multilingual/multi-dataset/xtts_v2",  # Use multilingual for English too
-                "coqui-tts-multilingual": "tts_models/multilingual/multi-dataset/xtts_v2",  # Best multilingual model
-                "coqui-arabic": "tts_models/multilingual/multi-dataset/xtts_v2",  # Legacy support
-                "coqui-english": "tts_models/multilingual/multi-dataset/xtts_v2",  # Legacy support
-            }
-            
             # Direct engine initialization instead of using ModelManager
             if engine_type == "coqui":
                 from beautyai_inference.inference_engines.coqui_tts_engine import CoquiTTSEngine
                 
-                # Get the appropriate Coqui model ID based on the model name
-                model_id = language_model_mapping.get(model_name, "tts_models/multilingual/multi-dataset/xtts_v2")
-                logger.info(f"Using Coqui model ID: {model_id}")
+                # Get the appropriate Coqui model ID from configuration
+                model_id = self.coqui_config.get("model_name", "tts_models/multilingual/multi-dataset/xtts_v2")
+                logger.info(f"Using Coqui model ID from configuration: {model_id}")
                 
                 # Create a minimal ModelConfig for CoquiTTSEngine
                 tts_model_config = ModelConfig(
@@ -139,14 +125,9 @@ class UnifiedTTSService(BaseService):
             elif engine_type == "edge":
                 from beautyai_inference.inference_engines.edge_tts_engine import EdgeTTSEngine
                 
-                # Edge TTS model selection based on language
-                edge_model_mapping = {
-                    "edge-tts-arabic": "ar-SA-ZariyahNeural",
-                    "edge-tts-english": "en-US-JennyNeural", 
-                    "edge-tts-multilingual": "ar-SA-ZariyahNeural"  # Default to Arabic
-                }
-                
-                model_id = edge_model_mapping.get(model_name, "ar-SA-ZariyahNeural")
+                # Edge TTS model selection from configuration
+                # Use a default voice for model loading, actual voice selection happens in text_to_speech
+                model_id = "ar-SA-ZariyahNeural"  # Default voice for initialization
                 logger.info(f"Using Edge model ID: {model_id}")
                 
                 # Create a minimal ModelConfig for EdgeTTSEngine
