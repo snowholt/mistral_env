@@ -28,7 +28,7 @@ from ...core.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
-websocket_voice_router = APIRouter(prefix="/ws", tags=["websocket-voice"])
+websocket_voice_router = APIRouter(prefix="/ws", tags=["advanced-voice"])
 
 # Active WebSocket connections
 active_connections: Dict[str, Dict[str, Any]] = {}

@@ -32,7 +32,7 @@ from ...services.voice.conversation.simple_voice_service import SimpleVoiceServi
 
 logger = logging.getLogger(__name__)
 
-websocket_simple_voice_router = APIRouter(prefix="/ws", tags=["simple-voice-chat"])
+websocket_simple_voice_router = APIRouter(prefix="/ws", tags=["simple-voice"])
 
 # Active WebSocket connections
 simple_voice_connections: Dict[str, Dict[str, Any]] = {}
