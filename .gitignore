@@ -8,6 +8,7 @@ venv_backup/
 venv-11/
 .env/
 .python-version
+temp_benchmark_venv/
 
 # Python byte-compiled files
 __pycache__/
@@ -52,3 +53,4 @@ beautyai_inference/config/loaded_models_state.json
 
 copilot_resources/plans
 voice_tests/
+test_temp_venv.py
