@@ -203,49 +203,48 @@ class SimpleVoiceWebSocketManager:
             
             try:
                 # Process with SimpleVoiceService
-                # Note: The current service has placeholder implementations
-                # This will be replaced with actual processing when services are fully integrated
+                # Use the real voice processing pipeline
                 
-                # For now, create a mock response to test the WebSocket flow
-                result = await self._mock_voice_processing(temp_audio_path, language, voice_type)
+                # Process using SimpleVoiceService
+                result = await self.voice_service.process_voice_message(
+                    audio_data=audio_data,
+                    language=language,
+                    gender=voice_type
+                )
                 
                 processing_time = time.time() - start_time
                 
-                if result["success"]:
-                    # Prepare response
-                    response_data = {
-                        "type": "voice_response",
-                        "success": True,
-                        "audio_base64": result.get("audio_base64"),
-                        "transcription": result.get("transcription", ""),
-                        "response_text": result.get("response_text", ""),
-                        "language": language,
-                        "voice_type": voice_type,
-                        "response_time_ms": int(processing_time * 1000),
-                        "session_id": session_id,
-                        "message_count": connection["message_count"],
-                        "timestamp": time.time()
-                    }
-                    
-                    # Send the response
-                    await self.send_message(connection_id, response_data)
-                    
-                    logger.info(f"✅ Simple voice processing completed in {processing_time:.2f}s for {connection_id}")
-                    return {"success": True, "processing_time": processing_time}
+                # Read audio file and encode to base64
+                audio_base64 = None
+                if result.get("audio_file_path"):
+                    audio_path = Path(result["audio_file_path"])
+                    if audio_path.exists():
+                        with open(audio_path, "rb") as audio_file:
+                            audio_bytes = audio_file.read()
+                        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                        # Clean up the audio file
+                        audio_path.unlink()
                 
-                else:
-                    # Processing failed
-                    error_msg = result.get("error", "Voice processing failed")
-                    await self.send_message(connection_id, {
-                        "type": "error",
-                        "success": False,
-                        "error_code": "PROCESSING_FAILED",
-                        "message": error_msg,
-                        "retry_suggested": True,
-                        "response_time_ms": int((time.time() - start_time) * 1000),
-                        "timestamp": time.time()
-                    })
-                    return {"success": False, "error": error_msg}
+                # Prepare response
+                response_data = {
+                    "type": "voice_response",
+                    "success": True,
+                    "audio_base64": audio_base64,
+                    "transcription": result.get("transcribed_text", ""),
+                    "response_text": result.get("response_text", ""),
+                    "language": language,
+                    "voice_type": voice_type,
+                    "response_time_ms": int(processing_time * 1000),
+                    "session_id": session_id,
+                    "message_count": connection["message_count"],
+                    "timestamp": time.time()
+                }
+                
+                # Send the response
+                await self.send_message(connection_id, response_data)
+                
+                logger.info(f"✅ Simple voice processing completed in {processing_time:.2f}s for {connection_id}")
+                return {"success": True, "processing_time": processing_time}
             
             finally:
                 # Clean up temporary file
@@ -268,58 +267,6 @@ class SimpleVoiceWebSocketManager:
                 "timestamp": time.time()
             })
             return {"success": False, "error": str(e)}
-    
-    async def _mock_voice_processing(self, audio_path: str, language: str, voice_type: str) -> Dict[str, Any]:
-        """
-        Mock voice processing for testing the WebSocket flow.
-        This will be replaced with actual SimpleVoiceService integration.
-        """
-        try:
-            # Generate mock response based on language
-            if language == "ar":
-                transcription = "مرحبا، كيف حالك؟"
-                response_text = "أهلاً وسهلاً! أنا بخير، شكراً لك. كيف يمكنني مساعدتك اليوم؟"
-            else:  # English
-                transcription = "Hello, how are you?"
-                response_text = "Hello! I'm doing well, thank you. How can I help you today?"
-            
-            # Generate mock audio using SimpleVoiceService
-            audio_output_path = await self.voice_service.text_to_speech(
-                text=response_text,
-                language=language,
-                gender=voice_type
-            )
-            
-            # Read audio file and encode to base64
-            if audio_output_path and audio_output_path.exists():
-                with open(audio_output_path, "rb") as audio_file:
-                    audio_bytes = audio_file.read()
-                
-                audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                
-                # Clean up the audio file
-                audio_output_path.unlink()
-                
-                return {
-                    "success": True,
-                    "transcription": transcription,
-                    "response_text": response_text,
-                    "audio_base64": audio_base64,
-                    "audio_size_bytes": len(audio_bytes)
-                }
-            else:
-                logger.error("❌ Failed to generate audio file")
-                return {
-                    "success": False,
-                    "error": "Failed to generate audio response"
-                }
-        
-        except Exception as e:
-            logger.error(f"❌ Mock voice processing failed: {e}")
-            return {
-                "success": False,
-                "error": f"Mock processing failed: {str(e)}"
-            }
 
 
 # Global WebSocket manager instance

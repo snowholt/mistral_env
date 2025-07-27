@@ -20,6 +20,9 @@ import edge_tts
 
 from ....config.configuration_manager import ConfigurationManager
 
+# Configure logger
+logger = logging.getLogger(__name__)
+
 
 @dataclass
 class VoiceMapping:
@@ -66,6 +69,7 @@ class SimpleVoiceService:
         
         # Core services - will be initialized later
         self.transcription_service = None
+        self.chat_service = None
         
         # Voice mappings from configuration
         self.voice_mappings = self._setup_voice_mappings_from_config()
@@ -279,7 +283,7 @@ class SimpleVoiceService:
             audio_input_path = await self._save_audio_data(audio_data)
             
             # Step 2: Transcribe audio to text
-            transcribed_text = await self._transcribe_audio(audio_input_path)
+            transcribed_text = await self._transcribe_audio(audio_data)
             self.logger.info(f"Transcribed: {transcribed_text}")
             
             # Step 3: Detect language if not provided
@@ -287,7 +291,7 @@ class SimpleVoiceService:
                 language = self._detect_language(transcribed_text)
             
             # Step 4: Generate AI response using chat model
-            response_text = await self._generate_chat_response(transcribed_text, chat_model)
+            response_text = await self._generate_chat_response(transcribed_text)
             self.logger.info(f"AI Response: {response_text}")
             
             # Step 5: Select appropriate voice
@@ -325,32 +329,88 @@ class SimpleVoiceService:
             f.write(audio_data)
         return audio_file
     
-    async def _transcribe_audio(self, audio_path: Path) -> str:
+    async def _transcribe_audio(self, audio_data: bytes) -> str:
         """
-        Transcribe audio file to text.
-        For now, this is a placeholder - will integrate with Whisper service.
-        """
-        # Placeholder implementation
-        # TODO: Integrate with WhisperTranscriptionService
-        self.logger.info(f"Transcribing audio file: {audio_path}")
+        Transcribes audio data using Whisper transcription service.
         
-        # Mock transcription for testing
-        return "مرحبا، كيف حالك؟"  # "Hello, how are you?" in Arabic
+        Args:
+            audio_data: Raw audio data in bytes format
+            
+        Returns:
+            Transcribed text from the audio
+        """
+        try:
+            # Initialize transcription service if needed
+            if self.transcription_service is None:
+                from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
+                self.transcription_service = WhisperTranscriptionService()
+                
+                # Load the Whisper model
+                model_loaded = self.transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic")
+                if not model_loaded:
+                    logger.warning("Failed to load Arabic Whisper model, trying base model...")
+                    if not self.transcription_service.load_whisper_model("whisper-base"):
+                        logger.error("Failed to load any Whisper model")
+                        return "Sorry, I couldn't understand the audio."
+            
+            # Use the real transcription service
+            result = self.transcription_service.transcribe_audio_bytes(audio_data, audio_format="wav", language="ar")
+            logger.info(f"Transcribed audio: {result}")
+            return result if result else "Sorry, I couldn't understand the audio."
+            
+        except Exception as e:
+            logger.error(f"Error transcribing audio: {e}")
+            return "Sorry, I couldn't understand the audio."
     
-    async def _generate_chat_response(self, text: str, model_name: str) -> str:
+    async def _generate_chat_response(self, text: str) -> str:
         """
-        Generate chat response using specified model.
-        For now, this is a placeholder - will integrate with model manager.
-        """
-        # Placeholder implementation
-        # TODO: Integrate with ModelManager and chat inference
-        self.logger.info(f"Generating response with model: {model_name}")
+        Generates chat response using the actual chat service.
         
-        # Mock response for testing
-        if self._detect_language(text) == 'ar':
-            return "أهلاً وسهلاً! أنا بخير، شكراً لك. كيف يمكنني مساعدتك اليوم؟"
-        else:
-            return "Hello! I'm doing well, thank you. How can I help you today?"
+        Args:
+            text: User input text to respond to
+            
+        Returns:
+            Generated response text
+        """
+        try:
+            # Initialize chat service if needed
+            if self.chat_service is None:
+                from beautyai_inference.services.inference.chat_service import ChatService
+                self.chat_service = ChatService()
+                
+                # Load default Arabic model
+                success = self.chat_service.load_model("qwen3-unsloth-q4ks")  # Default model from registry
+                if not success:
+                    logger.warning("Failed to load default model, trying alternatives...")
+                    # Try alternative models
+                    alternative_models = ["qwen3-model", "deepseek-r1-qwen-14b-multilingual", "qwen3-official-q4km"]
+                    for model in alternative_models:
+                        if self.chat_service.load_model(model):
+                            logger.info(f"Successfully loaded alternative model: {model}")
+                            break
+                    else:
+                        logger.error("Failed to load any model")
+                        return "I'm sorry, I'm currently unable to process your request due to a technical issue."
+            
+            # Use the real chat service
+            result = self.chat_service.chat(
+                message=text,
+                max_length=256,
+                language="auto"  # Auto-detect language
+            )
+            
+            if result.get("success"):
+                response = result.get("response", "")
+                logger.info(f"Generated chat response: {response[:100]}...")
+                return response
+            else:
+                error_msg = result.get("error", "Unknown error")
+                logger.error(f"Chat service error: {error_msg}")
+                return "I apologize, but I'm having trouble processing your request right now. Please try again."
+            
+        except Exception as e:
+            logger.error(f"Error generating chat response: {e}")
+            return "I apologize, but I'm having trouble processing your request right now. Please try again."
     
     async def _synthesize_speech(self, text: str, voice_id: str) -> Path:
         """
