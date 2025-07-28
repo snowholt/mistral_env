@@ -146,6 +146,61 @@ app.include_router(
 )
 
 
+async def preload_voice_models():
+    """Pre-load essential models for WebSocket voice services to improve performance."""
+    try:
+        # Import model services here to avoid circular imports
+        from ..services.model import ModelLifecycleService
+        from ..config.configuration_manager import ConfigurationManager
+        
+        # Initialize services
+        lifecycle_service = ModelLifecycleService()
+        config_manager = ConfigurationManager()
+        config_manager.load_config()
+       
+        # Models to pre-load for voice services
+        essential_models = [
+            "qwen3-unsloth-q4ks",  # Chat model for responses
+            "whisper-large-v3-turbo-arabic",  # STT model  
+            # Note: Edge TTS doesn't need pre-loading, coqui-tts-arabic has issues
+        ]
+        
+        logger.info(f"🔄 Pre-loading {len(essential_models)} essential models...")
+        
+        for model_name in essential_models:
+            try:
+                logger.info(f"⏳ Loading {model_name}...")
+                
+                # Get model config from registry
+                model_config = lifecycle_service.registry_service.get_model(config_manager, model_name)
+                if not model_config:
+                    logger.warning(f"⚠️ Model '{model_name}' not found in registry, skipping")
+                    continue
+                
+                # Check if already loaded
+                if lifecycle_service.model_manager.is_model_loaded(model_name):
+                    logger.info(f"✅ Model '{model_name}' already loaded")
+                    continue
+                
+                # Load the model
+                success, error_msg = lifecycle_service.load_model(model_config, show_progress=False)
+                
+                if success:
+                    logger.info(f"✅ Successfully pre-loaded {model_name}")
+                else:
+                    logger.warning(f"⚠️ Failed to pre-load {model_name}: {error_msg}")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ Error pre-loading {model_name}: {e}")
+                continue
+        
+        logger.info("🎯 Model pre-loading completed - WebSocket services ready for fast responses")
+        
+    except Exception as e:
+        logger.error(f"❌ Critical error during model pre-loading: {e}")
+        raise
+
+
 @app.on_event("startup")
 async def startup_event():
     """Initialize the application on startup."""
@@ -153,6 +208,15 @@ async def startup_event():
     logger.info("📚 API Documentation available at: http://localhost:8000/docs")
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
+    
+    # Pre-load essential models for WebSocket voice services
+    logger.info("⏳ Pre-loading essential models for WebSocket voice services...")
+    try:
+        await preload_voice_models()
+        logger.info("✅ Voice models pre-loaded successfully")
+    except Exception as e:
+        logger.error(f"❌ Failed to pre-load voice models: {e}")
+        logger.warning("⚠️ WebSocket voice services may have slower initial response times")
 
 
 @app.on_event("shutdown")

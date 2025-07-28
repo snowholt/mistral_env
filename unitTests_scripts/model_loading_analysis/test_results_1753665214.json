@@ -1,0 +1,208 @@
+{
+  "test_timestamp": 1753665169.7748578,
+  "base_url": "http://localhost:8000",
+  "tests": {
+    "chat_api": {
+      "test_name": "chat_api_model_persistence",
+      "requests": [
+        {
+          "request_number": 1,
+          "request_data": {
+            "model_name": "qwen3-unsloth-q4ks",
+            "message": "\u0645\u0631\u062d\u0628\u0627\u060c \u0643\u064a\u0641 \u062d\u0627\u0644\u0643\u061f",
+            "max_new_tokens": 50,
+            "temperature": 0.7
+          },
+          "response_time": 8.666806936264038,
+          "success": true,
+          "response_length": 189,
+          "tokens_generated": 34,
+          "generation_time_ms": 8664.392709732056
+        },
+        {
+          "request_number": 2,
+          "request_data": {
+            "model_name": "qwen3-unsloth-q4ks",
+            "message": "\u0645\u0627 \u0647\u0648 \u0627\u0644\u0630\u0643\u0627\u0621 \u0627\u0644\u0627\u0635\u0637\u0646\u0627\u0639\u064a\u061f",
+            "max_new_tokens": 50,
+            "temperature": 0.7
+          },
+          "response_time": 0.0014307498931884766,
+          "success": true,
+          "response_length": 0,
+          "tokens_generated": null,
+          "generation_time_ms": null
+        },
+        {
+          "request_number": 3,
+          "request_data": {
+            "model_name": "qwen3-unsloth-q4ks",
+            "message": "Tell me about machine learning in English",
+            "max_new_tokens": 50,
+            "temperature": 0.7
+          },
+          "response_time": 0.0012857913970947266,
+          "success": true,
+          "response_length": 0,
+          "tokens_generated": null,
+          "generation_time_ms": null
+        }
+      ],
+      "model_status_snapshots": [
+        {
+          "timestamp": 1753665169.7802176,
+          "checkpoint": "initial",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665178.4486444,
+          "checkpoint": "after_request_1",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665180.453437,
+          "checkpoint": "after_request_2",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665182.4581106,
+          "checkpoint": "after_request_3",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665184.462041,
+          "checkpoint": "final",
+          "status": {}
+        }
+      ],
+      "analysis": {
+        "total_requests": 3,
+        "successful_requests": 3,
+        "success_rate": 100.0,
+        "first_request_time": 8.666806936264038,
+        "avg_subsequent_time": 0.0013582706451416016,
+        "avg_response_time": 2.889841159184774,
+        "performance_improvement": 8.665448665618896,
+        "model_persistency_evidence": true
+      }
+    },
+    "simple_voice_websocket": {
+      "test_name": "simple_voice_websocket_loading",
+      "connections": [
+        {
+          "connection_number": 1,
+          "connection_time": 0.007310390472412109,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        },
+        {
+          "connection_number": 2,
+          "connection_time": 0.0014255046844482422,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        },
+        {
+          "connection_number": 3,
+          "connection_time": 0.0014247894287109375,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        }
+      ],
+      "model_status_snapshots": [
+        {
+          "timestamp": 1753665184.463035,
+          "checkpoint": "initial",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665184.4721704,
+          "checkpoint": "after_connection_1",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665189.4803877,
+          "checkpoint": "after_connection_2",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665194.4879847,
+          "checkpoint": "after_connection_3",
+          "status": {}
+        }
+      ],
+      "analysis": {}
+    },
+    "advanced_voice_websocket": {
+      "test_name": "advanced_voice_websocket_loading",
+      "connections": [
+        {
+          "connection_number": 1,
+          "connection_time": 0.0009088516235351562,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        },
+        {
+          "connection_number": 2,
+          "connection_time": 0.0016186237335205078,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        },
+        {
+          "connection_number": 3,
+          "connection_time": 0.0014081001281738281,
+          "response_time": null,
+          "success": false,
+          "error": "server rejected WebSocket connection: HTTP 403"
+        }
+      ],
+      "model_status_snapshots": [
+        {
+          "timestamp": 1753665199.4946885,
+          "checkpoint": "initial",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665199.497055,
+          "checkpoint": "after_connection_1",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665204.504759,
+          "checkpoint": "after_connection_2",
+          "status": {}
+        },
+        {
+          "timestamp": 1753665209.5125635,
+          "checkpoint": "after_connection_3",
+          "status": {}
+        }
+      ],
+      "analysis": {}
+    }
+  },
+  "final_analysis": {
+    "summary": {
+      "chat_api_model_persistence": true,
+      "chat_api_avg_response_time": 2.889841159184774,
+      "simple_ws_model_loading_each_time": false,
+      "simple_ws_avg_response_time": 0,
+      "advanced_ws_model_loading_each_time": false,
+      "advanced_ws_avg_response_time": 0
+    },
+    "evidence": {
+      "hypothesis_confirmed": false,
+      "chat_api_fast": true,
+      "websockets_slow": false
+    },
+    "recommendations": [
+      "\u2705 **GOOD NEWS**: No major model loading issues detected",
+      "\ud83d\udd0d **CONTINUE MONITORING**: Keep tracking response times for performance regression",
+      "\ud83c\udfd7\ufe0f **OPTIMIZATION**: Consider further performance improvements"
+    ]
+  }
+}
