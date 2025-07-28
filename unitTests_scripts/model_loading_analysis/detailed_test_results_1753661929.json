@@ -1,0 +1,316 @@
+{
+  "test_timestamp": "2025-07-28T00:18:11.900703",
+  "initial_model_status": {
+    "stage": "Initial state",
+    "timestamp": "2025-07-28T00:18:11.902933",
+    "total_loaded": 1,
+    "loaded_models": [
+      {
+        "name": "qwen3-unsloth-q4ks",
+        "status": "loaded",
+        "engine": "llama.cpp",
+        "model_id": "unsloth/Qwen3-14B-GGUF"
+      }
+    ]
+  },
+  "chat_api_tests": [
+    {
+      "model_name": "qwen3-unsloth-q4ks",
+      "response_time_seconds": 8.215980768203735,
+      "status_code": 200,
+      "success": true,
+      "initial_loaded_count": 1,
+      "final_loaded_count": 1,
+      "model_was_loaded_initially": true,
+      "model_is_loaded_finally": true,
+      "response_preview": "<think>\nOkay, the user is asking about the best ways to care for oily skin. Let me start by recallin...",
+      "error": null
+    },
+    {
+      "model_name": "qwen3-model",
+      "response_time_seconds": 0.001336812973022461,
+      "status_code": 200,
+      "success": true,
+      "initial_loaded_count": 1,
+      "final_loaded_count": 1,
+      "model_was_loaded_initially": false,
+      "model_is_loaded_finally": false,
+      "response_preview": "",
+      "error": null
+    },
+    {
+      "model_name": "bee1reason-arabic-q4ks",
+      "response_time_seconds": 0.0012764930725097656,
+      "status_code": 200,
+      "success": true,
+      "initial_loaded_count": 1,
+      "final_loaded_count": 1,
+      "model_was_loaded_initially": false,
+      "model_is_loaded_finally": false,
+      "response_preview": "",
+      "error": null
+    }
+  ],
+  "voice_websocket_tests": [],
+  "model_loading_timeline": [
+    {
+      "stage": "Initial state",
+      "timestamp": "2025-07-28T00:18:11.902933",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before qwen3-unsloth-q4ks test",
+      "timestamp": "2025-07-28T00:18:11.905560",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After qwen3-unsloth-q4ks test",
+      "timestamp": "2025-07-28T00:18:20.123591",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before qwen3-model test",
+      "timestamp": "2025-07-28T00:18:23.126126",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After qwen3-model test",
+      "timestamp": "2025-07-28T00:18:23.128394",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before bee1reason-arabic-q4ks test",
+      "timestamp": "2025-07-28T00:18:26.130764",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After bee1reason-arabic-q4ks test",
+      "timestamp": "2025-07-28T00:18:26.132900",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After persistence test 1",
+      "timestamp": "2025-07-28T00:18:34.163300",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After persistence test 2",
+      "timestamp": "2025-07-28T00:18:41.015847",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "After persistence test 3",
+      "timestamp": "2025-07-28T00:18:47.902580",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    }
+  ],
+  "performance_analysis": {
+    "chat_api": {
+      "successful_tests": 3,
+      "failed_tests": 0,
+      "average_response_time": 2.7395313580830893,
+      "min_response_time": 0.0012764930725097656,
+      "max_response_time": 8.215980768203735
+    }
+  },
+  "conclusions": {},
+  "available_models": [
+    {
+      "name": "qwen3-model",
+      "model_id": "Qwen/Qwen3-14B",
+      "engine_type": "transformers",
+      "quantization": "4bit",
+      "dtype": "bfloat16",
+      "description": "Qwen3 14B model (4-bit quantized) - Transformers engine",
+      "is_default": false
+    },
+    {
+      "name": "deepseek-r1-qwen-14b-multilingual",
+      "model_id": "lightblue/DeepSeek-R1-Distill-Qwen-14B-Multilingual",
+      "engine_type": "transformers",
+      "quantization": "4bit",
+      "dtype": "bfloat16",
+      "description": "DeepSeek R1 Distill Qwen 14B Multilingual - Transformers engine",
+      "is_default": false
+    },
+    {
+      "name": "qwen3-official-q4km",
+      "model_id": "Qwen/Qwen3-14B-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "Q4_K_M",
+      "dtype": "float16",
+      "description": "Qwen3 14B Q4_K_M - Official GGUF (8.4GB) - LlamaCpp engine",
+      "is_default": false
+    },
+    {
+      "name": "qwen3-official-q6k",
+      "model_id": "Qwen/Qwen3-14B-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "Q6_K",
+      "dtype": "float16",
+      "description": "Qwen3 14B Q6_K - Official GGUF high quality (12GB) - LlamaCpp engine",
+      "is_default": false
+    },
+    {
+      "name": "qwen3-unsloth-q4ks",
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "Q4_K_S",
+      "dtype": "float16",
+      "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine",
+      "is_default": true
+    },
+    {
+      "name": "qwen3-unsloth-q4km",
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "Q4_K_M",
+      "dtype": "float16",
+      "description": "Qwen3 14B Q4_K_M - Unsloth optimized balanced (8.4GB) - LlamaCpp engine",
+      "is_default": false
+    },
+    {
+      "name": "qwen3-unsloth-q6k",
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "Q6_K",
+      "dtype": "float16",
+      "description": "Qwen3 14B Q6_K - Unsloth optimized high quality (12GB) - LlamaCpp engine",
+      "is_default": false
+    },
+    {
+      "name": "bee1reason-arabic-q4ks",
+      "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "i1-Q4_K_S",
+      "dtype": "float16",
+      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_S - Fast Arabic reasoning - LlamaCpp engine (cleaned)",
+      "is_default": false
+    },
+    {
+      "name": "bee1reason-arabic-q4km-i1",
+      "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
+      "engine_type": "llama.cpp",
+      "quantization": "i1-Q4_K_M",
+      "dtype": "float16",
+      "description": "Bee1reason Arabic Qwen 14B i1-Q4_K_M - Balanced Arabic reasoning - LlamaCpp engine (cleaned)",
+      "is_default": false
+    },
+    {
+      "name": "whisper-large-v3-turbo-arabic",
+      "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
+      "engine_type": "transformers",
+      "quantization": null,
+      "dtype": "float16",
+      "description": "Whisper Large V3 Turbo for Arabic audio transcription",
+      "is_default": false
+    },
+    {
+      "name": "coqui-tts-arabic",
+      "model_id": "tts_models/ar/tn_arabicspeech/vits",
+      "engine_type": "coqui_tts",
+      "quantization": null,
+      "dtype": "float16",
+      "description": "Coqui TTS Arabic neural voice synthesis with native Arabic language support",
+      "is_default": false
+    },
+    {
+      "name": "coqui-tts-multilingual",
+      "model_id": "tts_models/multilingual/multi-dataset/xtts_v2",
+      "engine_type": "coqui_tts",
+      "quantization": null,
+      "dtype": "float16",
+      "description": "Coqui TTS XTTS v2 multilingual model with voice cloning capabilities",
+      "is_default": false
+    },
+    {
+      "name": "edge-tts",
+      "model_id": "microsoft/edge-tts",
+      "engine_type": "edge_tts",
+      "quantization": null,
+      "dtype": null,
+      "description": "Microsoft Edge TTS for high-quality multilingual text-to-speech (Python 3.12+ compatible)",
+      "is_default": false
+    }
+  ]
+}

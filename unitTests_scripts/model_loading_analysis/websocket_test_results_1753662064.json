@@ -1,0 +1,489 @@
+{
+  "test_timestamp": "2025-07-28T00:20:33.635694",
+  "initial_model_status": {
+    "stage": "Initial WebSocket test state",
+    "timestamp": "2025-07-28T00:20:33.637656",
+    "total_loaded": 1,
+    "loaded_models": [
+      {
+        "name": "qwen3-unsloth-q4ks",
+        "status": "loaded",
+        "engine": "llama.cpp",
+        "model_id": "unsloth/Qwen3-14B-GGUF"
+      }
+    ]
+  },
+  "simple_voice_tests": [
+    {
+      "attempt": 1,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    },
+    {
+      "attempt": 2,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    },
+    {
+      "attempt": 3,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    }
+  ],
+  "advanced_voice_tests": [
+    {
+      "attempt": 1,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    },
+    {
+      "attempt": 2,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    },
+    {
+      "attempt": 3,
+      "connection_time": null,
+      "response_time": null,
+      "success": false,
+      "error": "BaseEventLoop.create_connection() got an unexpected keyword argument 'timeout'"
+    }
+  ],
+  "model_loading_timeline": [
+    {
+      "stage": "Initial WebSocket test state",
+      "timestamp": "2025-07-28T00:20:33.637656",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Simple Voice WS 1",
+      "timestamp": "2025-07-28T00:20:34.530185",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Simple Voice WS 2",
+      "timestamp": "2025-07-28T00:20:39.541963",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Simple Voice WS 3",
+      "timestamp": "2025-07-28T00:20:44.548781",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Advanced Voice WS 1",
+      "timestamp": "2025-07-28T00:20:49.556342",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Advanced Voice WS 2",
+      "timestamp": "2025-07-28T00:20:54.564003",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    },
+    {
+      "stage": "Before Advanced Voice WS 3",
+      "timestamp": "2025-07-28T00:20:59.571381",
+      "total_loaded": 1,
+      "loaded_models": [
+        {
+          "name": "qwen3-unsloth-q4ks",
+          "status": "loaded",
+          "engine": "llama.cpp",
+          "model_id": "unsloth/Qwen3-14B-GGUF"
+        }
+      ]
+    }
+  ],
+  "performance_comparison": {},
+  "websocket_endpoints_status": {
+    "/api/v1/ws/simple-voice-chat/status": {
+      "service": "simple_voice_chat",
+      "status": "available",
+      "active_connections": 0,
+      "connections": [],
+      "performance": {
+        "target_response_time": "< 2 seconds",
+        "supported_languages": [
+          "ar",
+          "en"
+        ],
+        "voice_types": [
+          "male",
+          "female"
+        ],
+        "engine": "Edge TTS via SimpleVoiceService"
+      },
+      "features": [
+        "Ultra-fast voice responses",
+        "Simplified parameter set",
+        "No complex configuration",
+        "Direct Edge TTS integration",
+        "Arabic and English only"
+      ],
+      "audio_formats": {
+        "input": [
+          "webm",
+          "wav",
+          "mp3"
+        ],
+        "output": [
+          "wav"
+        ]
+      },
+      "comparison_with_advanced": {
+        "simple_endpoint": {
+          "route": "/ws/simple-voice-chat",
+          "parameters": 3,
+          "response_time": "< 2 seconds",
+          "memory_usage": "< 50MB",
+          "languages": "ar, en only",
+          "features": "Voice chat only"
+        },
+        "advanced_endpoint": {
+          "route": "/ws/voice-conversation",
+          "parameters": "20+",
+          "response_time": "5-8 seconds",
+          "memory_usage": "3GB+",
+          "languages": "Auto-detection + many",
+          "features": "Voice cloning, filtering, etc."
+        }
+      }
+    },
+    "/api/v1/voice/endpoints": {
+      "endpoints": {
+        "simple_voice_chat": {
+          "url": "/api/v1/ws/simple-voice-chat",
+          "type": "WebSocket",
+          "engine": "Edge TTS via SimpleVoiceService",
+          "performance": {
+            "response_time": "< 2 seconds",
+            "memory_usage": "< 50MB",
+            "setup_time": "< 100ms",
+            "connection_overhead": "Minimal"
+          },
+          "features": {
+            "languages": [
+              "ar",
+              "en"
+            ],
+            "voice_types": [
+              "male",
+              "female"
+            ],
+            "real_time": true,
+            "voice_cloning": false,
+            "content_filtering": false,
+            "auto_language_detection": false,
+            "session_management": "Simplified"
+          },
+          "parameters": {
+            "required": [
+              "language",
+              "voice_type"
+            ],
+            "optional": [
+              "session_id"
+            ],
+            "total_count": 3
+          },
+          "best_for": [
+            "Real-time voice chat",
+            "Quick voice interactions",
+            "Speed-critical applications",
+            "Resource-constrained environments",
+            "Voice assistants",
+            "Live customer support"
+          ],
+          "limitations": [
+            "Arabic and English only",
+            "No voice cloning",
+            "No content filtering",
+            "Fixed voice types only"
+          ]
+        },
+        "advanced_voice_chat": {
+          "url": "/api/v1/ws/voice-conversation",
+          "type": "WebSocket",
+          "engine": "Coqui TTS via AdvancedVoiceConversationService",
+          "performance": {
+            "response_time": "5-8 seconds",
+            "memory_usage": "3GB+",
+            "setup_time": "10-30 seconds",
+            "connection_overhead": "Significant"
+          },
+          "features": {
+            "languages": [
+              "ar",
+              "en",
+              "es",
+              "fr",
+              "de",
+              "it",
+              "pt",
+              "pl",
+              "tr",
+              "ru",
+              "nl",
+              "cs",
+              "zh-cn",
+              "ja",
+              "hu",
+              "ko",
+              "hi"
+            ],
+            "voice_types": [
+              "custom",
+              "cloned",
+              "male",
+              "female"
+            ],
+            "real_time": false,
+            "voice_cloning": true,
+            "content_filtering": true,
+            "emotion_control": true,
+            "auto_language_detection": true,
+            "session_management": "Full-featured"
+          },
+          "parameters": {
+            "required": [
+              "model"
+            ],
+            "optional": [
+              "language",
+              "voice_type",
+              "enable_content_filtering",
+              "session_id",
+              "conversation_context",
+              "voice_clone_params"
+            ],
+            "total_count": "20+"
+          },
+          "best_for": [
+            "Voice cloning projects",
+            "Content creation",
+            "Multi-language support",
+            "Production applications",
+            "Complex voice conversations",
+            "Emotion-aware responses"
+          ],
+          "limitations": [
+            "Slower response time",
+            "High memory usage",
+            "Complex parameter set",
+            "Longer setup time"
+          ]
+        }
+      },
+      "decision_guide": {
+        "choose_simple_if": [
+          "Response time < 3 seconds required",
+          "Only Arabic/English needed",
+          "Memory usage < 100MB required",
+          "Real-time conversation needed",
+          "Simple voice types sufficient",
+          "Fast deployment needed"
+        ],
+        "choose_advanced_if": [
+          "Voice cloning needed",
+          "Multiple languages required",
+          "Content filtering needed",
+          "Production-grade features needed",
+          "Custom voice creation required",
+          "Emotion control needed"
+        ]
+      },
+      "performance_comparison": {
+        "metrics": {
+          "response_time": {
+            "simple": "< 2 seconds",
+            "advanced": "5-8 seconds",
+            "difference": "3-6x faster"
+          },
+          "memory_usage": {
+            "simple": "< 50MB",
+            "advanced": "3GB+",
+            "difference": "60x less memory"
+          },
+          "languages": {
+            "simple": 2,
+            "advanced": 17,
+            "difference": "Advanced supports 8.5x more languages"
+          },
+          "setup_complexity": {
+            "simple": "3 parameters",
+            "advanced": "20+ parameters",
+            "difference": "Simple has 7x fewer parameters"
+          }
+        }
+      },
+      "usage_examples": {
+        "simple_voice_connection": {
+          "url": "ws://localhost:8000/api/v1/ws/simple-voice-chat?language=ar&voice_type=female",
+          "description": "Connect for fast Arabic female voice chat",
+          "expected_response_time": "< 2 seconds"
+        },
+        "advanced_voice_connection": {
+          "url": "ws://localhost:8000/api/v1/ws/voice-conversation",
+          "description": "Connect for full-featured voice with cloning",
+          "parameters": {
+            "model": "qwen3_unsloth_q4ks",
+            "voice_type": "clone",
+            "enable_content_filtering": true
+          }
+        }
+      },
+      "metadata": {
+        "last_updated": 1753662033.6390133,
+        "version": "2.0.0",
+        "total_endpoints": 2,
+        "documentation_url": "/docs"
+      }
+    },
+    "/api/v1/health/voice": {
+      "status": "healthy",
+      "timestamp": 1753662034.5280633,
+      "services": {
+        "simple_voice": {
+          "name": "Simple Voice Chat",
+          "endpoint": "/api/v1/ws/simple-voice-chat",
+          "status": "available",
+          "engine": "Edge TTS via SimpleVoiceService",
+          "performance": {
+            "target_response_time": "< 2 seconds",
+            "target_memory_usage": "< 50MB",
+            "supported_languages": [
+              "ar",
+              "en"
+            ],
+            "voice_types": [
+              "male",
+              "female"
+            ]
+          },
+          "connections": {
+            "count": 0,
+            "active_sessions": []
+          },
+          "ready_for_connections": true,
+          "last_check": 1753662034.5280516
+        },
+        "advanced_voice": {
+          "name": "Advanced Voice Chat",
+          "endpoint": "/api/v1/ws/voice-conversation",
+          "status": "available",
+          "engine": "Coqui TTS via AdvancedVoiceConversationService",
+          "performance": {
+            "target_response_time": "5-8 seconds",
+            "target_memory_usage": "3GB+",
+            "supported_languages": [
+              "ar",
+              "en",
+              "es",
+              "fr",
+              "de",
+              "it",
+              "pt",
+              "pl",
+              "tr",
+              "ru",
+              "nl",
+              "cs",
+              "zh-cn",
+              "ja",
+              "hu",
+              "ko",
+              "hi"
+            ],
+            "voice_types": [
+              "custom",
+              "cloned",
+              "male",
+              "female"
+            ]
+          },
+          "connections": {
+            "count": 1,
+            "active_sessions": [
+              "6edefd0d-ef1a-4bd1-ac0b-9d737b990fbf"
+            ]
+          },
+          "ready_for_connections": true,
+          "last_check": 1753662034.5280628
+        }
+      },
+      "overall_metrics": {
+        "total_active_connections": 1,
+        "services_available": 2,
+        "services_total": 2,
+        "uptime_percentage": 100
+      },
+      "recommendations": {
+        "use_simple_voice": "For real-time conversations with Arabic/English",
+        "use_advanced_voice": "For voice cloning and multi-language support",
+        "fallback_options": [
+          "If both services down, check system health at /health/detailed",
+          "For simple voice issues, try advanced voice for non-real-time use",
+          "For advanced voice issues, use simple voice for basic conversations"
+        ]
+      }
+    }
+  }
+}
