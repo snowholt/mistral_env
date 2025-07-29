@@ -8,8 +8,9 @@ setup(
     author="Lumi AI",
     author_email="lumi@beautyai.dev",
     url="https://github.com/lumiai/beautyai-inference",
-    packages=find_packages(),
-    python_requires=">=3.11,<3.12",
+    packages=find_packages(where="src"),
+    package_dir={"": "src"},
+    python_requires=">=3.11,<3.13",
     install_requires=[
         "torch>=2.0.0",
         "transformers>=4.36.0",

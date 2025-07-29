@@ -7,11 +7,11 @@ Wants=network.target
 Type=simple
 User=lumi
 Group=lumi
-WorkingDirectory=/home/lumi/beautyai
-Environment=PATH=/home/lumi/beautyai/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
-Environment=PYTHONPATH=/home/lumi/beautyai
+WorkingDirectory=/home/lumi/beautyai/backend
+Environment=PATH=/home/lumi/beautyai/backend/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+Environment=PYTHONPATH=/home/lumi/beautyai/backend
 Environment=CUDA_VISIBLE_DEVICES=0
-ExecStart=/home/lumi/beautyai/venv/bin/python /home/lumi/beautyai/run_server.py
+ExecStart=/home/lumi/beautyai/backend/venv/bin/python /home/lumi/beautyai/backend/run_server.py
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed
 KillSignal=SIGINT
@@ -23,7 +23,7 @@ RestartSec=3
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/home/lumi/beautyai
+ReadWritePaths=/home/lumi/beautyai/backend
 ProtectHome=read-only
 
 # Resource limits
