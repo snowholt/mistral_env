@@ -150,13 +150,22 @@ async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
     try:
         # Import model services here to avoid circular imports
-        from ..services.model import ModelLifecycleService
+        from ..services.model import ModelLifecycleService, RegistryService  
         from ..config.configuration_manager import ConfigurationManager
+        from ..config.config_manager import AppConfig
+        from pathlib import Path
         
         # Initialize services
         lifecycle_service = ModelLifecycleService()
+        registry_service = RegistryService()
         config_manager = ConfigurationManager()
-        config_manager.load_config()
+        # Note: Config is already loaded during ConfigurationManager initialization
+        
+        # Create AppConfig object and point it to the comprehensive model registry
+        app_config = AppConfig()
+        # Set the correct path to the comprehensive model registry
+        app_config.models_file = str(Path(__file__).parent.parent / "config" / "model_registry.json")
+        app_config.load_model_registry()  # Load from the comprehensive model registry
        
         # Models to pre-load for voice services
         essential_models = [
@@ -171,7 +180,7 @@ async def preload_voice_models():
                 logger.info(f"⏳ Loading {model_name}...")
                 
                 # Get model config from registry
-                model_config = lifecycle_service.registry_service.get_model(config_manager, model_name)
+                model_config = registry_service.get_model(app_config, model_name)
                 if not model_config:
                     logger.warning(f"⚠️ Model '{model_name}' not found in registry, skipping")
                     continue
