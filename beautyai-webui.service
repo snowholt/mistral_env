@@ -1,0 +1,40 @@
+[Unit]
+Description=BeautyAI Web UI Service (Frontend)
+After=network.target
+Wants=network.target
+
+[Service]
+Type=simple
+User=lumi
+Group=lumi
+WorkingDirectory=/home/lumi/beautyai/frontend/src
+ExecStart=/home/lumi/beautyai/frontend/venv/bin/python /home/lumi/beautyai/frontend/src/app.py
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=beautyai-webui
+
+# Environment variables
+Environment=PYTHONPATH=/home/lumi/beautyai/frontend/src:/home/lumi/beautyai/frontend/venv/lib/python3.12/site-packages
+Environment=PYTHONUNBUFFERED=1
+Environment=VIRTUAL_ENV=/home/lumi/beautyai/frontend/venv
+Environment=FLASK_ENV=production
+
+# BeautyAI specific configuration - WSS for production
+Environment=BEAUTYAI_ENABLE_SSL=auto
+Environment=PORT=5001
+Environment=BEAUTYAI_API_URL=http://localhost:8000
+Environment=BEAUTYAI_WS_URL=wss://api.gmai.sa/ws/voice-conversation
+Environment=BEHIND_PROXY=true
+Environment=USE_WSS=true
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/var/log
+
+[Install]
+WantedBy=multi-user.target
