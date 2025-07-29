@@ -1,0 +1,26 @@
+<!-- Header Component -->
+<div class="header">
+    <div class="logo">
+        BeautyAI Assistant
+    </div>
+    <div class="model-selector">
+        <select id="modelSelect">
+            <option value="">Loading models...</option>
+        </select>
+        <div class="model-controls">
+            <button id="loadModelBtn" class="model-btn load-btn" title="Load Model">
+                Load
+            </button>
+            <button id="unloadModelBtn" class="model-btn unload-btn" title="Unload Model">
+                Unload
+            </button>
+            <button id="refreshModelsBtn" class="model-btn refresh-btn" title="Refresh Models">
+                Refresh
+            </button>
+        </div>
+        <div id="modelStatus" class="model-status">
+            <span class="status-indicator"></span>
+            <span class="status-text">Select a model</span>
+        </div>
+    </div>
+</div>

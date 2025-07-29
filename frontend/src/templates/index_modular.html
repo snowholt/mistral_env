@@ -1,0 +1,202 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeautyAI Assistant</title>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <link href="{{ url_for('static', filename='css/main.css') }}" rel="stylesheet">
+</head>
+<body>
+    <div class="main-container">
+        <!-- Header -->
+        {% include 'components/header.html' %}
+
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <!-- Chat Messages -->
+            <div class="chat-messages" id="chatMessages">
+                <div class="message assistant">
+                    <div>Welcome to BeautyAI Assistant! 🌟</div>
+                    <div>I'm here to help you with beauty, skincare, and wellness questions. The default model <strong>qwen3-unsloth-q4ks</strong> will be automatically selected.</div>
+                    <div style="margin-top: 10px; color: #ffa726;"><strong>Note:</strong> Content filtering is disabled by default for testing. You can ask any questions!</div>
+                    <div class="message-meta">
+                        Assistant • Just now
+                    </div>
+                </div>
+            </div>
+
+            <!-- Controls Sidebar -->
+            {% include 'components/controls.html' %}
+        </div>
+
+        <!-- Input Area -->
+        {% include 'components/input.html' %}
+    </div>
+
+    <!-- Voice Conversation Overlay -->
+    <div class="voice-conversation-overlay" id="voiceConversationOverlay">
+        <div class="voice-conversation-container">
+            <div class="voice-conversation-header">
+                <h2>🎙️ Voice Conversation</h2>
+                <!-- Mode Toggle -->
+                <div class="voice-mode-toggle">
+                    <label class="mode-switch">
+                        <input type="checkbox" id="voiceModeToggle" checked>
+                        <span class="mode-slider"></span>
+                        <span class="mode-labels">
+                            <span class="mode-simple">Simple</span>
+                            <span class="mode-advanced">Advanced</span>
+                        </span>
+                    </label>
+                </div>
+                <button class="voice-close-btn" id="voiceCloseBtn">
+                    <i class="fas fa-times"></i>
+                </button>
+            </div>
+            
+            <div class="voice-conversation-content">
+                <!-- Status Display -->
+                <div class="voice-status" id="voiceStatus">
+                    <div class="voice-status-icon" id="voiceStatusIconContainer">
+                        <i class="fas fa-microphone" id="voiceStatusIcon"></i>
+                    </div>
+                    <div class="voice-status-text" id="voiceStatusText">
+                        Ready to start conversation
+                    </div>
+                    <div class="voice-status-subtext" id="voiceStatusSubtext" style="display: none;">
+                        Tap "Start Talking" to begin
+                    </div>
+                </div>
+                
+                <!-- Audio Visualizer -->
+                <div class="voice-visualizer" id="voiceVisualizer">
+                    <div class="voice-wave">
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                        <div class="voice-bar"></div>
+                    </div>
+                </div>
+                
+                <!-- Quick Settings -->
+                <div class="voice-quick-settings" id="voiceQuickSettings">
+                    <button class="voice-setting-btn" id="voiceLanguageToggle" data-setting="language">
+                        <i class="fas fa-globe"></i>
+                        <span>Auto</span>
+                    </button>
+                    <button class="voice-setting-btn" id="voiceQualityToggle" data-setting="quality">
+                        <i class="fas fa-star"></i>
+                        <span>Optimized</span>
+                    </button>
+                    <button class="voice-setting-btn" id="voiceSpeedToggle" data-setting="speed">
+                        <i class="fas fa-tachometer-alt"></i>
+                        <span>Normal Speed</span>
+                    </button>
+                </div>
+                
+                <!-- Simple Mode Settings (Only for Simple Mode) -->
+                <div class="voice-simple-settings" id="voiceSimpleSettings" style="display: none;">
+                    <div class="simple-setting-group">
+                        <label>Language:</label>
+                        <select id="simpleLanguageSelect">
+                            <option value="ar">Arabic</option>
+                            <option value="en">English</option>
+                        </select>
+                    </div>
+                    <div class="simple-setting-group">
+                        <label>Voice:</label>
+                        <select id="simpleVoiceSelect">
+                            <option value="female">Female</option>
+                            <option value="male">Male</option>
+                        </select>
+                    </div>
+                    <div class="simple-mode-info">
+                        <i class="fas fa-bolt"></i>
+                        <span>Simple Mode: Optimized for speed (&lt;2 seconds response)</span>
+                    </div>
+                </div>
+                
+                <!-- Auto-start option -->
+                <div class="voice-auto-start" id="voiceAutoStart">
+                    <label>
+                        <input type="checkbox" id="autoStartNextTurn">
+                        <i class="fas fa-magic"></i>
+                        Automatically start next conversation turn
+                    </label>
+                </div>
+                
+                <!-- Conversation Stats -->
+                <div class="voice-stats" id="voiceStats">
+                    <div class="voice-stat">
+                        <span class="voice-stat-label">Messages:</span>
+                        <span class="voice-stat-value" id="voiceMessageCount">0</span>
+                    </div>
+                    <div class="voice-stat">
+                        <span class="voice-stat-label">Duration:</span>
+                        <span class="voice-stat-value" id="voiceConversationTime">00:00</span>
+                    </div>
+                    <div class="voice-stat">
+                        <span class="voice-stat-label">Status:</span>
+                        <span class="voice-stat-value" id="voiceConnectionStatus">Connected</span>
+                    </div>
+                </div>
+                
+                <!-- Controls -->
+                <div class="voice-controls">
+                    <button class="voice-control-btn voice-start-btn" id="voiceStartBtn">
+                        <i class="fas fa-play"></i>
+                        Start Talking
+                    </button>
+                    <button class="voice-control-btn voice-stop-btn" id="voiceStopBtn" style="display: none;">
+                        <i class="fas fa-stop"></i>
+                        Stop Talking
+                    </button>
+                    <button class="voice-control-btn voice-end-btn" id="voiceEndBtn">
+                        <i class="fas fa-phone-slash"></i>
+                        End Conversation
+                    </button>
+                </div>
+                
+                <!-- Optional transcript toggle -->
+                <div class="voice-transcript-toggle" id="voiceTranscriptToggle">
+                    <label>
+                        <input type="checkbox" id="showTranscriptToggle">
+                        <i class="fas fa-file-text"></i>
+                        Show conversation transcript
+                    </label>
+                </div>
+                
+                <!-- Transcript area (hidden by default) -->
+                <div class="voice-transcript" id="voiceTranscript" style="display: none;">
+                    <h3>Conversation History</h3>
+                    <div class="voice-transcript-messages" id="voiceTranscriptMessages">
+                        <!-- Transcript messages will be added here -->
+                    </div>
+                    <div class="voice-transcript-actions" id="voiceTranscriptActions">
+                        <button class="voice-control-btn" id="exportTranscriptBtn">
+                            <i class="fas fa-download"></i>
+                            Export Transcript
+                        </button>
+                        <button class="voice-control-btn" id="clearTranscriptBtn">
+                            <i class="fas fa-trash"></i>
+                            Clear Transcript
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- WebSocket Voice Manager (load first) -->
+    <script src="{{ url_for('static', filename='js/websocket-voice.js') }}"></script>
+    <!-- Simple WebSocket Voice Manager -->
+    <script src="{{ url_for('static', filename='js/websocket-simple-voice.js') }}"></script>
+    <!-- Main JavaScript -->
+    <script src="{{ url_for('static', filename='js/main.js') }}"></script>
+</body>
+</html>

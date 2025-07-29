@@ -1,0 +1,34 @@
+<!-- Input Area Component -->
+<div class="input-area">
+    <div class="input-container">
+        <div class="audio-controls">
+            <button class="audio-btn" id="recordBtn" title="Record Audio Message">
+                <i class="fas fa-microphone"></i>
+            </button>
+            <button class="voice-conversation-btn" id="voiceConversationBtn" title="Start Voice Conversation">
+                <i class="fas fa-comments"></i>
+            </button>
+            <button class="upload-btn" id="uploadBtn" title="Upload Audio File">
+                <i class="fas fa-upload"></i>
+                <input type="file" id="audioFileInput" accept=".wav,.mp3,.ogg,.flac,.m4a,.wma" multiple="false">
+            </button>
+            <div class="audio-visualizer" id="audioVisualizer">
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+                <div class="audio-bar"></div>
+            </div>
+            <div class="audio-status" id="audioStatus">
+                <i class="fas fa-circle-notch fa-spin"></i>
+                <span id="audioStatusText">Processing...</span>
+            </div>
+        </div>
+        <div class="input-wrapper">
+            <textarea id="messageInput" placeholder="Type your message or use audio..." rows="1"></textarea>
+        </div>
+        <button class="send-btn" id="sendBtn">
+            Send
+        </button>
+    </div>
+</div>

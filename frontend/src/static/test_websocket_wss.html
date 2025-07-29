@@ -1,0 +1,707 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>🔍 WebSocket WSS Test</title>
+    <style>
+        body { 
+            font-family: Arial, sans-serif; 
+            margin: 20px; 
+            background: #f5f5f5; 
+        }
+        .test-panel { 
+            background: white; 
+            padding: 20px; 
+            margin: 10px 0; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1); 
+        }
+        .status { 
+            padding: 10px; 
+            margin: 10px 0; 
+            border-radius: 5px; 
+        }
+        .success { 
+            background: #d4edda; 
+            color: #155724; 
+            border: 1px solid #c3e6cb; 
+        }
+        .error { 
+            background: #f8d7da; 
+            color: #721c24; 
+            border: 1px solid #f5c6cb; 
+        }
+        .info { 
+            background: #d1ecf1; 
+            color: #0c5460; 
+            border: 1px solid #bee5eb; 
+        }
+        .warning { 
+            background: #fff3cd; 
+            color: #856404; 
+            border: 1px solid #ffeaa7; 
+        }
+        .code { 
+            background: #f8f9fa; 
+            padding: 10px; 
+            border-radius: 3px; 
+            font-family: monospace; 
+            margin: 10px 0; 
+            white-space: pre-wrap; 
+        }
+        button { 
+            background: #007bff; 
+            color: white; 
+            border: none; 
+            padding: 10px 20px; 
+            border-radius: 5px; 
+            cursor: pointer; 
+            margin: 5px; 
+        }
+        button:hover { 
+            background: #0056b3; 
+        }
+        .disabled { 
+            background: #6c757d !important; 
+            cursor: not-allowed; 
+        }
+        #results { 
+            margin-top: 20px; 
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin: 20px 0;
+        }
+        @media (max-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <h1>🔍 WebSocket WSS Configuration Test</h1>
+    
+    <div class="test-panel">
+        <h2>📖 How to Use This Test</h2>
+        <div class="status info">
+            <p><strong>Option 1 - Through Flask Server (Recommended):</strong></p>
+            <div class="code">1. Start the web UI server: cd src/web_ui && python app.py
+2. Open: http://localhost:5001/test-websocket
+3. Or via production: https://dev.gmai.sa/test-websocket
+4. Or static file: http://localhost:5001/static/test_websocket_wss.html</div>
+            
+            <p><strong>Option 2 - Standalone (Current):</strong></p>
+            <div class="code">• Open this file directly in browser (file:// protocol)
+• Uses inline WebSocket manager for testing
+• Limited to basic WebSocket connection tests
+• ✅ Should work now with inline script loading</div>
+            
+            <p><strong>Current Status:</strong> <span id="test-mode-status"></span></p>
+        </div>
+    </div>
+    
+    <div class="test-panel">
+        <h2>Environment Detection</h2>
+        <div id="environment-info"></div>
+    </div>
+    
+    <div class="grid">
+        <div class="test-panel">
+            <h3>🔒 Production WSS Test</h3>
+            <p>Test secure WebSocket connection to production endpoint</p>
+            <button onclick="testProductionWSS()">Test WSS Connection</button>
+            <div id="wss-results"></div>
+        </div>
+        
+        <div class="test-panel">
+            <h3>🏠 Development WS Test</h3>
+            <p>Test local WebSocket connection (development)</p>
+            <button onclick="testDevelopmentWS()">Test WS Connection</button>
+            <div id="ws-results"></div>
+        </div>
+    </div>
+    
+    <div class="test-panel">
+        <h2>🧪 WebSocket Voice Manager Test</h2>
+        <p>Test the actual WebSocket voice manager implementation</p>
+        <button onclick="testVoiceManager()">Test Voice Manager</button>
+        <button onclick="loadMainUI()" class="info">Load Main UI Scripts</button>
+        <div id="voice-manager-results"></div>
+    </div>
+    
+    <div class="test-panel">
+        <h2>📋 Configuration Summary</h2>
+        <div id="config-summary"></div>
+    </div>
+    
+    <script>
+        // Environment detection
+        function detectEnvironment() {
+            const hostname = window.location.hostname;
+            const protocol = window.location.protocol;
+            const port = window.location.port;
+            
+            const env = {
+                hostname,
+                protocol,
+                port,
+                isHTTPS: protocol === 'https:',
+                isLocalhost: hostname === 'localhost' || hostname === '127.0.0.1',
+                isProduction: hostname.includes('gmai.sa'),
+                shouldUseWSS: protocol === 'https:' || hostname.includes('gmai.sa')
+            };
+            
+            return env;
+        }
+        
+        // Display environment info
+        function displayEnvironment() {
+            const env = detectEnvironment();
+            const envDiv = document.getElementById('environment-info');
+            
+            const status = env.shouldUseWSS ? 'should use WSS' : 'should use WS';
+            const statusClass = env.shouldUseWSS ? 'success' : 'info';
+            
+            envDiv.innerHTML = `
+                <div class="status ${statusClass}">
+                    <h4>Current Environment</h4>
+                    <div class="code">Hostname: ${env.hostname}
+Protocol: ${env.protocol}
+Port: ${env.port || 'default'}
+Is HTTPS: ${env.isHTTPS}
+Is Localhost: ${env.isLocalhost}
+Is Production: ${env.isProduction}
+WebSocket Type: ${status}</div>
+                </div>
+            `;
+        }
+        
+        // Test production WSS connection
+        function testProductionWSS() {
+            const resultsDiv = document.getElementById('wss-results');
+            const wsUrl = 'wss://api.gmai.sa/ws/voice-conversation?test=true';
+            
+            resultsDiv.innerHTML = `
+                <div class="status info">
+                    <h4>Testing WSS Connection...</h4>
+                    <div class="code">URL: ${wsUrl}</div>
+                </div>
+            `;
+            
+            const ws = new WebSocket(wsUrl);
+            const startTime = Date.now();
+            let pongReceived = false;
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'pong') {
+                        pongReceived = true;
+                        const currentContent = resultsDiv.innerHTML;
+                        resultsDiv.innerHTML = currentContent.replace(
+                            '</div>',
+                            `
+Pong received: ${JSON.stringify(data)}
+✅ Ping-Pong test successful!</div>`
+                        );
+                    } else if (data.type === 'connection_established') {
+                        const currentContent = resultsDiv.innerHTML;
+                        resultsDiv.innerHTML = currentContent.replace(
+                            '</div>',
+                            `
+Connection confirmed: ${data.session_id}</div>`
+                        );
+                    }
+                } catch (e) {
+                    console.log('Non-JSON message received:', event.data);
+                }
+            };
+            
+            ws.onopen = function() {
+                const duration = Date.now() - startTime;
+                
+                // Send a ping message to test the connection
+                const pingMessage = {
+                    type: "ping",
+                    timestamp: Date.now()
+                };
+                ws.send(JSON.stringify(pingMessage));
+                
+                resultsDiv.innerHTML = `
+                    <div class="status success">
+                        <h4>✅ WSS Connection Successful!</h4>
+                        <div class="code">Connected to: ${wsUrl}
+Connection time: ${duration}ms
+WebSocket state: ${ws.readyState} (OPEN)
+Protocol: ${ws.protocol || 'none'}
+Ping sent: ${JSON.stringify(pingMessage)}</div>
+                    </div>
+                `;
+                
+                // Wait for pong response, then close
+                setTimeout(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.close(1000, "Test completed");
+                    }
+                }, 2000);
+            };
+            
+            ws.onerror = function(error) {
+                resultsDiv.innerHTML = `
+                    <div class="status error">
+                        <h4>❌ WSS Connection Failed</h4>
+                        <div class="code">Error connecting to: ${wsUrl}
+Error details: ${error.type || 'Unknown error'}
+
+Possible causes:
+• SSL certificate issues
+• nginx not proxying /ws/ correctly
+• BeautyAI API server not running on port 8000
+• Firewall blocking WSS connections</div>
+                    </div>
+                `;
+            };
+            
+            ws.onclose = function(event) {
+                if (event.code !== 1000) { // Not normal closure
+                    const duration = Date.now() - startTime;
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <h4>❌ WSS Connection Closed</h4>
+                            <div class="code">URL: ${wsUrl}
+Close code: ${event.code}
+Close reason: ${event.reason || 'No reason provided'}
+Duration: ${duration}ms
+Was clean: ${event.wasClean}
+
+Common close codes:
+• 1006: Abnormal closure (connection lost)
+• 1015: TLS handshake failure
+• 1011: Server error</div>
+                        </div>
+                    `;
+                }
+            };
+            
+            // Timeout after 10 seconds
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.CONNECTING) {
+                    ws.close();
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <h4>⏰ WSS Connection Timeout</h4>
+                            <div class="code">Failed to connect within 10 seconds
+URL: ${wsUrl}
+
+This usually indicates:
+• Server not responding
+• Network connectivity issues
+• nginx proxy configuration problems</div>
+                        </div>
+                    `;
+                }
+            }, 10000);
+        }
+        
+        // Test development WS connection
+        function testDevelopmentWS() {
+            const resultsDiv = document.getElementById('ws-results');
+            const wsUrl = 'ws://localhost:8000/ws/voice-conversation?test=true';
+            
+            resultsDiv.innerHTML = `
+                <div class="status info">
+                    <h4>Testing WS Connection...</h4>
+                    <div class="code">URL: ${wsUrl}</div>
+                </div>
+            `;
+            
+            const ws = new WebSocket(wsUrl);
+            const startTime = Date.now();
+            let pongReceived = false;
+            
+            ws.onmessage = function(event) {
+                try {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'pong') {
+                        pongReceived = true;
+                        const currentContent = resultsDiv.innerHTML;
+                        resultsDiv.innerHTML = currentContent.replace(
+                            '</div>',
+                            `
+Pong received: ${JSON.stringify(data)}
+✅ Ping-Pong test successful!</div>`
+                        );
+                    } else if (data.type === 'connection_established') {
+                        const currentContent = resultsDiv.innerHTML;
+                        resultsDiv.innerHTML = currentContent.replace(
+                            '</div>',
+                            `
+Connection confirmed: ${data.session_id}</div>`
+                        );
+                    }
+                } catch (e) {
+                    console.log('Non-JSON message received:', event.data);
+                }
+            };
+            
+            ws.onopen = function() {
+                const duration = Date.now() - startTime;
+                
+                // Send a ping message to test the connection
+                const pingMessage = {
+                    type: "ping",
+                    timestamp: Date.now()
+                };
+                ws.send(JSON.stringify(pingMessage));
+                
+                resultsDiv.innerHTML = `
+                    <div class="status success">
+                        <h4>✅ WS Connection Successful!</h4>
+                        <div class="code">Connected to: ${wsUrl}
+Connection time: ${duration}ms
+WebSocket state: ${ws.readyState} (OPEN)
+Ping sent: ${JSON.stringify(pingMessage)}</div>
+                    </div>
+                `;
+                
+                // Wait for pong response, then close
+                setTimeout(() => {
+                    if (ws.readyState === WebSocket.OPEN) {
+                        ws.close(1000, "Test completed");
+                    }
+                }, 2000);
+            };
+            
+            ws.onerror = function(error) {
+                resultsDiv.innerHTML = `
+                    <div class="status error">
+                        <h4>❌ WS Connection Failed</h4>
+                        <div class="code">Error connecting to: ${wsUrl}
+Error details: ${error.type || 'Unknown error'}
+
+Possible causes:
+• BeautyAI API server not running on localhost:8000
+• WebSocket endpoint not available
+• Port 8000 blocked or in use by another service</div>
+                    </div>
+                `;
+            };
+            
+            ws.onclose = function(event) {
+                if (event.code !== 1000) {
+                    const duration = Date.now() - startTime;
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <h4>❌ WS Connection Closed</h4>
+                            <div class="code">URL: ${wsUrl}
+Close code: ${event.code}
+Close reason: ${event.reason || 'No reason provided'}
+Duration: ${duration}ms</div>
+                        </div>
+                    `;
+                }
+            };
+            
+            // Timeout after 5 seconds (local should be faster)
+            setTimeout(() => {
+                if (ws.readyState === WebSocket.CONNECTING) {
+                    ws.close();
+                    resultsDiv.innerHTML = `
+                        <div class="status error">
+                            <h4>⏰ WS Connection Timeout</h4>
+                            <div class="code">Failed to connect within 5 seconds
+URL: ${wsUrl}
+
+Check if BeautyAI API server is running:
+• Run: curl http://localhost:8000/health
+• Check if port 8000 is listening</div>
+                        </div>
+                    `;
+                }
+            }, 5000);
+        }
+        
+        // Load main UI scripts
+        function loadMainUI() {
+            // Check if we're running through the Flask server or standalone
+            const isFlaskServer = window.location.port === '5001' || window.location.hostname.includes('gmai.sa');
+            
+            if (isFlaskServer) {
+                // Load from Flask server
+                const script = document.createElement('script');
+                script.src = '/static/js/websocket-voice.js';
+                script.onload = function() {
+                    console.log('✅ WebSocket voice script loaded from Flask server');
+                    document.getElementById('voice-manager-results').innerHTML = `
+                        <div class="status success">
+                            <h4>✅ Scripts Loaded from Flask Server</h4>
+                            <p>WebSocket voice manager is now available. Try the test below.</p>
+                        </div>
+                    `;
+                };
+                script.onerror = function() {
+                    console.log('❌ Failed to load from Flask server, falling back to inline');
+                    loadInlineWebSocketManager();
+                };
+                document.head.appendChild(script);
+            } else {
+                // Load inline version for standalone testing
+                console.log('🔧 Loading inline WebSocket manager for standalone testing');
+                loadInlineWebSocketManager();
+            }
+        }
+        
+        // Inline WebSocket Voice Manager for standalone testing
+        function loadInlineWebSocketManager() {
+            const inlineScript = document.createElement('script');
+            inlineScript.textContent = `
+                class WebSocketVoiceManager {
+                    constructor() {
+                        this.websocket = null;
+                        this.isConnected = false;
+                        this.isConnecting = false;
+                        this.connectionRetries = 0;
+                        this.maxRetries = 3;
+                        this.reconnectDelay = 1000;
+                        this.wsUrl = this.getWebSocketUrl();
+                        this.connectionTimeout = 10000;
+                        this.heartbeatInterval = 30000;
+                        this.heartbeatTimer = null;
+                        this.sessionId = null;
+                        this.conversationHistory = [];
+                        this.pendingAudioChunks = [];
+                        this.eventHandlers = {
+                            onConnectionEstablished: [],
+                            onVoiceResponse: [],
+                            onError: [],
+                            onConnectionLost: []
+                        };
+                    }
+                    
+                    getWebSocketUrl() {
+                        const hostname = window.location.hostname;
+                        const protocol = window.location.protocol;
+                        
+                        console.log('🔍 Determining WebSocket URL - hostname: ' + hostname + ', protocol: ' + protocol);
+                        
+                        // For localhost development - always use WS
+                        if (hostname === 'localhost' || hostname === '127.0.0.1') {
+                            console.log('🏠 Using localhost development WebSocket');
+                            return 'ws://localhost:8000/ws/voice-conversation';
+                        }
+                        
+                        // For production environments - FORCE WSS for security
+                        if (hostname === 'dev.gmai.sa' || hostname === 'api.gmai.sa' || hostname.includes('gmai.sa')) {
+                            console.log('🔒 Using production WSS WebSocket for api.gmai.sa');
+                            return 'wss://api.gmai.sa/ws/voice-conversation';
+                        }
+                        
+                        // Default fallback - detect protocol but prefer WSS for production
+                        const wsProtocol = protocol === 'https:' ? 'wss:' : 'ws:';
+                        const defaultUrl = wsProtocol + '//api.gmai.sa/ws/voice-conversation';
+                        
+                        console.log('🌐 Default WebSocket URL: ' + defaultUrl);
+                        return defaultUrl;
+                    }
+                    
+                    validateWebSocketConnection() {
+                        const wsUrl = this.getWebSocketUrl();
+                        const isSecure = wsUrl.startsWith('wss://');
+                        const currentProtocol = window.location.protocol;
+                        
+                        console.log('🔍 WebSocket validation:');
+                        console.log('  - URL: ' + wsUrl);
+                        console.log('  - Is Secure (WSS): ' + isSecure);
+                        console.log('  - Page Protocol: ' + currentProtocol);
+                        
+                        if (currentProtocol === 'https:' && !isSecure) {
+                            return {
+                                valid: false,
+                                error: 'Mixed content: HTTPS page cannot use WS (non-secure WebSocket)',
+                                suggestion: 'Use WSS for HTTPS pages or test on HTTP'
+                            };
+                        }
+                        
+                        return {
+                            valid: true,
+                            url: wsUrl,
+                            secure: isSecure
+                        };
+                    }
+                }
+                
+                console.log('✅ Inline WebSocket Voice Manager loaded');
+            `;
+            document.head.appendChild(inlineScript);
+            
+            document.getElementById('voice-manager-results').innerHTML = `
+                <div class="status success">
+                    <h4>✅ Inline Scripts Loaded</h4>
+                    <p>WebSocket voice manager is now available (standalone mode). Try the test below.</p>
+                </div>
+            `;
+        }
+        
+        // Test voice manager implementation
+        function testVoiceManager() {
+            const resultsDiv = document.getElementById('voice-manager-results');
+            
+            if (typeof WebSocketVoiceManager === 'undefined') {
+                resultsDiv.innerHTML = `
+                    <div class="status warning">
+                        <h4>⚠️ WebSocketVoiceManager Not Available</h4>
+                        <p>Load the main UI scripts first, then try again.</p>
+                    </div>
+                `;
+                return;
+            }
+            
+            try {
+                const voiceManager = new WebSocketVoiceManager();
+                const env = detectEnvironment();
+                const expectedUrl = env.shouldUseWSS ? 
+                    'wss://api.gmai.sa/ws/voice-conversation' : 
+                    'ws://localhost:8000/ws/voice-conversation';
+                
+                const actualUrl = voiceManager.getWebSocketUrl();
+                const urlMatches = actualUrl === expectedUrl;
+                
+                resultsDiv.innerHTML = `
+                    <div class="status ${urlMatches ? 'success' : 'error'}">
+                        <h4>${urlMatches ? '✅' : '❌'} Voice Manager URL Test</h4>
+                        <div class="code">Expected URL: ${expectedUrl}
+Actual URL: ${actualUrl}
+Environment: ${env.isProduction ? 'Production' : 'Development'}
+Protocol: ${env.protocol}
+Hostname: ${env.hostname}
+
+URL Logic: ${urlMatches ? 'CORRECT' : 'INCORRECT'}</div>
+                    </div>
+                `;
+                
+                // Test validation
+                const validation = voiceManager.validateWebSocketConnection();
+                const validationDiv = document.createElement('div');
+                validationDiv.className = `status ${validation.valid ? 'success' : 'error'}`;
+                validationDiv.innerHTML = `
+                    <h4>${validation.valid ? '✅' : '❌'} WebSocket Validation</h4>
+                    <div class="code">${validation.valid ? 
+                        `Validation passed:
+URL: ${validation.url}
+Secure: ${validation.secure}` : 
+                        `Validation failed:
+Error: ${validation.error}
+Suggestion: ${validation.suggestion}`
+                    }</div>
+                `;
+                resultsDiv.appendChild(validationDiv);
+                
+            } catch (error) {
+                resultsDiv.innerHTML = `
+                    <div class="status error">
+                        <h4>❌ Voice Manager Test Failed</h4>
+                        <div class="code">Error: ${error.message}
+Stack: ${error.stack}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        // Generate configuration summary
+        function generateConfigSummary() {
+            const env = detectEnvironment();
+            const summaryDiv = document.getElementById('config-summary');
+            
+            const expectedConfig = {
+                nginx: {
+                    httpsRedirect: 'HTTP → HTTPS redirect enabled',
+                    sslCerts: 'SSL certificates for dev.gmai.sa and api.gmai.sa',
+                    wsProxy: 'WebSocket proxy: /ws/ → http://localhost:8000',
+                    wssSupport: 'WSS support enabled'
+                },
+                webUI: {
+                    service: 'beautyai-webui.service running on port 5001',
+                    environment: 'BEAUTYAI_WS_URL=wss://api.gmai.sa/ws/voice-conversation',
+                    scripts: 'websocket-voice.js loaded in templates'
+                },
+                websocket: {
+                    production: 'wss://api.gmai.sa/ws/voice-conversation',
+                    development: 'ws://localhost:8000/ws/voice-conversation',
+                    fallback: 'REST API (/inference/voice-to-voice)'
+                }
+            };
+            
+            const currentExpected = env.shouldUseWSS ? 
+                expectedConfig.websocket.production : 
+                expectedConfig.websocket.development;
+            
+            summaryDiv.innerHTML = `
+                <div class="status info">
+                    <h4>📋 Expected Configuration</h4>
+                    <div class="code">Current Environment: ${env.isProduction ? 'Production (gmai.sa)' : 'Development (localhost)'}
+Expected WebSocket: ${currentExpected}
+SSL Required: ${env.shouldUseWSS ? 'Yes (WSS)' : 'No (WS)'}
+
+✅ Nginx Configuration:
+   - HTTPS redirect: Enabled
+   - SSL certificates: Configured
+   - WebSocket proxy: /ws/ → localhost:8000
+   
+✅ Web UI Service:
+   - Port: 5001 (behind nginx proxy)
+   - Environment: Production mode
+   - WebSocket scripts: Loaded
+   
+✅ WebSocket Implementation:
+   - Auto-detection: Hostname-based
+   - Validation: SSL/WSS compatibility check
+   - Fallback: REST API for voice-to-voice</div>
+                </div>
+            `;
+        }
+        
+        // Initialize page
+        window.onload = function() {
+            displayEnvironment();
+            generateConfigSummary();
+            updateTestModeStatus();
+            
+            // Auto-test based on environment
+            const env = detectEnvironment();
+            if (env.shouldUseWSS) {
+                console.log('🔒 Production environment detected - testing WSS');
+            } else {
+                console.log('🏠 Development environment detected - testing WS');
+            }
+        };
+        
+        // Update test mode status
+        function updateTestModeStatus() {
+            const isFlaskServer = window.location.port === '5001' || window.location.hostname.includes('gmai.sa');
+            const protocol = window.location.protocol;
+            const hostname = window.location.hostname;
+            
+            let modeText = '';
+            let modeClass = '';
+            
+            if (protocol === 'file:') {
+                modeText = '📄 Standalone Mode (file:// protocol)';
+                modeClass = 'warning';
+            } else if (isFlaskServer) {
+                modeText = '🌐 Flask Server Mode (recommended)';
+                modeClass = 'success';
+            } else {
+                modeText = '🔗 External Server Mode';
+                modeClass = 'info';
+            }
+            
+            const statusElement = document.getElementById('test-mode-status');
+            if (statusElement) {
+                statusElement.innerHTML = `<span class="status ${modeClass}" style="display: inline; padding: 5px 10px; margin: 0;">${modeText}</span>`;
+            }
+        }
+    </script>
+</body>
+</html>

@@ -1,0 +1,94 @@
+{
+  "app_config": {
+    "title": "BeautyAI Assistant",
+    "version": "1.0.0",
+    "debug": true,
+    "host": "0.0.0.0",
+    "port": 5000
+  },
+  "api_config": {
+    "beautyai_api_url": "http://localhost:8000",
+    "chat_endpoint": "/inference/chat",
+    "models_endpoint": "/models",
+    "health_endpoint": "/health",
+    "timeout_seconds": 30,
+    "websocket_config": {
+      "voice_conversation_endpoint": "/ws/voice-conversation",
+      "production_host": "wss://api.gmai.sa",
+      "development_host": "ws://localhost:8000",
+      "connection_timeout": 10000,
+      "max_retries": 3,
+      "heartbeat_interval": 30000
+    }
+  },
+  "ui_config": {
+    "default_model": "qwen3-unsloth-q4ks",
+    "default_preset": "qwen_optimized",
+    "max_message_length": 4000,
+    "auto_scroll": true,
+    "show_thinking_content": true,
+    "show_performance_metrics": true
+  },
+  "fractal_config": {
+    "particle_count": 50,
+    "animation_speed": 1.0,
+    "color_hue_range": [180, 240],
+    "opacity_range": [0.1, 0.5]
+  },
+  "presets": {
+    "qwen_optimized": {
+      "name": "Optimized",
+      "description": "Best settings from actual testing",
+      "temperature": 0.3,
+      "top_p": 0.95,
+      "top_k": 20,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 2048
+    },
+    "high_quality": {
+      "name": "High Quality",
+      "description": "Maximum quality output",
+      "temperature": 0.1,
+      "top_p": 1.0,
+      "top_k": 50,
+      "repetition_penalty": 1.15,
+      "max_new_tokens": 2048
+    },
+    "creative_optimized": {
+      "name": "Creative",
+      "description": "Creative but efficient",
+      "temperature": 0.5,
+      "top_p": 1.0,
+      "top_k": 80,
+      "repetition_penalty": 1.05,
+      "max_new_tokens": 2048
+    },
+    "speed_optimized": {
+      "name": "Speed",
+      "description": "Fast responses",
+      "temperature": 0.2,
+      "top_p": 0.9,
+      "top_k": 10,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 1024
+    },
+    "balanced": {
+      "name": "Balanced",
+      "description": "Good all-around performance",
+      "temperature": 0.4,
+      "top_p": 0.95,
+      "top_k": 40,
+      "repetition_penalty": 1.1,
+      "max_new_tokens": 2048
+    },
+    "conservative": {
+      "name": "Conservative",
+      "description": "Safe, predictable outputs",
+      "temperature": 0.1,
+      "top_p": 0.8,
+      "top_k": 10,
+      "repetition_penalty": 1.2,
+      "max_new_tokens": 1024
+    }
+  }
+}

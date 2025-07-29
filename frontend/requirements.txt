@@ -1,0 +1,26 @@
+# Independent BeautyAI Benchmarking & Testing System Requirements
+
+# Core dependencies
+aiohttp>=3.8.0
+pandas>=1.5.0
+matplotlib>=3.5.0
+seaborn>=0.11.0
+numpy>=1.21.0
+scipy>=1.9.0
+
+# Web UI dependencies
+flask>=2.0.0
+flask-cors>=3.0.0
+
+# Testing framework
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+
+# Optional: For enhanced data analysis
+scikit-learn>=1.1.0
+plotly>=5.10.0
+
+# Development tools (optional)
+black>=22.0.0
+flake8>=5.0.0
+mypy>=0.991
