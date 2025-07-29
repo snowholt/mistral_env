@@ -148,42 +148,37 @@ class SimpleVoiceService:
     async def _preload_required_models(self) -> None:
         """Pre-load required models for voice processing to avoid delays."""
         try:
-            self.logger.info("🔄 Pre-loading required models for voice processing...")
+            self.logger.info("Pre-loading voice processing models...")
             
-            # Initialize chat service and load model
+            # Pre-load transcription service with optimized Whisper model
+            if self.transcription_service is None:
+                from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
+                self.transcription_service = WhisperTranscriptionService()
+            
+            # Use faster base model for simple voice service (not the large Arabic model)
+            model_loaded = self.transcription_service.load_whisper_model("whisper-base")
+            if not model_loaded:
+                self.logger.warning("Failed to load Whisper base model, will load on demand")
+            else:
+                self.logger.info("✅ Whisper base model pre-loaded successfully")
+            
+            # Pre-load chat service with default model
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
                 
-                # Load default Arabic model for fast responses
+                # Load default model
                 success = self.chat_service.load_model("qwen3-unsloth-q4ks")
                 if success:
-                    self.logger.info("✅ Chat model pre-loaded: qwen3-unsloth-q4ks")
+                    self.logger.info("✅ Chat model pre-loaded successfully")
                 else:
-                    self.logger.warning("⚠️ Failed to pre-load chat model, will load on-demand")
+                    self.logger.warning("Failed to pre-load chat model, will load on demand")
             
-            # Initialize transcription service and load model
-            if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
-                self.transcription_service = WhisperTranscriptionService()
-                
-                # Load Arabic Whisper model
-                model_loaded = self.transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic")
-                if model_loaded:
-                    self.logger.info("✅ STT model pre-loaded: whisper-large-v3-turbo-arabic")
-                else:
-                    self.logger.warning("⚠️ Failed to pre-load Arabic Whisper model, trying base model...")
-                    if self.transcription_service.load_whisper_model("whisper-base"):
-                        self.logger.info("✅ STT model pre-loaded: whisper-base")
-                    else:
-                        self.logger.warning("⚠️ Failed to pre-load any STT model, will load on-demand")
-            
-            self.logger.info("🎯 Model pre-loading completed - ready for fast voice processing")
+            self.logger.info("🚀 Voice processing models pre-loading completed")
             
         except Exception as e:
-            self.logger.warning(f"⚠️ Error during model pre-loading: {e}")
-            # Don't fail initialization if pre-loading fails
-            pass
+            self.logger.error(f"Error during model pre-loading: {e}")
+            # Don't raise exception, allow graceful fallback to on-demand loading
     
     async def _test_edge_tts(self) -> None:
         """Test Edge TTS functionality with configured voice."""
@@ -242,12 +237,13 @@ class SimpleVoiceService:
             for voice_key, mapping in self.voice_mappings.items()
         }
     
-    def _detect_language(self, text: str) -> str:
+    def _detect_language(self, text: str, fallback_language: str = "en") -> str:
         """
         Simple language detection for voice selection.
         
         Args:
             text: Input text to analyze
+            fallback_language: Language to use if detection fails ("ar" or "en")
             
         Returns:
             Language code ('ar' or 'en')
@@ -257,10 +253,14 @@ class SimpleVoiceService:
         total_chars = len([char for char in text if char.isalpha()])
         
         if total_chars == 0:
-            return 'en'  # Default to English for non-alphabetic text
+            # Use the fallback language instead of hardcoded English
+            self.logger.info(f"No alphabetic characters found, using fallback language: {fallback_language}")
+            return fallback_language
         
         arabic_ratio = arabic_chars / total_chars
-        return 'ar' if arabic_ratio > 0.3 else 'en'
+        detected = 'ar' if arabic_ratio > 0.3 else 'en'
+        self.logger.info(f"Language detection: {detected} (Arabic ratio: {arabic_ratio:.2f}, fallback: {fallback_language})")
+        return detected
     
     def _select_voice(self, language: str = None, gender: str = "female") -> str:
         """
@@ -317,7 +317,7 @@ class SimpleVoiceService:
         start_time = time.time()
         
         try:
-            self.logger.info("Processing voice message...")
+            self.logger.info(f"Processing voice message for language: {language}, gender: {gender}")
             
             # Step 1: Save audio data to temporary file for processing
             audio_input_path = await self._save_audio_data(audio_data)
@@ -325,27 +325,34 @@ class SimpleVoiceService:
             # Step 2: Transcribe audio to text (should be fast with pre-loaded model)
             transcribed_text = await self._transcribe_audio(audio_data)
             if transcribed_text.startswith("Sorry"):
-                # Handle transcription failure gracefully
+                # Handle transcription failure gracefully - use language-specific fallback
                 logger.warning("Transcription failed, using fallback response")
-                transcribed_text = "صوت غير واضح"
+                transcribed_text = "صوت غير واضح" if language == "ar" else "unclear audio"
                 
             self.logger.info(f"Transcribed: {transcribed_text}")
             
-            # Step 3: Detect language if not provided
+            # Step 3: Detect language if not provided, but respect user's choice
             if language is None:
-                language = self._detect_language(transcribed_text)
+                detected_language = self._detect_language(transcribed_text, fallback_language="en")
+                self.logger.info(f"Auto-detected language: {detected_language}")
+            else:
+                detected_language = language
+                self.logger.info(f"Using specified language: {detected_language}")
             
-            # Step 4: Generate AI response using chat model (should be fast with pre-loaded model) 
-            response_text = await self._generate_chat_response(transcribed_text)
-            if response_text.startswith("عذراً"):
-                # Handle chat failure gracefully - provide a default response
+            # Step 4: Generate AI response using chat model with language specification
+            response_text = await self._generate_chat_response(transcribed_text, target_language=detected_language)
+            if response_text.startswith("عذراً") or response_text.startswith("Sorry"):
+                # Handle chat failure gracefully - provide language-appropriate default response
                 logger.warning("Chat generation failed, using fallback response")
-                response_text = "أهلاً بك! كيف يمكنني مساعدتك اليوم؟"
+                if detected_language == "ar":
+                    response_text = "أهلاً بك! كيف يمكنني مساعدتك اليوم؟"
+                else:
+                    response_text = "Hello! How can I help you today?"
                 
             self.logger.info(f"AI Response: {response_text}")
             
             # Step 5: Select appropriate voice
-            selected_voice = voice_id or self._select_voice(language, gender)
+            selected_voice = voice_id or self._select_voice(detected_language, gender)
             
             # Step 6: Synthesize speech using Edge TTS
             audio_output_path = await self._synthesize_speech(response_text, selected_voice)
@@ -362,7 +369,7 @@ class SimpleVoiceService:
                 "audio_file_path": str(audio_output_path),
                 "processing_time": processing_time,
                 "voice_used": selected_voice,
-                "language_detected": language
+                "language_detected": detected_language  # Use detected_language instead of language
             }
             
             self.logger.info(f"Voice processing completed in {processing_time:.2f}s")
@@ -395,11 +402,11 @@ class SimpleVoiceService:
                 from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
                 self.transcription_service = WhisperTranscriptionService()
                 
-                # Load the Whisper model
-                model_loaded = self.transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic")
+                # Use base model for faster performance in simple voice mode
+                model_loaded = self.transcription_service.load_whisper_model("whisper-base")
                 if not model_loaded:
-                    logger.warning("Failed to load Arabic Whisper model, trying base model...")
-                    if not self.transcription_service.load_whisper_model("whisper-base"):
+                    logger.warning("Failed to load Whisper base model, trying Arabic model...")
+                    if not self.transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic"):
                         logger.error("Failed to load any Whisper model")
                         return "Sorry, I couldn't understand the audio."
             
@@ -407,23 +414,24 @@ class SimpleVoiceService:
             result = self.transcription_service.transcribe_audio_bytes(
                 audio_data, 
                 audio_format="webm",  # Support the actual format being sent
-                language="ar",  # Optimize for Arabic
+                language=None,  # Auto-detect language for better multilingual support
                 enable_timestamps=False,  # Disable timestamps for faster processing
                 beam_size=1  # Use smaller beam size for faster processing
             )
             logger.info(f"Transcribed audio: {result}")
-            return result if result else "صوت غير واضح"
+            return result if result else "unclear audio"
             
         except Exception as e:
             logger.error(f"Error transcribing audio: {e}")
-            return "صوت غير واضح"
+            return "unclear audio"
     
-    async def _generate_chat_response(self, text: str) -> str:
+    async def _generate_chat_response(self, text: str, target_language: str = "auto") -> str:
         """
         Generates chat response using the actual chat service.
         
         Args:
             text: User input text to respond to
+            target_language: Target language for response ("ar", "en", or "auto")
             
         Returns:
             Generated response text
@@ -446,31 +454,40 @@ class SimpleVoiceService:
                             break
                     else:
                         logger.error("Failed to load any model")
-                        return "عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاول مرة أخرى."
+                        if target_language == "ar":
+                            return "عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاول مرة أخرى."
+                        else:
+                            return "Sorry, I'm experiencing technical difficulties. Please try again."
             
             # Add /no_think prefix for fast responses in simple voice mode
             optimized_message = f"/no_think {text}"
-            logger.info(f"Optimized message with /no_think: {optimized_message[:50]}...")
+            logger.info(f"Optimized message with /no_think: {optimized_message[:50]}... (target_language: {target_language})")
             
-            # Use the real chat service (should be pre-loaded for fast response)
+            # Use the real chat service with specified target language
             result = self.chat_service.chat(
                 message=optimized_message,
                 max_length=128,  # Reduced for faster responses
-                language="auto"  # Auto-detect language
+                language=target_language  # Use specified target language instead of auto
             )
             
             if result.get("success"):
                 response = result.get("response", "")
-                logger.info(f"Generated chat response with no_think optimization: {response[:100]}...")
+                logger.info(f"Generated chat response for {target_language}: {response[:100]}...")
                 return response
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Chat service error: {error_msg}")
-                return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+                if target_language == "ar":
+                    return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+                else:
+                    return "Sorry, I'm having trouble processing your request. Please try again."
             
         except Exception as e:
             logger.error(f"Error generating chat response: {e}")
-            return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+            if target_language == "ar":
+                return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+            else:
+                return "Sorry, I'm having trouble processing your request. Please try again."
     
     async def _synthesize_speech(self, text: str, voice_id: str) -> Path:
         """

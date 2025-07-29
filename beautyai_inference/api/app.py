@@ -160,9 +160,8 @@ async def preload_voice_models():
        
         # Models to pre-load for voice services
         essential_models = [
-            "qwen3-unsloth-q4ks",  # Chat model for responses
-            "whisper-large-v3-turbo-arabic",  # STT model  
-            # Note: Edge TTS doesn't need pre-loading, coqui-tts-arabic has issues
+            "qwen3-unsloth-q4ks",            # Main chat model
+            # Don't pre-load whisper model here - let SimpleVoiceService handle it with base model
         ]
         
         logger.info(f"🔄 Pre-loading {len(essential_models)} essential models...")

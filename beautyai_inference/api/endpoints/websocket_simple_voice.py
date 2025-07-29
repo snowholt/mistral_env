@@ -232,7 +232,7 @@ class SimpleVoiceWebSocketManager:
                     "audio_base64": audio_base64,
                     "transcription": result.get("transcribed_text", ""),
                     "response_text": result.get("response_text", ""),
-                    "language": language,
+                    "language": result.get("language_detected", language),  # Use actual detected language
                     "voice_type": voice_type,
                     "response_time_ms": int(processing_time * 1000),
                     "session_id": session_id,

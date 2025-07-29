@@ -200,30 +200,65 @@ class ChatService(BaseService):
             r"I need to think.*?(?=\n|$)",
             r"First, let me.*?(?=\n|$)",
             r"Okay, the user is asking.*?(?=\n|$)",
+            r"Alright, the user.*?(?=\n|$)",
+            r"The user.*?(?=\n|$)",
             r"From what I remember.*?(?=\n|$)",
-            r".*?is asking about.*?(?=\n|$)"
+            r".*?is asking about.*?(?=\n|$)",
+            r"Since I.*?(?=\n|$)",
+            r"I should.*?(?=\n|$)",
+            r"Looking at.*?(?=\n|$)",
+            r"Based on.*?(?=\n|$)",
+            r"Given that.*?(?=\n|$)"
         ]
         
         for pattern in thinking_patterns:
             response = re.sub(pattern, '', response, flags=re.IGNORECASE | re.MULTILINE)
         
+        # Remove Arabic thinking patterns
+        arabic_thinking_patterns = [
+            r"دعني أفكر.*?(?=\n|$)",
+            r"أحتاج إلى التفكير.*?(?=\n|$)",
+            r"المستخدم يسأل.*?(?=\n|$)",
+            r"بناءً على.*?(?=\n|$)"
+        ]
+        
+        for pattern in arabic_thinking_patterns:
+            response = re.sub(pattern, '', response, flags=re.MULTILINE)
+        
         # Clean up whitespace
         response = re.sub(r'\n\s*\n', '\n', response)
         response = response.strip()
         
+        # Extract the actual response part (look for direct medical advice)
+        lines = response.split('\n')
+        cleaned_lines = []
+        for line in lines:
+            line = line.strip()
+            # Skip meta-commentary and keep actual medical responses
+            if any(skip_phrase in line.lower() for skip_phrase in [
+                "the user", "i need to", "let me", "okay,", "alright,", "since i", "looking at",
+                "based on", "given that", "from what", "i should", "المستخدم", "دعني", "أحتاج"
+            ]):
+                continue
+            if line and not line.startswith(('User:', 'Assistant:', 'System:')):
+                cleaned_lines.append(line)
+        
+        if cleaned_lines:
+            response = '\n'.join(cleaned_lines)
+        
         # If response is empty or too short, provide a default in the correct language
-        if not response or len(response.strip()) < 5:
-            logger.warning("Response was empty after removing thinking content")
+        if not response or len(response.strip()) < 10:
+            logger.warning("Response was empty after cleaning, using fallback")
             if language == "ar":
-                return "أعتذر، لم أتمكن من تقديم إجابة واضحة. هل يمكنك إعادة صياغة سؤالك؟"
+                return "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
             elif language == "es":
-                return "Lo siento, no pude proporcionar una respuesta clara. ¿Podrías reformular tu pregunta?"
+                return "¡Hola! ¿Cómo puedo ayudarte con tratamientos estéticos hoy?"
             elif language == "fr":
-                return "Désolé, je n'ai pas pu fournir une réponse claire. Pourriez-vous reformuler votre question ?"
+                return "Bonjour! Comment puis-je vous aider avec les traitements esthétiques aujourd'hui?"
             elif language == "de":
-                return "Entschuldigung, ich konnte keine klare Antwort geben. Könnten Sie Ihre Frage umformulieren?"
+                return "Hallo! Wie kann ich Ihnen heute bei ästhetischen Behandlungen helfen?"
             else:  # English default
-                return "I apologize, I couldn't provide a clear answer. Could you please rephrase your question?"
+                return "Hello! How can I help you with aesthetic treatments today?"
         
         return response
     
