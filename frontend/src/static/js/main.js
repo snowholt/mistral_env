@@ -12,15 +12,20 @@ class BeautyAIChat {
         this.wsVoiceManager = null;
         this.useWebSocketVoice = true; // Flag to enable/disable WebSocket voice
         
+        // Initialize enhanced voice conversation manager
+        this.enhancedVoiceManager = null;
+        this.useEnhancedVoiceConversation = true; // Enable enhanced voice features
+        
         this.initializeElements();
         this.loadModels();
         this.setupEventListeners();
         this.initializeWebSocketVoice();
+        this.initializeEnhancedVoiceConversation();
         
-        // Initialize voice mode UI - default to Advanced mode (toggle checked)
+        // Initialize voice mode UI - default to Simple mode for enhanced experience
         if (this.voiceModeToggle) {
-            this.voiceModeToggle.checked = true; // Checked = Advanced mode
-            this.isSimpleVoiceMode = false;
+            this.voiceModeToggle.checked = false; // Unchecked = Simple mode (default for enhanced experience)
+            this.isSimpleVoiceMode = true;
             this.updateVoiceModeUI();
         }
     }
@@ -1156,6 +1161,118 @@ class BeautyAIChat {
                 }, 2000);
             });
         }
+    }
+    
+    /**
+     * Initialize Enhanced Voice Conversation Manager
+     */
+    async initializeEnhancedVoiceConversation() {
+        if (!this.useEnhancedVoiceConversation) {
+            console.log('🎙️ Enhanced voice conversation disabled');
+            return;
+        }
+        
+        try {
+            // Check if required classes are available
+            if (typeof VoiceActivityDetector === 'undefined') {
+                console.warn('⚠️ VoiceActivityDetector not available, enhanced features disabled');
+                this.useEnhancedVoiceConversation = false;
+                return;
+            }
+            
+            if (typeof AutomaticSpeechRecognition === 'undefined') {
+                console.warn('⚠️ AutomaticSpeechRecognition not available, enhanced features disabled');
+                this.useEnhancedVoiceConversation = false;
+                return;
+            }
+            
+            if (typeof EnhancedVoiceConversationManager === 'undefined') {
+                console.warn('⚠️ EnhancedVoiceConversationManager not available, enhanced features disabled');
+                this.useEnhancedVoiceConversation = false;
+                return;
+            }
+            
+            // Initialize the enhanced voice conversation manager
+            this.enhancedVoiceManager = new EnhancedVoiceConversationManager(this, {
+                defaultToSimpleMode: true,
+                autoStart: true,
+                handsFreeModeEnabled: true,
+                
+                // VAD settings optimized for Arabic speech
+                energyThreshold: 0.012,
+                silenceTimeout: 1000,
+                speechTimeout: 250, 
+                minSpeechDuration: 350,
+                noiseGateThreshold: 0.02,
+                useAdvancedVAD: true,
+                
+                // ASR settings for Arabic and multilingual support
+                language: 'ar-SA',
+                autoDetectLanguage: true,
+                confidenceThreshold: 0.35,
+                autoRestart: true,
+                restartDelay: 600,
+                maxRestartAttempts: 5,
+                
+                // UI enhancements
+                showVisualFeedback: true,
+                showTranscriptionPreview: true,
+                autoScrollTranscript: true
+            });
+            
+            // Initialize the manager
+            await this.enhancedVoiceManager.initialize();
+            
+            console.log('✅ Enhanced Voice Conversation Manager initialized successfully');
+            
+            // Override the default voice conversation button behavior
+            this.overrideVoiceConversationButton();
+            
+        } catch (error) {
+            console.error('❌ Failed to initialize Enhanced Voice Conversation Manager:', error);
+            this.useEnhancedVoiceConversation = false;
+        }
+    }
+    
+    /**
+     * Override the voice conversation button to use enhanced features
+     */
+    overrideVoiceConversationButton() {
+        if (!this.voiceConversationBtn || !this.enhancedVoiceManager) {
+            return;
+        }
+        
+        // Remove existing event listeners by cloning the button
+        const newButton = this.voiceConversationBtn.cloneNode(true);
+        this.voiceConversationBtn.parentNode.replaceChild(newButton, this.voiceConversationBtn);
+        this.voiceConversationBtn = newButton;
+        
+        // Add enhanced voice conversation event listener
+        this.voiceConversationBtn.addEventListener('click', async () => {
+            try {
+                if (this.useEnhancedVoiceConversation && this.enhancedVoiceManager) {
+                    console.log('🎙️ Starting enhanced voice conversation...');
+                    
+                    // Show the voice conversation overlay first
+                    this.voiceConversationOverlay.classList.add('active');
+                    this.voiceConversationBtn.classList.add('active');
+                    
+                    // Initialize the enhanced conversation
+                    await this.enhancedVoiceManager.startHandsFreeConversation();
+                    
+                } else {
+                    // Fallback to original voice conversation
+                    console.log('🎙️ Using original voice conversation (enhanced features unavailable)');
+                    this.startVoiceConversation();
+                }
+            } catch (error) {
+                console.error('❌ Error starting enhanced voice conversation:', error);
+                // Fallback to original method
+                this.startVoiceConversation();
+            }
+        });
+        
+        console.log('🔄 Voice conversation button behavior overridden with enhanced features');
     }
     
     /**

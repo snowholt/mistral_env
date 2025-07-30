@@ -150,17 +150,17 @@ class SimpleVoiceService:
         try:
             self.logger.info("Pre-loading voice processing models...")
             
-            # Pre-load transcription service with optimized Whisper model
+            # Pre-load transcription service with optimized Faster-Whisper model
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
-                self.transcription_service = WhisperTranscriptionService()
+                from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
+                self.transcription_service = FasterWhisperTranscriptionService()
             
-            # Use faster base model for simple voice service (not the large Arabic model)
-            model_loaded = self.transcription_service.load_whisper_model("whisper-base")
+            # Use optimized Arabic model for fastest performance (4x faster than transformers)
+            model_loaded = self.transcription_service.load_whisper_model("whisper-turbo-arabic")
             if not model_loaded:
-                self.logger.warning("Failed to load Whisper base model, will load on demand")
+                self.logger.warning("Failed to load Faster-Whisper turbo model, will load on demand")
             else:
-                self.logger.info("✅ Whisper base model pre-loaded successfully")
+                self.logger.info("✅ Faster-Whisper turbo model pre-loaded successfully (4x faster)")
             
             # Pre-load chat service with default model
             if self.chat_service is None:
@@ -399,24 +399,22 @@ class SimpleVoiceService:
         try:
             # Initialize transcription service if needed (fallback for non-pre-loaded case)
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
-                self.transcription_service = WhisperTranscriptionService()
+                from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
+                self.transcription_service = FasterWhisperTranscriptionService()
                 
-                # Use base model for faster performance in simple voice mode
-                model_loaded = self.transcription_service.load_whisper_model("whisper-base")
+                # Use optimized model for faster performance in simple voice mode
+                model_loaded = self.transcription_service.load_whisper_model("whisper-turbo-arabic")
                 if not model_loaded:
-                    logger.warning("Failed to load Whisper base model, trying Arabic model...")
-                    if not self.transcription_service.load_whisper_model("whisper-large-v3-turbo-arabic"):
+                    logger.warning("Failed to load Faster-Whisper turbo model, trying fallback...")
+                    if not self.transcription_service.load_whisper_model("whisper-turbo-arabic"):
                         logger.error("Failed to load any Whisper model")
                         return "Sorry, I couldn't understand the audio."
             
-            # Use the real transcription service (should be pre-loaded for fast response)
+            # Use the optimized faster-whisper transcription service (should be pre-loaded for fast response)
             result = self.transcription_service.transcribe_audio_bytes(
                 audio_data, 
                 audio_format="webm",  # Support the actual format being sent
-                language=None,  # Auto-detect language for better multilingual support
-                enable_timestamps=False,  # Disable timestamps for faster processing
-                beam_size=1  # Use smaller beam size for faster processing
+                language="ar"  # Default to Arabic for better Arabic language support
             )
             logger.info(f"Transcribed audio: {result}")
             return result if result else "unclear audio"

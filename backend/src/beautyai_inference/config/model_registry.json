@@ -53,6 +53,8 @@
   "service_configurations": {
     "simple_voice_service": {
       "tts_engine": "edge_tts",
+      "stt_engine": "faster_whisper",
+      "stt_model": "whisper-turbo-arabic",
       "supported_languages": ["ar", "en"],
       "default_voices": {
         "ar": {
@@ -65,9 +67,10 @@
         }
       },
       "performance_config": {
-        "target_response_time_ms": 2000,
+        "target_response_time_ms": 1500,
         "enable_caching": true,
-        "stream_audio": true
+        "stream_audio": true,
+        "optimize_for_speed": true
       }
     },
     "advanced_voice_service": {
@@ -289,37 +292,66 @@
       }
     },
 
+    "whisper-turbo-arabic": {
+      "model_id": "turbo",
+      "engine_type": "faster_whisper",
+      "quantization": "int8_float16",
+      "dtype": "float16",
+      "name": "whisper-turbo-arabic",
+      "description": "Fastest Whisper model with Arabic support using Faster-Whisper backend (4x faster)",
+      "model_architecture": "whisper",
+      "model_filename": null,
+      "documentation": "https://github.com/SYSTRAN/faster-whisper",
+      "custom_generation_params": {
+        "beam_size": 3,
+        "temperature": 0.0,
+        "condition_on_previous_text": false,
+        "use_vad_filter": true,
+        "batch_size": 8
+      }
+    },
+
     "whisper-large-v3-turbo-arabic": {
       "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
       "engine_type": "transformers",
       "quantization": null,
       "dtype": "float16",
       "name": "whisper-large-v3-turbo-arabic",
-      "description": "Whisper Large V3 Turbo for Arabic audio transcription",
+      "description": "DEPRECATED: Use whisper-turbo-arabic for better performance",
       "model_architecture": "whisper",
       "model_filename": null,
       "documentation": null,
       "custom_generation_params": null
     },
 
-    "coqui-tts-arabic": {
-      "model_id": "tts_models/ar/tn_arabicspeech/vits",
-      "engine_type": "coqui_tts",
+    "whisper-base": {
+      "model_id": "openai/whisper-base",
+      "engine_type": "transformers",
+      "quantization": null,
+      "dtype": "float16",
+      "name": "whisper-base",
+      "description": "DEPRECATED: Use whisper-turbo-arabic for better performance",
+      "model_architecture": "whisper",
+      "model_filename": null,
+      "documentation": null,
+      "custom_generation_params": null
+    },
+
+    "edge-tts": {
+      "model_id": "microsoft/edge-tts",
+      "engine_type": "edge_tts",
       "quantization": null,
       "max_new_tokens": null,
-      "dtype": "float16",
-      "name": "coqui-tts-arabic",
-      "description": "Coqui TTS Arabic neural voice synthesis with native Arabic language support",
-      "model_architecture": "coqui_tts",
+      "dtype": null,
+      "name": "edge-tts",
+      "description": "PRIMARY TTS: Microsoft Edge TTS for high-quality multilingual text-to-speech (fastest, best quality)",
+      "model_architecture": "edge_tts",
       "model_filename": null,
-      "documentation": "https://docs.coqui.ai/en/latest/",
+      "documentation": "https://github.com/rany2/edge-tts",
       "custom_generation_params": {
-        "temperature": 0.7,
         "emotion": "neutral",
         "speed": 1.0,
-        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"],
-        "voice_cloning": true,
-        "gpu_acceleration": true
+        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
       }
     },
 
@@ -330,7 +362,7 @@
       "max_new_tokens": null,
       "dtype": "float16",
       "name": "coqui-tts-multilingual",
-      "description": "Coqui TTS XTTS v2 multilingual model with voice cloning capabilities",
+      "description": "ADVANCED TTS: Use only when voice cloning is needed (slower than Edge TTS)",
       "model_architecture": "coqui_tts",
       "model_filename": null,
       "documentation": "https://docs.coqui.ai/en/latest/",
@@ -342,24 +374,6 @@
         "voice_cloning": true,
         "gpu_acceleration": true,
         "multilingual": true
-      }
-    },
-
-    "edge-tts": {
-      "model_id": "microsoft/edge-tts",
-      "engine_type": "edge_tts",
-      "quantization": null,
-      "max_new_tokens": null,
-      "dtype": null,
-      "name": "edge-tts",
-      "description": "Microsoft Edge TTS for high-quality multilingual text-to-speech (Python 3.12+ compatible)",
-      "model_architecture": "edge_tts",
-      "model_filename": null,
-      "documentation": "https://github.com/rany2/edge-tts",
-      "custom_generation_params": {
-        "emotion": "neutral",
-        "speed": 1.0,
-        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
       }
     }
   }

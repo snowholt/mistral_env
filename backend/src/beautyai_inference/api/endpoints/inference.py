@@ -22,7 +22,7 @@ from ..models import (
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
 from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
-from ...services.voice.transcription.audio_transcription_service import WhisperTranscriptionService
+from ...services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
 from ...config.config_manager import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -35,7 +35,7 @@ test_service = TestService()
 benchmark_service = BenchmarkService()
 session_service = SessionService()
 content_filter_service = ContentFilterService()
-audio_transcription_service = WhisperTranscriptionService()
+audio_transcription_service = FasterWhisperTranscriptionService()
 
 
 @inference_router.post("/chat", response_model=ChatResponse)
@@ -737,17 +737,19 @@ async def audio_chat(
         # Process audio chat
         start_time = time.time()
         
-        # Step 1: Load Whisper model if not already loaded
+        # Step 1: Load Faster-Whisper model if not already loaded
         if not audio_transcription_service.whisper_model:
-            logger.info(f"Loading Whisper model: {stt_model_name}")
-            if not audio_transcription_service.load_whisper_model(stt_model_name):
-                raise HTTPException(status_code=500, detail="Failed to load Whisper model")
+            # Use optimized model for best performance
+            optimized_model = "whisper-turbo-arabic" if stt_model_name in ["whisper-large-v3-turbo-arabic", "whisper-base"] else stt_model_name
+            logger.info(f"Loading Faster-Whisper model: {optimized_model}")
+            if not audio_transcription_service.load_whisper_model(optimized_model):
+                raise HTTPException(status_code=500, detail=f"Failed to load Faster-Whisper model: {optimized_model}")
         
-        # Step 1: Transcribe audio
-        logger.info("Processing audio chat request...")
+        # Step 2: Transcribe audio using Faster-Whisper
+        logger.info("Processing audio chat request with Faster-Whisper...")
         transcription = audio_transcription_service.transcribe_audio_bytes(
             audio_bytes=audio_bytes,
-            audio_format=audio_file.filename.split('.')[-1].lower() if '.' in audio_file.filename else 'wav',
+            audio_format=audio_file.filename.split('.')[-1].lower() if '.' in audio_file.filename else 'webm',
             language=input_language
         )
         
