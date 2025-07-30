@@ -139,8 +139,8 @@ class WebSocketVoiceManager {
                 preset: options.preset || 'qwen_optimized',
                 session_id: options.sessionId || this.generateSessionId(),
                 chat_model_name: options.chatModel || 'qwen3-unsloth-q4ks',
-                stt_model_name: options.sttModel || 'whisper-large-v3-turbo-arabic',
-                tts_model_name: options.ttsModel || 'coqui-tts-arabic',
+                stt_model_name: options.sttModel || 'whisper-turbo-arabic',
+                tts_model_name: options.ttsModel || 'edge-tts',
                 emotion: options.emotion || 'neutral',
                 speech_speed: options.speechSpeed || '1.0'
             });

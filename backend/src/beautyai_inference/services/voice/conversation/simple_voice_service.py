@@ -457,9 +457,13 @@ class SimpleVoiceService:
                         else:
                             return "Sorry, I'm experiencing technical difficulties. Please try again."
             
-            # Add /no_think prefix for fast responses in simple voice mode
-            optimized_message = f"/no_think {text}"
-            logger.info(f"Optimized message with /no_think: {optimized_message[:50]}... (target_language: {target_language})")
+            # Create optimized message for fast responses in simple voice mode
+            # Note: /no_think prefix causes empty responses, so we'll use a different approach
+            if target_language == "ar":
+                optimized_message = f"أجب بإيجاز بالعربية: {text}"
+            else:
+                optimized_message = f"Answer briefly in English: {text}"
+            logger.info(f"Optimized message: {optimized_message[:100]}... (target_language: {target_language})")
             
             # Use the real chat service with specified target language
             result = self.chat_service.chat(

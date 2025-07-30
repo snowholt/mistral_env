@@ -38,23 +38,13 @@
       }
     }
   },
-  "coqui_tts_models": {
-    "xtts_v2": {
-      "model_name": "tts_models/multilingual/multi-dataset/xtts_v2",
-      "languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
-      "features": ["voice_cloning", "multilingual", "emotion_control"],
-      "memory_requirements": {
-        "min_ram_gb": 8,
-        "min_vram_gb": 4,
-        "recommended_vram_gb": 8
-      }
-    }
-  },
+  "coqui_tts_models": {},
   "service_configurations": {
     "simple_voice_service": {
       "tts_engine": "edge_tts",
       "stt_engine": "faster_whisper",
       "stt_model": "whisper-turbo-arabic",
+      "tts_model": "edge-tts",
       "supported_languages": ["ar", "en"],
       "default_voices": {
         "ar": {
@@ -72,22 +62,6 @@
         "stream_audio": true,
         "optimize_for_speed": true
       }
-    },
-    "advanced_voice_service": {
-      "tts_engine": "coqui_tts",
-      "model": "xtts_v2",
-      "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
-      "features": {
-        "voice_cloning": true,
-        "emotion_control": true,
-        "language_detection": true,
-        "content_filtering": true
-      },
-      "performance_config": {
-        "target_response_time_ms": 8000,
-        "enable_gpu_optimization": true,
-        "quantization": "4bit"
-      }
     }
   },
   "service_defaults": {
@@ -101,17 +75,6 @@
         "enabled": true,
         "chunk_size": 1024,
         "buffer_size": 4096
-      }
-    },
-    "advanced_voice_service": {
-      "audio_format": "wav",
-      "sample_rate": 22050,
-      "channels": 1,
-      "bit_depth": 16,
-      "model_loading": {
-        "lazy_loading": true,
-        "cache_models": true,
-        "unload_after_minutes": 10
       }
     }
   },
@@ -298,7 +261,7 @@
       "quantization": "int8_float16",
       "dtype": "float16",
       "name": "whisper-turbo-arabic",
-      "description": "Fastest Whisper model with Arabic support using Faster-Whisper backend (4x faster)",
+      "description": "Primary STT: Fastest Whisper model with Arabic support (4x faster than transformers)",
       "model_architecture": "whisper",
       "model_filename": null,
       "documentation": "https://github.com/SYSTRAN/faster-whisper",
@@ -306,35 +269,9 @@
         "beam_size": 3,
         "temperature": 0.0,
         "condition_on_previous_text": false,
-        "use_vad_filter": true,
+        "vad_filter": true,
         "batch_size": 8
       }
-    },
-
-    "whisper-large-v3-turbo-arabic": {
-      "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
-      "engine_type": "transformers",
-      "quantization": null,
-      "dtype": "float16",
-      "name": "whisper-large-v3-turbo-arabic",
-      "description": "DEPRECATED: Use whisper-turbo-arabic for better performance",
-      "model_architecture": "whisper",
-      "model_filename": null,
-      "documentation": null,
-      "custom_generation_params": null
-    },
-
-    "whisper-base": {
-      "model_id": "openai/whisper-base",
-      "engine_type": "transformers",
-      "quantization": null,
-      "dtype": "float16",
-      "name": "whisper-base",
-      "description": "DEPRECATED: Use whisper-turbo-arabic for better performance",
-      "model_architecture": "whisper",
-      "model_filename": null,
-      "documentation": null,
-      "custom_generation_params": null
     },
 
     "edge-tts": {
@@ -344,7 +281,7 @@
       "max_new_tokens": null,
       "dtype": null,
       "name": "edge-tts",
-      "description": "PRIMARY TTS: Microsoft Edge TTS for high-quality multilingual text-to-speech (fastest, best quality)",
+      "description": "Primary TTS: Microsoft Edge TTS for high-quality multilingual text-to-speech",
       "model_architecture": "edge_tts",
       "model_filename": null,
       "documentation": "https://github.com/rany2/edge-tts",
@@ -352,28 +289,6 @@
         "emotion": "neutral",
         "speed": 1.0,
         "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
-      }
-    },
-
-    "coqui-tts-multilingual": {
-      "model_id": "tts_models/multilingual/multi-dataset/xtts_v2",
-      "engine_type": "coqui_tts",
-      "quantization": null,
-      "max_new_tokens": null,
-      "dtype": "float16",
-      "name": "coqui-tts-multilingual",
-      "description": "ADVANCED TTS: Use only when voice cloning is needed (slower than Edge TTS)",
-      "model_architecture": "coqui_tts",
-      "model_filename": null,
-      "documentation": "https://docs.coqui.ai/en/latest/",
-      "custom_generation_params": {
-        "temperature": 0.7,
-        "emotion": "neutral",
-        "speed": 1.0,
-        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja"],
-        "voice_cloning": true,
-        "gpu_acceleration": true,
-        "multilingual": true
       }
     }
   }

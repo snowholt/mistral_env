@@ -16,26 +16,15 @@ web service integration.
 # Import base service class for easy access
 from .base.base_service import BaseService
 
-# Import voice services with new names for backward compatibility
-from .voice.transcription.audio_transcription_service import WhisperTranscriptionService
-from .voice.synthesis.unified_tts_service import UnifiedTTSService
-from .voice.conversation.advanced_voice_service import AdvancedVoiceConversationService
-
-# Backward compatibility aliases - maintain old names for existing code
-AudioTranscriptionService = WhisperTranscriptionService
-TextToSpeechService = UnifiedTTSService
-VoiceToVoiceService = AdvancedVoiceConversationService
+# Import voice services (streamlined)
+from .voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
+from .voice.conversation.simple_voice_service import SimpleVoiceService
 
 __all__ = [
     "BaseService",
-    # New descriptive voice service names
-    "WhisperTranscriptionService",
-    "UnifiedTTSService",
-    "AdvancedVoiceConversationService",
-    # Voice services for backward compatibility
-    "AudioTranscriptionService",
-    "TextToSpeechService", 
-    "VoiceToVoiceService"
+    # Streamlined voice services
+    "FasterWhisperTranscriptionService",
+    "SimpleVoiceService"
 ]
 
 __version__ = "1.0.0"

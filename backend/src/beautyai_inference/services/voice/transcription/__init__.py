@@ -1,15 +1,7 @@
 """
-Audio Transcription Services Module.
+Voice transcription services for speech-to-text functionality.
 
-Contains services for converting audio to text using various speech recognition models.
+This module provides speech-to-text capabilities using Faster-Whisper.
 """
 
-from .audio_transcription_service import WhisperTranscriptionService
-
-# Backward compatibility alias
-AudioTranscriptionService = WhisperTranscriptionService
-
-__all__ = [
-    "WhisperTranscriptionService",
-    "AudioTranscriptionService"  # Backward compatibility
-]
+from .faster_whisper_service import FasterWhisperTranscriptionService

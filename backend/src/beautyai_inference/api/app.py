@@ -12,7 +12,6 @@ import time
 
 # Import the routers
 from .endpoints import health_router, models_router, inference_router, config_router, system_router
-from .endpoints.websocket_voice import websocket_voice_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
 # Setup logging
@@ -26,12 +25,6 @@ tags_metadata = [
         "description": "🏎️ **Simple Voice Chat** - Ultra-fast voice conversations with Edge TTS. "
                       "Perfect for real-time chat with <2 second response times. "
                       "Arabic and English support only."
-    },
-    {
-        "name": "advanced-voice", 
-        "description": "🎭 **Advanced Voice Chat** - Full-featured voice with Coqui TTS and voice cloning. "
-                      "Supports 17+ languages, custom voices, and content filtering. "
-                      "Best for production applications."
     },
     {
         "name": "health",
@@ -135,17 +128,10 @@ app.include_router(system_router)
 
 # Include voice WebSocket routers with proper prefixes and tags
 app.include_router(
-    websocket_voice_router,
-    prefix="/api/v1",
-    tags=["advanced-voice"]
-)
-app.include_router(
     websocket_simple_voice_router,
-    prefix="/api/v1", 
+    prefix="/api/v1",
     tags=["simple-voice"]
 )
-
-
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
     try:
@@ -314,88 +300,23 @@ async def get_voice_endpoints():
                     "No content filtering",
                     "Fixed voice types only"
                 ]
-            },
-            "advanced_voice_chat": {
-                "url": "/api/v1/ws/voice-conversation",
-                "type": "WebSocket",
-                "engine": "Coqui TTS via AdvancedVoiceConversationService", 
-                "performance": {
-                    "response_time": "5-8 seconds",
-                    "memory_usage": "3GB+",
-                    "setup_time": "10-30 seconds",
-                    "connection_overhead": "Significant"
-                },
-                "features": {
-                    "languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
-                    "voice_types": ["custom", "cloned", "male", "female"],
-                    "real_time": False,
-                    "voice_cloning": True,
-                    "content_filtering": True,
-                    "emotion_control": True,
-                    "auto_language_detection": True,
-                    "session_management": "Full-featured"
-                },
-                "parameters": {
-                    "required": ["model"],
-                    "optional": ["language", "voice_type", "enable_content_filtering", "session_id", "conversation_context", "voice_clone_params"],
-                    "total_count": "20+"
-                },
-                "best_for": [
-                    "Voice cloning projects",
-                    "Content creation",
-                    "Multi-language support",
-                    "Production applications",
-                    "Complex voice conversations",
-                    "Emotion-aware responses"
-                ],
-                "limitations": [
-                    "Slower response time",
-                    "High memory usage",
-                    "Complex parameter set",
-                    "Longer setup time"
-                ]
             }
         },
-        "decision_guide": {
-            "choose_simple_if": [
+        "usage_guidelines": {
+            "when_to_use": [
                 "Response time < 3 seconds required",
-                "Only Arabic/English needed",
+                "Only Arabic/English needed", 
                 "Memory usage < 100MB required",
                 "Real-time conversation needed",
                 "Simple voice types sufficient",
                 "Fast deployment needed"
             ],
-            "choose_advanced_if": [
-                "Voice cloning needed",
-                "Multiple languages required",
-                "Content filtering needed",
-                "Production-grade features needed",
-                "Custom voice creation required",
-                "Emotion control needed"
-            ]
-        },
-        "performance_comparison": {
-            "metrics": {
-                "response_time": {
-                    "simple": "< 2 seconds",
-                    "advanced": "5-8 seconds",
-                    "difference": "3-6x faster"
-                },
-                "memory_usage": {
-                    "simple": "< 50MB",
-                    "advanced": "3GB+",
-                    "difference": "60x less memory"
-                },
-                "languages": {
-                    "simple": 2,
-                    "advanced": 17,
-                    "difference": "Advanced supports 8.5x more languages"
-                },
-                "setup_complexity": {
-                    "simple": "3 parameters",
-                    "advanced": "20+ parameters",
-                    "difference": "Simple has 7x fewer parameters"
-                }
+            "features": {
+                "response_time": "< 2 seconds",
+                "memory_usage": "< 50MB", 
+                "languages": ["Arabic", "English"],
+                "setup_complexity": "3 parameters",
+                "deployment": "Instant"
             }
         },
         "usage_examples": {
@@ -433,10 +354,9 @@ async def health_check_voice():
     """
     # Check simple voice service status
     simple_status = await check_simple_voice_service()
-    advanced_status = await check_advanced_voice_service()
     
     # Calculate overall health
-    overall_healthy = simple_status["healthy"] and advanced_status["healthy"]
+    overall_healthy = simple_status["healthy"]
     
     return {
         "status": "healthy" if overall_healthy else "degraded",
@@ -456,36 +376,19 @@ async def health_check_voice():
                 "connections": simple_status.get("connections", {}),
                 "ready_for_connections": simple_status["healthy"],
                 "last_check": simple_status.get("last_check", time.time())
-            },
-            "advanced_voice": {
-                "name": "Advanced Voice Chat",
-                "endpoint": "/api/v1/ws/voice-conversation",
-                "status": "available" if advanced_status["healthy"] else "unavailable",
-                "engine": "Coqui TTS via AdvancedVoiceConversationService",
-                "performance": {
-                    "target_response_time": "5-8 seconds",
-                    "target_memory_usage": "3GB+",
-                    "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh-cn", "ja", "hu", "ko", "hi"],
-                    "voice_types": ["custom", "cloned", "male", "female"]
-                },
-                "connections": advanced_status.get("connections", {}),
-                "ready_for_connections": advanced_status["healthy"],
-                "last_check": advanced_status.get("last_check", time.time())
             }
         },
         "overall_metrics": {
-            "total_active_connections": simple_status.get("connections", {}).get("count", 0) + advanced_status.get("connections", {}).get("count", 0),
-            "services_available": sum([simple_status["healthy"], advanced_status["healthy"]]),
-            "services_total": 2,
-            "uptime_percentage": 100 if overall_healthy else 50 if (simple_status["healthy"] or advanced_status["healthy"]) else 0
+            "total_active_connections": simple_status.get("connections", {}).get("count", 0),
+            "services_available": 1 if simple_status["healthy"] else 0,
+            "services_total": 1,
+            "uptime_percentage": 100 if overall_healthy else 0
         },
         "recommendations": {
             "use_simple_voice": simple_status["healthy"] and "For real-time conversations with Arabic/English",
-            "use_advanced_voice": advanced_status["healthy"] and "For voice cloning and multi-language support",
             "fallback_options": [
-                "If both services down, check system health at /health/detailed",
-                "For simple voice issues, try advanced voice for non-real-time use",
-                "For advanced voice issues, use simple voice for basic conversations"
+                "If service down, check system health at /health/detailed",
+                "For voice issues, restart the service or check model availability"
             ]
         }
     }
@@ -526,46 +429,6 @@ async def check_simple_voice_service() -> Dict[str, Any]:
             "connections": {"count": 0, "active_sessions": []},
             "last_check": time.time()
         }
-
-
-async def check_advanced_voice_service() -> Dict[str, Any]:
-    """Check the health of the advanced voice service."""
-    try:
-        # Import here to avoid circular imports
-        from .endpoints.websocket_voice import active_connections
-        
-        # For now, assume advanced service is healthy if we can import it
-        # In a real implementation, we would test the service initialization
-        service_healthy = True
-        error_message = None
-        
-        try:
-            # We could add more sophisticated health checks here
-            # For now, just check if the service module can be imported
-            from beautyai_inference.services.voice.conversation.advanced_voice_service import AdvancedVoiceConversationService
-        except Exception as e:
-            service_healthy = False
-            error_message = str(e)
-            logger.warning(f"Advanced voice service health check failed: {e}")
-        
-        return {
-            "healthy": service_healthy,
-            "error": error_message,
-            "connections": {
-                "count": len(active_connections),
-                "active_sessions": list(active_connections.keys())
-            },
-            "last_check": time.time()
-        }
-    except Exception as e:
-        logger.error(f"Failed to check advanced voice service health: {e}")
-        return {
-            "healthy": False,
-            "error": f"Health check failed: {str(e)}",
-            "connections": {"count": 0, "active_sessions": []},
-            "last_check": time.time()
-        }
-
 
 if __name__ == "__main__":
     import uvicorn

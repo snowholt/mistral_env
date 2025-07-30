@@ -1,29 +1,17 @@
 """
-Voice Services Module for BeautyAI Framework.
+Voice services for speech processing functionality.
 
-Organized voice-related services:
-- transcription: Audio-to-text services
-- synthesis: Text-to-speech services  
-- conversation: Voice conversation orchestration
+This module provides speech-to-text and text-to-speech capabilities
+using optimized models and services.
 """
 
-# Import all services for easy access
-from .transcription.audio_transcription_service import WhisperTranscriptionService
-from .synthesis.unified_tts_service import UnifiedTTSService
-from .conversation.advanced_voice_service import AdvancedVoiceConversationService
+# Import transcription services
+from .transcription.faster_whisper_service import FasterWhisperTranscriptionService
 
-# Backward compatibility aliases - maintain old names for existing code
-AudioTranscriptionService = WhisperTranscriptionService
-TextToSpeechService = UnifiedTTSService  
-VoiceToVoiceService = AdvancedVoiceConversationService
+# Import conversation services
+from .conversation.simple_voice_service import SimpleVoiceService
 
 __all__ = [
-    # New descriptive names
-    "WhisperTranscriptionService",
-    "UnifiedTTSService", 
-    "AdvancedVoiceConversationService",
-    # Backward compatibility aliases
-    "AudioTranscriptionService",
-    "TextToSpeechService",
-    "VoiceToVoiceService"
+    "FasterWhisperTranscriptionService", 
+    "SimpleVoiceService"
 ]

@@ -1,15 +1,9 @@
 """
-Text-to-Speech Synthesis Services Module.
+Voice synthesis services for text-to-speech functionality.
 
-Contains services for converting text to speech using various TTS engines.
+This module provides text-to-speech capabilities using Edge TTS.
 """
 
-from .unified_tts_service import UnifiedTTSService
+# Edge TTS is handled directly by the SimpleVoiceService - no separate module needed
 
-# Backward compatibility alias
-TextToSpeechService = UnifiedTTSService
-
-__all__ = [
-    "UnifiedTTSService",
-    "TextToSpeechService"  # Backward compatibility
-]
+__all__ = []

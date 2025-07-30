@@ -786,7 +786,7 @@ class BeautyAIChat {
             formData.append('model_name', this.currentModel);
 
             // Add optional parameters
-            formData.append('whisper_model_name', 'whisper-large-v3-turbo-arabic');
+            formData.append('whisper_model_name', 'whisper-turbo-arabic');
             formData.append('audio_language', 'ar');
 
             // Add generation parameters from UI
@@ -1967,8 +1967,8 @@ class BeautyAIChat {
         formData.append('input_language', this.voiceSettings.language);
         formData.append('output_language', this.voiceSettings.language);
         formData.append('chat_model_name', this.currentModel || 'qwen3-unsloth-q4ks');
-        formData.append('stt_model_name', 'whisper-large-v3-turbo-arabic');
-        formData.append('tts_model_name', 'coqui-tts-arabic');
+        formData.append('stt_model_name', 'whisper-turbo-arabic');
+        formData.append('tts_model_name', 'edge-tts');
         
         // Voice output parameters
         formData.append('speaker_voice', this.voiceSettings.voice);

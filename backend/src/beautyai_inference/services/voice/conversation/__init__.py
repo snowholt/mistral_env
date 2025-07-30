@@ -1,17 +1,11 @@
 """
-Voice Conversation Services Module.
+Voice conversation services for complete voice-to-voice chat functionality.
 
-Contains services for orchestrating complete voice-to-voice conversations.
+This module provides simple voice conversation capabilities.
 """
 
-from .advanced_voice_service import AdvancedVoiceConversationService
 from .simple_voice_service import SimpleVoiceService
 
-# Backward compatibility alias
-VoiceToVoiceService = AdvancedVoiceConversationService
-
 __all__ = [
-    "AdvancedVoiceConversationService",
-    "SimpleVoiceService",
-    "VoiceToVoiceService"  # Backward compatibility
+    "SimpleVoiceService"
 ]
