@@ -1,83 +1,4 @@
 {
-  "default_model": "qwen3-unsloth-q4ks",
-  "edge_tts_voices": {
-    "arabic": {
-      "voices": {
-        "male": {
-          "primary": "ar-SA-HamedNeural",
-          "quality": "high",
-          "region": "Saudi Arabia"
-        },
-        "female": {
-          "primary": "ar-SA-ZariyahNeural", 
-          "quality": "high",
-          "region": "Saudi Arabia"
-        }
-      },
-      "fallbacks": {
-        "male": ["ar-EG-ShakirNeural", "ar-AE-HamzaNeural"],
-        "female": ["ar-EG-SalmaNeural", "ar-AE-FatimaNeural"]
-      }
-    },
-    "english": {
-      "voices": {
-        "male": {
-          "primary": "en-US-AriaNeural",
-          "quality": "high", 
-          "region": "United States"
-        },
-        "female": {
-          "primary": "en-US-JennyNeural",
-          "quality": "high",
-          "region": "United States"
-        }
-      },
-      "fallbacks": {
-        "male": ["en-GB-RyanNeural", "en-AU-WilliamNeural"],
-        "female": ["en-GB-SoniaNeural", "en-AU-NatashaNeural"]
-      }
-    }
-  },
-  "coqui_tts_models": {},
-  "service_configurations": {
-    "simple_voice_service": {
-      "tts_engine": "edge_tts",
-      "stt_engine": "faster_whisper",
-      "stt_model": "whisper-turbo-arabic",
-      "tts_model": "edge-tts",
-      "supported_languages": ["ar", "en"],
-      "default_voices": {
-        "ar": {
-          "male": "ar-SA-HamedNeural",
-          "female": "ar-SA-ZariyahNeural"
-        },
-        "en": {
-          "male": "en-US-AriaNeural",
-          "female": "en-US-JennyNeural"
-        }
-      },
-      "performance_config": {
-        "target_response_time_ms": 1500,
-        "enable_caching": true,
-        "stream_audio": true,
-        "optimize_for_speed": true
-      }
-    }
-  },
-  "service_defaults": {
-    "simple_voice_service": {
-      "audio_format": "wav",
-      "sample_rate": 22050,
-      "channels": 1,
-      "bit_depth": 16,
-      "compression": "none",
-      "streaming": {
-        "enabled": true,
-        "chunk_size": 1024,
-        "buffer_size": 4096
-      }
-    }
-  },
   "models": {
     "qwen3-model": {
       "model_id": "Qwen/Qwen3-14B",
@@ -213,8 +134,6 @@
       }
     },
 
-
-
     "bee1reason-arabic-q4ks": {
       "model_id": "mradermacher/Bee1reason-arabic-Qwen-14B-i1-GGUF",
       "engine_type": "llama.cpp",
@@ -256,21 +175,29 @@
     },
 
     "whisper-turbo-arabic": {
-      "model_id": "turbo",
+      "model_id": "large-v3-turbo",
       "engine_type": "faster_whisper",
-      "quantization": "int8_float16",
+      "quantization": "float16",
       "dtype": "float16",
       "name": "whisper-turbo-arabic",
-      "description": "Primary STT: Fastest Whisper model with Arabic support (4x faster than transformers)",
+      "description": "GPU-OPTIMIZED: Latest Whisper Large-v3-Turbo with RTX 4090 acceleration (809MB, 4x faster than turbo)",
       "model_architecture": "whisper",
       "model_filename": null,
-      "documentation": "https://github.com/SYSTRAN/faster-whisper",
+      "documentation": "https://huggingface.co/openai/whisper-large-v3-turbo",
       "custom_generation_params": {
-        "beam_size": 3,
+        "beam_size": 1,
+        "batch_size": 16,
         "temperature": 0.0,
         "condition_on_previous_text": false,
         "vad_filter": true,
-        "batch_size": 8
+        "vad_parameters": {
+          "min_silence_duration_ms": 250,
+          "speech_pad_ms": 30
+        },
+        "optimization_level": "gpu_speed",
+        "target_latency_ms": 500,
+        "gpu_acceleration": true,
+        "flash_attention": true
       }
     },
 

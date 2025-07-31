@@ -55,14 +55,14 @@ class SimpleVoiceService:
         Initialize the Simple Voice Conversation Service.
         
         Args:
-            config: Optional configuration dictionary
+            config: Optional configuration dictionary (deprecated, uses voice registry)
         """
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
-        self.config_manager = ConfigurationManager()
         
-        # Get service configuration from registry
-        self.service_config = self.config_manager.get_service_config("simple_voice_service")
+        # Use centralized voice configuration
+        from ....config.voice_config_loader import get_voice_config
+        self.voice_config = get_voice_config()
         
         # Service configuration
         self.temp_dir = Path(tempfile.gettempdir()) / "beautyai_simple_voice"
@@ -72,48 +72,48 @@ class SimpleVoiceService:
         self.transcription_service = None
         self.chat_service = None
         
-        # Voice mappings from configuration
-        self.voice_mappings = self._setup_voice_mappings_from_config()
+        # Voice mappings from voice registry
+        self.voice_mappings = self._setup_voice_mappings_from_registry()
         
-        # Default settings from configuration
-        self.default_arabic_voice = self.config_manager.get_edge_tts_voice("arabic", "female")
-        self.default_english_voice = self.config_manager.get_edge_tts_voice("english", "female")
+        # Default settings from voice registry
+        self.default_arabic_voice = self.voice_config.get_voice_id("arabic", "female")
+        self.default_english_voice = self.voice_config.get_voice_id("english", "female")
         self.speech_rate = "+0%"
         self.speech_pitch = "+0Hz"
         
-        self.logger.info("SimpleVoiceService initialized with registry configuration")
+        # Audio configuration from registry
+        self.audio_config = self.voice_config.get_audio_config()
+        
+        self.logger.info("SimpleVoiceService initialized with voice registry configuration")
     
-    def _setup_voice_mappings_from_config(self) -> Dict[str, VoiceMapping]:
-        """Set up voice mappings from configuration manager."""
+    def _setup_voice_mappings_from_registry(self) -> Dict[str, VoiceMapping]:
+        """Set up voice mappings from voice registry."""
         mappings = {}
         
         try:
-            # Get Edge TTS voices from configuration
-            arabic_voices = self.config_manager.get_edge_tts_voices_for_language("arabic")
-            english_voices = self.config_manager.get_edge_tts_voices_for_language("english")
+            supported_languages = self.voice_config.get_supported_languages()
             
-            # Setup Arabic voices
-            if "male" in arabic_voices:
-                mappings["ar_male"] = VoiceMapping("ar-SA", "male", arabic_voices["male"], "Arabic Male")
-            if "female" in arabic_voices:
-                mappings["ar_female"] = VoiceMapping("ar-SA", "female", arabic_voices["female"], "Arabic Female")
+            for language in supported_languages:
+                voice_types = self.voice_config.get_voice_types(language)
+                
+                for gender in voice_types:
+                    voice_id = self.voice_config.get_voice_id(language, gender)
+                    # Create mapping key
+                    lang_code = "ar" if language == "arabic" else "en"
+                    mapping_key = f"{lang_code}_{gender}"
+                    
+                    mappings[mapping_key] = VoiceMapping(
+                        language=f"{lang_code}-SA" if lang_code == "ar" else "en-US",
+                        gender=gender,
+                        voice_id=voice_id,
+                        display_name=f"{language.title()} {gender.title()}"
+                    )
             
-            # Setup English voices
-            if "male" in english_voices:
-                mappings["en_male"] = VoiceMapping("en-US", "male", english_voices["male"], "English Male")
-            if "female" in english_voices:
-                mappings["en_female"] = VoiceMapping("en-US", "female", english_voices["female"], "English Female")
-            
-            # Add fallbacks from legacy setup if config is incomplete
-            if not mappings:
-                self.logger.warning("No voices found in configuration, using fallback mappings")
-                return self._setup_fallback_voice_mappings()
-            
-            self.logger.info(f"Loaded {len(mappings)} voice mappings from configuration")
+            self.logger.info(f"Loaded {len(mappings)} voice mappings from voice registry")
             return mappings
             
         except Exception as e:
-            self.logger.error(f"Error loading voice mappings from config: {e}")
+            self.logger.error(f"Error loading voice mappings from registry: {e}")
             return self._setup_fallback_voice_mappings()
     
     def _setup_fallback_voice_mappings(self) -> Dict[str, VoiceMapping]:
@@ -150,17 +150,18 @@ class SimpleVoiceService:
         try:
             self.logger.info("Pre-loading voice processing models...")
             
-            # Pre-load transcription service with optimized Faster-Whisper model
+            # Pre-load transcription service with voice registry model
             if self.transcription_service is None:
                 from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
                 self.transcription_service = FasterWhisperTranscriptionService()
             
-            # Use optimized Arabic model for fastest performance (4x faster than transformers)
-            model_loaded = self.transcription_service.load_whisper_model("whisper-turbo-arabic")
+            # Use voice registry default STT model
+            model_loaded = self.transcription_service.load_whisper_model()  # Uses voice registry default
             if not model_loaded:
-                self.logger.warning("Failed to load Faster-Whisper turbo model, will load on demand")
+                self.logger.warning("Failed to load voice registry STT model, will load on demand")
             else:
-                self.logger.info("✅ Faster-Whisper turbo model pre-loaded successfully (4x faster)")
+                stt_config = self.voice_config.get_stt_model_config()
+                self.logger.info(f"✅ Voice registry STT model pre-loaded: {stt_config.model_id}")
             
             # Pre-load chat service with default model
             if self.chat_service is None:
@@ -402,18 +403,16 @@ class SimpleVoiceService:
                 from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
                 self.transcription_service = FasterWhisperTranscriptionService()
                 
-                # Use optimized model for faster performance in simple voice mode
-                model_loaded = self.transcription_service.load_whisper_model("whisper-turbo-arabic")
+                # Use voice registry model
+                model_loaded = self.transcription_service.load_whisper_model()
                 if not model_loaded:
-                    logger.warning("Failed to load Faster-Whisper turbo model, trying fallback...")
-                    if not self.transcription_service.load_whisper_model("whisper-turbo-arabic"):
-                        logger.error("Failed to load any Whisper model")
-                        return "Sorry, I couldn't understand the audio."
+                    logger.warning("Failed to load voice registry STT model")
+                    return "Sorry, I couldn't understand the audio."
             
-            # Use the optimized faster-whisper transcription service (should be pre-loaded for fast response)
+            # Use the transcription service with audio format from voice config
             result = self.transcription_service.transcribe_audio_bytes(
                 audio_data, 
-                audio_format="webm",  # Support the actual format being sent
+                audio_format=self.audio_config.format,
                 language="ar"  # Default to Arabic for better Arabic language support
             )
             logger.info(f"Transcribed audio: {result}")

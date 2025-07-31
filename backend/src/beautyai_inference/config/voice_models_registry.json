@@ -1,0 +1,74 @@
+{
+  "description": "Voice models configuration for BeautyAI voice-to-voice conversation",
+  
+  "models": {
+    "whisper-turbo-arabic": {
+      "model_id": "large-v3-turbo",
+      "engine_type": "faster_whisper",
+      "type": "speech_to_text",
+      "description": "Whisper Large-v3-Turbo for Arabic/English speech recognition",
+      "supported_languages": ["ar", "en"],
+      "gpu_enabled": true,
+      "documentation": {
+        "hugging_face": "https://huggingface.co/openai/whisper-large-v3-turbo",
+        "github_release": "https://github.com/openai/whisper/discussions/2363",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "809MB (compressed ~1.5GB download)",
+        "speed": "4x faster than large-v3, faster than tiny model",
+        "architecture": "4 decoder layers (down from 32 in large models)",
+        "optimization": "Fine-tuned on transcription data (no translation)",
+        "performance": "Similar to large-v2 accuracy with much better speed"
+      }
+    },
+    
+    "edge-tts": {
+      "model_id": "microsoft/edge-tts",
+      "engine_type": "edge_tts", 
+      "type": "text_to_speech",
+      "description": "Microsoft Edge TTS for multilingual text-to-speech",
+      "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "ru", "zh", "ja"],
+      "documentation": {
+        "github": "https://github.com/rany2/edge-tts",
+        "microsoft_docs": "https://docs.microsoft.com/en-us/azure/cognitive-services/speech-service/",
+        "voice_samples": "https://speech.microsoft.com/portal/voicegallery"
+      },
+      "model_info": {
+        "provider": "Microsoft Azure Cognitive Services",
+        "quality": "Production-grade neural voices",
+        "latency": "~200-500ms per sentence",
+        "cost": "Free (no API key required for edge-tts library)"
+      }
+    }
+  },
+
+  "default_models": {
+    "stt": "whisper-turbo-arabic",
+    "tts": "edge-tts"
+  },
+
+  "voice_settings": {
+    "arabic": {
+      "male": "ar-SA-HamedNeural",
+      "female": "ar-SA-ZariyahNeural"
+    },
+    "english": {
+      "male": "en-US-AriaNeural", 
+      "female": "en-US-JennyNeural"
+    }
+  },
+
+  "audio_config": {
+    "sample_rate": 22050,
+    "channels": 1,
+    "bit_depth": 16,
+    "format": "wav"
+  },
+
+  "performance_targets": {
+    "total_latency_ms": 1500,
+    "stt_latency_ms": 800,
+    "tts_latency_ms": 500
+  }
+}

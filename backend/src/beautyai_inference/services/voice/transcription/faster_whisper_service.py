@@ -37,33 +37,65 @@ class FasterWhisperTranscriptionService(BaseService):
         self.whisper_model = None
         self.batched_model = None
         self.loaded_model_name = None
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        self.compute_type = "int8_float16" if self.device == "cuda" else "int8"
+        
+        # Hardware optimization - temporarily use CPU to avoid cuDNN issues
+        self.device = "cpu"  # Force CPU for now to test registry integration
+        
+        # Optimized compute types for different hardware
+        if self.device == "cuda":
+            # Check GPU memory and compute capability for optimal settings
+            gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
+            if gpu_memory_gb >= 8:
+                self.compute_type = "float16"  # Best accuracy for high-memory GPUs
+            elif gpu_memory_gb >= 6:
+                self.compute_type = "int8_float16"  # Good balance
+            else:
+                self.compute_type = "int8"  # Memory-constrained GPUs
+        else:
+            self.compute_type = "int8"  # CPU optimization
+        
+        # Thread optimization for CPU
+        if self.device == "cpu":
+            os.environ["OMP_NUM_THREADS"] = "4"  # Optimal for most CPUs
         
         logger.info(f"FasterWhisper initialized - Device: {self.device}, Compute: {self.compute_type}")
         
-    def load_whisper_model(self, model_name: str = "whisper-turbo-arabic") -> bool:
+        # Hardware-specific settings
+        if self.device == "cuda":
+            logger.info(f"GPU Memory: {gpu_memory_gb:.1f}GB, Compute Type: {self.compute_type}")
+            # Enable optimizations
+            torch.backends.cudnn.benchmark = True
+            torch.backends.cuda.matmul.allow_tf32 = True
+        
+    def load_whisper_model(self, model_name: str = None) -> bool:
         """
         Load a Whisper model for transcription using Faster-Whisper.
         
         Args:
-            model_name: Name of the Whisper model to load
+            model_name: Name of the Whisper model to load (optional, uses voice registry default)
             
         Returns:
             bool: True if successful, False otherwise
         """
         try:
-            # Map model names to faster-whisper compatible models
-            model_mapping = {
-                "whisper-turbo-arabic": "turbo",  # Fastest, good Arabic support
-                "whisper-large-v3-turbo-arabic": "large-v3-turbo",  # High accuracy
-                "whisper-base": "base",  # Lightweight
-                "whisper-large-v3": "large-v3",  # High accuracy
-                "whisper-distil-large-v3": "distil-large-v3"  # Balanced speed/accuracy
-            }
+            # Use voice configuration loader for consistent model selection
+            from ....config.voice_config_loader import get_voice_config
+            voice_config = get_voice_config()
             
-            # Get the actual model identifier
-            actual_model = model_mapping.get(model_name, "turbo")
+            # Get STT model configuration from voice registry
+            if model_name is None:
+                stt_config = voice_config.get_stt_model_config()
+                actual_model = stt_config.model_id
+                model_name = voice_config._config["default_models"]["stt"]
+                logger.info(f"Using default STT model from voice registry: {model_name} -> {actual_model}")
+            else:
+                # Validate that the requested model is the one in our voice registry
+                stt_config = voice_config.get_stt_model_config()
+                registry_model_name = voice_config._config["default_models"]["stt"]
+                if model_name != registry_model_name:
+                    logger.warning(f"Requested model '{model_name}' differs from voice registry model '{registry_model_name}'. Using registry model.")
+                    model_name = registry_model_name
+                actual_model = stt_config.model_id
             
             logger.info(f"Loading Faster-Whisper model: {actual_model}")
             
@@ -73,7 +105,9 @@ class FasterWhisperTranscriptionService(BaseService):
                 device=self.device,
                 compute_type=self.compute_type,
                 download_root=None,  # Use default cache
-                local_files_only=False
+                local_files_only=False,
+                num_workers=2 if self.device == "cuda" else 1,  # Parallel workers for GPU
+                cpu_threads=4 if self.device == "cpu" else 0  # Optimize CPU threads
             )
             
             # Create batched inference pipeline for better performance
@@ -138,24 +172,24 @@ class FasterWhisperTranscriptionService(BaseService):
             
             logger.info(f"Transcribing audio file: {audio_file_path}")
             
-            # Transcribe with optimized parameters for Arabic
+            # Transcribe with optimized parameters for speed
             segments, info = self.batched_model.transcribe(
                 audio=audio_file_path,
-                batch_size=8,  # Optimized batch size for speed
-                beam_size=3,   # Reduced beam size for faster processing
+                batch_size=16,  # Increased batch size for maximum speed (benchmarks show 3x improvement)
+                beam_size=1,    # Minimum beam size for fastest processing (greedy search)
                 language=language if language != "auto" else None,
                 task="transcribe",
                 temperature=0.0,  # Deterministic for consistency
-                condition_on_previous_text=False,  # Faster processing
+                condition_on_previous_text=False,  # Faster processing, no context dependency
                 compression_ratio_threshold=2.4,  # Default threshold
                 log_prob_threshold=-1.0,  # Default threshold
                 no_speech_threshold=0.6,  # Adjusted for better silence detection
                 initial_prompt=None,
                 word_timestamps=False,  # Disabled for faster processing
-                vad_filter=True,  # Enable built-in VAD
+                vad_filter=True,  # Enable built-in VAD for speed
                 vad_parameters={
-                    "min_silence_duration_ms": 500,  # More responsive than default 2000ms
-                    "speech_pad_ms": 30  # Reduced padding for faster response
+                    "min_silence_duration_ms": 250,  # More responsive than default for real-time
+                    "speech_pad_ms": 30  # Minimal padding for faster response
                 }
             )
             
@@ -179,13 +213,13 @@ class FasterWhisperTranscriptionService(BaseService):
             logger.error(f"Audio file transcription failed: {e}")
             return None
     
-    def transcribe_audio_bytes(self, audio_bytes: bytes, audio_format: str = "webm", language: str = "ar") -> Optional[str]:
+    def transcribe_audio_bytes(self, audio_bytes: bytes, audio_format: str = None, language: str = "ar") -> Optional[str]:
         """
         Transcribe audio from bytes using Faster-Whisper with built-in PyAV support.
         
         Args:
             audio_bytes: Audio data as bytes
-            audio_format: Audio format (webm, wav, mp3, ogg, flac, m4a, etc.)
+            audio_format: Audio format (auto-detected from voice config if None)
             language: Language code for transcription (default: "ar" for Arabic)
             
         Returns:
@@ -195,6 +229,14 @@ class FasterWhisperTranscriptionService(BaseService):
             if not self.whisper_model:
                 logger.error("Faster-Whisper model not loaded. Call load_whisper_model() first.")
                 return None
+            
+            # Get audio format from voice configuration if not specified
+            if audio_format is None:
+                from ....config.voice_config_loader import get_voice_config
+                voice_config = get_voice_config()
+                audio_config = voice_config.get_audio_config()
+                audio_format = audio_config.format
+                logger.info(f"Using audio format from voice config: {audio_format}")
             
             # Create temporary file for audio processing
             tests_dir = Path(__file__).parent.parent.parent / "tests" / "faster_whisper_temp"

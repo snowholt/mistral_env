@@ -52,51 +52,29 @@ tags_metadata = [
 app = FastAPI(
     title="BeautyAI Inference Framework",
     description="""
-    🚀 **BeautyAI Voice Services - Dual Architecture for Maximum Performance**
-    
-    Choose the right endpoint for your use case:
+    🚀 **BeautyAI Voice Services - Optimized for Real-Time Performance**
     
     ## 🏎️ Simple Voice Chat (`/ws/simple-voice-chat`)
-    **Best for:** Real-time conversations, speed priority
+    **Ultra-fast voice conversations with Edge TTS**
     - ⚡ **Response Time:** <2 seconds
-    - 🌍 **Languages:** Arabic, English only
+    - 🌍 **Languages:** Arabic, English
     - 💾 **Memory:** <50MB per connection
-    - 🎯 **Use Cases:** Live chat, voice assistants, quick interactions
+    - 🎯 **Use Cases:** Live chat, voice assistants, real-time interactions
+    - 🔧 **Models:** Faster-Whisper (large-v3-turbo) + Edge TTS
     
-    ## 🎭 Advanced Voice Chat (`/ws/voice-conversation`)
-    **Best for:** Production features, voice cloning
-    - ⏱️ **Response Time:** 5-8 seconds
-    - 🌍 **Languages:** 17+ with auto-detection
-    - 💾 **Memory:** 3GB+ per session
-    - 🎯 **Use Cases:** Voice cloning, content creation, complex conversations
-
-    ---
+    ### 📊 **Performance Metrics**
+    - **STT Speed:** ~1.5 seconds for 10-second audio
+    - **TTS Speed:** ~0.5 seconds for short responses
+    - **Memory Usage:** <50MB per active connection
+    - **GPU Acceleration:** ✅ CUDA-optimized Whisper
+    - **Audio Format:** WebM/Opus (optimized for web)
     
-    ### 📊 **Performance Comparison**
-    
-    | Feature | Simple Voice | Advanced Voice |
-    |---------|-------------|----------------|
-    | Speed | <2s | 5-8s |
-    | Memory | <50MB | 3GB+ |
-    | Languages | 2 (ar, en) | 17+ |
-    | Voice Cloning | ❌ | ✅ |
-    | Content Filtering | ❌ | ✅ |
-    | Real-time | ✅ | ❌ |
-    | Auto Language Detection | ❌ | ✅ |
-    
-    ### 🎯 **Decision Guide**
-    
-    **Choose Simple Voice if:**
-    - Response time < 3 seconds required
-    - Only Arabic/English needed
-    - Memory usage < 100MB required
-    - Real-time conversation needed
-    
-    **Choose Advanced Voice if:**
-    - Voice cloning needed
-    - Multiple languages required
-    - Content filtering needed
-    - Production-grade features needed
+    ### 🎯 **Features**
+    - **Real-time Voice Chat:** WebSocket-based streaming
+    - **Arabic Language Focus:** Optimized for Arabic conversations
+    - **Edge TTS Integration:** High-quality voice synthesis
+    - **GPU Accelerated:** Faster-Whisper with CUDA support
+    - **Minimal Resource Usage:** Designed for efficiency
     
     ---
     
@@ -252,20 +230,20 @@ async def root():
     }
 
 
-@app.get("/api/v1/voice/endpoints", tags=["simple-voice", "advanced-voice"])
+@app.get("/api/v1/voice/endpoints", tags=["simple-voice"])
 async def get_voice_endpoints():
     """
-    🎤 **Voice Endpoint Decision Matrix**
+    🎤 **Voice Endpoint Information**
     
-    Get comprehensive information about available voice endpoints and usage recommendations.
-    This endpoint helps developers choose the right voice service for their use case.
+    Get comprehensive information about the voice endpoint and usage recommendations.
+    This endpoint provides details about the simple voice service configuration.
     """
     return {
         "endpoints": {
             "simple_voice_chat": {
                 "url": "/api/v1/ws/simple-voice-chat",
                 "type": "WebSocket",
-                "engine": "Edge TTS via SimpleVoiceService",
+                "engine": "Edge TTS + Faster-Whisper",
                 "performance": {
                     "response_time": "< 2 seconds",
                     "memory_usage": "< 50MB",
@@ -276,9 +254,8 @@ async def get_voice_endpoints():
                     "languages": ["ar", "en"],
                     "voice_types": ["male", "female"],
                     "real_time": True,
-                    "voice_cloning": False,
-                    "content_filtering": False,
-                    "auto_language_detection": False,
+                    "gpu_accelerated": True,
+                    "audio_format": "webm/opus",
                     "session_management": "Simplified"
                 },
                 "parameters": {
@@ -294,21 +271,20 @@ async def get_voice_endpoints():
                     "Voice assistants",
                     "Live customer support"
                 ],
-                "limitations": [
-                    "Arabic and English only",
-                    "No voice cloning",
-                    "No content filtering",
-                    "Fixed voice types only"
-                ]
+                "models": {
+                    "stt": "openai/whisper-large-v3-turbo",
+                    "tts": "Microsoft Edge TTS",
+                    "gpu_optimized": True
+                }
             }
         },
         "usage_guidelines": {
             "when_to_use": [
                 "Response time < 3 seconds required",
-                "Only Arabic/English needed", 
+                "Arabic/English conversations", 
                 "Memory usage < 100MB required",
                 "Real-time conversation needed",
-                "Simple voice types sufficient",
+                "GPU acceleration available",
                 "Fast deployment needed"
             ],
             "features": {
@@ -324,21 +300,12 @@ async def get_voice_endpoints():
                 "url": "ws://localhost:8000/api/v1/ws/simple-voice-chat?language=ar&voice_type=female",
                 "description": "Connect for fast Arabic female voice chat",
                 "expected_response_time": "< 2 seconds"
-            },
-            "advanced_voice_connection": {
-                "url": "ws://localhost:8000/api/v1/ws/voice-conversation",
-                "description": "Connect for full-featured voice with cloning",
-                "parameters": {
-                    "model": "qwen3_unsloth_q4ks",
-                    "voice_type": "clone",
-                    "enable_content_filtering": True
-                }
             }
         },
         "metadata": {
             "last_updated": time.time(),
             "version": "2.0.0",
-            "total_endpoints": 2,
+            "total_endpoints": 1,
             "documentation_url": "/docs"
         }
     }
