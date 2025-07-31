@@ -400,8 +400,8 @@ class SimpleVoiceService:
         try:
             # Initialize transcription service if needed (fallback for non-pre-loaded case)
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
-                self.transcription_service = FasterWhisperTranscriptionService()
+                from beautyai_inference.services.voice.transcription.transformers_whisper_service import TransformersWhisperService
+                self.transcription_service = TransformersWhisperService()
                 
                 # Use voice registry model
                 model_loaded = self.transcription_service.load_whisper_model()

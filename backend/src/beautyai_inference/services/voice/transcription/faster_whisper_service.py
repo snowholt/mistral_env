@@ -38,8 +38,8 @@ class FasterWhisperTranscriptionService(BaseService):
         self.batched_model = None
         self.loaded_model_name = None
         
-        # Hardware optimization - temporarily use CPU to avoid cuDNN issues
-        self.device = "cpu"  # Force CPU for now to test registry integration
+        # Hardware optimization - GPU acceleration now working!
+        self.device = "cuda" if torch.cuda.is_available() else "cpu"
         
         # Optimized compute types for different hardware
         if self.device == "cuda":

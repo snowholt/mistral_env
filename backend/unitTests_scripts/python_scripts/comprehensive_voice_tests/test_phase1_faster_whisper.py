@@ -23,16 +23,16 @@ import traceback
 backend_src = Path(__file__).parent.parent.parent.parent / "src"
 sys.path.insert(0, str(backend_src))
 
-from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
+from beautyai_inference.services.voice.transcription.transformers_whisper_service import TransformersWhisperService
 
 
-class FasterWhisperTester:
-    """Comprehensive tester for FasterWhisperTranscriptionService."""
+class TransformersWhisperTester:
+    """Comprehensive tester for TransformersWhisperService."""
     
     def __init__(self):
         self.service = None
         self.test_files_dir = Path("/home/lumi/beautyai/voice_tests/input_test_questions")
-        self.output_dir = Path("/home/lumi/beautyai/voice_tests/phase1_faster_whisper_results")
+        self.output_dir = Path("/home/lumi/beautyai/voice_tests/phase1_transformers_whisper_results")
         self.output_dir.mkdir(exist_ok=True)
         
         # Test results storage
@@ -68,12 +68,12 @@ class FasterWhisperTester:
         print(f"[{timestamp}] [{level}] {message}")
         
     def setup_service(self) -> bool:
-        """Initialize the FasterWhisperTranscriptionService."""
+        """Initialize the TransformersWhisperService."""
         try:
-            self.log("🚀 Initializing FasterWhisperTranscriptionService...")
+            self.log("🚀 Initializing TransformersWhisperService...")
             start_time = time.time()
             
-            self.service = FasterWhisperTranscriptionService()
+            self.service = TransformersWhisperService()
             
             # Test model loading
             self.log("📥 Loading whisper-turbo-arabic model...")
@@ -217,7 +217,7 @@ class FasterWhisperTester:
     
     def run_comprehensive_test(self):
         """Run all transcription tests."""
-        self.log("🎯 Starting Faster-Whisper Comprehensive Test")
+        self.log("🎯 Starting Transformers-Whisper Comprehensive Test")
         self.log("=" * 60)
         
         # Initialize service
@@ -265,7 +265,7 @@ class FasterWhisperTester:
     
     def save_results(self):
         """Save test results to JSON file."""
-        results_file = self.output_dir / f"faster_whisper_test_results_{int(time.time())}.json"
+        results_file = self.output_dir / f"transformers_whisper_test_results_{int(time.time())}.json"
         
         with open(results_file, 'w', encoding='utf-8') as f:
             json.dump(self.results, f, indent=2, ensure_ascii=False)
@@ -311,14 +311,14 @@ class FasterWhisperTester:
 
 def main():
     """Main test execution."""
-    print("🎤 Faster-Whisper Service Test - Phase 1")
+    print("🎤 Transformers-Whisper Service Test - Phase 1 (GPU Optimized)")
     print("=" * 60)
     
-    tester = FasterWhisperTester()
+    tester = TransformersWhisperTester()
     tester.run_comprehensive_test()
     
     print("\n✅ Phase 1 testing complete!")
-    print("📁 Check results in: /home/lumi/beautyai/voice_tests/phase1_faster_whisper_results/")
+    print("📁 Check results in: /home/lumi/beautyai/voice_tests/phase1_transformers_whisper_results/")
     print("📋 Review logs above for performance analysis")
 
 

@@ -3,10 +3,10 @@
   
   "models": {
     "whisper-turbo-arabic": {
-      "model_id": "large-v3-turbo",
-      "engine_type": "faster_whisper",
+      "model_id": "openai/whisper-large-v3-turbo",
+      "engine_type": "transformers",
       "type": "speech_to_text",
-      "description": "Whisper Large-v3-Turbo for Arabic/English speech recognition",
+      "description": "Whisper Large-v3-Turbo for Arabic/English speech recognition with GPU acceleration",
       "supported_languages": ["ar", "en"],
       "gpu_enabled": true,
       "documentation": {
@@ -15,10 +15,10 @@
         "paper": "https://arxiv.org/abs/2212.04356"
       },
       "model_info": {
-        "size": "809MB (compressed ~1.5GB download)",
-        "speed": "4x faster than large-v3, faster than tiny model",
+        "size": "809MB parameters (1.5GB download)",
+        "speed": "4x faster than large-v3, up to 4.5x with torch.compile",
         "architecture": "4 decoder layers (down from 32 in large models)",
-        "optimization": "Fine-tuned on transcription data (no translation)",
+        "optimization": "Fine-tuned on transcription data, supports GPU acceleration",
         "performance": "Similar to large-v2 accuracy with much better speed"
       }
     },
