@@ -80,6 +80,7 @@
       "quantization": "Q4_K_S",
       "dtype": "float16",
       "model_filename": "Qwen3-14B-Q4_K_S.gguf",
+      "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
       "tokenizer_model_id": "Qwen/Qwen3-14B",
       "max_new_tokens": 256,
       "name": "qwen3-unsloth-q4ks",

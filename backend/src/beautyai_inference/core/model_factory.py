@@ -16,12 +16,6 @@ except ImportError:
     LLAMACPP_AVAILABLE = False
 
 try:
-    from ..inference_engines.oute_tts_engine import OuteTTSEngine
-    OUTE_TTS_AVAILABLE = True
-except ImportError:
-    OUTE_TTS_AVAILABLE = False
-
-try:
     from ..inference_engines.edge_tts_engine import EdgeTTSEngine
     EDGE_TTS_AVAILABLE = True
 except ImportError:
@@ -99,19 +93,6 @@ class ModelFactory:
                 model_config.engine_type = "transformers"
                 model_config.quantization = "4bit"
                 return TransformersEngine(model_config)
-        
-        elif engine_type == "oute_tts":
-            logger.info(f"Creating OuteTTSEngine for model: {model_config.model_id}")
-            
-            if not OUTE_TTS_AVAILABLE:
-                logger.error("OuteTTS library not available. Install with: pip install outetts")
-                raise ImportError("OuteTTS library is required but not installed")
-            
-            try:
-                return OuteTTSEngine(model_config)
-            except Exception as e:
-                logger.error(f"Failed to create OuteTTSEngine: {e}")
-                raise RuntimeError(f"Failed to create OuteTTSEngine: {e}")
         
         elif engine_type == "edge_tts":
             logger.info(f"Creating EdgeTTSEngine for model: {model_config.model_id}")

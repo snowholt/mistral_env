@@ -28,6 +28,7 @@ class ModelConfig:
     description: Optional[str] = None  # Optional description of the model configuration
     model_architecture: str = "causal_lm"  # 'causal_lm' or 'seq2seq_lm'
     model_filename: Optional[str] = None  # Specific filename for GGUF models
+    model_path: Optional[str] = None  # Direct path to model file (overrides discovery logic)
     documentation: Optional[Dict[str, str]] = None  # Documentation for the model configuration
     custom_generation_params: Optional[Dict[str, Any]] = None  # Custom generation parameters
     # Tokenizer-related fields for GGUF models

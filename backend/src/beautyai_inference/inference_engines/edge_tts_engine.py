@@ -1,7 +1,7 @@
 """
 Edge TTS Text-to-Speech engine for BeautyAI Framework.
 Uses Microsoft Edge TTS for high-quality multilingual TTS generation.
-This is compatible with Python 3.12+ and works as an alternative to OuteTTS.
+This is compatible with Python 3.12+ .
 """
 
 import logging

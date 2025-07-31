@@ -115,7 +115,7 @@ class LlamaCppEngine(ModelInterface):
                 "cont_batching": True,
             })
         
-        # Model loading parameters - start with basic parameters for compatibility
+                # Model loading parameters - use minimal parameters for better compatibility
         model_params = {
             "model_path": model_path,
             "n_gpu_layers": n_gpu_layers,
@@ -123,27 +123,26 @@ class LlamaCppEngine(ModelInterface):
             "verbose": False,
         }
         
-        # Add advanced parameters only if they're likely to work
-        if has_cuda and n_gpu_layers > 0:
-            # Add GPU-specific parameters gradually
+        # Add only essential parameters that are known to work
+        if has_cuda and n_gpu_layers != 0:  # -1 means all layers, > 0 means specific number
+            # Add minimal GPU-specific parameters for compatibility
             model_params.update({
-                "n_batch": min(n_batch, 2048),  # Limit batch size to avoid issues
+                "n_batch": min(n_batch, 512),  # Use smaller batch size for compatibility
                 "n_threads": min(n_threads, 16),  # Limit threads
-                "main_gpu": 0,
-                "use_mmap": True,
-                "use_mlock": False,
             })
+            logger.info(f"Using GPU parameters: n_gpu_layers={n_gpu_layers}, n_batch={min(n_batch, 512)}")
         else:
             # CPU-only parameters
             model_params.update({
                 "n_batch": 512,
                 "n_threads": min(n_threads, 8),
-                "use_mmap": True,
-                "use_mlock": False,
             })
         
         try:
             logger.info(f"Initializing Llama with {n_gpu_layers} GPU layers, context: {n_ctx}")
+            logger.info(f"Model parameters:")
+            for key, value in model_params.items():
+                logger.info(f"  {key}: {value}")
             self.model = Llama(**model_params)
             
             loading_time = time.time() - start_time
@@ -161,6 +160,14 @@ class LlamaCppEngine(ModelInterface):
     
     def _find_gguf_model_path(self) -> Optional[str]:
         """Find the GGUF model file path."""
+        # Check if explicit model_path is provided in config
+        if hasattr(self.config, 'model_path') and self.config.model_path:
+            if os.path.exists(self.config.model_path):
+                logger.info(f"Using explicit model path: {self.config.model_path}")
+                return self.config.model_path
+            else:
+                logger.warning(f"Explicit model path not found: {self.config.model_path}")
+        
         # Check if model_filename is specified in config
         if hasattr(self.config, 'model_filename') and self.config.model_filename:
             filename = self.config.model_filename
@@ -199,11 +206,16 @@ class LlamaCppEngine(ModelInterface):
                 for dir_path in dirs:
                     full_path = os.path.join(dir_path, filename)
                     if os.path.exists(full_path):
-                        # Resolve symlinks to get the actual file path
-                        resolved_path = os.path.realpath(full_path)
-                        logger.info(f"Found GGUF model at: {full_path}")
-                        logger.info(f"Resolved symlink to: {resolved_path}")
-                        return resolved_path
+                        # Keep original path if it ends with .gguf (even if it's a symlink)
+                        if full_path.endswith('.gguf'):
+                            logger.info(f"Found GGUF model at: {full_path}")
+                            return full_path
+                        else:
+                            # Resolve symlinks only if original doesn't end with .gguf
+                            resolved_path = os.path.realpath(full_path)
+                            logger.info(f"Found GGUF model at: {full_path}")
+                            logger.info(f"Resolved symlink to: {resolved_path}")
+                            return resolved_path
         
         # If specific filename not found, search for any GGUF files
         logger.info("Specific filename not found, searching for any GGUF files...")
@@ -218,16 +230,25 @@ class LlamaCppEngine(ModelInterface):
                     # Prefer Q4_K_M quantization if available
                     for gguf_file in gguf_files:
                         if "Q4_K_M" in os.path.basename(gguf_file):
-                            resolved_path = os.path.realpath(gguf_file)
-                            logger.info(f"Found preferred Q4_K_M model: {gguf_file}")
-                            logger.info(f"Resolved symlink to: {resolved_path}")
-                            return resolved_path
+                            if gguf_file.endswith('.gguf'):
+                                logger.info(f"Found preferred Q4_K_M model: {gguf_file}")
+                                return gguf_file
+                            else:
+                                resolved_path = os.path.realpath(gguf_file)
+                                logger.info(f"Found preferred Q4_K_M model: {gguf_file}")
+                                logger.info(f"Resolved symlink to: {resolved_path}")
+                                return resolved_path
                     
                     # Otherwise use the first (largest) file
-                    resolved_path = os.path.realpath(gguf_files[0])
-                    logger.info(f"Found GGUF model: {gguf_files[0]}")
-                    logger.info(f"Resolved symlink to: {resolved_path}")
-                    return resolved_path
+                    first_file = gguf_files[0]
+                    if first_file.endswith('.gguf'):
+                        logger.info(f"Found GGUF model: {first_file}")
+                        return first_file
+                    else:
+                        resolved_path = os.path.realpath(first_file)
+                        logger.info(f"Found GGUF model: {first_file}")
+                        logger.info(f"Resolved symlink to: {resolved_path}")
+                        return resolved_path
         
         # Also check if it's a direct path
         if os.path.exists(self.config.model_id):
