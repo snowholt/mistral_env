@@ -33,6 +33,11 @@ class ModelConfig:
     # Tokenizer-related fields for GGUF models
     tokenizer_model_id: Optional[str] = None  # Fallback tokenizer model ID
     tokenizer_fallback: Optional[str] = None  # Alternative tokenizer fallback strategy
+    # llama.cpp specific parameters
+    n_gpu_layers: Optional[int] = None  # Number of layers to offload to GPU (-1 for all)
+    n_ctx: Optional[int] = None  # Context size for llama.cpp
+    n_batch: Optional[int] = None  # Batch size for llama.cpp
+    n_threads: Optional[int] = None  # Number of threads for llama.cpp
     # Store any extra fields that aren't explicitly defined
     extra_fields: Optional[Dict[str, Any]] = None
     
@@ -67,6 +72,16 @@ class ModelConfig:
             result["tokenizer_model_id"] = self.tokenizer_model_id
         if self.tokenizer_fallback is not None:
             result["tokenizer_fallback"] = self.tokenizer_fallback
+            
+        # Add llama.cpp fields if they exist
+        if self.n_gpu_layers is not None:
+            result["n_gpu_layers"] = self.n_gpu_layers
+        if self.n_ctx is not None:
+            result["n_ctx"] = self.n_ctx
+        if self.n_batch is not None:
+            result["n_batch"] = self.n_batch
+        if self.n_threads is not None:
+            result["n_threads"] = self.n_threads
             
         # Add any extra fields
         if self.extra_fields:
@@ -150,7 +165,8 @@ class ModelRegistry:
                 'temperature', 'top_p', 'do_sample', 'gpu_memory_utilization', 
                 'tensor_parallel_size', 'name', 'description', 'model_architecture',
                 'model_filename', 'documentation', 'custom_generation_params',
-                'tokenizer_model_id', 'tokenizer_fallback'
+                'tokenizer_model_id', 'tokenizer_fallback', 'n_gpu_layers', 'n_ctx',
+                'n_batch', 'n_threads'
             }
             
             config_fields = {}

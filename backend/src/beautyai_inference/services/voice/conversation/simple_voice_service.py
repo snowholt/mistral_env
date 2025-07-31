@@ -152,8 +152,8 @@ class SimpleVoiceService:
             
             # Pre-load transcription service with voice registry model
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
-                self.transcription_service = FasterWhisperTranscriptionService()
+                from beautyai_inference.services.voice.transcription.transformers_whisper_service import TransformersWhisperService
+                self.transcription_service = TransformersWhisperService()
             
             # Use voice registry default STT model
             model_loaded = self.transcription_service.load_whisper_model()  # Uses voice registry default
@@ -163,17 +163,17 @@ class SimpleVoiceService:
                 stt_config = self.voice_config.get_stt_model_config()
                 self.logger.info(f"✅ Voice registry STT model pre-loaded: {stt_config.model_id}")
             
-            # Pre-load chat service with default model
+            # Pre-load chat service with fastest model for 24/7 service
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
                 
-                # Load default model
-                success = self.chat_service.load_model("qwen3-unsloth-q4ks")
+                # Load the fastest model for persistent 24/7 service
+                success = self.chat_service.load_default_model_from_config()  # This will load qwen3-unsloth-q4ks
                 if success:
-                    self.logger.info("✅ Chat model pre-loaded successfully")
+                    self.logger.info("✅ Fastest chat model (qwen3-unsloth-q4ks) pre-loaded for 24/7 service")
                 else:
-                    self.logger.warning("Failed to pre-load chat model, will load on demand")
+                    self.logger.warning("Failed to pre-load fastest chat model, will load on demand")
             
             self.logger.info("🚀 Voice processing models pre-loading completed")
             
@@ -439,12 +439,12 @@ class SimpleVoiceService:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
                 
-                # Load default Arabic model - use the exact model name from registry
-                success = self.chat_service.load_model("qwen3-unsloth-q4ks")  # Default model from registry
+                # Try to load persistent default model first
+                success = self.chat_service.load_default_model_from_config()
                 if not success:
-                    logger.warning("Failed to load default model, trying alternatives...")
-                    # Try alternative models
-                    alternative_models = ["qwen3-model", "deepseek-r1-qwen-14b-multilingual", "qwen3-official-q4km"]
+                    logger.warning("Failed to load default model, trying registry alternatives...")
+                    # Try alternative models from registry
+                    alternative_models = ["qwen3-unsloth-q4ks", "qwen3-model", "deepseek-r1-qwen-14b-multilingual", "qwen3-official-q4km"]
                     for model in alternative_models:
                         if self.chat_service.load_model(model):
                             logger.info(f"Successfully loaded alternative model: {model}")
@@ -457,7 +457,6 @@ class SimpleVoiceService:
                             return "Sorry, I'm experiencing technical difficulties. Please try again."
             
             # Create optimized message for fast responses in simple voice mode
-            # Note: /no_think prefix causes empty responses, so we'll use a different approach
             if target_language == "ar":
                 optimized_message = f"أجب بإيجاز بالعربية: {text}"
             else:

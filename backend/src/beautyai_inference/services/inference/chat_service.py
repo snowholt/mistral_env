@@ -32,6 +32,54 @@ class ChatService(BaseService):
         self.model_manager = ModelManager()
         self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
+        self._default_model_loaded = False
+        self._default_model_name = None
+    
+    def load_default_model_from_config(self) -> bool:
+        """
+        Load the fastest model (qwen3-unsloth-q4ks) for persistent 24/7 service.
+        This ensures the model stays loaded on GPU for instant responses.
+        
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            from pathlib import Path
+            
+            # Use the fastest model for real-time voice conversation
+            model_name = "qwen3-unsloth-q4ks"
+            
+            # Get model configuration using absolute path
+            app_config = AppConfig()
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            models_file = config_dir / "model_registry.json"
+            app_config.models_file = str(models_file)
+            app_config.load_model_registry()
+            
+            model_config = app_config.model_registry.get_model(model_name)
+            if not model_config:
+                logger.error(f"Model configuration for '{model_name}' not found in registry")
+                return False
+            if not model_config:
+                logger.error(f"Model configuration for '{model_name}' not found in registry")
+                return False
+            
+            logger.info(f"Loading fastest model for 24/7 service: {model_name} ({model_config.model_id})")
+            
+            # Load the model and keep it persistent on GPU
+            model = self._ensure_model_loaded(model_name, model_config)
+            if model is not None:
+                self._default_model_loaded = True
+                self._default_model_name = model_name
+                logger.info(f"✅ Fastest model loaded successfully and ready on GPU: {model_name}")
+                return True
+            else:
+                logger.error(f"Failed to load fastest model: {model_name}")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to load default model from registry: {e}")
+            return False
     
     def load_model(self, model_name: str) -> bool:
         """
@@ -44,9 +92,15 @@ class ChatService(BaseService):
             bool: True if successful, False otherwise
         """
         try:
-            # Get model configuration
+            # Get model configuration using absolute path
+            from pathlib import Path
             app_config = AppConfig()
-            app_config.models_file = "beautyai_inference/config/model_registry.json"
+            
+            # Use absolute path to avoid working directory issues
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            models_file = config_dir / "model_registry.json"
+            app_config.models_file = str(models_file)
+            
             app_config.load_model_registry()
             
             model_config = app_config.model_registry.get_model(model_name)
@@ -80,13 +134,24 @@ class ChatService(BaseService):
             Dict with success status and response
         """
         try:
-            # Get the first loaded model (assume it's the one we want)
-            loaded_models = list(self.model_manager._loaded_models.keys())
-            if not loaded_models:
-                return {"success": False, "error": "No model loaded", "response": None}
-            
-            model_name = loaded_models[0]
-            model = self.model_manager.get_loaded_model(model_name)
+            # Try to use the persistent default model first
+            if self._default_model_loaded and self._default_model_name:
+                model_name = self._default_model_name
+                model = self.model_manager.get_loaded_model(model_name)
+                logger.info(f"Using persistent default model: {model_name}")
+            else:
+                # Fallback to any loaded model
+                loaded_models = list(self.model_manager._loaded_models.keys())
+                if not loaded_models:
+                    # Try to load default model if none are loaded
+                    if self.load_default_model_from_config():
+                        model_name = self._default_model_name
+                        model = self.model_manager.get_loaded_model(model_name)
+                    else:
+                        return {"success": False, "error": "No model loaded and failed to load default", "response": None}
+                else:
+                    model_name = loaded_models[0]
+                    model = self.model_manager.get_loaded_model(model_name)
             
             if not model:
                 return {"success": False, "error": f"Model {model_name} not available", "response": None}

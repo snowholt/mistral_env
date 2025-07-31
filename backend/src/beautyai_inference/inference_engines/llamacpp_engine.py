@@ -61,6 +61,19 @@ class LlamaCppEngine(ModelInterface):
         if not model_path:
             raise FileNotFoundError(f"Could not find GGUF model file for {self.config.model_id}")
         
+        # If the resolved path doesn't end with .gguf, create a temporary copy with proper extension
+        if not model_path.endswith('.gguf'):
+            import tempfile
+            import shutil
+            
+            # Create temporary file with .gguf extension
+            temp_dir = tempfile.mkdtemp()
+            temp_model_path = os.path.join(temp_dir, f"{self.config.model_filename or 'model.gguf'}")
+            
+            logger.info(f"Copying model from blob to temporary location: {temp_model_path}")
+            shutil.copy2(model_path, temp_model_path)
+            model_path = temp_model_path
+        
         logger.info(f"Loading GGUF file: {model_path}")
         
         # Enhanced CUDA detection and configuration
@@ -73,18 +86,20 @@ class LlamaCppEngine(ModelInterface):
             gpu_memory_gb = torch.cuda.get_device_properties(0).total_memory / (1024**3)
             logger.info(f"GPU: {gpu_name}, Memory: {gpu_memory_gb:.1f}GB")
             
-            # Use all layers on GPU (RTX 4090 has ample memory)
-            n_gpu_layers = -1
-            logger.info(f"Using all layers on GPU (n_gpu_layers={n_gpu_layers})")
+            # Use config value or default to all layers on GPU
+            n_gpu_layers = getattr(self.config, 'n_gpu_layers', -1)
+            logger.info(f"Using {n_gpu_layers} layers on GPU (from config)")
         else:
             n_gpu_layers = 0
             logger.warning("CUDA not available, using CPU-only mode")
         
-        # Optimized parameters for MAXIMUM speed on RTX 4090
-        n_ctx = 1024  # Ultra-reduced context size for maximum speed
-        n_batch = 8192  # Maximum batch size for RTX 4090 (24GB VRAM)
-        n_threads = 24  # Maximum CPU threads for preprocessing
-        n_threads_batch = 24  # Match main threads
+        # Use config values or optimized defaults for RTX 4090
+        n_ctx = getattr(self.config, 'n_ctx', 1024)  # Use config or reduced context size for speed
+        n_batch = getattr(self.config, 'n_batch', 8192)  # Use config or maximum batch size for RTX 4090
+        n_threads = getattr(self.config, 'n_threads', 24)  # Use config or maximum CPU threads
+        n_threads_batch = n_threads  # Match main threads
+        
+        logger.info(f"Model parameters from config: n_ctx={n_ctx}, n_batch={n_batch}, n_threads={n_threads}")
         
         # GPU-specific settings optimized for RTX 4090
         gpu_settings = {}
@@ -100,26 +115,32 @@ class LlamaCppEngine(ModelInterface):
                 "cont_batching": True,
             })
         
-        # Model loading parameters
+        # Model loading parameters - start with basic parameters for compatibility
         model_params = {
             "model_path": model_path,
             "n_gpu_layers": n_gpu_layers,
             "n_ctx": n_ctx,
-            "n_batch": n_batch,
-            "n_threads": n_threads,
-            "n_threads_batch": n_threads_batch,
             "verbose": False,
-            "use_mmap": True,
-            "use_mlock": False,
-            "rope_freq_base": 10000.0,
-            "rope_freq_scale": 1.0,
-            "f16_kv": True,
-            "logits_all": False,
-            "vocab_only": False,
-            "embedding": False,
-            "last_n_tokens_size": 64,
-            **gpu_settings
         }
+        
+        # Add advanced parameters only if they're likely to work
+        if has_cuda and n_gpu_layers > 0:
+            # Add GPU-specific parameters gradually
+            model_params.update({
+                "n_batch": min(n_batch, 2048),  # Limit batch size to avoid issues
+                "n_threads": min(n_threads, 16),  # Limit threads
+                "main_gpu": 0,
+                "use_mmap": True,
+                "use_mlock": False,
+            })
+        else:
+            # CPU-only parameters
+            model_params.update({
+                "n_batch": 512,
+                "n_threads": min(n_threads, 8),
+                "use_mmap": True,
+                "use_mlock": False,
+            })
         
         try:
             logger.info(f"Initializing Llama with {n_gpu_layers} GPU layers, context: {n_ctx}")
@@ -178,8 +199,11 @@ class LlamaCppEngine(ModelInterface):
                 for dir_path in dirs:
                     full_path = os.path.join(dir_path, filename)
                     if os.path.exists(full_path):
+                        # Resolve symlinks to get the actual file path
+                        resolved_path = os.path.realpath(full_path)
                         logger.info(f"Found GGUF model at: {full_path}")
-                        return full_path
+                        logger.info(f"Resolved symlink to: {resolved_path}")
+                        return resolved_path
         
         # If specific filename not found, search for any GGUF files
         logger.info("Specific filename not found, searching for any GGUF files...")
@@ -194,12 +218,16 @@ class LlamaCppEngine(ModelInterface):
                     # Prefer Q4_K_M quantization if available
                     for gguf_file in gguf_files:
                         if "Q4_K_M" in os.path.basename(gguf_file):
+                            resolved_path = os.path.realpath(gguf_file)
                             logger.info(f"Found preferred Q4_K_M model: {gguf_file}")
-                            return gguf_file
+                            logger.info(f"Resolved symlink to: {resolved_path}")
+                            return resolved_path
                     
                     # Otherwise use the first (largest) file
+                    resolved_path = os.path.realpath(gguf_files[0])
                     logger.info(f"Found GGUF model: {gguf_files[0]}")
-                    return gguf_files[0]
+                    logger.info(f"Resolved symlink to: {resolved_path}")
+                    return resolved_path
         
         # Also check if it's a direct path
         if os.path.exists(self.config.model_id):
