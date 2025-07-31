@@ -5,11 +5,9 @@ This is compatible with Python 3.12+ .
 """
 
 import logging
-import tempfile
 import os
-import io
 import asyncio
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, List
 from pathlib import Path
 
 from ..core.model_interface import ModelInterface
@@ -38,15 +36,13 @@ class EdgeTTSEngine(ModelInterface):
     
     def __init__(self, model_config: ModelConfig):
         """Initialize the Edge TTS engine with a model configuration."""
+        if not EDGE_TTS_AVAILABLE:
+            raise ImportError(
+                "edge-tts library is required. Install with: pip install edge-tts"
+            )
+        
         self.config = model_config
         self.model = None
-        self.mock_mode = not EDGE_TTS_AVAILABLE
-        
-        if not EDGE_TTS_AVAILABLE:
-            logger.warning(
-                "edge-tts library not available. Running in mock mode. "
-                "To enable full TTS functionality, install with: pip install edge-tts"
-            )
         
         # Language to voice mapping for Edge TTS
         self.voice_mapping = {
@@ -90,18 +86,8 @@ class EdgeTTSEngine(ModelInterface):
 
     def load_model(self) -> None:
         """Load the Edge TTS model (no actual loading required)."""
-        if self.mock_mode:
-            logger.info("Edge TTS running in mock mode - edge-tts library not available")
-            logger.info("Mock Edge TTS model loaded successfully")
-            return
-            
-        try:
-            logger.info("Edge TTS model ready - no loading required")
-            logger.info("Available languages: " + ", ".join(self.voice_mapping.keys()))
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize Edge TTS: {e}")
-            raise
+        logger.info("Edge TTS model ready - no loading required")
+        logger.info("Available languages: " + ", ".join(self.voice_mapping.keys()))
 
     def unload_model(self) -> None:
         """Unload the model (no action required for Edge TTS)."""
@@ -117,8 +103,6 @@ class EdgeTTSEngine(ModelInterface):
         language: str = "en",
         speaker_voice: Optional[str] = None,
         output_path: Optional[str] = None,
-        emotion: str = "neutral",
-        speed: float = 1.0,
         gender: str = "female",
         **kwargs
     ) -> str:
@@ -130,18 +114,13 @@ class EdgeTTSEngine(ModelInterface):
             language: Language code (en, ar, es, etc.)
             speaker_voice: Specific voice to use (overrides language mapping)
             output_path: Path to save the audio file (optional)
-            emotion: Emotion/style for the voice (not used in Edge TTS)
-            speed: Speech speed multiplier (not directly supported)
             gender: Voice gender ("female" or "male")
-            **kwargs: Additional parameters
+            **kwargs: Additional parameters (ignored for Edge TTS compatibility)
             
         Returns:
             str: Path to the generated audio file
         """
         try:
-            if self.mock_mode:
-                return self._generate_mock_audio(text, language, output_path)
-            
             # Select voice
             if speaker_voice is None:
                 if gender.lower() == "male" and language in self.male_voice_mapping:
@@ -178,77 +157,6 @@ class EdgeTTSEngine(ModelInterface):
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(output_path)
 
-    def _generate_mock_audio(self, text: str, language: str, output_path: Optional[str] = None) -> str:
-        """Generate mock audio when edge-tts is not available."""
-        if output_path is None:
-            tests_dir = Path(__file__).parent.parent.parent / "voice_tests"
-            tests_dir.mkdir(exist_ok=True)
-            output_path = tests_dir / f"mock_edge_tts_{language}.wav"
-            output_path = str(output_path)
-        
-        logger.info("Mock mode: Creating speech-like audio file with Edge TTS simulation")
-        
-        # Ensure the output directory exists
-        os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        
-        # Use the enhanced mock generation from OuteTTS engine
-        import wave
-        import math
-        import struct
-        
-        with wave.open(output_path, 'w') as wav_file:
-            wav_file.setnchannels(1)  # Mono
-            wav_file.setsampwidth(2)  # 16-bit
-            wav_file.setframerate(22050)
-            
-            words = text.split()
-            duration = max(2.0, len(words) * 0.35 + 0.5)  # Slightly faster than OuteTTS
-            num_samples = int(22050 * duration)
-            
-            # Edge TTS tends to have cleaner, more consistent voice
-            base_f0 = 160 if language == "ar" else 140  # Slightly different from OuteTTS
-            
-            audio_data = []
-            for i in range(num_samples):
-                t = i / 22050
-                word_duration = 0.35
-                silence_duration = 0.08
-                total_word_time = word_duration + silence_duration
-                
-                current_word_index = int(t / total_word_time)
-                local_time = (t % total_word_time)
-                
-                if current_word_index >= len(words) or local_time > word_duration:
-                    sample = 0
-                else:
-                    word_progress = local_time / word_duration
-                    f0 = base_f0 * (1.0 + 0.2 * math.sin(2 * math.pi * word_progress))
-                    
-                    # Edge TTS style - cleaner harmonics
-                    amplitude = 0.0
-                    amplitude += 0.7 * math.sin(2 * math.pi * f0 * t)
-                    amplitude += 0.3 * math.sin(2 * math.pi * f0 * 2 * t)
-                    amplitude += 0.2 * math.sin(2 * math.pi * f0 * 3 * t)
-                    
-                    # Smoother envelope
-                    if word_progress < 0.05:
-                        envelope = word_progress / 0.05
-                    elif word_progress > 0.9:
-                        envelope = (1.0 - word_progress) / 0.1
-                    else:
-                        envelope = 1.0
-                    
-                    amplitude *= envelope * 0.3
-                    sample = int(amplitude * 32767)
-                    sample = max(-32767, min(32767, sample))
-                
-                audio_data.append(struct.pack('<h', sample))
-            
-            wav_file.writeframes(b''.join(audio_data))
-        
-        logger.info(f"Mock Edge TTS audio saved to: {output_path}")
-        return output_path
-
     def get_available_speakers(self, language: str = None) -> List[str]:
         """Get available speakers for the specified language."""
         if language and language in self.voice_mapping:
@@ -280,8 +188,7 @@ class EdgeTTSEngine(ModelInterface):
             "generation_time": generation_time,
             "characters_per_second": chars_per_second,
             "audio_file": result_path,
-            "engine": "edge-tts",
-            "mock_mode": self.mock_mode
+            "engine": "edge-tts"
         }
 
     def chat_stream(self, messages: List[Dict[str, str]], callback=None, **kwargs) -> str:
@@ -307,6 +214,5 @@ class EdgeTTSEngine(ModelInterface):
             "languages": self.get_supported_languages(),
             "voices": len(self.voice_mapping),
             "gpu_required": False,
-            "python_compatibility": "3.7+",
-            "mock_mode": self.mock_mode
+            "python_compatibility": "3.12+"
         }
