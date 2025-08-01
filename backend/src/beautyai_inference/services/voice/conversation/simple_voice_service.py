@@ -367,6 +367,7 @@ class SimpleVoiceService:
             result = {
                 "transcribed_text": transcribed_text,
                 "response_text": response_text,
+                "response_text_clean": response_text,  # Already cleaned in _generate_chat_response
                 "audio_file_path": str(audio_output_path),
                 "processing_time": processing_time,
                 "voice_used": selected_voice,
@@ -395,7 +396,7 @@ class SimpleVoiceService:
             audio_data: Raw audio data in bytes format
             
         Returns:
-            Transcribed text from the audio
+            Transcribed text from the audio with /no_think suffix added
         """
         try:
             # Initialize transcription service if needed (fallback for non-pre-loaded case)
@@ -415,12 +416,40 @@ class SimpleVoiceService:
                 audio_format=self.audio_config.format,
                 language="ar"  # Default to Arabic for better Arabic language support
             )
-            logger.info(f"Transcribed audio: {result}")
-            return result if result else "unclear audio"
+            
+            # Add /no_think to disable thinking mode for voice conversations
+            if result and result.strip():
+                transcribed_text = result.strip() + " /no_think"
+                logger.info(f"Transcribed audio with /no_think: {transcribed_text}")
+                return transcribed_text
+            else:
+                return "unclear audio /no_think"
             
         except Exception as e:
             logger.error(f"Error transcribing audio: {e}")
-            return "unclear audio"
+            return "unclear audio /no_think"
+    
+    def _clean_thinking_blocks(self, text: str) -> str:
+        """
+        Remove <think>...</think> blocks from the response text.
+        
+        Args:
+            text: Raw response text that may contain thinking blocks
+            
+        Returns:
+            Clean text with thinking blocks removed
+        """
+        import re
+        
+        # Remove <think>...</think> blocks (including multiline content)
+        cleaned_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Clean up extra whitespace and newlines
+        cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)  # Remove multiple newlines
+        cleaned_text = cleaned_text.strip()  # Remove leading/trailing whitespace
+        
+        self.logger.debug(f"Cleaned thinking blocks from response: {len(text)} -> {len(cleaned_text)} chars")
+        return cleaned_text
     
     async def _generate_chat_response(self, text: str, target_language: str = "auto") -> str:
         """
@@ -471,9 +500,11 @@ class SimpleVoiceService:
             )
             
             if result.get("success"):
-                response = result.get("response", "")
-                logger.info(f"Generated chat response for {target_language}: {response[:100]}...")
-                return response
+                raw_response = result.get("response", "")
+                # Clean thinking blocks from the response before TTS
+                clean_response = self._clean_thinking_blocks(raw_response)
+                logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
+                return clean_response
             else:
                 error_msg = result.get("error", "Unknown error")
                 logger.error(f"Chat service error: {error_msg}")

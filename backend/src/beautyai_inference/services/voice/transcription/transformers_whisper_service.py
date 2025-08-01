@@ -45,6 +45,7 @@ class TransformersWhisperService(BaseService):
         super().__init__()
         self.model = None
         self.processor = None
+        self.pipe = None  # Add pipeline support
         self.loaded_model_name = None
         
         # Hardware optimization
@@ -110,8 +111,20 @@ class TransformersWhisperService(BaseService):
             # Load processor
             self.processor = AutoProcessor.from_pretrained(actual_model_id)
             
-            # Note: Using direct model interface instead of pipeline for better control
-            # and compatibility with various generation parameters
+            # Create optimized pipeline (recommended approach)
+            from transformers import pipeline
+            self.pipe = pipeline(
+                "automatic-speech-recognition",
+                model=self.model,
+                tokenizer=self.processor.tokenizer,
+                feature_extractor=self.processor.feature_extractor,
+                torch_dtype=self.torch_dtype,
+                device=self.device,
+                model_kwargs={
+                    "use_safetensors": self.use_safetensors,
+                    "low_cpu_mem_usage": self.low_cpu_mem_usage
+                }
+            )
             
             self.loaded_model_name = model_name
             logger.info(f"✅ Transformers Whisper model '{model_name}' ({actual_model_id}) loaded successfully")
@@ -123,7 +136,7 @@ class TransformersWhisperService(BaseService):
 
     def _prepare_audio_for_inference(self, audio_data: bytes, audio_format: str, target_sample_rate: int = 16000) -> np.ndarray:
         """
-        Prepare audio data for Whisper inference.
+        Prepare audio data for Whisper inference with optimal resampling.
         
         Args:
             audio_data: Raw audio bytes
@@ -131,7 +144,7 @@ class TransformersWhisperService(BaseService):
             target_sample_rate: Target sample rate for Whisper (16kHz)
             
         Returns:
-            numpy array of audio samples
+            numpy array of audio samples at 16kHz, mono, float32 in [-1, 1]
         """
         try:
             # Handle different audio formats
@@ -145,12 +158,41 @@ class TransformersWhisperService(BaseService):
                 audio_array = audio_array / np.iinfo(np.int16).max  # Normalize to [-1, 1]
                 sample_rate = audio_segment.frame_rate
             else:
-                # Use librosa for other formats
-                audio_array, sample_rate = librosa.load(io.BytesIO(audio_data), sr=None, mono=True)
+                # Use librosa for other formats with optimized settings
+                audio_array, sample_rate = librosa.load(
+                    io.BytesIO(audio_data), 
+                    sr=None,  # Keep original sample rate first
+                    mono=True,
+                    dtype=np.float32  # Ensure float32 precision
+                )
             
-            # Resample to target sample rate if needed
+            logger.debug(f"Original audio: {sample_rate}Hz, {len(audio_array)} samples, duration: {len(audio_array)/sample_rate:.2f}s")
+            
+            # High-quality resampling to target sample rate if needed
             if sample_rate != target_sample_rate:
-                audio_array = librosa.resample(audio_array, orig_sr=sample_rate, target_sr=target_sample_rate)
+                # Use high-quality resampling for better accuracy
+                audio_array = librosa.resample(
+                    audio_array, 
+                    orig_sr=sample_rate, 
+                    target_sr=target_sample_rate,
+                    res_type='kaiser_best'  # High-quality resampling
+                )
+                logger.debug(f"Resampled to: {target_sample_rate}Hz, {len(audio_array)} samples")
+            
+            # Ensure the audio is properly normalized
+            if np.max(np.abs(audio_array)) > 0:
+                # Light normalization to prevent clipping while preserving dynamics
+                max_val = np.max(np.abs(audio_array))
+                if max_val > 0.95:  # Only normalize if close to clipping
+                    audio_array = audio_array * (0.95 / max_val)
+            
+            # Ensure minimum length (Whisper works better with some minimum duration)
+            min_samples = target_sample_rate * 0.1  # 0.1 seconds minimum
+            if len(audio_array) < min_samples:
+                # Pad with silence if too short
+                padding = np.zeros(int(min_samples - len(audio_array)), dtype=np.float32)
+                audio_array = np.concatenate([audio_array, padding])
+                logger.debug(f"Padded short audio to {len(audio_array)} samples")
             
             return audio_array
             
@@ -165,7 +207,7 @@ class TransformersWhisperService(BaseService):
         language: Optional[str] = None
     ) -> str:
         """
-        Transcribe audio from bytes using the loaded Whisper model.
+        Transcribe audio from bytes using the Whisper pipeline (recommended approach).
         
         Args:
             audio_bytes: Audio data as bytes
@@ -176,63 +218,79 @@ class TransformersWhisperService(BaseService):
             Transcribed text
         """
         try:
-            if not self.model or not self.processor:
-                raise Exception("Whisper model not loaded. Call load_whisper_model() first.")
+            if not self.pipe:
+                raise Exception("Whisper pipeline not loaded. Call load_whisper_model() first.")
             
             # Prepare audio for inference
             audio_array = self._prepare_audio_for_inference(audio_bytes, audio_format)
             
-            # Convert to tensor
-            input_features = self.processor(
-                audio_array, 
-                sampling_rate=16000, 
-                return_tensors="pt"
-            ).input_features.to(self.device, dtype=self.torch_dtype)
+            # Log audio stats for debugging
+            logger.debug(f"Audio array shape: {audio_array.shape}, dtype: {audio_array.dtype}, "
+                        f"range: [{np.min(audio_array):.3f}, {np.max(audio_array):.3f}], "
+                        f"duration: {len(audio_array)/16000:.2f}s")
             
-            # Perform transcription
+            # Perform transcription using pipeline
             start_time = time.time()
             
-            # Generate with the model directly
-            with torch.no_grad():
-                # Simple generation without complex parameters
-                if language:
-                    if language == "ar":
-                        forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="arabic", task="transcribe")
-                    elif language == "en":
-                        forced_decoder_ids = self.processor.get_decoder_prompt_ids(language="english", task="transcribe")
-                    else:
-                        forced_decoder_ids = self.processor.get_decoder_prompt_ids(language=language, task="transcribe")
-                    
-                    predicted_ids = self.model.generate(
-                        input_features,
-                        forced_decoder_ids=forced_decoder_ids,
-                        max_new_tokens=256,
-                        num_beams=1,
-                        do_sample=False
-                    )
+            # Prepare pipeline parameters (simpler approach based on HF docs)
+            pipeline_kwargs = {}
+            
+            # Add language specification if provided
+            if language:
+                if language == "ar":
+                    pipeline_kwargs["language"] = "arabic"
+                elif language == "en":
+                    pipeline_kwargs["language"] = "english"
                 else:
-                    # Auto-detect language
-                    predicted_ids = self.model.generate(
-                        input_features,
-                        max_new_tokens=256,
-                        num_beams=1,
-                        do_sample=False
-                    )
+                    pipeline_kwargs["language"] = language
                 
-            # Decode the output
-            transcription = self.processor.batch_decode(predicted_ids, skip_special_tokens=True)[0]
+                # Always transcribe (don't translate)
+                pipeline_kwargs["task"] = "transcribe"
+                logger.debug(f"Using forced language: {pipeline_kwargs['language']}")
+            
+            # Call pipeline with audio array and sampling rate
+            # The pipeline expects a dict with 'array' and 'sampling_rate'
+            audio_input = {
+                "array": audio_array,
+                "sampling_rate": 16000
+            }
+            
+            # Use the pipeline with the prepared audio
+            # Note: language parameter goes in generate_kwargs for pipelines
+            if pipeline_kwargs:
+                result = self.pipe(audio_input, generate_kwargs=pipeline_kwargs)
+            else:
+                result = self.pipe(audio_input)
             
             transcription_time = time.time() - start_time
             
-            # Clean up the text
-            transcribed_text = transcription.strip() if transcription else ""
+            # Extract text from result
+            transcribed_text = result.get("text", "").strip() if result else ""
             
-            logger.info(f"Transcription completed in {transcription_time:.2f}s: '{transcribed_text[:100]}...'")
+            # Remove any potential whisper artifacts or thinking tokens
+            if transcribed_text.lower().startswith("unclear audio"):
+                logger.warning("Whisper returned 'unclear audio' - audio may be corrupted or too quiet")
+                transcribed_text = ""
+            
+            logger.info(f"Pipeline transcription completed in {transcription_time:.2f}s: '{transcribed_text[:100]}...'")
             return transcribed_text
             
         except Exception as e:
-            logger.error(f"Transcription failed: {e}")
-            return ""
+            logger.error(f"Pipeline transcription failed: {e}")
+            # Try fallback approach without language forcing
+            try:
+                logger.info("Attempting fallback transcription without language forcing...")
+                audio_input = {
+                    "array": audio_array,
+                    "sampling_rate": 16000
+                }
+                result = self.pipe(audio_input)
+                transcribed_text = result.get("text", "").strip() if result else ""
+                logger.info(f"Fallback transcription result: '{transcribed_text[:100]}...'")
+                return transcribed_text
+            except Exception as fallback_e:
+                logger.error(f"Fallback transcription also failed: {fallback_e}")
+                return ""
 
     def transcribe_audio_file(self, audio_file_path: str, language: Optional[str] = None) -> str:
         """
@@ -273,6 +331,10 @@ class TransformersWhisperService(BaseService):
     def cleanup(self):
         """Clean up GPU memory and resources."""
         try:
+            if self.pipe is not None:
+                del self.pipe
+                self.pipe = None
+                
             if self.model is not None:
                 del self.model
                 self.model = None
