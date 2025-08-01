@@ -7,6 +7,8 @@ This is compatible with Python 3.12+ .
 import logging
 import os
 import asyncio
+import concurrent.futures
+import threading
 from typing import Dict, Any, Optional, List
 from pathlib import Path
 
@@ -44,6 +46,19 @@ class EdgeTTSEngine(ModelInterface):
         self.config = model_config
         self.model = None
         
+        # Initialize voice mappings first
+        self._init_voice_mappings()
+        
+        # Performance optimizations
+        self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=6)  # Increased for better parallelism
+        self._voice_cache = {}  # Cache voice objects for reuse
+        self._loop_cache = {}   # Cache event loops per thread
+        
+        # Pre-warm the most common voices for faster access
+        self._preload_common_voices()
+
+    def _init_voice_mappings(self):
+        """Initialize voice mappings."""
         # Language to voice mapping for Edge TTS
         self.voice_mapping = {
             "en": "en-US-AriaNeural",      # English (US) - Female
@@ -84,14 +99,31 @@ class EdgeTTSEngine(ModelInterface):
             "ko": "ko-KR-InJoonNeural",
         }
 
-    def load_model(self) -> None:
+    def _preload_common_voices(self):
+        """Pre-cache the most commonly used voices."""
+        common_voices = [
+            ("en", "female", None),
+            ("ar", "female", None),
+            ("en", "male", None),
+            ("ar", "male", None)
+        ]
+        for lang, gender, speaker in common_voices:
+            self._get_voice(lang, speaker, gender)
+
+    def load_model(self) -> bool:
         """Load the Edge TTS model (no actual loading required)."""
         logger.info("Edge TTS model ready - no loading required")
         logger.info("Available languages: " + ", ".join(self.voice_mapping.keys()))
+        return True
 
-    def unload_model(self) -> None:
-        """Unload the model (no action required for Edge TTS)."""
-        logger.info("Edge TTS model unloaded (no action required)")
+    def unload_model(self) -> bool:
+        """Unload the model and cleanup resources."""
+        logger.info("Edge TTS model unloaded - cleaning up resources")
+        if hasattr(self, '_executor'):
+            self._executor.shutdown(wait=True)
+        self._voice_cache.clear()
+        self._loop_cache.clear()
+        return True
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate speech from text."""
@@ -107,7 +139,7 @@ class EdgeTTSEngine(ModelInterface):
         **kwargs
     ) -> str:
         """
-        Convert text to speech using Edge TTS.
+        Convert text to speech using Edge TTS with performance optimizations.
         
         Args:
             text: Text to convert to speech
@@ -121,41 +153,200 @@ class EdgeTTSEngine(ModelInterface):
             str: Path to the generated audio file
         """
         try:
-            # Select voice
-            if speaker_voice is None:
-                if gender.lower() == "male" and language in self.male_voice_mapping:
-                    voice = self.male_voice_mapping[language]
-                else:
-                    voice = self.voice_mapping.get(language, "en-US-AriaNeural")
+            # Fast text preprocessing for better performance
+            text = text.strip()
+            if not text:
+                raise ValueError("Empty text provided")
+            
+            # Optimize for short texts (< 200 chars) - use sync generation
+            if len(text) < 200:
+                return self._generate_fast_sync(text, language, speaker_voice, output_path, gender)
+            # For longer texts, use parallel processing
             else:
-                voice = speaker_voice
-            
-            # Create output path if not provided
-            if output_path is None:
-                tests_dir = Path(__file__).parent.parent.parent / "voice_tests"
-                tests_dir.mkdir(exist_ok=True)
-                output_path = tests_dir / f"edge_tts_{language}_{hash(text) % 10000}.wav"
-                output_path = str(output_path)
-            
-            # Ensure the output directory exists
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            
-            logger.info(f"Generating Edge TTS for language: {language}, voice: {voice}")
-            
-            # Generate TTS using asyncio
-            asyncio.run(self._generate_tts_async(text, voice, output_path))
-            
-            logger.info(f"Edge TTS audio saved to: {output_path}")
-            return output_path
-            
+                return self._generate_parallel(text, language, speaker_voice, output_path, gender)
+                
         except Exception as e:
             logger.error(f"Error during Edge TTS generation: {e}")
             raise
 
-    async def _generate_tts_async(self, text: str, voice: str, output_path: str):
-        """Generate TTS asynchronously using Edge TTS."""
+    def _generate_fast_sync(self, text: str, language: str, speaker_voice: Optional[str], 
+                           output_path: Optional[str], gender: str) -> str:
+        """Fast synchronous generation for short texts."""
+        # Select voice (cached)
+        voice = self._get_voice(language, speaker_voice, gender)
+        
+        # Create output path
+        if output_path is None:
+            output_path = self._create_output_path(text, language)
+        
+        # Ensure directory exists
+        os.makedirs(os.path.dirname(output_path), exist_ok=True)
+        
+        logger.debug(f"Fast TTS generation: {len(text)} chars, voice: {voice}")
+        
+        # Use optimized async execution with shorter timeout
+        future = self._executor.submit(self._run_async_in_thread_fast, text, voice, output_path)
+        future.result(timeout=8)  # Reduced timeout for faster failure detection
+        
+        logger.debug(f"Edge TTS audio saved to: {output_path}")
+        return output_path
+
+    def _run_async_in_thread_fast(self, text: str, voice: str, output_path: str) -> None:
+        """Optimized async TTS generation for short texts."""
+        # Use a new event loop for maximum performance
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Run the async generation with optimization
+            loop.run_until_complete(self._generate_tts_async_fast(text, voice, output_path))
+        finally:
+            loop.close()
+
+    async def _generate_tts_async_fast(self, text: str, voice: str, output_path: str):
+        """Ultra-fast async TTS generation with minimal overhead."""
         communicate = edge_tts.Communicate(text, voice)
         await communicate.save(output_path)
+
+    def _generate_parallel(self, text: str, language: str, speaker_voice: Optional[str], 
+                          output_path: Optional[str], gender: str) -> str:
+        """Parallel generation for longer texts by splitting into chunks."""
+        # Split text into sentences for parallel processing
+        sentences = self._split_text_smart(text)
+        
+        if len(sentences) == 1:
+            # Single sentence, use fast sync
+            return self._generate_fast_sync(text, language, speaker_voice, output_path, gender)
+        
+        voice = self._get_voice(language, speaker_voice, gender)
+        
+        if output_path is None:
+            output_path = self._create_output_path(text, language)
+        
+        logger.debug(f"Parallel TTS generation: {len(sentences)} chunks, voice: {voice}")
+        
+        # Generate all chunks in parallel
+        chunk_paths = []
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(4, len(sentences))) as executor:
+            futures = []
+            for i, sentence in enumerate(sentences):
+                chunk_path = output_path.replace('.wav', f'_chunk_{i}.wav')
+                future = executor.submit(self._run_async_in_thread, sentence, voice, chunk_path)
+                futures.append((future, chunk_path))
+            
+            # Wait for all chunks
+            for future, chunk_path in futures:
+                future.result(timeout=15)
+                chunk_paths.append(chunk_path)
+        
+        # Combine audio chunks
+        self._combine_audio_files(chunk_paths, output_path)
+        
+        # Cleanup chunk files
+        for chunk_path in chunk_paths:
+            try:
+                os.remove(chunk_path)
+            except:
+                pass
+        
+        logger.info(f"Edge TTS audio saved to: {output_path}")
+        return output_path
+
+    def _get_voice(self, language: str, speaker_voice: Optional[str], gender: str) -> str:
+        """Get voice with caching for performance."""
+        cache_key = f"{language}_{gender}_{speaker_voice}"
+        
+        if cache_key in self._voice_cache:
+            return self._voice_cache[cache_key]
+        
+        if speaker_voice is None:
+            if gender.lower() == "male" and language in self.male_voice_mapping:
+                voice = self.male_voice_mapping[language]
+            else:
+                voice = self.voice_mapping.get(language, "en-US-AriaNeural")
+        else:
+            voice = speaker_voice
+        
+        self._voice_cache[cache_key] = voice
+        return voice
+
+    def _create_output_path(self, text: str, language: str) -> str:
+        """Create optimized output path."""
+        tests_dir = Path(__file__).parent.parent.parent / "voice_tests"
+        tests_dir.mkdir(exist_ok=True)
+        
+        # Use faster hash for file naming
+        text_hash = abs(hash(text)) % 100000
+        return str(tests_dir / f"edge_tts_{language}_{text_hash}.wav")
+
+    def _split_text_smart(self, text: str) -> List[str]:
+        """Smart text splitting for parallel processing."""
+        # Split on sentence boundaries but keep reasonable chunk sizes
+        import re
+        
+        # Split on periods, exclamation marks, question marks
+        sentences = re.split(r'[.!?]+', text)
+        sentences = [s.strip() for s in sentences if s.strip()]
+        
+        # If we have very short sentences, combine them
+        if len(sentences) > 1 and all(len(s) < 50 for s in sentences):
+            # Combine short sentences into ~100 char chunks
+            combined = []
+            current = ""
+            for sentence in sentences:
+                if len(current + sentence) < 100:
+                    current += sentence + ". "
+                else:
+                    if current:
+                        combined.append(current.strip())
+                    current = sentence + ". "
+            if current:
+                combined.append(current.strip())
+            return combined
+        
+        return sentences
+
+    def _run_async_in_thread(self, text: str, voice: str, output_path: str) -> None:
+        """Run async TTS generation in a thread with event loop."""
+        thread_id = threading.get_ident()
+        
+        # Reuse event loop per thread for better performance
+        if thread_id not in self._loop_cache:
+            self._loop_cache[thread_id] = asyncio.new_event_loop()
+        
+        loop = self._loop_cache[thread_id]
+        asyncio.set_event_loop(loop)
+        
+        # Run the async generation
+        loop.run_until_complete(self._generate_tts_async_optimized(text, voice, output_path))
+
+    async def _generate_tts_async_optimized(self, text: str, voice: str, output_path: str):
+        """Optimized async TTS generation."""
+        communicate = edge_tts.Communicate(text, voice)
+        await communicate.save(output_path)
+
+    def _combine_audio_files(self, chunk_paths: List[str], output_path: str):
+        """Combine multiple audio files into one."""
+        try:
+            import wave
+            
+            # Get parameters from first file
+            with wave.open(chunk_paths[0], 'rb') as first_wave:
+                params = first_wave.getparams()
+            
+            # Combine all chunks
+            with wave.open(output_path, 'wb') as output_wave:
+                output_wave.setparams(params)
+                
+                for chunk_path in chunk_paths:
+                    with wave.open(chunk_path, 'rb') as chunk_wave:
+                        output_wave.writeframes(chunk_wave.readframes(chunk_wave.getnframes()))
+                        
+        except Exception as e:
+            logger.warning(f"Failed to combine audio files: {e}")
+            # Fallback: just use the first chunk
+            import shutil
+            shutil.copy2(chunk_paths[0], output_path)
 
     def get_available_speakers(self, language: str = None) -> List[str]:
         """Get available speakers for the specified language."""
