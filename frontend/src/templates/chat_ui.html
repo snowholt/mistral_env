@@ -1,0 +1,720 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeautyAI - Intelligent AI Assistant</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f7f7f8;
+            color: #202123;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        /* Header */
+        .header {
+            background: white;
+            border-bottom: 1px solid #e5e5e5;
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .logo {
+            font-size: 1.5rem;
+            font-weight: 600;
+            color: #2d3748;
+        }
+
+        .mode-selector {
+            display: flex;
+            background: #f1f3f4;
+            border-radius: 24px;
+            padding: 4px;
+        }
+
+        .mode-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border: none;
+            background: none;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+            color: #5f6368;
+        }
+
+        .mode-btn.active {
+            background: white;
+            color: #1a73e8;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        .settings-btn {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border: 1px solid #dadce0;
+            background: white;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.2s;
+        }
+
+        .settings-btn:hover {
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+        }
+
+        /* Main Content */
+        .main-content {
+            flex: 1;
+            display: flex;
+            overflow: hidden;
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            max-width: 768px;
+            margin: 0 auto;
+            width: 100%;
+        }
+
+        /* Chat Messages */
+        .messages-container {
+            flex: 1;
+            overflow-y: auto;
+            padding: 2rem;
+            scroll-behavior: smooth;
+        }
+
+        .message {
+            margin-bottom: 2rem;
+            display: flex;
+            gap: 12px;
+            align-items: flex-start;
+        }
+
+        .message.user {
+            flex-direction: row-reverse;
+        }
+
+        .message-avatar {
+            width: 32px;
+            height: 32px;
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 14px;
+            font-weight: 600;
+            flex-shrink: 0;
+        }
+
+        .message.user .message-avatar {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .message.assistant .message-avatar {
+            background: #34a853;
+            color: white;
+        }
+
+        .message-content {
+            background: white;
+            padding: 12px 16px;
+            border-radius: 12px;
+            box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+            max-width: 80%;
+            line-height: 1.5;
+        }
+
+        .message.user .message-content {
+            background: #1a73e8;
+            color: white;
+        }
+
+        .message-audio {
+            margin-top: 8px;
+        }
+
+        .message-audio audio {
+            width: 100%;
+            max-width: 300px;
+        }
+
+        .message-thinking {
+            background: #f8f9fa;
+            border: 1px solid #e9ecef;
+            border-radius: 8px;
+            padding: 12px;
+            margin-top: 8px;
+            font-size: 14px;
+            color: #6c757d;
+        }
+
+        .message-thinking summary {
+            cursor: pointer;
+            font-weight: 500;
+        }
+
+        /* Input Area */
+        .input-container {
+            padding: 1rem 2rem 2rem;
+            background: white;
+            border-top: 1px solid #e5e5e5;
+        }
+
+        .input-wrapper {
+            position: relative;
+            max-width: 768px;
+            margin: 0 auto;
+        }
+
+        .input-box {
+            display: flex;
+            align-items: flex-end;
+            background: white;
+            border: 1px solid #dadce0;
+            border-radius: 24px;
+            padding: 12px;
+            gap: 12px;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+            transition: border-color 0.2s;
+        }
+
+        .input-box:focus-within {
+            border-color: #1a73e8;
+            box-shadow: 0 2px 6px rgba(26,115,232,0.2);
+        }
+
+        .message-input {
+            flex: 1;
+            border: none;
+            outline: none;
+            resize: none;
+            font-size: 16px;
+            line-height: 1.5;
+            max-height: 200px;
+            min-height: 24px;
+            font-family: inherit;
+        }
+
+        .input-actions {
+            display: flex;
+            gap: 8px;
+            align-items: center;
+        }
+
+        .voice-toggle {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: #f1f3f4;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .voice-toggle:hover {
+            background: #e8f0fe;
+            color: #1a73e8;
+        }
+
+        .voice-toggle.recording {
+            background: #ea4335;
+            color: white;
+            animation: pulse 2s infinite;
+        }
+
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+            100% { transform: scale(1); }
+        }
+
+        .send-btn {
+            width: 40px;
+            height: 40px;
+            border: none;
+            background: #1a73e8;
+            color: white;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            transition: all 0.2s;
+        }
+
+        .send-btn:disabled {
+            background: #dadce0;
+            cursor: not-allowed;
+        }
+
+        .send-btn:not(:disabled):hover {
+            background: #1557b0;
+            transform: scale(1.05);
+        }
+
+        /* Voice Status */
+        .voice-status {
+            position: absolute;
+            bottom: 80px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(0,0,0,0.8);
+            color: white;
+            padding: 8px 16px;
+            border-radius: 16px;
+            font-size: 14px;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        .voice-status.show {
+            opacity: 1;
+        }
+
+        /* Settings Panel */
+        .settings-panel {
+            width: 320px;
+            background: white;
+            border-left: 1px solid #e5e5e5;
+            padding: 2rem;
+            overflow-y: auto;
+            transform: translateX(100%);
+            transition: transform 0.3s ease;
+        }
+
+        .settings-panel.open {
+            transform: translateX(0);
+        }
+
+        .settings-section {
+            margin-bottom: 2rem;
+        }
+
+        .settings-section h3 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #202123;
+        }
+
+        .setting-item {
+            margin-bottom: 1rem;
+        }
+
+        .setting-item label {
+            display: block;
+            font-size: 14px;
+            font-weight: 500;
+            margin-bottom: 4px;
+            color: #374151;
+        }
+
+        .setting-item input,
+        .setting-item select {
+            width: 100%;
+            padding: 8px 12px;
+            border: 1px solid #dadce0;
+            border-radius: 6px;
+            font-size: 14px;
+            background: white;
+        }
+
+        .setting-item input[type="range"] {
+            padding: 0;
+        }
+
+        .checkbox-item {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin-bottom: 8px;
+        }
+
+        .checkbox-item input[type="checkbox"] {
+            width: auto;
+            margin: 0;
+        }
+
+        .range-value {
+            font-size: 12px;
+            color: #6b7280;
+            margin-left: 8px;
+        }
+
+        /* Status Indicators */
+        .status-indicator {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 14px;
+            margin-bottom: 1rem;
+        }
+
+        .status-indicator.connected {
+            background: #d1fae5;
+            color: #047857;
+        }
+
+        .status-indicator.disconnected {
+            background: #fee2e2;
+            color: #dc2626;
+        }
+
+        .status-indicator.processing {
+            background: #fef3c7;
+            color: #d97706;
+        }
+
+        /* Responsive */
+        @media (max-width: 768px) {
+            .header {
+                padding: 1rem;
+            }
+
+            .main-content {
+                flex-direction: column;
+            }
+
+            .settings-panel {
+                position: fixed;
+                top: 0;
+                right: 0;
+                height: 100vh;
+                z-index: 1000;
+                box-shadow: -2px 0 10px rgba(0,0,0,0.1);
+            }
+
+            .messages-container {
+                padding: 1rem;
+            }
+
+            .input-container {
+                padding: 1rem;
+            }
+
+            .message-content {
+                max-width: 90%;
+            }
+        }
+
+        /* Loading Animation */
+        .typing-indicator {
+            display: flex;
+            gap: 4px;
+            padding: 12px;
+        }
+
+        .typing-indicator span {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #9ca3af;
+            animation: typing 1.4s infinite ease-in-out;
+        }
+
+        .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+        .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+
+        @keyframes typing {
+            0%, 80%, 100% { transform: scale(0.8); opacity: 0.5; }
+            40% { transform: scale(1); opacity: 1; }
+        }
+
+        /* Welcome Screen */
+        .welcome-screen {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            padding: 2rem;
+        }
+
+        .welcome-screen h2 {
+            font-size: 2rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #202123;
+        }
+
+        .welcome-screen p {
+            font-size: 1.1rem;
+            color: #6b7280;
+            margin-bottom: 2rem;
+            max-width: 500px;
+        }
+
+        .example-prompts {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 1rem;
+            width: 100%;
+            max-width: 600px;
+        }
+
+        .example-prompt {
+            background: white;
+            border: 1px solid #e5e5e5;
+            border-radius: 12px;
+            padding: 1rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+
+        .example-prompt:hover {
+            border-color: #1a73e8;
+            box-shadow: 0 2px 8px rgba(26,115,232,0.1);
+        }
+
+        .example-prompt h4 {
+            font-size: 14px;
+            font-weight: 600;
+            margin-bottom: 0.5rem;
+            color: #202123;
+        }
+
+        .example-prompt p {
+            font-size: 13px;
+            color: #6b7280;
+            margin: 0;
+        }
+
+        .hidden {
+            display: none !important;
+        }
+    </style>
+</head>
+<body>
+    <!-- Header -->
+    <div class="header">
+        <div class="logo">🎨 BeautyAI</div>
+        
+        <div class="mode-selector">
+            <button id="textModeBtn" class="mode-btn active">
+                💬 Text Chat
+            </button>
+            <button id="voiceModeBtn" class="mode-btn">
+                🎤 Voice Chat
+            </button>
+        </div>
+        
+        <button id="settingsBtn" class="settings-btn">
+            ⚙️ Settings
+        </button>
+    </div>
+
+    <!-- Main Content -->
+    <div class="main-content">
+        <!-- Chat Container -->
+        <div class="chat-container">
+            <!-- Welcome Screen -->
+            <div id="welcomeScreen" class="welcome-screen">
+                <h2>Welcome to BeautyAI</h2>
+                <p>Your intelligent AI assistant for Arabic and English conversations. Choose text or voice chat and start exploring!</p>
+                
+                <div class="example-prompts">
+                    <div class="example-prompt" onclick="setPrompt('ما هي أحدث تقنيات الذكاء الاصطناعي؟')">
+                        <h4>🤖 AI Technology</h4>
+                        <p>Ask about latest AI developments in Arabic</p>
+                    </div>
+                    <div class="example-prompt" onclick="setPrompt('Explain quantum computing in simple terms')">
+                        <h4>🔬 Science & Tech</h4>
+                        <p>Get complex topics explained simply</p>
+                    </div>
+                    <div class="example-prompt" onclick="setPrompt('اكتب لي قصة قصيرة عن المستقبل')">
+                        <h4>✍️ Creative Writing</h4>
+                        <p>Generate creative content in Arabic</p>
+                    </div>
+                    <div class="example-prompt" onclick="setPrompt('Help me plan a healthy meal for today')">
+                        <h4>🍎 Health & Wellness</h4>
+                        <p>Get personalized health advice</p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Messages Container -->
+            <div id="messagesContainer" class="messages-container hidden">
+                <!-- Messages will be inserted here -->
+            </div>
+
+            <!-- Input Container -->
+            <div class="input-container">
+                <!-- Voice Status -->
+                <div id="voiceStatus" class="voice-status">
+                    Listening...
+                </div>
+
+                <div class="input-wrapper">
+                    <div class="input-box">
+                        <textarea 
+                            id="messageInput" 
+                            class="message-input" 
+                            placeholder="Type your message here... (Enter to send, Shift+Enter for new line)"
+                            rows="1"
+                        ></textarea>
+                        
+                        <div class="input-actions">
+                            <button id="voiceToggle" class="voice-toggle" title="Voice input">
+                                🎤
+                            </button>
+                            <button id="sendBtn" class="send-btn" title="Send message">
+                                ➤
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div id="settingsPanel" class="settings-panel">
+            <!-- Connection Status -->
+            <div id="connectionStatus" class="status-indicator disconnected">
+                <span>●</span>
+                <span>Disconnected</span>
+            </div>
+
+            <!-- Model Settings -->
+            <div class="settings-section">
+                <h3>🤖 Model Settings</h3>
+                
+                <div class="setting-item">
+                    <label for="modelSelect">Model</label>
+                    <select id="modelSelect">
+                        <option value="qwen3-unsloth-q4ks">Qwen3 Unsloth (Fast)</option>
+                    </select>
+                </div>
+
+                <div class="setting-item">
+                    <label for="thinkingMode">Thinking Mode</label>
+                    <select id="thinkingMode">
+                        <option value="false">Disabled (Fast Response)</option>
+                        <option value="true">Enabled (Detailed Thinking)</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Generation Parameters -->
+            <div class="settings-section">
+                <h3>⚙️ Generation Parameters</h3>
+                
+                <div class="setting-item">
+                    <label for="temperature">Temperature <span id="tempValue" class="range-value">0.3</span></label>
+                    <input type="range" id="temperature" min="0.1" max="2.0" step="0.1" value="0.3">
+                </div>
+                
+                <div class="setting-item">
+                    <label for="topP">Top P <span id="topPValue" class="range-value">0.95</span></label>
+                    <input type="range" id="topP" min="0.1" max="1.0" step="0.05" value="0.95">
+                </div>
+                
+                <div class="setting-item">
+                    <label for="topK">Top K <span id="topKValue" class="range-value">20</span></label>
+                    <input type="range" id="topK" min="1" max="100" step="1" value="20">
+                </div>
+                
+                <div class="setting-item">
+                    <label for="maxTokens">Max Tokens <span id="maxTokensValue" class="range-value">2048</span></label>
+                    <input type="range" id="maxTokens" min="100" max="4096" step="100" value="2048">
+                </div>
+                
+                <div class="setting-item">
+                    <label for="repetitionPenalty">Repetition Penalty <span id="repPenaltyValue" class="range-value">1.1</span></label>
+                    <input type="range" id="repetitionPenalty" min="1.0" max="2.0" step="0.1" value="1.1">
+                </div>
+            </div>
+
+            <!-- Content Filtering -->
+            <div class="settings-section">
+                <h3>🛡️ Content Filtering</h3>
+                
+                <div class="checkbox-item">
+                    <input type="checkbox" id="disableFilter" checked>
+                    <label for="disableFilter">Disable Content Filter</label>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="filterStrictness">Filter Strictness</label>
+                    <select id="filterStrictness">
+                        <option value="disabled">Disabled</option>
+                        <option value="relaxed">Relaxed</option>
+                        <option value="balanced">Balanced</option>
+                        <option value="strict">Strict</option>
+                    </select>
+                </div>
+            </div>
+
+            <!-- Voice Settings -->
+            <div class="settings-section">
+                <h3>🎤 Voice Settings</h3>
+                
+                <div class="setting-item">
+                    <label for="language">Language</label>
+                    <select id="language">
+                        <option value="auto">Auto-detect</option>
+                        <option value="ar">Arabic (العربية)</option>
+                        <option value="en">English</option>
+                    </select>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="voice">Voice</label>
+                    <select id="voice">
+                        <option value="ar-SA-ZariyahNeural">Arabic Female (Zariyah)</option>
+                        <option value="ar-SA-HamedNeural">Arabic Male (Hamed)</option>
+                        <option value="en-US-JennyNeural">English Female (Jenny)</option>
+                        <option value="en-US-GuyNeural">English Male (Guy)</option>
+                    </select>
+                </div>
+
+                <div class="checkbox-item">
+                    <input type="checkbox" id="autoStart" checked>
+                    <label for="autoStart">Auto-start recording after response</label>
+                </div>
+                
+                <div class="checkbox-item">
+                    <input type="checkbox" id="autoStop" checked>
+                    <label for="autoStop">Auto-stop on silence</label>
+                </div>
+                
+                <div class="setting-item">
+                    <label for="silenceThreshold">Silence Threshold <span id="silenceValue" class="range-value">3.0s</span></label>
+                    <input type="range" id="silenceThreshold" min="1" max="5" step="0.5" value="3">
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/chat-interface.js') }}"></script>
+</body>
+</html>

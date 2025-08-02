@@ -395,12 +395,32 @@ chat_service = BeautyAIChatService()
 
 @app.route('/')
 def index():
-    """Main chat interface."""
+    """Modern chat interface with both text and voice support."""
     # Initialize session if needed
     if 'session_id' not in session:
         session['session_id'] = str(uuid.uuid4())
     
-    return render_template('index_modular.html')
+    return render_template('chat_ui.html')
+
+@app.route('/legacy')
+def legacy():
+    """Legacy simple voice interface."""
+    # Initialize session if needed
+    if 'session_id' not in session:
+        session['session_id'] = str(uuid.uuid4())
+    
+    return render_template('simple_voice_ui.html')
+
+@app.route('/ws/simple-voice')
+def simple_voice_websocket():
+    """WebSocket endpoint for simple voice-to-voice chat."""
+    # For now, provide info about the backend WebSocket
+    backend_ws_url = "ws://localhost:8000/ws/simple-voice"
+    return jsonify({
+        "message": "WebSocket endpoint available at backend",
+        "websocket_url": backend_ws_url,
+        "note": "Connect directly to backend WebSocket for real-time voice chat"
+    })
 
 @app.route('/debug')
 def debug():
