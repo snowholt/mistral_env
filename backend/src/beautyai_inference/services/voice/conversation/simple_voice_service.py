@@ -291,6 +291,7 @@ class SimpleVoiceService:
     async def process_voice_message(
         self,
         audio_data: bytes,
+        audio_format: str = "wav",  # Add audio_format parameter
         chat_model: str = "qwen-3",
         voice_id: Optional[str] = None,
         language: Optional[str] = None,
@@ -301,6 +302,7 @@ class SimpleVoiceService:
         
         Args:
             audio_data: Raw audio data in bytes
+            audio_format: Format of the audio data (webm, wav, mp3, etc.)
             chat_model: Name of the chat model to use for response generation
             voice_id: Specific voice ID to use (overrides auto-selection)
             language: Target language ('ar' or 'en'), auto-detected if None
@@ -318,13 +320,13 @@ class SimpleVoiceService:
         start_time = time.time()
         
         try:
-            self.logger.info(f"Processing voice message for language: {language}, gender: {gender}")
+            self.logger.info(f"Processing voice message: format={audio_format}, language={language}, gender={gender}")
             
-            # Step 1: Save audio data to temporary file for processing
-            audio_input_path = await self._save_audio_data(audio_data)
+            # Step 1: Save audio data to temporary file for processing (keeping original format info)
+            audio_input_path = await self._save_audio_data(audio_data, audio_format)
             
-            # Step 2: Transcribe audio to text (should be fast with pre-loaded model)
-            transcribed_text = await self._transcribe_audio(audio_data)
+            # Step 2: Transcribe audio to text with correct format and language specification
+            transcribed_text = await self._transcribe_audio(audio_data, audio_format, language)
             if transcribed_text.startswith("Sorry"):
                 # Handle transcription failure gracefully - use language-specific fallback
                 logger.warning("Transcription failed, using fallback response")
@@ -355,8 +357,8 @@ class SimpleVoiceService:
             # Step 5: Select appropriate voice
             selected_voice = voice_id or self._select_voice(detected_language, gender)
             
-            # Step 6: Synthesize speech using Edge TTS
-            audio_output_path = await self._synthesize_speech(response_text, selected_voice)
+            # Step 6: Synthesize speech using Edge TTS (WebM format for browser compatibility)
+            audio_output_path = await self._synthesize_speech(response_text, selected_voice, output_format="webm")
             
             # Calculate processing time
             processing_time = time.time() - start_time
@@ -381,19 +383,32 @@ class SimpleVoiceService:
             self.logger.error(f"Error processing voice message: {e}")
             raise Exception(f"Voice processing failed: {e}")
     
-    async def _save_audio_data(self, audio_data: bytes) -> Path:
-        """Save audio data to a temporary file."""
-        audio_file = self.temp_dir / f"input_{uuid.uuid4().hex}.wav"
+    async def _save_audio_data(self, audio_data: bytes, audio_format: str = "wav") -> Path:
+        """Save audio data to a temporary file with appropriate extension."""
+        # Use the correct file extension based on the actual audio format
+        file_extension = audio_format.lower()
+        if file_extension == "webm":
+            file_extension = "webm"
+        elif file_extension in ["wav", "wave"]:
+            file_extension = "wav"
+        elif file_extension in ["mp3", "mpeg"]:
+            file_extension = "mp3"
+        else:
+            file_extension = "wav"  # Default fallback
+            
+        audio_file = self.temp_dir / f"input_{uuid.uuid4().hex}.{file_extension}"
         with open(audio_file, 'wb') as f:
             f.write(audio_data)
         return audio_file
     
-    async def _transcribe_audio(self, audio_data: bytes) -> str:
+    async def _transcribe_audio(self, audio_data: bytes, audio_format: str = "wav", language: Optional[str] = None) -> str:
         """
         Transcribes audio data using Whisper transcription service.
         
         Args:
             audio_data: Raw audio data in bytes format
+            audio_format: Format of the audio data (webm, wav, mp3, etc.)
+            language: Language for transcription ('ar', 'en', or None for auto-detect)
             
         Returns:
             Transcribed text from the audio with /no_think suffix added
@@ -410,11 +425,11 @@ class SimpleVoiceService:
                     logger.warning("Failed to load voice registry STT model")
                     return "Sorry, I couldn't understand the audio."
             
-            # Use the transcription service with audio format from voice config
+            # Use the transcription service with the correct audio format and language
             result = self.transcription_service.transcribe_audio_bytes(
                 audio_data, 
-                audio_format=self.audio_config.format,
-                language="ar"  # Default to Arabic for better Arabic language support
+                audio_format=audio_format,  # Use the actual format instead of config
+                language=language  # Use the specified language instead of hardcoded "ar"
             )
             
             # Add /no_think to disable thinking mode for voice conversations
@@ -520,20 +535,21 @@ class SimpleVoiceService:
             else:
                 return "Sorry, I'm having trouble processing your request. Please try again."
     
-    async def _synthesize_speech(self, text: str, voice_id: str) -> Path:
+    async def _synthesize_speech(self, text: str, voice_id: str, output_format: str = "wav") -> Path:
         """
-        Synthesize speech using Edge TTS.
+        Synthesize speech using Edge TTS with flexible output format.
         
         Args:
             text: Text to synthesize
             voice_id: Edge TTS voice ID
+            output_format: Output format ('wav' or 'webm')
             
         Returns:
             Path to the generated audio file
         """
         try:
-            # Create output file path
-            output_file = self.temp_dir / f"output_{uuid.uuid4().hex}.wav"
+            # Create temporary WAV file first (Edge TTS always outputs WAV)
+            temp_wav_file = self.temp_dir / f"temp_{uuid.uuid4().hex}.wav"
             
             # Create Edge TTS communicate object
             communicate = edge_tts.Communicate(
@@ -543,18 +559,84 @@ class SimpleVoiceService:
                 pitch=self.speech_pitch
             )
             
-            # Generate speech and save to file
-            await communicate.save(str(output_file))
+            # Generate speech and save to temporary WAV file
+            await communicate.save(str(temp_wav_file))
             
-            if not output_file.exists():
-                raise Exception(f"Failed to generate speech file: {output_file}")
+            if not temp_wav_file.exists():
+                raise Exception(f"Failed to generate speech file: {temp_wav_file}")
             
-            self.logger.info(f"Speech synthesized: {output_file}")
-            return output_file
+            # If WebM output is requested, convert from WAV to WebM
+            if output_format.lower() == "webm":
+                output_file = self.temp_dir / f"output_{uuid.uuid4().hex}.webm"
+                await self._convert_audio_to_webm(temp_wav_file, output_file)
+                
+                # Clean up temporary WAV file
+                temp_wav_file.unlink(missing_ok=True)
+                
+                self.logger.info(f"Speech synthesized as WebM: {output_file}")
+                return output_file
+            else:
+                # Return WAV file (rename for consistency)
+                output_file = self.temp_dir / f"output_{uuid.uuid4().hex}.wav"
+                temp_wav_file.rename(output_file)
+                
+                self.logger.info(f"Speech synthesized as WAV: {output_file}")
+                return output_file
             
         except Exception as e:
             self.logger.error(f"Speech synthesis failed: {e}")
             raise Exception(f"Failed to synthesize speech: {e}")
+    
+    async def _convert_audio_to_webm(self, input_wav_path: Path, output_webm_path: Path):
+        """
+        Convert WAV audio to WebM format with browser-compatible settings using ffmpeg.
+        
+        Args:
+            input_wav_path: Path to input WAV file
+            output_webm_path: Path to output WebM file
+        """
+        try:
+            import subprocess
+            
+            # Use ffmpeg to convert WAV to WebM with Opus codec
+            # Settings optimized for browser compatibility:
+            # - 24kHz sample rate (good quality, not too large)
+            # - 64kbps bitrate (good quality, small size)
+            # - Opus codec (best browser support)
+            # - Mono channel (smaller file size)
+            cmd = [
+                'ffmpeg',
+                '-i', str(input_wav_path),          # Input WAV file
+                '-c:a', 'libopus',                  # Use Opus codec
+                '-b:a', '64k',                      # 64kbps bitrate
+                '-ar', '24000',                     # 24kHz sample rate
+                '-ac', '1',                         # Mono audio
+                '-y',                               # Overwrite output file
+                str(output_webm_path)               # Output WebM file
+            ]
+            
+            # Run ffmpeg conversion
+            result = subprocess.run(
+                cmd,
+                capture_output=True,
+                text=True,
+                timeout=30  # 30 second timeout
+            )
+            
+            if result.returncode != 0:
+                raise Exception(f"ffmpeg conversion failed: {result.stderr}")
+            
+            if not output_webm_path.exists():
+                raise Exception(f"Output file not created: {output_webm_path}")
+            
+            self.logger.info(f"Successfully converted audio: {input_wav_path} -> {output_webm_path}")
+            
+        except subprocess.TimeoutExpired:
+            self.logger.error("ffmpeg conversion timed out")
+            raise Exception("Audio conversion timed out")
+        except Exception as e:
+            self.logger.error(f"Audio conversion failed: {e}")
+            raise Exception(f"Failed to convert audio to WebM: {e}")
     
     async def text_to_speech(
         self,
@@ -583,8 +665,8 @@ class SimpleVoiceService:
             # Select voice
             selected_voice = voice_id or self._select_voice(language, gender)
             
-            # Synthesize speech
-            return await self._synthesize_speech(text, selected_voice)
+            # Synthesize speech (temporarily using WAV for stability)
+            return await self._synthesize_speech(text, selected_voice, output_format="wav")
             
         except Exception as e:
             self.logger.error(f"Text-to-speech conversion failed: {e}")

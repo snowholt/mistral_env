@@ -141,6 +141,33 @@ class SimpleVoiceWebSocketManager:
         except Exception as e:
             logger.error(f"❌ Error during simple voice service cleanup: {e}")
     
+    def _detect_audio_format(self, audio_data: bytes) -> str:
+        """
+        Detect audio format from binary data using magic bytes.
+        
+        Args:
+            audio_data: Raw audio bytes
+            
+        Returns:
+            Detected format as string (webm, wav, mp3, or webm as default)
+        """
+        if len(audio_data) < 12:
+            return "webm"  # Default for short data
+        
+        # Check for common audio format signatures
+        if audio_data.startswith(b'RIFF') and b'WAVE' in audio_data[:12]:
+            return "wav"
+        elif audio_data.startswith(b'\x1aEG') or audio_data.startswith(b'\x1a\x45\xdf\xa3'):
+            return "webm"  # WebM/Matroska header
+        elif audio_data.startswith(b'ID3') or audio_data.startswith(b'\xff\xfb') or audio_data.startswith(b'\xff\xf3'):
+            return "mp3"
+        elif audio_data.startswith(b'OggS'):
+            return "ogg"
+        else:
+            # Default to webm for WebSocket streaming (most common for real-time)
+            logger.debug(f"Unknown audio format, defaulting to webm. First 16 bytes: {audio_data[:16].hex()}")
+            return "webm"
+    
     async def send_message(self, connection_id: str, message: Dict[str, Any]) -> bool:
         """Send a message to a specific WebSocket connection."""
         if connection_id not in simple_voice_connections:
@@ -196,8 +223,13 @@ class SimpleVoiceWebSocketManager:
             # Note: For now we'll use a simplified flow since the service has placeholders
             # In a real implementation, this would call the full voice processing pipeline
             
+            # Detect audio format from the binary data
+            audio_format = self._detect_audio_format(audio_data)
+            logger.info(f"🎵 Detected audio format: {audio_format}")
+            
             # Save audio to temporary file for processing
-            with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as temp_file:
+            file_extension = audio_format if audio_format in ["webm", "wav", "mp3"] else "webm"
+            with tempfile.NamedTemporaryFile(suffix=f".{file_extension}", delete=False) as temp_file:
                 temp_file.write(audio_data)
                 temp_audio_path = temp_file.name
             
@@ -205,9 +237,10 @@ class SimpleVoiceWebSocketManager:
                 # Process with SimpleVoiceService
                 # Use the real voice processing pipeline
                 
-                # Process using SimpleVoiceService
+                # Process using SimpleVoiceService with correct audio format
                 result = await self.voice_service.process_voice_message(
                     audio_data=audio_data,
+                    audio_format=audio_format,  # Pass the detected format
                     language=language,
                     gender=voice_type
                 )
@@ -451,7 +484,7 @@ async def get_simple_voice_status():
         ],
         "audio_formats": {
             "input": ["webm", "wav", "mp3"],
-            "output": ["wav"]
+            "output": ["webm"]
         },
         "comparison_with_advanced": {
             "simple_endpoint": {
