@@ -75,6 +75,7 @@ app = FastAPI(
     - **Edge TTS Integration:** High-quality voice synthesis
     - **GPU Accelerated:** Faster-Whisper with CUDA support
     - **Minimal Resource Usage:** Designed for efficiency
+    - **Thinking Mode Support:** Use /think or /no_think in messages
     
     ---
     
@@ -88,14 +89,8 @@ app = FastAPI(
     openapi_tags=tags_metadata
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # Configure this for production
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# CORS is handled by nginx, so we don't need to add it here to avoid conflicts
+# Removing CORS middleware to prevent duplicate headers with nginx
 
 # Include routers with proper organization
 app.include_router(health_router)

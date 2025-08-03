@@ -121,6 +121,24 @@ class InferenceAPIAdapter(APIServiceAdapter):
             # Generate response using the model's chat method (this is sync, not async)
             response_text = model.chat(messages, **generation_params)
             logger.info(f"Model.chat() completed. Response length: {len(response_text)} characters")
+            
+            # DEBUG: Check if model has thinking content stored
+            thinking_content = None
+            final_content = response_text
+            
+            # Check if the model engine has stored thinking/final content after generation
+            if hasattr(model, '_last_generation_stats') and model._last_generation_stats:
+                stats = model._last_generation_stats
+                thinking_content = stats.get('thinking_content')
+                final_content = stats.get('final_content', response_text)
+                logger.info(f"🧠 DEBUG: Found thinking content: {thinking_content is not None}")
+                logger.info(f"📝 DEBUG: Final content: {final_content[:100]}...")
+                
+                # Use final content as the response if available
+                if final_content != response_text:
+                    logger.info("🔄 Using parsed final content instead of raw response")
+                    response_text = final_content
+                    
         except Exception as e:
             logger.error(f"Error during chat generation: {e}")
             raise InferenceError(f"Chat generation failed: {e}")

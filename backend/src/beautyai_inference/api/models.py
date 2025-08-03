@@ -143,8 +143,7 @@ class ChatRequest(APIRequest):
     early_stopping: Optional[bool] = None
     
     # Thinking Mode Control
-    enable_thinking: Optional[bool] = None  # True/False/None (auto-detect)
-    thinking_mode: Optional[str] = None     # "auto", "force", "disable"
+    enable_thinking: Optional[bool] = None  # True/False/None (auto-detect from /think /no_think commands)
     
     # Content Filtering Control
     disable_content_filter: bool = False    # Disable content filtering entirely
@@ -270,33 +269,35 @@ class ChatRequest(APIRequest):
         return presets.get(self.preset, presets["balanced"])
     
     def should_enable_thinking(self) -> bool:
-        """Determine if thinking mode should be enabled."""
-        if self.thinking_mode == "force":
-            return True
-        elif self.thinking_mode == "disable":
-            return False
-        elif self.enable_thinking is not None:
+        """Determine if thinking mode should be enabled based on /think /no_think commands."""
+        if self.enable_thinking is not None:
             return self.enable_thinking
         else:
-            # Auto-detect: check for /no_think in message
-            return not (self.message.strip().startswith("/no_think") or "/no_think" in self.message.lower())
+            # Auto-detect: check for /think or /no_think in message
+            message = self.message.strip().lower()
+            if "/no_think" in message:
+                return False
+            elif "/think" in message:
+                return True
+            else:
+                # Default: enable thinking for Qwen models
+                return True
     
     def get_processed_message(self) -> str:
-        """Get the message with thinking mode processing applied."""
+        """Get the message with thinking mode commands removed."""
         message = self.message.strip()
         
-        # Handle /no_think command
+        # Remove /think and /no_think commands from the message
         if message.startswith("/no_think"):
-            # Remove the command and return clean message
             return message[9:].strip()
+        elif message.startswith("/think"):
+            return message[6:].strip()
+        elif "/no_think" in message:
+            return message.replace("/no_think", "").strip()
+        elif "/think" in message:
+            return message.replace("/think", "").strip()
         
-        # Add thinking system message prefix if thinking is enabled
-        if self.should_enable_thinking():
-            # Check if model supports thinking (Qwen3, etc.)
-            return message  # Thinking will be handled by the model
-        else:
-            # Explicitly disable thinking
-            return message
+        return message
     
     def get_effective_content_filter_config(self) -> Dict[str, Any]:
         """Get the effective content filter configuration."""
@@ -590,7 +591,6 @@ class AudioChatRequest(APIRequest):
     
     # Thinking Mode Control
     enable_thinking: Optional[bool] = None
-    thinking_mode: Optional[str] = None
     
     # Content Filtering Control
     disable_content_filter: bool = False
@@ -695,15 +695,15 @@ class AudioChatRequest(APIRequest):
         if self.enable_thinking is not None:
             return self.enable_thinking
         
-        # Check thinking mode setting
-        if self.thinking_mode == "force":
-            return True
-        elif self.thinking_mode == "disable":
-            return False
-        
         # Auto-detect based on transcribed message (will be set later)
         transcribed_message = self.get_processed_message()
-        return not transcribed_message.startswith("/no_think")
+        if "/no_think" in transcribed_message.lower():
+            return False
+        elif "/think" in transcribed_message.lower():
+            return True
+        
+        # Default: enable thinking
+        return True
     
     def get_effective_content_filter_config(self) -> Dict[str, Any]:
         """Get the effective content filter configuration."""

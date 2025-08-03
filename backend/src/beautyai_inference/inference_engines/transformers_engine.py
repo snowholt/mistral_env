@@ -677,6 +677,39 @@ class TransformersEngine(ModelInterface):
             # Ensure the final result is a string
             if not isinstance(extracted_reply, str):
                 extracted_reply = str(extracted_reply)
+            
+            # Parse thinking content if Qwen model
+            thinking_content = None
+            final_content = extracted_reply
+            
+            # Check if this is a Qwen model that supports thinking
+            if hasattr(self.tokenizer, 'apply_chat_template') and 'qwen' in self.config.model_name.lower():
+                # For Qwen models, we need to parse using token IDs
+                # Re-tokenize the extracted reply to get token IDs for parsing
+                try:
+                    reply_ids = self.tokenizer.encode(extracted_reply, add_special_tokens=False)
+                    thinking_content, final_content = self._parse_thinking_content(reply_ids, enable_thinking)
+                    
+                    # Update statistics
+                    if thinking_content and hasattr(self, '_last_generation_stats'):
+                        thinking_tokens = len(self.tokenizer.encode(thinking_content, add_special_tokens=False))
+                        self._last_generation_stats['thinking_tokens'] = thinking_tokens
+                    
+                except Exception as e:
+                    logger.warning(f"Failed to parse thinking content: {e}")
+                    # Fallback: simple text-based removal if thinking is disabled
+                    if not enable_thinking and '<think>' in extracted_reply:
+                        import re
+                        final_content = re.sub(r'<think>.*?</think>\s*', '', extracted_reply, flags=re.DOTALL).strip()
+                        thinking_content = None
+            
+            # Store thinking content for API response
+            if hasattr(self, '_last_generation_stats'):
+                self._last_generation_stats['thinking_content'] = thinking_content
+                self._last_generation_stats['final_content'] = final_content
+            
+            # Return the final content (without thinking if disabled)
+            extracted_reply = final_content
                 
             return extracted_reply
             
@@ -750,6 +783,51 @@ class TransformersEngine(ModelInterface):
                 callback(token)
 
         return collected_response
+
+    def _parse_thinking_content(self, output_ids: list, enable_thinking: bool) -> tuple:
+        """
+        Parse thinking content from generated token IDs using official Qwen approach.
+        
+        Args:
+            output_ids: List of generated token IDs
+            enable_thinking: Whether thinking mode was enabled
+            
+        Returns:
+            tuple: (thinking_content, final_content)
+        """
+        if not enable_thinking or not output_ids:
+            # If thinking is disabled or no output, decode everything as final content
+            final_content = self.tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+            # Remove any residual thinking tags if they appear
+            if '<think>' in final_content and '</think>' in final_content:
+                import re
+                final_content = re.sub(r'<think>.*?</think>\s*', '', final_content, flags=re.DOTALL).strip()
+            return None, final_content
+        
+        try:
+            # Find the last occurrence of token 151668 (</think>)
+            # Using rindex approach from official Qwen documentation
+            index = len(output_ids) - output_ids[::-1].index(151668)
+        except ValueError:
+            # No </think> token found, treat everything as final content
+            final_content = self.tokenizer.decode(output_ids, skip_special_tokens=True).strip()
+            return None, final_content
+        
+        # Split into thinking and final content
+        thinking_ids = output_ids[:index]
+        final_ids = output_ids[index:]
+        
+        thinking_content = self.tokenizer.decode(thinking_ids, skip_special_tokens=True).strip()
+        final_content = self.tokenizer.decode(final_ids, skip_special_tokens=True).strip()
+        
+        # Clean up the thinking content (remove <think> tags)
+        if thinking_content.startswith('<think>'):
+            thinking_content = thinking_content[7:]  # Remove '<think>'
+        if thinking_content.endswith('</think>'):
+            thinking_content = thinking_content[:-8]  # Remove '</think>'
+        thinking_content = thinking_content.strip()
+        
+        return thinking_content if thinking_content else None, final_content
 
     def benchmark(self, prompt: str, **kwargs) -> Dict[str, Any]:
         """Run a benchmark on the model."""

@@ -375,7 +375,7 @@ class BeautyAIChat {
             const payload = {
                 model_name: this.modelSelect.value,
                 message: message,
-                thinking_mode: this.thinkingMode.value === 'true',
+                enable_thinking: this.thinkingMode.value === 'true',  // Send as boolean
                 disable_content_filter: this.disableFilter.checked,
                 content_filter_strictness: this.filterStrictness.value,
                 
@@ -401,7 +401,7 @@ class BeautyAIChat {
             const apiHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
                 ? 'http://localhost:8000' 
                 : 'https://api.gmai.sa';
-            const apiUrl = `${apiHost}/api/chat`;
+            const apiUrl = `${apiHost}/inference/chat`;
             console.log('💬 Sending chat request to:', apiUrl);
             const response = await fetch(apiUrl, {
                 method: 'POST',

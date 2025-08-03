@@ -297,13 +297,26 @@ async def chat_completion(
         thinking_content = None
         final_content = response_text
         
-        if thinking_enabled and "<think>" in response_text and "</think>" in response_text:
+        # Always check for and handle thinking content, regardless of thinking_enabled setting
+        if "<think>" in response_text and "</think>" in response_text:
             # Extract thinking and final content
             import re
             think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
             if think_match:
                 thinking_content = think_match.group(1).strip()
                 final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+                
+                # If thinking is disabled, we should not return the thinking content
+                if not thinking_enabled:
+                    thinking_content = None
+                    logger.info(f"🧠 Thinking content removed because thinking_enabled=False")
+            else:
+                # If we found thinking tags but couldn't extract properly, remove them
+                final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+        
+        # Ensure we have some content
+        if not final_content.strip():
+            final_content = response_text
         
         # Build enhanced response
         end_time = time.time()
