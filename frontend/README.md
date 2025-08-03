@@ -1,74 +1,114 @@
-# BeautyAI Frontend - Voice UI
+# BeautyAI Frontend Web UI
 
-This directory contains the web-based user interface for the BeautyAI Inference Framework, featuring advanced voice-to-voice conversation capabilities.
+Beautiful Flask-based web interface for interacting with BeautyAI models featuring animated 3D backgrounds and voice conversation capabilities.
 
-## Features
-
-- 🎤 **Real-time Voice Chat**: WebSocket-based voice conversation
-- 🌍 **Multi-language Support**: Arabic and English voice processing
-- 🎨 **Modern Web UI**: Responsive design with modular components
-- 🔧 **Multiple Modes**: Simple and advanced voice processing options
-- 📱 **Cross-platform**: Works on desktop and mobile browsers
-
-## Getting Started
-
-### Prerequisites
-- Python 3.11+ (for Flask backend)
-- Modern web browser with WebRTC support
-
-### Installation
+## 🚀 Quick Start
 
 ```bash
-# Create virtual environment for frontend
-python3 -m venv frontend_env
-source frontend_env/bin/activate
-
-# Install Python dependencies
+# Setup and installation
+cd frontend
+python3 -m venv venv
+source venv/bin/activate
 pip install -r requirements.txt
 
 # Start the web UI server
 python src/app.py
 ```
 
-## Project Structure
+**Web Interface**: http://localhost:5001
+
+## 📁 Project Structure
 
 ```
 frontend/
 ├── src/
-│   ├── app.py              # Flask web server
-│   ├── config.json         # Configuration settings
-│   ├── templates/          # HTML templates
-│   │   ├── index.html      # Main UI
-│   │   ├── index_modular.html  # Modular UI
-│   │   └── components/     # Reusable components
+│   ├── app.py                      # Flask application with all routes
+│   ├── config.json                 # Frontend configuration
+│   ├── templates/
+│   │   ├── index.html             # Main chat interface with 3D animations
+│   │   ├── legacy.html            # Legacy interface
+│   │   └── debug.html             # Debug and testing interface
 │   └── static/
-│       ├── css/           # Stylesheets
-│       ├── js/            # JavaScript files
-│       └── test_websocket_wss.html  # WebSocket tests
-├── docs/                  # Documentation
-├── requirements.txt       # Python dependencies  
-└── package.json          # Project metadata
+│       ├── css/                   # Stylesheets with animations
+│       ├── js/                    # JavaScript for voice and chat
+│       └── assets/                # Images and static files
+├── package.json                   # Project metadata
+├── requirements.txt               # Python dependencies
+└── docs/                          # Frontend-specific documentation
 ```
 
-## Backend Integration
+## ✨ Features
+
+### Beautiful User Interface
+- **Animated 3D Fractal Background**: Responsive geometric animations
+- **Modern Design**: Clean, intuitive chat interface
+- **Responsive Layout**: Works on desktop and mobile devices
+- **Real-time Chat**: Live message streaming with typing indicators
+
+### Voice Conversation
+- **One-Click Voice Chat**: Click microphone button to start talking
+- **Real-time Audio**: WebSocket-based voice conversation
+- **Automatic Language Detection**: Supports Arabic and English
+- **Visual Feedback**: Voice activity indicators and status displays
+
+### Chat Features
+- **Model Selection**: Switch between available AI models
+- **Parameter Control**: Adjust temperature, max tokens, and other settings
+- **Chat History**: Session management and conversation persistence
+- **Export Options**: Save conversations and audio responses
+
+## 🔧 Backend Integration
 
 The frontend communicates with the backend API:
 - **REST API**: `http://localhost:8000`
-- **Simple Voice WebSocket**: `ws://localhost:8000/ws/simple-voice-chat`
-- **Advanced Voice WebSocket**: `ws://localhost:8000/ws/voice-conversation`
+- **Simple Voice WebSocket**: `ws://localhost:8000/ws/voice-conversation`
 - **API Documentation**: `http://localhost:8000/docs`
 
-## Usage
+## 🎤 Voice Features
 
-1. Start the backend API server (from backend directory)
-2. Start the frontend web UI (from frontend directory)  
-3. Open browser to `http://localhost:5000`
-4. Click microphone button to start voice conversation
+### Supported Audio Formats
+- **Input**: WAV, MP3, WebM, OGG
+- **Output**: WAV (for download), WebM (for streaming)
+- **Recommended**: WAV for best quality and compatibility
 
-## Documentation
+## 🔧 Development
 
-Detailed documentation is available in the `docs/` directory:
-- WebSocket implementation guides
-- Voice processing workflows
-- SSL/HTTPS configuration
-- Troubleshooting guides
+### Development Server
+```bash
+# Start in development mode with auto-reload
+python src/app.py --dev
+
+# Or with debug mode
+python src/app.py --debug
+```
+
+## 🐛 Troubleshooting
+
+### Common Issues
+
+**Frontend Won't Start**:
+```bash
+# Check if port is available
+netstat -tulpn | grep :5001
+
+# Check Flask dependencies
+pip install -r requirements.txt
+
+# Start with debug mode
+python src/app.py --debug
+```
+
+**Voice Features Not Working**:
+```bash
+# Check microphone permissions in browser
+# Verify backend API is running
+curl http://localhost:8000/health
+
+# Test WebSocket connection
+curl http://localhost:8000/ws/voice-conversation/status
+```
+
+---
+
+For backend documentation, see [`../backend/README.md`](../backend/README.md)  
+For main project overview, see [`../README.md`](../README.md)

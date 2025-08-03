@@ -1,39 +1,193 @@
 # BeautyAI Inference Framework
 
-A scalable, professional-grade inference framework for various language models, specializing in Arabic AI models but supporting multilingual capabilities. The framework features both unified CLI and REST API interfaces with advanced voice-to-voice conversation capabilities, multiple inference backends, quantization options, and comprehensive model lifecycle management.
+A scalable, professional-grade inference framework for various language models, specializing in Arabic AI models but supporting multilingual capabilities. The framework features a dual-stack architecture with CLI interface, FastAPI backend, and beautiful web UI with advanced voice-to-voice conversation capabilities.
 
 ## 🚀 Key Features
 
-### Core Capabilities
-- **Unified CLI Interface**: Single `beautyai` command with organized subcommands for all functionality
-- **REST API**: FastAPI-based web service with comprehensive endpoints for programmatic access
-- **Voice-to-Voice Conversations**: Real-time WebSocket and HTTP endpoints for voice interactions with automatic language detection
-- **Multiple Inference Backends**: Hugging Face Transformers, LlamaCpp (GGUF), and optional vLLM support
-- **Advanced Text-to-Speech**: Coqui TTS with multilingual support, Edge TTS integration
-- **Speech Recognition**: Whisper models optimized for Arabic with multilingual capabilities
-- **Flexible Quantization**: 4-bit/8-bit with Transformers, Q4_K_M/Q6_K GGUF quantization with LlamaCpp
-- **Multi-Architecture Support**: Causal language models (Qwen, Mistral, DeepSeek) and sequence-to-sequence models
-- **Interactive Chat**: Real-time streaming chat interface with advanced parameter control and thinking mode
-- **Performance Tools**: Comprehensive benchmarking and memory monitoring capabilities
-- **Model Registry**: Centralized configuration management with validation and versioning
+- **🎯 Unified CLI Interface**: Single `beautyai` command with organized subcommands
+- **🌐 FastAPI Backend**: High-performance REST API with WebSocket voice features  
+- **🎨 Beautiful Web UI**: Flask interface with animated 3D backgrounds and voice controls
+- **🎤 Ultra-Fast Voice Chat**: Real-time voice conversations with <2 second response times
+- **🔧 Multiple Inference Backends**: Transformers (primary), LlamaCpp, optional vLLM
+- **⚡ Smart Quantization**: 4-bit/8-bit quantization for memory efficiency
+- **🌍 Multilingual Support**: Arabic specialization with broad language support
+- **📊 Performance Tools**: Benchmarking, memory monitoring, and optimization
+- **🔄 Model Management**: Centralized registry with lifecycle management
+- **🎛️ Advanced Parameters**: 25+ chat parameters with optimized presets
 
-### Advanced Voice Features
-- **Real-time WebSocket Voice Chat**: Bidirectional voice conversation with streaming audio
-- **Automatic Language Detection**: Smart detection of input language with confidence scoring
-- **Voice-to-Voice Pipeline**: Complete STT → LLM → TTS pipeline with session management
-- **Multi-TTS Engine Support**: Coqui TTS (primary), Edge TTS, with voice cloning capabilities
-- **Arabic Voice Optimization**: Specialized Arabic TTS models with natural speech synthesis
-- **Content Filtering**: Configurable content filtering with multiple strictness levels
-- **Session Persistence**: Conversation history tracking across voice interactions
+## 🏗️ Architecture
 
-### Architecture Highlights
-- **Service-Oriented Architecture**: 15+ specialized services for maximum modularity and testability
-- **Factory Pattern**: Intelligent model engine selection with automatic fallback strategies
-- **Singleton Pattern**: Centralized model lifecycle management with cross-process state tracking
-- **Configuration Management**: JSON-based configuration with validation, backup, and migration support
-- **Memory Optimization**: GPU memory monitoring with automatic cleanup and cache management
-- **API-Ready Design**: Services built for both CLI and web interface deployment
-- **Voice Service Architecture**: Modular voice services for transcription, synthesis, and conversation management
+```
+BeautyAI/
+├── 🔧 backend/          # FastAPI server (port 8000)
+│   ├── CLI interface    # beautyai command
+│   ├── REST API         # /docs, /models, /inference
+│   ├── WebSocket        # /ws/voice-conversation
+│   └── Services         # 15+ specialized services
+└── 🎨 frontend/         # Flask web UI (port 5001)
+    ├── Chat interface   # Animated 3D backgrounds
+    ├── Voice controls   # One-click voice chat
+    └── Model management # Real-time status
+```
+
+## 🚀 Quick Start
+
+### 1. Backend Setup (Required)
+```bash
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Start API server
+python run_server.py
+```
+📚 **API Docs**: http://localhost:8000/docs
+
+### 2. Frontend Setup (Optional - for Web UI)
+```bash
+cd frontend  
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Start web interface
+python src/app.py
+```
+🎨 **Web UI**: http://localhost:5001
+
+### 3. CLI Usage
+```bash
+cd backend
+source venv/bin/activate
+
+# Show all commands
+beautyai --help
+
+# Start interactive chat
+beautyai run chat
+
+# List models and check status
+beautyai model list
+beautyai system status
+```
+
+## 🎤 Voice Features
+
+### Ultra-Fast Voice Chat
+- **Response Time**: <2 seconds end-to-end
+- **Technology**: Edge TTS + WebSocket streaming
+- **Languages**: Arabic and English with auto-detection
+- **Access**: Web UI microphone button or WebSocket API
+
+### WebSocket API Example
+```javascript
+const ws = new WebSocket('ws://localhost:8000/ws/voice-conversation');
+
+ws.onmessage = (event) => {
+    const response = JSON.parse(event.data);
+    if (response.type === 'voice_response') {
+        // Play audio response
+        playAudio(response.audio_base64);
+    }
+};
+
+// Send audio data
+ws.send(audioBlob);
+```
+
+## ⚙️ Configuration
+
+### Model Registry
+Models are configured in `backend/src/model_registry.json`:
+```json
+{
+  "default_model": "default",
+  "models": {
+    "default": {
+      "model_id": "Qwen/Qwen3-14B",
+      "engine_type": "transformers",
+      "quantization": "4bit"
+    }
+  }
+}
+```
+
+### Adding Models
+```bash
+beautyai model add --name "custom-model" \
+                   --model-id "organization/model-name" \
+                   --engine transformers \
+                   --quantization 4bit
+```
+
+## 🚀 Production Deployment
+
+### System Services
+```bash
+# Backend API service
+cd backend/unitTests_scripts/shell_scripts
+./manage-api-service.sh install
+./manage-api-service.sh start
+
+# Frontend web UI service
+sudo systemctl enable beautyai-webui
+sudo systemctl start beautyai-webui
+```
+
+### Nginx Configuration
+SSL-ready configuration included for production deployment with proper WebSocket proxying.
+
+## 📚 Documentation
+
+### Detailed Documentation
+- **[Backend Documentation](backend/README.md)**: API, CLI, services, development
+- **[Frontend Documentation](frontend/README.md)**: Web UI, voice features, customization
+- **API Reference**: http://localhost:8000/docs (when running)
+
+### Key Resources
+- **Model Management**: Add, load, configure inference models
+- **Voice Integration**: WebSocket voice chat implementation
+- **Performance Tuning**: Memory optimization and benchmarking
+- **Production Setup**: Systemd services and SSL configuration
+
+## 🔧 System Requirements
+
+- **Hardware**: NVIDIA GPU with 8GB+ VRAM (RTX 4090 recommended)
+- **Software**: Python 3.11+, CUDA drivers
+- **Network**: Internet access for model downloads and Edge TTS
+- **Audio**: Microphone and speakers/headphones for voice features
+
+## 🐛 Quick Troubleshooting
+
+```bash
+# Check system status
+beautyai system status
+
+# Test API connectivity
+curl http://localhost:8000/health
+
+# Test voice features
+curl http://localhost:8000/ws/voice-conversation/status
+
+# View logs
+./backend/unitTests_scripts/shell_scripts/manage-api-service.sh logs
+```
+
+## 🤝 Contributing
+
+1. **Backend**: Follow service-oriented architecture, add comprehensive tests
+2. **Frontend**: Maintain responsive design, test voice features across browsers  
+3. **Documentation**: Update relevant README files, not the main one
+4. **Testing**: Backend unit tests in `backend/unitTests_scripts/`
+
+## 📄 License
+
+MIT License - see [LICENSE](LICENSE) file for details.
+
+---
+
+**Quick Links**: [Backend Setup](backend/README.md) | [Frontend Setup](frontend/README.md) | [API Docs](http://localhost:8000/docs) | [Web UI](http://localhost:5001)
 
 ## 📋 Requirements
 
@@ -50,12 +204,37 @@ A scalable, professional-grade inference framework for various language models, 
 # Clone and navigate to the project directory
 cd beautyai
 
-# Run the automated setup script
-chmod +x setup_beautyai.sh
-./setup_beautyai.sh
+# Run the automated setup script for backend
+cd backend
+chmod +x unitTests_scripts/shell_scripts/setup_beautyai.sh
+./unitTests_scripts/shell_scripts/setup_beautyai.sh
+
+# Setup frontend (if you want the web UI)
+cd ../frontend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
 ```
 
 The setup script will guide you through the installation process and ask if you want to install with vLLM support (recommended for better performance).
+
+### Production Services Setup
+
+BeautyAI includes systemd service files for production deployment:
+
+```bash
+# Install and start API service (backend)
+cd backend/unitTests_scripts/shell_scripts
+chmod +x manage-api-service.sh
+./manage-api-service.sh install
+./manage-api-service.sh start
+
+# Install web UI service (frontend) 
+sudo cp ../../beautyai-webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+sudo systemctl enable beautyai-webui
+sudo systemctl start beautyai-webui
+```
 
 ### Hugging Face Authentication
 
@@ -69,10 +248,20 @@ Follow the prompts and enter your Hugging Face token from https://huggingface.co
 ### Development Installation
 
 ```bash
-# For development with all dependencies
-pip install -e ".[dev,api,vllm]"
+# Backend development setup
+cd backend
+python3 -m venv venv
+source venv/bin/activate
+pip install -e ".[dev,vllm]"
 
-# Install pre-commit hooks
+# Frontend development setup  
+cd ../frontend
+python3 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+# Install pre-commit hooks (optional)
+pip install pre-commit
 pre-commit install
 ```
 
@@ -80,10 +269,11 @@ pre-commit install
 
 ### CLI Interface
 
-After installation, activate the virtual environment and use the unified CLI:
+After installation, activate the backend virtual environment and use the unified CLI:
 
 ```bash
-# Activate the virtual environment
+# Navigate to backend and activate the virtual environment
+cd backend
 source venv/bin/activate
 
 # Show all available commands and help
@@ -105,38 +295,67 @@ beautyai model list
 beautyai system status
 ```
 
-### REST API
+### Web UI Interface
+
+Start the beautiful web interface for interactive chat:
+
+```bash
+# Navigate to frontend and activate environment
+cd frontend
+source venv/bin/activate
+
+# Start the web UI server
+python src/app.py
+
+# Or run as development server
+python src/app.py --dev
+```
+
+Access the web interface at:
+- **Web UI**: http://localhost:5001
+- **Features**: Animated 3D fractal background, voice controls, real-time chat
+- **Voice Chat**: Built-in WebSocket voice conversation interface
+
+### FastAPI Backend
 
 Start the FastAPI web server for programmatic access:
 
 ```bash
-# Start the API server (development mode)
-uvicorn beautyai_inference.api.app:app --reload --host 0.0.0.0 --port 8000
+# Navigate to backend and activate environment
+cd backend  
+source venv/bin/activate
 
-# Start with custom configuration
-uvicorn beautyai_inference.api.app:app --host 0.0.0.0 --port 8000 --workers 4
+# Start the API server (development mode)
+python run_server.py
+
+# Or using uvicorn directly
+uvicorn beautyai_inference.api.app:app --reload --host 0.0.0.0 --port 8000
 ```
 
-Access the interactive API documentation at:
+Access the API at:
 - **Swagger UI**: http://localhost:8000/docs
-- **ReDoc**: http://localhost:8000/redoc
+- **ReDoc**: http://localhost:8000/redoc  
 - **Health Check**: http://localhost:8000/health
+- **Simple Voice WebSocket**: ws://localhost:8000/ws/voice-conversation
 
 ### Voice Features Quick Start
 
-Test voice-to-voice conversation:
+Test voice-to-voice conversation through the API:
 
 ```bash
-# Test voice endpoints
-curl -X GET "http://localhost:8000/inference/voice-to-voice/status"
+# Test simple voice WebSocket endpoint (ultra-fast <2s response)
+curl -X GET "http://localhost:8000/ws/voice-conversation/status"
 
-# Test WebSocket voice conversation
-# Connect to: ws://localhost:8000/ws/voice-conversation
+# Test voice endpoints
+curl -X GET "http://localhost:8000/api/v1/voice/endpoints"
+
+# Or use the Web UI for interactive voice chat
+# Navigate to http://localhost:5001 and click the microphone button
 ```
 
-**WebSocket Voice Example:**
+**Simple Voice WebSocket Example** (for web apps):
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/voice-conversation?preset=qwen_optimized');
+const ws = new WebSocket('ws://localhost:8000/ws/voice-conversation?language=auto&voice_type=default');
 
 ws.onmessage = (event) => {
     const response = JSON.parse(event.data);
@@ -158,9 +377,13 @@ recorder.ondataavailable = (e) => {
 
 ### Service Management (Ubuntu/systemd)
 
-For development convenience, BeautyAI includes systemd service management for running the API server as a system service:
+For production deployment, BeautyAI includes complete systemd service management:
 
+#### Backend API Service
 ```bash
+# Navigate to the management script
+cd backend/unitTests_scripts/shell_scripts
+
 # Install the systemd service (one-time setup)
 ./manage-api-service.sh install
 
@@ -183,20 +406,42 @@ For development convenience, BeautyAI includes systemd service management for ru
 ./manage-api-service.sh enable
 ```
 
-**Standard systemctl commands** also work after installation:
+#### Frontend Web UI Service
 ```bash
-sudo systemctl start beautyai-api     # Start service
-sudo systemctl stop beautyai-api      # Stop service
-sudo systemctl status beautyai-api    # Check status
-sudo journalctl -u beautyai-api -f    # Follow logs
+# Install the web UI systemd service
+sudo cp beautyai-webui.service /etc/systemd/system/
+sudo systemctl daemon-reload
+
+# Start and enable the web UI service  
+sudo systemctl start beautyai-webui
+sudo systemctl enable beautyai-webui
+
+# Check status
+sudo systemctl status beautyai-webui
 ```
 
-**Features:**
-- Auto-restart on failure
-- Development mode with `--reload` for automatic code reloading
-- Proper security restrictions and resource limits
-- Integration with Ubuntu system logging
-- Easy start/stop for development workflows
+**Standard systemctl commands** also work after installation:
+```bash
+# Backend API
+sudo systemctl start beautyai-api     # Start API service
+sudo systemctl stop beautyai-api      # Stop API service
+sudo systemctl status beautyai-api    # Check API status
+sudo journalctl -u beautyai-api -f    # Follow API logs
+
+# Frontend Web UI
+sudo systemctl start beautyai-webui   # Start web UI service
+sudo systemctl stop beautyai-webui    # Stop web UI service
+sudo systemctl status beautyai-webui  # Check web UI status
+sudo journalctl -u beautyai-webui -f  # Follow web UI logs
+```
+
+#### Production Features
+- **Auto-restart on failure** for both services
+- **Development mode** with `--reload` for automatic code reloading (API)
+- **Proper security restrictions** and resource limits
+- **Integration with Ubuntu system logging**
+- **Easy start/stop** for development workflows
+- **SSL support** via Nginx (configuration included)
 
 ## 📚 Command Reference
 
@@ -258,7 +503,7 @@ beautyai system clear-cache mistral-7b
 beautyai run chat --preset qwen_optimized
 
 # Direct parameter control (25+ parameters available)
-beautyai run chat --model-name qwen3-unsloth-q4ks \
+beautyai run chat --model-name default \
                   --temperature 0.3 \
                   --top-p 0.95 \
                   --top-k 20 \
@@ -266,14 +511,14 @@ beautyai run chat --model-name qwen3-unsloth-q4ks \
                   --max-tokens 512
 
 # Advanced sampling parameters
-beautyai run chat --model-name qwen3-unsloth-q4ks \
+beautyai run chat --model-name default \
                   --min-p 0.05 \
                   --typical-p 1.0 \
                   --diversity-penalty 0.1 \
                   --no-repeat-ngram-size 3
 
 # Thinking mode and content filtering
-beautyai run chat --model-name qwen3-unsloth-q4ks \
+beautyai run chat --model-name default \
                   --thinking-mode \
                   --disable-content-filter \
                   --content-filter-strictness relaxed
@@ -291,22 +536,17 @@ beautyai run chat --model-name qwen3-unsloth-q4ks \
 ### Voice Conversation Commands
 
 ```bash
-# Check voice service status
-curl -X GET "http://localhost:8000/inference/voice-to-voice/status"
+# Check simple voice WebSocket status
+curl -X GET "http://localhost:8000/ws/voice-conversation/status"
 
-# Test audio chat (STT → LLM, text response)
-curl -X POST "http://localhost:8000/inference/audio-chat" \
-  -F "audio_file=@input.wav" \
-  -F "input_language=auto" \
-  -F "preset=qwen_optimized"
+# Check available voice endpoints  
+curl -X GET "http://localhost:8000/api/v1/voice/endpoints"
 
-# Voice-to-voice conversation (STT → LLM → TTS)
-curl -X POST "http://localhost:8000/inference/voice-to-voice" \
-  -F "audio_file=@input.wav" \
-  -F "input_language=auto" \
-  -F "output_language=auto" \
-  -F "preset=qwen_optimized" \
-  -F "thinking_mode=false"
+# Test health of voice services
+curl -X GET "http://localhost:8000/api/v1/health/voice"
+
+# Or use the beautiful Web UI at http://localhost:5001
+# Click the microphone button for instant voice chat
 ```
 
 ### Advanced Model Management
@@ -315,20 +555,20 @@ curl -X POST "http://localhost:8000/inference/voice-to-voice" \
 # List models with quantization info
 beautyai model list --format detailed
 
-# Add GGUF model with specific quantization
-beautyai model add --name custom-qwen-q4ks \
-                   --model-id "unsloth/Qwen3-14B-GGUF" \
-                   --engine llama.cpp \
-                   --quantization Q4_K_S \
-                   --model-filename "Qwen3-14B-Q4_K_S.gguf"
+# Add custom model configuration
+beautyai model add --name custom-qwen \
+                   --model-id "Qwen/Qwen3-14B" \
+                   --engine transformers \
+                   --quantization 4bit \
+                   --description "Custom Qwen model"
 
 # Load model with timer control
-beautyai system load custom-qwen-q4ks
-beautyai model set-timer custom-qwen-q4ks --minutes 60
+beautyai system load custom-qwen
+beautyai model set-timer custom-qwen --minutes 60
 
 # Monitor model performance
 beautyai system status --format detailed
-beautyai model show custom-qwen-q4ks --include-timers
+beautyai model show custom-qwen --include-timers
 ```
 
 ### Configuration Management
@@ -361,16 +601,15 @@ beautyai config migrate --backup --verbose
 
 ## 🌐 REST API Reference
 
-The BeautyAI framework provides a comprehensive REST API for programmatic access to all functionality:
+The BeautyAI framework provides a comprehensive FastAPI-based REST API for programmatic access to all functionality:
 
 ### API Endpoints Overview
 
 **Health & Status**
 - `GET /health` - Service health check
+- `GET /api/v1/health/voice` - Voice services health check
 - `GET /system/status` - System status and memory usage
 - `GET /system/memory` - Detailed memory statistics
-- `GET /system/resources` - CPU, GPU, disk usage
-- `GET /system/performance` - Performance metrics over time
 
 **Model Management**
 - `GET /models` - List all models in registry
@@ -381,45 +620,26 @@ The BeautyAI framework provides a comprehensive REST API for programmatic access
 - `POST /models/{name}/load` - Load model into memory
 - `DELETE /models/{name}/unload` - Unload model from memory
 - `GET /models/loaded` - List currently loaded models
-- `GET /models/{name}/status` - Get model status
-- `GET /models/{name}/timer` - Get model timer info
-- `POST /models/{name}/timer/reset` - Reset model timer
-- `POST /models/default/{name}` - Set default model
+
+**Simple Voice Features** (Ultra-fast <2s response)
+- `WebSocket /ws/voice-conversation` - Simple voice chat with Edge TTS
+- `GET /ws/voice-conversation/status` - Voice WebSocket status
+- `GET /api/v1/voice/endpoints` - Available voice endpoints
 
 **Enhanced Inference Operations**
 - `POST /inference/chat` - Advanced chat with 25+ parameters, presets, thinking mode control
 - `POST /inference/test` - Run model tests
 - `POST /inference/benchmark` - Run performance benchmarks
-- `POST /inference/audio-chat` - Audio to text chat (STT → LLM)
-- `POST /inference/voice-to-voice` - Complete voice conversation (STT → LLM → TTS)
-- `GET /inference/voice-to-voice/status` - Voice service status
-- `POST /inference/sessions/save` - Save chat session
-- `POST /inference/sessions/load` - Load chat session
-- `GET /inference/sessions` - List available sessions
-- `DELETE /inference/sessions/{session_name}` - Delete session
-
-**Real-time Voice Communication**
-- `WebSocket /ws/voice-conversation` - Real-time bidirectional voice chat with streaming
 
 **Configuration Management**
 - `GET /config` - Get current configuration
 - `POST /config` - Update configuration
 - `PUT /config` - Bulk update configuration
-- `DELETE /config` - Reset configuration
 - `POST /config/validate` - Validate configuration
-- `POST /config/backup` - Create configuration backup
-- `POST /config/restore` - Restore from backup
-
-**System Management**
-- `GET /system/cache` - Get cache status
-- `POST /system/cache/clear` - Clear model caches
-- `POST /system/memory/clear` - Clear unused memory
-- `GET /system/logs` - Get system logs (admin)
-- `POST /system/restart` - Restart system services (admin)
 
 ### Enhanced Chat API Examples
 
-The chat API now supports 25+ parameters with direct access (no nested JSON required):
+The chat API supports 25+ parameters with direct access (no nested JSON required):
 
 ```python
 import requests
@@ -429,7 +649,7 @@ base_url = "http://localhost:8000"
 
 # Simple chat with optimization-based preset
 simple_chat = {
-    "model_name": "qwen3-unsloth-q4ks",
+    "model_name": "default",
     "message": "What is artificial intelligence?",
     "preset": "qwen_optimized"  # Best settings from actual testing
 }
@@ -437,7 +657,7 @@ response = requests.post(f"{base_url}/inference/chat", json=simple_chat)
 
 # Advanced parameter control (direct field access)
 advanced_chat = {
-    "model_name": "qwen3-unsloth-q4ks", 
+    "model_name": "default", 
     "message": "Explain quantum computing in detail",
     "temperature": 0.3,           # Core parameters
     "top_p": 0.95,
@@ -453,29 +673,35 @@ advanced_chat = {
     "response_language": "en"          # Language control
 }
 response = requests.post(f"{base_url}/inference/chat", json=advanced_chat)
+```
 
-# Voice-to-Voice conversation
-voice_files = {'audio_file': open('input.wav', 'rb')}
-voice_data = {
-    'input_language': 'auto',     # Automatic language detection
-    'output_language': 'auto',    # Match input language
-    'preset': 'qwen_optimized',
-    'thinking_mode': False,
-    'disable_content_filter': True
-}
-response = requests.post(f"{base_url}/inference/voice-to-voice", 
-                        files=voice_files, data=voice_data)
+### Simple Voice WebSocket API
 
-# Audio chat (STT → LLM, text response)
-audio_files = {'audio_file': open('question.wav', 'rb')}
-audio_data = {
-    'chat_model_name': 'qwen3-unsloth-q4ks',
-    'stt_model_name': 'whisper-large-v3-turbo-arabic',
-    'input_language': 'ar',
-    'preset': 'high_quality'
-}
-response = requests.post(f"{base_url}/inference/audio-chat", 
-                        files=audio_files, data=audio_data)
+Ultra-fast voice conversations with <2 second response times:
+
+```python
+import asyncio
+import websockets
+import json
+
+async def voice_chat():
+    uri = "ws://localhost:8000/ws/voice-conversation?language=auto&voice_type=default"
+    
+    async with websockets.connect(uri) as websocket:
+        # Send audio data
+        with open("audio.wav", "rb") as audio_file:
+            await websocket.send(audio_file.read())
+        
+        # Receive response
+        response = await websocket.recv()
+        data = json.loads(response)
+        
+        if data["type"] == "voice_response":
+            # Save audio response
+            with open("response.wav", "wb") as f:
+                f.write(base64.b64decode(data["audio_base64"]))
+
+asyncio.run(voice_chat())
 ```
 
 ### Advanced Model Management
@@ -504,11 +730,11 @@ response = requests.post(f"{base_url}/models", json=model_data)
 load_config = {"force_reload": False}
 response = requests.post(f"{base_url}/models/custom-qwen-model/load", json=load_config)
 
-# Get detailed model status including timer info
-response = requests.get(f"{base_url}/models/custom-qwen-model/status")
+# Get detailed model status
+response = requests.get(f"{base_url}/models/custom-qwen-model")
 
-# List currently loaded models with timer information
-response = requests.get(f"{base_url}/models/loaded?include_timers=true")
+# List currently loaded models
+response = requests.get(f"{base_url}/models/loaded")
 ```
 
 ### Authentication
@@ -516,7 +742,7 @@ response = requests.get(f"{base_url}/models/loaded?include_timers=true")
 The API supports JWT-based authentication for production deployments:
 
 ```python
-# Login to get access token
+# Login to get access token (if authentication is enabled)
 auth_data = {"username": "admin", "password": "secure_password"}
 response = requests.post(f"{base_url}/auth/login", json=auth_data)
 token = response.json()["access_token"]
@@ -524,6 +750,25 @@ token = response.json()["access_token"]
 # Use token in subsequent requests
 headers = {"Authorization": f"Bearer {token}"}
 response = requests.get(f"{base_url}/models", headers=headers)
+```
+
+### Web UI Integration
+
+The web UI provides a complete interface for all framework features:
+
+```bash
+# Start the web UI (after starting the backend API)
+cd frontend
+source venv/bin/activate
+python src/app.py
+
+# Features available at http://localhost:5001:
+# - Interactive chat interface with animated background
+# - Real-time voice conversation with microphone button
+# - Model management and status monitoring
+# - Configuration management
+# - Session management and history
+# - Debug and testing interfaces
 ```
 
 ## 🔧 Supported Model Architectures
@@ -535,63 +780,60 @@ The framework supports a wide range of model architectures with intelligent back
 
 **Currently Supported Models**:
 - **Qwen3 Series**: 
-  - `qwen3-model`: Qwen/Qwen3-14B (Transformers, 4-bit)
-  - `qwen3-unsloth-q4ks`: Optimized GGUF (LlamaCpp, Q4_K_S, 8.0GB, fastest)
-  - `qwen3-unsloth-q4km`: Balanced GGUF (LlamaCpp, Q4_K_M, 8.4GB, balanced)
-  - `qwen3-unsloth-q6k`: High-quality GGUF (LlamaCpp, Q6_K, 12GB, best quality)
-  - `qwen3-official-q4km`: Official GGUF (LlamaCpp, Q4_K_M, 8.4GB)
-  - `qwen3-official-q6k`: Official GGUF (LlamaCpp, Q6_K, 12GB)
+  - `default`: Qwen/Qwen3-14B (Transformers, 4-bit) - Default model
+  - Custom configurations supported for various Qwen models
 - **DeepSeek Series**:
-  - `deepseek-r1-qwen-14b-multilingual`: DeepSeek R1 Distill with reasoning capabilities
+  - DeepSeek R1 and other models with reasoning capabilities
 - **Arabic Specialized Models**:
-  - `bee1reason-arabic-q4ks`: Arabic reasoning model (8GB, fast)
-  - `bee1reason-arabic-q4km-i1`: Arabic reasoning model (8.4GB, balanced)
+  - Arabic reasoning models and fine-tuned variants
 
 ### Speech and Audio Models
 **Speech-to-Text (STT)**:
-- `whisper-large-v3-turbo-arabic`: Optimized for Arabic transcription
+- Whisper models optimized for Arabic transcription
+- Multilingual speech recognition support
 
 **Text-to-Speech (TTS)**:
-- `coqui-tts-arabic`: Native Arabic TTS with Coqui TTS engine
-- `coqui-tts-multilingual`: XTTS v2 with voice cloning (16+ languages)
-- `edge-tts`: Microsoft Edge TTS (cloud-based, 20+ languages)
+- **Edge TTS**: Microsoft Edge TTS (primary, ultra-fast cloud-based synthesis)
+- **Coqui TTS**: Local TTS with voice cloning capabilities (optional)
+- Multi-language support with automatic language detection
 
 ### Backend Engine Mapping
-**LlamaCpp Engine** (Primary for quantized models):
-- All GGUF models (Q4_K_S, Q4_K_M, Q6_K quantization)
+**Transformers Engine** (Primary):
+- Full precision and BitsAndBytes quantization (4-bit, 8-bit)
+- Broad model compatibility
+- Production-ready with CUDA acceleration
+
+**LlamaCpp Engine** (Alternative for GGUF models):
+- Quantized GGUF models (Q4_K_S, Q4_K_M, Q6_K quantization)
 - Memory efficient with fast inference
 - CUDA acceleration support
 
-**Transformers Engine** (Alternative):
-- Full precision and BitsAndBytes quantization (4-bit, 8-bit)
-- Broader model compatibility
-- Research and experimentation friendly
-
 **Specialized Engines**:
-- **Coqui TTS**: High-quality neural speech synthesis
-- **Edge TTS**: Cloud-based multilingual TTS
+- **Edge TTS**: Ultra-fast cloud-based multilingual TTS (<2s response)
+- **Coqui TTS**: High-quality local neural speech synthesis (optional)
 - **Whisper/Transformers**: Speech recognition models
 
 ### Smart Model Selection
 The framework automatically handles:
-- **Quantization Selection**: GGUF for efficiency, Transformers for compatibility
+- **Quantization Selection**: 4-bit/8-bit for efficiency, full precision for compatibility
 - **Memory Management**: Auto-selection based on available VRAM
 - **Language Optimization**: Arabic-specific models when appropriate
-- **Performance Tuning**: Q4_K_S for speed, Q6_K for quality
+- **Performance Tuning**: Edge TTS for speed, Coqui TTS for quality
 - **Fallback Strategies**: Graceful degradation when preferred models unavailable
 
 ### Memory Requirements
 
 **GPU Memory Usage Guidelines**:
 ```
-Model Type          | Q4_K_S | Q4_K_M | Q6_K  | 4-bit Transform
-Qwen3 14B          | ~8.0GB | ~8.4GB | ~12GB | ~10GB
-DeepSeek R1 14B    | ~8.0GB | ~8.4GB | ~12GB | ~10GB  
-Arabic Reasoning   | ~8.0GB | ~8.4GB | ~12GB | ~10GB
+Model Type          | 4-bit Transform | 8-bit Transform | Full Precision
+Qwen3 14B          | ~10GB          | ~15GB          | ~28GB
+DeepSeek R1 14B    | ~10GB          | ~15GB          | ~28GB  
+Arabic Models      | ~8GB           | ~12GB          | ~25GB
 ```
 
 **TTS Models**:
 ```
+Edge TTS             | Cloud-based (no VRAM)
 Coqui TTS Arabic     | ~1.2GB VRAM
 Coqui TTS Multilingual | ~2.1GB VRAM
 Whisper Large V3     | ~3.1GB VRAM
@@ -601,45 +843,42 @@ Whisper Large V3     | ~3.1GB VRAM
 
 ### Quantization Strategies
 
-**LlamaCpp Engine (Primary)**:
+**Transformers Backend (Primary)**:
 ```bash
-# Q4_K_S quantization (fastest, 8.0GB)
-beautyai model add --name qwen-q4ks --model-id "unsloth/Qwen3-14B-GGUF" \
-                   --engine llama.cpp --quantization Q4_K_S \
-                   --model-filename "Qwen3-14B-Q4_K_S.gguf"
-
-# Q4_K_M quantization (balanced, 8.4GB)
-beautyai model add --name qwen-q4km --model-id "unsloth/Qwen3-14B-GGUF" \
-                   --engine llama.cpp --quantization Q4_K_M \
-                   --model-filename "Qwen3-14B-Q4_K_M.gguf"
-
-# Q6_K quantization (high quality, 12GB)
-beautyai model add --name qwen-q6k --model-id "unsloth/Qwen3-14B-GGUF" \
-                   --engine llama.cpp --quantization Q6_K \
-                   --model-filename "Qwen3-14B-Q6_K.gguf"
-```
-
-**Transformers Backend (Alternative)**:
-```bash
-# 4-bit quantization with BitsAndBytes
+# 4-bit quantization with BitsAndBytes (recommended)
 beautyai model add --name qwen-4bit --model-id Qwen/Qwen3-14B \
                    --engine transformers --quantization 4bit
 
 # 8-bit quantization for memory efficiency
 beautyai model add --name qwen-8bit --model-id Qwen/Qwen3-14B \
                    --engine transformers --quantization 8bit
+
+# Full precision for maximum quality (requires more VRAM)
+beautyai model add --name qwen-fp16 --model-id Qwen/Qwen3-14B \
+                   --engine transformers --quantization none
+```
+
+**LlamaCpp Engine (Alternative for GGUF models)**:
+```bash
+# Q4_K_S quantization (fastest, ~8.0GB)
+beautyai model add --name qwen-q4ks --model-id "unsloth/Qwen3-14B-GGUF" \
+                   --engine llama.cpp --quantization Q4_K_S \
+                   --model-filename "Qwen3-14B-Q4_K_S.gguf"
+
+# Q4_K_M quantization (balanced, ~8.4GB)
+beautyai model add --name qwen-q4km --model-id "unsloth/Qwen3-14B-GGUF" \
+                   --engine llama.cpp --quantization Q4_K_M \
+                   --model-filename "Qwen3-14B-Q4_K_M.gguf"
 ```
 
 **Voice Model Configuration**:
 ```bash
-# Add Arabic TTS model
+# Edge TTS (ultra-fast, recommended)
+# No configuration needed - works out of the box
+
+# Coqui TTS (optional, higher quality local synthesis)
 beautyai model add --name arabic-tts \
                    --model-id "tts_models/ar/tn_arabicspeech/vits" \
-                   --engine coqui_tts
-
-# Add multilingual TTS with voice cloning
-beautyai model add --name multilingual-tts \
-                   --model-id "tts_models/multilingual/multi-dataset/xtts_v2" \
                    --engine coqui_tts
 ```
 
@@ -708,6 +947,38 @@ beautyai --config config/development.json model list
 
 The BeautyAI framework follows a modern, layered architecture designed for scalability and maintainability:
 
+### Dual-Stack Architecture
+
+**Backend API Server** (`/backend/` - Port 8000):
+```
+📁 backend/
+├── 🚀 run_server.py          # FastAPI server entry point
+├── 📦 setup.py              # Package configuration and dependencies
+├── 📋 requirements.txt      # Python dependencies
+├── 🏗️ src/beautyai_inference/
+│   ├── 🎯 cli/              # Unified CLI interface
+│   ├── 🌐 api/              # FastAPI application and endpoints
+│   ├── 🔧 services/         # 15+ specialized business logic services
+│   ├── 🚀 inference_engines/ # Model inference backends
+│   ├── 🏭 core/             # Factory patterns and model management
+│   ├── ⚙️ config/           # Configuration management
+│   └── 🛠️ utils/            # Utility functions and helpers
+└── 🧪 unitTests_scripts/    # Testing and setup scripts
+```
+
+**Frontend Web UI** (`/frontend/` - Port 5001):
+```
+📁 frontend/
+├── 📦 package.json          # Node.js-style project metadata
+├── 📋 requirements.txt      # Python dependencies for Flask app
+├── 🌐 src/
+│   ├── 🎨 app.py           # Flask web server with beautiful UI
+│   ├── 🎭 templates/       # HTML templates with 3D animations
+│   ├── 🎨 static/          # CSS, JavaScript, and static assets
+│   └── ⚙️ config.json      # Frontend configuration
+└── 📚 docs/                # Frontend documentation
+```
+
 ### Service-Oriented Architecture
 
 **15+ Specialized Services**:
@@ -719,7 +990,7 @@ The BeautyAI framework follows a modern, layered architecture designed for scala
 ├── 🎤 voice/             # Voice conversation, transcription, and synthesis services
 │   ├── conversation/     # Voice-to-voice conversation management
 │   ├── transcription/    # Speech-to-text services (Whisper)
-│   └── synthesis/        # Text-to-speech services (Coqui TTS, Edge TTS)
+│   └── synthesis/        # Text-to-speech services (Edge TTS, Coqui TTS)
 ├── ⚙️ config/            # Configuration, validation, backup, and migration services
 └── 💾 system/            # Memory monitoring, cache management, and status services
 ```
@@ -729,9 +1000,9 @@ The BeautyAI framework follows a modern, layered architecture designed for scala
 📁 api/
 ├── 🌐 endpoints/         # REST API route handlers
 │   ├── models.py         # Model management endpoints
-│   ├── inference.py      # Chat, voice, and inference endpoints
+│   ├── inference.py      # Chat and inference endpoints
 │   ├── system.py         # System monitoring and control
-│   ├── websocket_voice.py # Real-time voice conversation WebSocket
+│   ├── websocket_simple_voice.py # Real-time voice conversation WebSocket
 │   ├── config.py         # Configuration management
 │   └── health.py         # Health check endpoints
 ├── 🔌 adapters/          # Service integration adapters for API
@@ -751,13 +1022,13 @@ The BeautyAI framework follows a modern, layered architecture designed for scala
 **Inference Engines**:
 ```
 📁 inference_engines/
-├── transformers_engine.py    # Hugging Face Transformers backend
-├── llamacpp_engine.py        # LlamaCpp GGUF backend (primary)
+├── transformers_engine.py    # Hugging Face Transformers backend (primary)
+├── llamacpp_engine.py        # LlamaCpp GGUF backend (alternative)
 ├── vllm_engine.py           # vLLM backend (optional)
 └── voice_engines/           # Voice-specific engines
     ├── whisper_engine.py    # Speech recognition
-    ├── coqui_tts_engine.py  # Coqui TTS synthesis
-    └── edge_tts_engine.py   # Microsoft Edge TTS
+    ├── edge_tts_engine.py   # Microsoft Edge TTS (primary)
+    └── coqui_tts_engine.py  # Coqui TTS synthesis (optional)
 ```
 
 **CLI Interface**:
@@ -769,12 +1040,30 @@ The BeautyAI framework follows a modern, layered architecture designed for scala
     └── unified_cli_adapter.py # Unified adapter for all CLI commands
 ```
 
+### Production Deployment
+
+**System Services**:
+```
+📁 /etc/systemd/system/
+├── 🔧 beautyai-api.service    # Backend API service (port 8000)
+└── 🌐 beautyai-webui.service  # Frontend web UI service (port 5001)
+```
+
+**Nginx Configuration** (for SSL/production):
+```
+📁 nginx configuration/
+├── 🔒 SSL termination for both services
+├── 🌐 dev.gmai.sa → Frontend (port 5001)
+├── 🔧 api.gmai.sa → Backend API (port 8000)
+└── 🎤 WebSocket proxy for voice features
+```
+
 ### Key Design Patterns
 
 **1. Factory Pattern**: Intelligent model engine selection
-- Automatic backend selection (LlamaCpp vs Transformers vs specialized engines)
-- Architecture-aware quantization selection (GGUF vs BitsAndBytes)
-- Voice engine selection (Coqui TTS vs Edge TTS)
+- Automatic backend selection (Transformers vs LlamaCpp vs specialized engines)
+- Architecture-aware quantization selection (4-bit/8-bit vs GGUF)
+- Voice engine selection (Edge TTS vs Coqui TTS)
 - Graceful fallback strategies
 
 **2. Singleton Pattern**: Centralized resource management
@@ -799,44 +1088,76 @@ The BeautyAI framework follows a modern, layered architecture designed for scala
 - Bidirectional voice conversation streaming
 - Connection lifecycle management
 - Session state persistence
-- Audio chunk processing
+- Audio chunk processing with ultra-fast response (<2s)
 
 ## 🧪 Testing & Development
 
 ### Running Tests
 ```bash
-# Run all tests
-python -m pytest tests/ -v
+# Backend tests
+cd backend
+source venv/bin/activate
+python -m pytest unitTests_scripts/ -v
 
 # Run specific test categories
-python -m pytest tests/test_unified_cli.py -v
-python -m pytest tests/test_cli_integration.py -v
+python -m pytest unitTests_scripts/python_scripts/ -v
 
 # Run with coverage reporting
-python -m pytest tests/ --cov=beautyai_inference --cov-report=html
+python -m pytest unitTests_scripts/ --cov=beautyai_inference --cov-report=html
 ```
 
 ### Development Commands
 ```bash
-# Install in development mode
+# Backend development setup
+cd backend
 pip install -e ".[dev]"
 
-# Run code formatting
-black beautyai_inference/
-isort beautyai_inference/
+# Frontend development setup
+cd frontend
+pip install -r requirements.txt
+
+# Run code formatting (backend)
+cd backend
+black src/beautyai_inference/
+isort src/beautyai_inference/
 
 # Run linting
-flake8 beautyai_inference/
-mypy beautyai_inference/
+flake8 src/beautyai_inference/
+mypy src/beautyai_inference/
 
 # Run security checks
-bandit -r beautyai_inference/
+bandit -r src/beautyai_inference/
+```
+
+### Development Servers
+```bash
+# Start backend API in development mode (auto-reload)
+cd backend
+source venv/bin/activate
+python run_server.py
+
+# Start frontend web UI in development mode
+cd frontend
+source venv/bin/activate
+python src/app.py --dev
+
+# Both services together for full development stack
+# Terminal 1: Backend
+cd backend && source venv/bin/activate && python run_server.py
+
+# Terminal 2: Frontend
+cd frontend && source venv/bin/activate && python src/app.py
 ```
 
 ### Adding New Models
 
 1. **Add to Model Registry**:
 ```bash
+# Navigate to backend and activate environment
+cd backend
+source venv/bin/activate
+
+# Add a new model configuration
 beautyai model add --name "my-new-model" \
                    --model-id "organization/model-name" \
                    --engine transformers \
@@ -857,13 +1178,40 @@ beautyai run test --model-name my-new-model
 beautyai config validate
 ```
 
+### Adding New Frontend Features
+
+1. **Frontend Structure**:
+```bash
+# Frontend templates and static files
+frontend/src/
+├── templates/
+│   ├── index.html          # Main chat interface
+│   ├── legacy.html         # Legacy interface
+│   └── debug.html          # Debug interface
+├── static/
+│   ├── css/               # Stylesheets with 3D animations
+│   ├── js/                # JavaScript for voice and chat
+│   └── assets/            # Images and other static files
+└── app.py                 # Flask application with all routes
+```
+
+2. **Adding New Routes**:
+```python
+# In frontend/src/app.py
+@app.route('/new-feature')
+def new_feature():
+    return render_template('new_feature.html')
+```
+
 ### Contributing Guidelines
 
 1. **Code Style**: Follow PEP 8, use type hints, add comprehensive docstrings
-2. **Architecture**: Use service-oriented patterns, maintain separation of concerns
+2. **Architecture**: Use service-oriented patterns, maintain separation of concerns between backend and frontend
 3. **Testing**: Add unit tests for new features, integration tests for CLI commands
 4. **Documentation**: Update README and inline documentation for new features
-5. **Backward Compatibility**: Maintain compatibility with existing CLI interfaces
+5. **Backward Compatibility**: Maintain compatibility with existing CLI interfaces and API endpoints
+6. **Frontend Development**: Follow Flask patterns, maintain responsive design, test voice features
+7. **Backend Development**: Use service-oriented architecture, maintain API compatibility
 
 ## 🔍 Troubleshooting
 
@@ -886,6 +1234,10 @@ beautyai run chat --max-tokens 256
 
 **2. Model Loading Issues**
 ```bash
+# Navigate to backend first
+cd backend
+source venv/bin/activate
+
 # Verify model exists in registry
 beautyai model list
 
@@ -895,15 +1247,12 @@ huggingface-cli whoami
 # Clear model cache and retry
 beautyai system clear-cache my-model
 beautyai system load my-model
-
-# Check GGUF model filename
-beautyai model show my-model
 ```
 
 **3. Slow Inference Performance**
 ```bash
-# Use GGUF models for better performance
-beautyai model update my-model --engine llama.cpp --quantization Q4_K_S
+# Use 4-bit quantization for better performance
+beautyai model update my-model --quantization 4bit
 
 # Check GPU utilization
 nvidia-smi
@@ -911,91 +1260,142 @@ nvidia-smi
 # Verify CUDA installation
 python -c "import torch; print(torch.cuda.is_available())"
 
-# Use optimized quantization
-beautyai model update my-model --quantization Q4_K_M
+# Use optimized presets
+beautyai run chat --preset speed_optimized
 ```
 
 **4. Voice Processing Issues**
 ```bash
-# Check voice service status
-curl http://localhost:8000/inference/voice-to-voice/status
+# Check simple voice WebSocket status
+curl http://localhost:8000/ws/voice-conversation/status
 
-# Test audio file formats (use WAV for best compatibility)
-file audio_input.wav
+# Check available voice endpoints
+curl http://localhost:8000/api/v1/voice/endpoints
 
-# Check TTS library installation
-python -c "from TTS import TTS; print('Coqui TTS available')"
+# Test voice health
+curl http://localhost:8000/api/v1/health/voice
 
-# Test with Edge TTS as fallback
-curl -X POST "http://localhost:8000/inference/voice-to-voice" \
-  -F "tts_model_name=edge-tts" \
-  -F "audio_file=@test.wav"
+# Check if Edge TTS is working
+python -c "import edge_tts; print('Edge TTS available')"
+
+# Test web UI voice interface at http://localhost:5001
 ```
 
 **5. WebSocket Voice Connection Issues**
 ```bash
-# Test WebSocket connection
+# Test WebSocket connection manually
 wscat -c "ws://localhost:8000/ws/voice-conversation"
 
 # Check WebSocket status endpoint
 curl http://localhost:8000/ws/voice-conversation/status
 
-# Verify audio format support (WebM recommended for browsers)
+# Verify audio format support (WAV recommended)
 # Convert audio to supported format if needed
-ffmpeg -i input.mp3 -f webm output.webm
+ffmpeg -i input.mp3 output.wav
+
+# Check web UI microphone permissions in browser
 ```
 
-**4. API Connection Issues**
+**6. API Connection Issues**
 ```bash
-# Check API server status
+# Check backend API server status
 curl http://localhost:8000/health
 
-# Verify port availability
+# Check if port is available
 netstat -tulpn | grep :8000
 
 # Check server logs
-uvicorn beautyai_inference.api.app:app --log-level debug
+cd backend
+sudo journalctl -u beautyai-api -f
+
+# Start server manually for debugging
+cd backend
+source venv/bin/activate
+python run_server.py
 ```
 
-**5. Configuration Problems**
+**7. Frontend Web UI Issues**
 ```bash
-# Validate current configuration
-beautyai config validate
+# Check frontend server status
+curl http://localhost:5001/api/health
 
-# Reset to defaults if corrupted
-beautyai config reset --confirm
+# Check if port is available
+netstat -tulpn | grep :5001
 
-# Check configuration file syntax
-python -m json.tool config/my_config.json
+# Start frontend manually for debugging
+cd frontend
+source venv/bin/activate
+python src/app.py
+
+# Check browser console for JavaScript errors
+# Check backend API connectivity from frontend
+```
+
+**8. Service Management Issues**
+```bash
+# Backend service management
+cd backend/unitTests_scripts/shell_scripts
+./manage-api-service.sh status
+./manage-api-service.sh logs
+
+# Frontend service management
+sudo systemctl status beautyai-webui
+sudo journalctl -u beautyai-webui -f
+
+# Restart both services
+sudo systemctl restart beautyai-api
+sudo systemctl restart beautyai-webui
 ```
 
 ### Performance Optimization
 
 **Memory Management**:
-- Use GGUF quantization for GPU VRAM efficiency (Q4_K_S for speed, Q6_K for quality)
+- Use 4-bit quantization for GPU VRAM efficiency
 - Monitor memory usage with `beautyai system status`
 - Unload unused models with `beautyai system unload-all`
 - Clear cache regularly with `beautyai system clear-cache --all`
 
 **Inference Speed**:
-- Use LlamaCpp backend with GGUF models for production workloads
-- Enable Q4_K_S quantization for fastest inference
+- Use Transformers backend with 4-bit quantization for production workloads
+- Enable GPU acceleration with proper CUDA installation
 - Use optimization-based presets: `qwen_optimized`, `speed_optimized`
 - Optimize `max_new_tokens` for your use case (256 for voice, 512 for text)
 
 **Voice Performance**:
-- Use Coqui TTS for high-quality local synthesis
-- Edge TTS for cloud-based multilingual support
+- Use Edge TTS for ultra-fast voice synthesis (<2 seconds)
 - Keep audio files small (< 10MB) for WebSocket streaming
 - Use WAV format for best compatibility and quality
+- Test microphone permissions and audio device access in browsers
+
+**Web UI Performance**:
+- Use modern browsers with WebSocket and WebRTC support
+- Enable hardware acceleration in browser settings
+- Test with different audio input devices if voice features are slow
+- Monitor browser console for JavaScript errors or warnings
+
+**Network Performance**:
+- Use local deployment for best voice latency
+- Configure proper DNS resolution for domain names
+- Use SSL/TLS termination with Nginx for production
+- Monitor network bandwidth for large model downloads
 
 ### Debug Mode
 
 Enable verbose logging for troubleshooting:
 ```bash
-# Enable debug logging for all commands
+# Enable debug logging for all backend commands
+cd backend
+source venv/bin/activate
 beautyai --verbose system status
 beautyai --log-level DEBUG run chat
+
+# Start backend server with debug logging
+python run_server.py --log-level debug
+
+# Start frontend with debug mode
+cd ../frontend
+source venv/bin/activate
+python src/app.py --debug
 
 # Check detailed error traces
 python -c "
@@ -1011,8 +1411,9 @@ main()
 1. **Check Documentation**: Review this README and inline help (`--help`)
 2. **Validate Setup**: Run `beautyai system status` to check system health
 3. **Check Logs**: Enable verbose mode to see detailed error information
-4. **Community Support**: Open an issue with system info and error logs
-5. **Configuration Backup**: Always backup working configurations before changes
+4. **Test Components**: Test backend API and frontend web UI separately
+5. **Community Support**: Open an issue with system info and error logs
+6. **Configuration Backup**: Always backup working configurations before changes
 
 ## 📝 License & Attribution
 
@@ -1051,16 +1452,17 @@ Check individual model cards on Hugging Face for specific licensing terms.
 ### Model Resources
 - [Qwen Model Family](https://huggingface.co/Qwen)
 - [DeepSeek Models](https://huggingface.co/lightblue)
-- [Unsloth Optimized Models](https://huggingface.co/unsloth)
-- [Arabic Speech Models](https://huggingface.co/mboushaba)
+- [Hugging Face Transformers Models](https://huggingface.co/models)
+- [Edge TTS Voices](https://github.com/rany2/edge-tts)
 - [Coqui TTS Models](https://huggingface.co/coqui)
 
 ### Technical References
-- [GGUF Format Specification](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md)
+- [Transformers Quantization](https://huggingface.co/docs/transformers/quantization)
 - [BitsAndBytes Quantization](https://github.com/TimDettmers/bitsandbytes)
 - [WebSocket Protocol](https://tools.ietf.org/html/rfc6455)
-- [Arabic NLP Resources](https://github.com/linuxscout/arabic-nlp)
+- [FastAPI Documentation](https://fastapi.tiangolo.com/)
+- [Flask Documentation](https://flask.palletsprojects.com/)
 
 ---
 
-**BeautyAI Inference Framework** - Empowering Arabic AI and multilingual language model deployment with professional-grade tools, advanced voice capabilities, and scalable architecture.
+**BeautyAI Inference Framework** - Empowering Arabic AI and multilingual language model deployment with professional-grade tools, advanced voice capabilities, beautiful web interface, and scalable dual-stack architecture.
