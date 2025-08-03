@@ -884,7 +884,7 @@ class BeautyAIChat {
             this.updateOverlayConnectionStatus('processing', 'Connecting...');
             
             // Get configuration values
-            const language = this.overlayLanguage.value === 'auto' ? 'ar' : this.overlayLanguage.value; // Default auto to Arabic
+            const language = this.overlayLanguage.value === 'auto' ? 'ar' : this.overlayLanguage.value; // Default auto to English
             const voiceType = this.getVoiceType(this.overlayVoice.value);
             
             // Build WebSocket URL with query parameters
