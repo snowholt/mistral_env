@@ -22,8 +22,8 @@ class BeautyAIChat {
         this.silenceDetectionActive = false;
         
         // Auto detection settings
-        this.autoStartEnabled = true;
-        this.autoStopEnabled = true;
+        this.autoStartEnabled = false;
+        this.autoStopEnabled = false;
         this.silenceThreshold = 3000;
         
         // Overlay state
@@ -35,8 +35,8 @@ class BeautyAIChat {
         this.overlayAnalyser = null;
         this.overlaySilenceTimeout = null;
         this.overlaySilenceDetectionActive = false;
-        this.overlayAutoStartEnabled = true;
-        this.overlayAutoStopEnabled = true;
+        this.overlayAutoStartEnabled = false;
+        this.overlayAutoStopEnabled = false;
         this.overlaySilenceThresholdValue = 3000;
         
         this.initializeElements();
@@ -60,6 +60,7 @@ class BeautyAIChat {
         // Input elements
         this.messageInput = document.getElementById('messageInput');
         this.voiceToggle = document.getElementById('voiceToggle');
+        this.startConversationBtn = document.getElementById('voiceConversationBtn');
         this.sendBtn = document.getElementById('sendBtn');
         this.voiceStatus = document.getElementById('voiceStatus');
         
@@ -108,9 +109,13 @@ class BeautyAIChat {
     }
 
     setupEventListeners() {
-        // Mode switching
-        this.textModeBtn.addEventListener('click', () => this.switchMode('text'));
-        this.voiceModeBtn.addEventListener('click', () => this.switchMode('voice'));
+        // Mode switching (if elements exist)
+        if (this.textModeBtn) {
+            this.textModeBtn.addEventListener('click', () => this.switchMode('text'));
+        }
+        if (this.voiceModeBtn) {
+            this.voiceModeBtn.addEventListener('click', () => this.switchMode('voice'));
+        }
         
         // Settings panel
         this.settingsBtn.addEventListener('click', () => this.toggleSettings());
@@ -120,10 +125,17 @@ class BeautyAIChat {
         this.messageInput.addEventListener('keydown', (e) => this.handleKeyDown(e));
         this.sendBtn.addEventListener('click', () => this.handleSend());
         
-        // Voice controls
-        this.voiceToggle.addEventListener('mousedown', () => this.handleVoiceToggle(true));
-        this.voiceToggle.addEventListener('mouseup', () => this.handleVoiceToggle(false));
-        this.voiceToggle.addEventListener('mouseleave', () => this.handleVoiceToggle(false));
+        // Voice conversation button
+        if (this.startConversationBtn) {
+            this.startConversationBtn.addEventListener('click', () => this.openVoiceOverlay());
+        }
+        
+        // Voice controls (legacy)
+        if (this.voiceToggle) {
+            this.voiceToggle.addEventListener('mousedown', () => this.handleVoiceToggle(true));
+            this.voiceToggle.addEventListener('mouseup', () => this.handleVoiceToggle(false));
+            this.voiceToggle.addEventListener('mouseleave', () => this.handleVoiceToggle(false));
+        }
         
         // Settings controls
         this.setupSettingsListeners();
@@ -168,36 +180,54 @@ class BeautyAIChat {
     }
 
     setupOverlayListeners() {
-        // Floating button to open overlay
-        this.floatingVoiceBtn.addEventListener('click', () => this.openVoiceOverlay());
+        // Floating button to open overlay (if it exists)
+        if (this.floatingVoiceBtn) {
+            this.floatingVoiceBtn.addEventListener('click', () => this.openVoiceOverlay());
+        }
         
         // Close overlay
-        this.closeVoiceOverlay.addEventListener('click', () => this.closeVoiceOverlayMethod());
+        if (this.closeVoiceOverlay) {
+            this.closeVoiceOverlay.addEventListener('click', () => this.closeVoiceOverlayMethod());
+        }
         
         // Close overlay on background click
-        this.voiceOverlay.addEventListener('click', (e) => {
-            if (e.target === this.voiceOverlay) {
-                this.closeVoiceOverlayMethod();
-            }
-        });
+        if (this.voiceOverlay) {
+            this.voiceOverlay.addEventListener('click', (e) => {
+                if (e.target === this.voiceOverlay) {
+                    this.closeVoiceOverlayMethod();
+                }
+            });
+        }
         
         // Overlay voice toggle
-        this.overlayVoiceToggle.addEventListener('mousedown', () => this.handleOverlayVoiceToggle(true));
-        this.overlayVoiceToggle.addEventListener('mouseup', () => this.handleOverlayVoiceToggle(false));
-        this.overlayVoiceToggle.addEventListener('mouseleave', () => this.handleOverlayVoiceToggle(false));
+        if (this.overlayVoiceToggle) {
+            this.overlayVoiceToggle.addEventListener('mousedown', () => this.handleOverlayVoiceToggle(true));
+            this.overlayVoiceToggle.addEventListener('mouseup', () => this.handleOverlayVoiceToggle(false));
+            this.overlayVoiceToggle.addEventListener('mouseleave', () => this.handleOverlayVoiceToggle(false));
+        }
         
         // Overlay settings
-        this.overlayLanguage.addEventListener('change', () => this.updateOverlayVoiceOptions());
-        this.overlayAutoStart.addEventListener('change', (e) => {
-            this.overlayAutoStartEnabled = e.target.checked;
-        });
-        this.overlayAutoStop.addEventListener('change', (e) => {
-            this.overlayAutoStopEnabled = e.target.checked;
-        });
-        this.overlaySilenceThreshold.addEventListener('input', (e) => {
-            this.overlaySilenceThresholdValue = parseFloat(e.target.value) * 1000;
-            this.overlaySilenceValue.textContent = `${e.target.value}s`;
-        });
+        if (this.overlayLanguage) {
+            this.overlayLanguage.addEventListener('change', () => this.updateOverlayVoiceOptions());
+        }
+        if (this.overlayAutoStart) {
+            this.overlayAutoStart.addEventListener('change', (e) => {
+                this.overlayAutoStartEnabled = e.target.checked;
+            });
+        }
+        if (this.overlayAutoStop) {
+            this.overlayAutoStop.addEventListener('change', (e) => {
+                this.overlayAutoStopEnabled = e.target.checked;
+            });
+        }
+        if (this.overlaySilenceThreshold) {
+            this.overlaySilenceThreshold.addEventListener('input', (e) => {
+                this.overlaySilenceThresholdValue = parseFloat(e.target.value) * 1000;
+                if (this.overlaySilenceValue) {
+                    this.overlaySilenceValue.textContent = `${e.target.value}s`;
+                }
+            });
+        }
         
         // Keyboard shortcuts for overlay
         document.addEventListener('keydown', (e) => {
@@ -258,11 +288,11 @@ class BeautyAIChat {
     switchMode(mode) {
         this.currentMode = mode;
         
-        // Update mode buttons
+        // Update mode buttons (if they exist)
         if (mode === 'text') {
-            this.textModeBtn.classList.add('active');
-            this.voiceModeBtn.classList.remove('active');
-            this.voiceToggle.style.display = 'none';
+            if (this.textModeBtn) this.textModeBtn.classList.add('active');
+            if (this.voiceModeBtn) this.voiceModeBtn.classList.remove('active');
+            if (this.voiceToggle) this.voiceToggle.style.display = 'none';
             this.updateConnectionStatus('disconnected', 'Text Chat Mode');
             
             // Disconnect voice if connected
@@ -270,9 +300,9 @@ class BeautyAIChat {
                 this.disconnectVoice();
             }
         } else {
-            this.voiceModeBtn.classList.add('active');
-            this.textModeBtn.classList.remove('active');
-            this.voiceToggle.style.display = 'flex';
+            if (this.voiceModeBtn) this.voiceModeBtn.classList.add('active');
+            if (this.textModeBtn) this.textModeBtn.classList.remove('active');
+            if (this.voiceToggle) this.voiceToggle.style.display = 'flex';
             this.updateConnectionStatus('disconnected', 'Voice Chat Mode - Click to connect');
             
             // Auto-connect for voice mode
