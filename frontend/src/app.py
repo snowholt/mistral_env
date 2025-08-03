@@ -404,12 +404,12 @@ def index():
 
 @app.route('/legacy')
 def legacy():
-    """Legacy simple voice interface."""
+    """Legacy chat interface."""
     # Initialize session if needed
     if 'session_id' not in session:
         session['session_id'] = str(uuid.uuid4())
     
-    return render_template('simple_voice_ui.html')
+    return render_template('chat_ui.html')
 
 @app.route('/ws/simple-voice')
 def simple_voice_websocket():
