@@ -26,9 +26,23 @@ class BeautyAIChat {
         this.autoStopEnabled = true;
         this.silenceThreshold = 3000;
         
+        // Overlay state
+        this.overlayConnected = false;
+        this.overlayRecording = false;
+        this.overlayWebSocket = null;
+        this.overlayMediaRecorder = null;
+        this.overlayAudioChunks = [];
+        this.overlayAnalyser = null;
+        this.overlaySilenceTimeout = null;
+        this.overlaySilenceDetectionActive = false;
+        this.overlayAutoStartEnabled = true;
+        this.overlayAutoStopEnabled = true;
+        this.overlaySilenceThresholdValue = 3000;
+        
         this.initializeElements();
         this.setupEventListeners();
         this.updateVoiceOptions();
+        this.updateOverlayVoiceOptions();
         this.setupAudioContext();
     }
 
@@ -75,6 +89,22 @@ class BeautyAIChat {
         this.maxTokensValue = document.getElementById('maxTokensValue');
         this.repPenaltyValue = document.getElementById('repPenaltyValue');
         this.silenceValueDisplay = document.getElementById('silenceValue');
+        
+        // Voice Overlay elements
+        this.floatingVoiceBtn = document.getElementById('floatingVoiceBtn');
+        this.voiceOverlay = document.getElementById('voiceOverlay');
+        this.closeVoiceOverlay = document.getElementById('closeVoiceOverlay');
+        this.overlayLanguage = document.getElementById('overlayLanguage');
+        this.overlayVoice = document.getElementById('overlayVoice');
+        this.overlayThinkingMode = document.getElementById('overlayThinkingMode');
+        this.overlayAutoStart = document.getElementById('overlayAutoStart');
+        this.overlayAutoStop = document.getElementById('overlayAutoStop');
+        this.overlaySilenceThreshold = document.getElementById('overlaySilenceThreshold');
+        this.overlaySilenceValue = document.getElementById('overlaySilenceValue');
+        this.overlayConnectionStatus = document.getElementById('overlayConnectionStatus');
+        this.overlayVoiceToggle = document.getElementById('overlayVoiceToggle');
+        this.overlayVoiceStatus = document.getElementById('overlayVoiceStatus');
+        this.overlayConversation = document.getElementById('overlayConversation');
     }
 
     setupEventListeners() {
@@ -130,6 +160,61 @@ class BeautyAIChat {
                     e.preventDefault();
                     this.handleVoiceToggle(false);
                 }
+            }
+        });
+        
+        // Voice Overlay event listeners
+        this.setupOverlayListeners();
+    }
+
+    setupOverlayListeners() {
+        // Floating button to open overlay
+        this.floatingVoiceBtn.addEventListener('click', () => this.openVoiceOverlay());
+        
+        // Close overlay
+        this.closeVoiceOverlay.addEventListener('click', () => this.closeVoiceOverlayMethod());
+        
+        // Close overlay on background click
+        this.voiceOverlay.addEventListener('click', (e) => {
+            if (e.target === this.voiceOverlay) {
+                this.closeVoiceOverlayMethod();
+            }
+        });
+        
+        // Overlay voice toggle
+        this.overlayVoiceToggle.addEventListener('mousedown', () => this.handleOverlayVoiceToggle(true));
+        this.overlayVoiceToggle.addEventListener('mouseup', () => this.handleOverlayVoiceToggle(false));
+        this.overlayVoiceToggle.addEventListener('mouseleave', () => this.handleOverlayVoiceToggle(false));
+        
+        // Overlay settings
+        this.overlayLanguage.addEventListener('change', () => this.updateOverlayVoiceOptions());
+        this.overlayAutoStart.addEventListener('change', (e) => {
+            this.overlayAutoStartEnabled = e.target.checked;
+        });
+        this.overlayAutoStop.addEventListener('change', (e) => {
+            this.overlayAutoStopEnabled = e.target.checked;
+        });
+        this.overlaySilenceThreshold.addEventListener('input', (e) => {
+            this.overlaySilenceThresholdValue = parseFloat(e.target.value) * 1000;
+            this.overlaySilenceValue.textContent = `${e.target.value}s`;
+        });
+        
+        // Keyboard shortcuts for overlay
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape' && !this.voiceOverlay.classList.contains('hidden')) {
+                this.closeVoiceOverlayMethod();
+            }
+            // Space for voice recording in overlay
+            if (e.code === 'Space' && !this.voiceOverlay.classList.contains('hidden') && !e.repeat) {
+                e.preventDefault();
+                this.handleOverlayVoiceToggle(true);
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            if (e.code === 'Space' && !this.voiceOverlay.classList.contains('hidden')) {
+                e.preventDefault();
+                this.handleOverlayVoiceToggle(false);
             }
         });
     }
@@ -282,7 +367,13 @@ class BeautyAIChat {
             };
             
             // Send request
-            const response = await fetch('/api/chat', {
+            // Use dynamic API URL based on current host
+            const apiHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                ? 'http://localhost:8000' 
+                : 'https://api.gmai.sa';
+            const apiUrl = `${apiHost}/api/chat`;
+            console.log('💬 Sending chat request to:', apiUrl);
+            const response = await fetch(apiUrl, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json'
@@ -357,7 +448,18 @@ class BeautyAIChat {
         try {
             this.updateConnectionStatus('processing', 'Connecting...');
             
-            const wsUrl = "ws://localhost:8000/ws/simple-voice";
+            // Get configuration values  
+            const language = this.language.value === 'auto' ? 'ar' : this.language.value; // Default auto to Arabic
+            const voiceType = this.getVoiceType(this.voice.value);
+            
+            // Build WebSocket URL with query parameters
+            // Use dynamic URL based on current host
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                ? 'localhost:8000' 
+                : 'api.gmai.sa';
+            const wsUrl = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${language}&voice_type=${voiceType}`;
+            console.log('🔗 Connecting to WebSocket:', wsUrl);
             this.ws = new WebSocket(wsUrl);
             
             this.ws.onopen = () => {
@@ -402,43 +504,52 @@ class BeautyAIChat {
 
     async handleVoiceMessage(event) {
         try {
-            if (event.data instanceof Blob) {
-                // Audio response
-                const audioUrl = URL.createObjectURL(event.data);
-                const audio = new Audio(audioUrl);
-                
-                // Add to conversation
-                this.addMessage('assistant', null, false, { audioUrl });
-                
-                // Play audio
-                audio.onended = () => {
-                    URL.revokeObjectURL(audioUrl);
+            // Parse JSON response from backend
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'voice_response') {
+                if (data.success && data.audio_base64) {
+                    // Convert base64 to audio blob
+                    const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
                     
-                    // Auto-start recording if enabled
-                    if (this.autoStartEnabled && this.isConnected && !this.isRecording) {
-                        setTimeout(() => {
-                            this.startRecording();
-                        }, 500);
-                    }
-                };
-                
-                await audio.play();
-                
-            } else {
-                // Text message
-                const data = JSON.parse(event.data);
-                
-                if (data.type === 'transcript') {
-                    this.showVoiceStatus(`Transcript: ${data.text}`);
-                } else if (data.type === 'response') {
-                    this.addMessage('assistant', data.text);
-                } else if (data.type === 'error') {
-                    console.error('Voice server error:', data.message);
-                    this.addMessage('assistant', `❌ Voice Error: ${data.message}`);
+                    // Add to conversation with transcription and response text
+                    this.addMessage('assistant', data.response_text, false, { 
+                        audioUrl,
+                        transcription: data.transcription,
+                        stats: {
+                            time: data.response_time_ms,
+                            tokens: data.response_text ? data.response_text.split(' ').length : 0,
+                            speed: data.response_time_ms > 0 ? (data.response_text.split(' ').length / (data.response_time_ms / 1000)) : 0
+                        }
+                    });
+                    
+                    // Play audio
+                    audio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                        
+                        // Auto-start recording if enabled
+                        if (this.autoStartEnabled && this.isConnected && !this.isRecording) {
+                            setTimeout(() => {
+                                this.startRecording();
+                            }, 500);
+                        }
+                    };
+                    
+                    await audio.play();
+                } else {
+                    this.addMessage('assistant', `❌ Voice Error: ${data.message || 'Unknown error'}`);
                 }
+            } else if (data.type === 'processing_started') {
+                this.showVoiceStatus(data.message);
+            } else if (data.type === 'error') {
+                console.error('Voice server error:', data.message);
+                this.addMessage('assistant', `❌ Voice Error: ${data.message}`);
             }
         } catch (error) {
             console.error('Error handling voice message:', error);
+            this.addMessage('assistant', `❌ Error processing voice response: ${error.message}`);
         }
     }
 
@@ -577,15 +688,7 @@ class BeautyAIChat {
         
         const audioBlob = new Blob(this.audioChunks, { type: 'audio/webm' });
         
-        // Send configuration
-        const config = {
-            type: 'config',
-            language: this.language.value,
-            voice: this.voice.value,
-            thinking_mode: this.thinkingMode.value
-        };
-        
-        this.ws.send(JSON.stringify(config));
+        // Send audio data directly (no config needed - already sent via query params)
         this.ws.send(audioBlob);
         
         // Add voice message to conversation
@@ -673,6 +776,399 @@ class BeautyAIChat {
 
     hideVoiceStatus() {
         this.voiceStatus.classList.remove('show');
+    }
+
+    // Voice Overlay Methods
+    openVoiceOverlay() {
+        this.voiceOverlay.classList.remove('hidden');
+        this.initializeOverlaySettings();
+        this.clearOverlayConversation();
+        
+        // Auto-connect voice when overlay opens
+        if (!this.overlayConnected) {
+            this.connectOverlayVoice();
+        }
+    }
+
+    closeVoiceOverlayMethod() {
+        this.voiceOverlay.classList.add('hidden');
+        
+        // Disconnect voice and cleanup
+        if (this.overlayConnected) {
+            this.disconnectOverlayVoice();
+        }
+        
+        // Stop any ongoing recording
+        if (this.overlayRecording) {
+            this.stopOverlayRecording();
+        }
+    }
+
+    initializeOverlaySettings() {
+        // Set default values
+        this.overlayAutoStartEnabled = this.overlayAutoStart.checked;
+        this.overlayAutoStopEnabled = this.overlayAutoStop.checked;
+        this.overlaySilenceThresholdValue = parseFloat(this.overlaySilenceThreshold.value) * 1000;
+        this.overlaySilenceValue.textContent = `${this.overlaySilenceThreshold.value}s`;
+        
+        // Initialize connection status
+        this.overlayConnected = false;
+        this.overlayRecording = false;
+        this.overlayAudioChunks = [];
+        this.overlayWebSocket = null;
+        
+        this.updateOverlayConnectionStatus('disconnected', 'Disconnected');
+    }
+
+    clearOverlayConversation() {
+        this.overlayConversation.innerHTML = `
+            <div class="conversation-placeholder">
+                <p>Start your voice conversation!</p>
+                <p>Hold the microphone button and speak.</p>
+            </div>
+        `;
+    }
+
+    updateOverlayVoiceOptions() {
+        const language = this.overlayLanguage.value;
+        const voiceSelect = this.overlayVoice;
+        
+        // Clear current options
+        voiceSelect.innerHTML = '';
+        
+        if (language === 'ar' || language === 'auto') {
+            voiceSelect.innerHTML += '<option value="ar-SA-ZariyahNeural">Arabic Female (Zariyah)</option>';
+            voiceSelect.innerHTML += '<option value="ar-SA-HamedNeural">Arabic Male (Hamed)</option>';
+        }
+        
+        if (language === 'en' || language === 'auto') {
+            voiceSelect.innerHTML += '<option value="en-US-JennyNeural">English Female (Jenny)</option>';
+            voiceSelect.innerHTML += '<option value="en-US-GuyNeural">English Male (Guy)</option>';
+        }
+    }
+
+    async connectOverlayVoice() {
+        if (this.overlayConnected) return;
+        
+        try {
+            this.updateOverlayConnectionStatus('processing', 'Connecting...');
+            
+            // Get configuration values
+            const language = this.overlayLanguage.value === 'auto' ? 'ar' : this.overlayLanguage.value; // Default auto to Arabic
+            const voiceType = this.getVoiceType(this.overlayVoice.value);
+            
+            // Build WebSocket URL with query parameters
+            // Use dynamic URL based on current host
+            const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+            const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
+                ? 'localhost:8000' 
+                : 'api.gmai.sa';
+            const wsUrl = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${language}&voice_type=${voiceType}`;
+            console.log('🎤 Connecting to Overlay WebSocket:', wsUrl);
+            this.overlayWebSocket = new WebSocket(wsUrl);
+            
+            this.overlayWebSocket.onopen = () => {
+                this.overlayConnected = true;
+                this.updateOverlayConnectionStatus('connected', 'Connected - Hold space or mic button to talk');
+                console.log('Overlay Voice WebSocket connected');
+            };
+            
+            this.overlayWebSocket.onmessage = (event) => {
+                this.handleOverlayVoiceMessage(event);
+            };
+            
+            this.overlayWebSocket.onclose = () => {
+                this.overlayConnected = false;
+                this.updateOverlayConnectionStatus('disconnected', 'Disconnected');
+                if (this.overlayRecording) {
+                    this.stopOverlayRecording();
+                }
+                console.log('Overlay Voice WebSocket disconnected');
+            };
+            
+            this.overlayWebSocket.onerror = (error) => {
+                console.error('Overlay Voice WebSocket error:', error);
+                this.updateOverlayConnectionStatus('disconnected', 'Connection failed');
+            };
+            
+        } catch (error) {
+            console.error('Failed to connect overlay voice:', error);
+            this.updateOverlayConnectionStatus('disconnected', 'Connection failed');
+        }
+    }
+
+    disconnectOverlayVoice() {
+        if (this.overlayWebSocket) {
+            this.overlayWebSocket.close();
+        }
+        this.overlayConnected = false;
+        if (this.overlayRecording) {
+            this.stopOverlayRecording();
+        }
+    }
+
+    async handleOverlayVoiceMessage(event) {
+        try {
+            // Parse JSON response from backend
+            const data = JSON.parse(event.data);
+            
+            if (data.type === 'voice_response') {
+                if (data.success && data.audio_base64) {
+                    // Convert base64 to audio blob
+                    const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
+                    const audioUrl = URL.createObjectURL(audioBlob);
+                    const audio = new Audio(audioUrl);
+                    
+                    // Add to conversation with transcription and response text
+                    this.addOverlayMessage('assistant', data.response_text, { 
+                        audioUrl,
+                        transcription: data.transcription,
+                        responseTime: data.response_time_ms
+                    });
+                    
+                    // Play audio
+                    audio.onended = () => {
+                        URL.revokeObjectURL(audioUrl);
+                        
+                        // Auto-start recording if enabled
+                        if (this.overlayAutoStartEnabled && this.overlayConnected && !this.overlayRecording) {
+                            setTimeout(() => {
+                                this.startOverlayRecording();
+                            }, 500);
+                        }
+                    };
+                    
+                    await audio.play();
+                } else {
+                    this.addOverlayMessage('assistant', `❌ Voice Error: ${data.message || 'Unknown error'}`);
+                }
+            } else if (data.type === 'processing_started') {
+                this.showOverlayVoiceStatus(data.message);
+            } else if (data.type === 'error') {
+                console.error('Overlay voice server error:', data.message);
+                this.addOverlayMessage('assistant', `❌ Voice Error: ${data.message}`);
+            }
+        } catch (error) {
+            console.error('Error handling overlay voice message:', error);
+            this.addOverlayMessage('assistant', `❌ Error processing voice response: ${error.message}`);
+        }
+    }
+
+    handleOverlayVoiceToggle(isPressed) {
+        if (isPressed && !this.overlayRecording && this.overlayConnected) {
+            this.startOverlayRecording();
+        } else if (!isPressed && this.overlayRecording) {
+            this.stopOverlayRecording();
+        }
+    }
+
+    async startOverlayRecording() {
+        if (!this.overlayConnected || this.overlayRecording) return;
+        
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia({
+                audio: {
+                    sampleRate: 16000,
+                    channelCount: 1,
+                    echoCancellation: true,
+                    noiseSuppression: true
+                }
+            });
+            
+            // Setup MediaRecorder
+            const options = { mimeType: 'audio/webm;codecs=opus' };
+            
+            if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                if (MediaRecorder.isTypeSupported('audio/ogg;codecs=opus')) {
+                    options.mimeType = 'audio/ogg;codecs=opus';
+                } else {
+                    options.mimeType = 'audio/webm';
+                }
+            }
+            
+            this.overlayMediaRecorder = new MediaRecorder(stream, options);
+            this.overlayAudioChunks = [];
+            
+            this.overlayMediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0) {
+                    this.overlayAudioChunks.push(event.data);
+                }
+            };
+            
+            this.overlayMediaRecorder.onstop = () => {
+                this.sendOverlayVoiceData();
+                stream.getTracks().forEach(track => track.stop());
+            };
+            
+            // Setup silence detection
+            if (this.overlayAutoStopEnabled && this.audioContext) {
+                this.setupOverlaySilenceDetection(stream);
+            }
+            
+            this.overlayMediaRecorder.start(100);
+            this.overlayRecording = true;
+            
+            // Update UI
+            this.overlayVoiceToggle.classList.add('recording');
+            this.overlayVoiceToggle.querySelector('span').textContent = 'Recording...';
+            this.showOverlayVoiceStatus('🎤 Recording... (release to send)');
+            
+            console.log('Overlay recording started');
+            
+        } catch (error) {
+            console.error('Failed to start overlay recording:', error);
+            this.showOverlayVoiceStatus('❌ Microphone access denied');
+        }
+    }
+
+    setupOverlaySilenceDetection(stream) {
+        if (!this.audioContext) return;
+        
+        try {
+            const source = this.audioContext.createMediaStreamSource(stream);
+            this.overlayAnalyser = this.audioContext.createAnalyser();
+            this.overlayAnalyser.fftSize = 256;
+            source.connect(this.overlayAnalyser);
+            
+            this.overlaySilenceDetectionActive = true;
+            this.detectOverlaySilence();
+        } catch (error) {
+            console.error('Failed to setup overlay silence detection:', error);
+        }
+    }
+
+    detectOverlaySilence() {
+        if (!this.overlaySilenceDetectionActive || !this.overlayAnalyser) return;
+        
+        const bufferLength = this.overlayAnalyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        this.overlayAnalyser.getByteFrequencyData(dataArray);
+        
+        const average = dataArray.reduce((a, b) => a + b) / bufferLength;
+        const isSilent = average < 10;
+        
+        if (isSilent) {
+            if (!this.overlaySilenceTimeout) {
+                this.overlaySilenceTimeout = setTimeout(() => {
+                    if (this.overlayRecording && this.overlayAutoStopEnabled) {
+                        this.stopOverlayRecording();
+                    }
+                }, this.overlaySilenceThresholdValue);
+            }
+        } else {
+            if (this.overlaySilenceTimeout) {
+                clearTimeout(this.overlaySilenceTimeout);
+                this.overlaySilenceTimeout = null;
+            }
+        }
+        
+        if (this.overlayRecording) {
+            setTimeout(() => this.detectOverlaySilence(), 100);
+        }
+    }
+
+    stopOverlayRecording() {
+        if (!this.overlayRecording) return;
+        
+        this.overlayRecording = false;
+        this.overlaySilenceDetectionActive = false;
+        
+        if (this.overlaySilenceTimeout) {
+            clearTimeout(this.overlaySilenceTimeout);
+            this.overlaySilenceTimeout = null;
+        }
+        
+        if (this.overlayMediaRecorder && this.overlayMediaRecorder.state !== 'inactive') {
+            this.overlayMediaRecorder.stop();
+        }
+        
+        // Update UI
+        this.overlayVoiceToggle.classList.remove('recording');
+        this.overlayVoiceToggle.querySelector('span').textContent = 'Hold to Talk';
+        this.showOverlayVoiceStatus('📤 Processing audio...');
+        
+        console.log('Overlay recording stopped');
+    }
+
+    sendOverlayVoiceData() {
+        if (this.overlayAudioChunks.length === 0 || !this.overlayWebSocket) return;
+        
+        const audioBlob = new Blob(this.overlayAudioChunks, { type: 'audio/webm' });
+        
+        // Send audio data directly (no config needed - already sent via query params)
+        this.overlayWebSocket.send(audioBlob);
+        
+        // Add voice message to conversation
+        this.addOverlayMessage('user', '🎤 Voice message sent');
+        
+        this.hideOverlayVoiceStatus();
+        console.log('Overlay voice data sent, size:', audioBlob.size, 'bytes');
+    }
+
+    addOverlayMessage(sender, content, extras = {}) {
+        // Remove placeholder if it exists
+        const placeholder = this.overlayConversation.querySelector('.conversation-placeholder');
+        if (placeholder) {
+            placeholder.remove();
+        }
+        
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `voice-message ${sender}`;
+        
+        if (content) {
+            const contentP = document.createElement('p');
+            contentP.textContent = content;
+            messageDiv.appendChild(contentP);
+        }
+        
+        // Add audio if available
+        if (extras.audioUrl) {
+            const audioDiv = document.createElement('div');
+            audioDiv.className = 'voice-audio';
+            audioDiv.innerHTML = `<audio controls><source src="${extras.audioUrl}" type="audio/webm"></audio>`;
+            messageDiv.appendChild(audioDiv);
+        }
+        
+        this.overlayConversation.appendChild(messageDiv);
+        this.overlayConversation.scrollTop = this.overlayConversation.scrollHeight;
+    }
+
+    updateOverlayConnectionStatus(status, message) {
+        const statusElement = this.overlayConnectionStatus;
+        statusElement.className = `status-indicator ${status}`;
+        statusElement.innerHTML = `<span>●</span><span>${message}</span>`;
+    }
+
+    showOverlayVoiceStatus(message) {
+        this.overlayVoiceStatus.textContent = message;
+        this.overlayVoiceStatus.classList.add('show');
+    }
+
+    hideOverlayVoiceStatus() {
+        this.overlayVoiceStatus.classList.remove('show');
+    }
+
+    getVoiceType(voiceValue) {
+        // Extract voice type from voice value
+        if (voiceValue.includes('Zariyah') || voiceValue.includes('Jenny')) {
+            return 'female';
+        } else if (voiceValue.includes('Hamed') || voiceValue.includes('Guy')) {
+            return 'male';
+        }
+        return 'female'; // default
+    }
+
+    base64ToBlob(base64Data, contentType = '') {
+        // Convert base64 string to blob
+        const byteCharacters = atob(base64Data);
+        const byteNumbers = new Array(byteCharacters.length);
+        
+        for (let i = 0; i < byteCharacters.length; i++) {
+            byteNumbers[i] = byteCharacters.charCodeAt(i);
+        }
+        
+        const byteArray = new Uint8Array(byteNumbers);
+        return new Blob([byteArray], { type: contentType });
     }
 }
 
