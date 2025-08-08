@@ -88,6 +88,8 @@ class RealTimeVADService:
         self.silence_counter = 0
         self.is_speaking = False
         self.last_speech_time = 0
+        self.turn_being_processed = False  # NEW: Prevent multiple turn completions
+        self.last_turn_timestamp = 0  # NEW: Track last turn completion time
         
         # Callbacks
         self.on_speech_start: Optional[Callable] = None
@@ -344,6 +346,10 @@ class RealTimeVADService:
         """
         state_change = None
         
+        # 🛡️ CRITICAL FIX: Don't process new chunks if a turn is being processed
+        if self.turn_being_processed:
+            return None
+        
         if chunk.is_speech:
             # Speech detected
             self.speech_chunks.append(chunk)
@@ -370,7 +376,16 @@ class RealTimeVADService:
                 
                 if silence_duration_ms >= self.config.silence_threshold_ms:
                     # End of turn detected
+                    current_time = time.time()
+                    
+                    # 🛡️ CRITICAL FIX: Prevent rapid duplicate turn completions
+                    if current_time - self.last_turn_timestamp < 1.0:  # 1 second minimum between turns
+                        self.logger.warning(f"🚫 Turn completion too soon - ignoring (last: {self.last_turn_timestamp}, current: {current_time})")
+                        return None
+                    
                     self.is_speaking = False
+                    self.turn_being_processed = True  # Mark turn as being processed
+                    self.last_turn_timestamp = current_time
                     state_change = "turn_complete"
                     
                     # Process accumulated speech
@@ -387,6 +402,8 @@ class RealTimeVADService:
     async def _handle_turn_complete(self):
         """Handle when a complete turn is detected."""
         if not self.speech_chunks:
+            # Reset turn processing state if no chunks
+            self.turn_being_processed = False
             return
         
         try:
@@ -400,7 +417,7 @@ class RealTimeVADService:
             if self.on_turn_complete:
                 await self._safe_callback(self.on_turn_complete, audio_file_path, audio_data)
             
-            # Clear speech buffer
+            # Clear speech buffer for next turn
             self.speech_chunks.clear()
             self.silence_counter = 0
             
@@ -408,6 +425,15 @@ class RealTimeVADService:
             
         except Exception as e:
             self.logger.error(f"Error handling turn complete: {e}")
+        finally:
+            # Always reset turn processing state after completion
+            # Note: This will be reset by the WebSocket handler after processing
+            pass
+    
+    def reset_turn_processing(self):
+        """Reset turn processing state to allow new turns."""
+        self.turn_being_processed = False
+        self.logger.debug("Turn processing state reset")
     
     async def _concatenate_speech_chunks(self) -> np.ndarray:
         """
@@ -472,6 +498,8 @@ class RealTimeVADService:
             "buffer_size": len(self.audio_buffer),
             "last_speech_time": self.last_speech_time,
             "model_loaded": self.model_loaded,
+            "turn_being_processed": self.turn_being_processed,  # NEW: Track processing state
+            "last_turn_timestamp": self.last_turn_timestamp,  # NEW: Track last turn time
             "config": {
                 "chunk_size_ms": self.config.chunk_size_ms,
                 "silence_threshold_ms": self.config.silence_threshold_ms,
@@ -485,6 +513,9 @@ class RealTimeVADService:
         self._stop_processing = True
         self.speech_chunks.clear()
         self.audio_buffer.clear()
+        self.turn_being_processed = False  # Reset processing state
+        self.silence_counter = 0
+        self.is_speaking = False
         
         self.logger.info("VAD service cleaned up")
 

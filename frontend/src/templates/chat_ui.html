@@ -666,16 +666,16 @@
 
                 <div class="checkbox-item">
                     <input type="checkbox" id="autoStart">
-                    <label for="autoStart">Auto-start recording after response</label>
+                    <label for="autoStart">Auto-start listening after response (VAD mode)</label>
                 </div>
                 
                 <div class="checkbox-item">
                     <input type="checkbox" id="autoStop">
-                    <label for="autoStop">Auto-stop on silence</label>
+                    <label for="autoStop">Auto-stop on silence (fallback mode)</label>
                 </div>
                 
                 <div class="setting-item">
-                    <label for="silenceThreshold">Silence Threshold <span id="silenceValue" class="range-value">3.0s</span></label>
+                    <label for="silenceThreshold">Silence Threshold (fallback) <span id="silenceValue" class="range-value">3.0s</span></label>
                     <input type="range" id="silenceThreshold" min="1" max="5" step="0.5" value="3">
                 </div>
             </div>
@@ -723,16 +723,16 @@
             <div class="voice-detection-settings">
                 <div class="checkbox-setting">
                     <input type="checkbox" id="overlayAutoStart">
-                    <label for="overlayAutoStart">Auto-start recording after response</label>
+                    <label for="overlayAutoStart">Auto-start listening after response (VAD mode)</label>
                 </div>
                 
                 <div class="checkbox-setting">
                     <input type="checkbox" id="overlayAutoStop">
-                    <label for="overlayAutoStop">Auto-stop on silence</label>
+                    <label for="overlayAutoStop">Auto-stop on silence (fallback mode)</label>
                 </div>
                 
-                <div class="range-setting">
-                    <label>Silence Threshold: <span id="overlaySilenceValue">3.0s</span></label>
+                                <div class="range-setting">
+                    <label>Silence Threshold (fallback): <span id="overlaySilenceValue">3s</span></label>
                     <input type="range" id="overlaySilenceThreshold" min="1" max="5" step="0.5" value="3">
                 </div>
             </div>
@@ -747,7 +747,7 @@
                         <path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3z"/>
                         <path d="M17 11c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/>
                     </svg>
-                    <span>Hold to Talk</span>
+                    <span>Click to Listen</span>
                 </button>
                 
                 <div id="overlayVoiceStatus" class="voice-status"></div>
@@ -756,7 +756,7 @@
             <div class="voice-conversation" id="overlayConversation">
                 <div class="conversation-placeholder">
                     <p>Start your voice conversation!</p>
-                    <p>Hold the microphone button and speak.</p>
+                    <p>Click the microphone to start listening. AI will detect when you stop speaking.</p>
                 </div>
             </div>
         </div>

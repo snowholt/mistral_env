@@ -130,10 +130,15 @@ class SimpleVoiceWebSocketManager:
                 "session_id": connection_state["session_id"],
                 "timestamp": time.time(),
                 "message": "Simple voice chat WebSocket connected successfully",
+                "vad_enabled": connection_state["vad_enabled"],  # Send VAD availability to frontend
                 "config": {
                     "language": language,
                     "voice_type": voice_type,
-                    "target_response_time": "< 2 seconds"
+                    "target_response_time": "< 2 seconds",
+                    "vad_config": {
+                        "chunk_size_ms": 30,
+                        "silence_threshold_ms": 500
+                    } if connection_state["vad_enabled"] else None
                 }
             }
             await websocket.send_text(json.dumps(welcome_msg))
@@ -431,9 +436,32 @@ class SimpleVoiceWebSocketManager:
             """Called when a complete turn is ready for processing."""
             logger.info(f"🔄 Turn complete for {connection_id}, processing complete audio...")
             
-            # Mark connection as processing a turn
-            if connection_id in simple_voice_connections:
-                simple_voice_connections[connection_id]["processing_turn"] = True
+            # Check if connection still exists
+            if connection_id not in simple_voice_connections:
+                logger.warning(f"⚠️ Turn complete for disconnected connection {connection_id} - skipping")
+                try:
+                    Path(audio_file_path).unlink()
+                except Exception:
+                    pass
+                return
+            
+            connection = simple_voice_connections[connection_id]
+            
+            # 🛡️ CRITICAL FIX: Prevent duplicate turn processing
+            if connection.get("processing_turn", False):
+                logger.warning(f"🚫 Turn already being processed for {connection_id} - ignoring duplicate turn complete")
+                try:
+                    Path(audio_file_path).unlink()
+                except Exception:
+                    pass
+                return
+            
+            # Mark connection as processing a turn immediately
+            connection["processing_turn"] = True
+            last_turn_id = f"turn_{connection['message_count'] + 1}_{int(time.time() * 1000)}"
+            connection["last_turn_id"] = last_turn_id
+            
+            logger.info(f"🎯 Processing turn {last_turn_id} for {connection_id}")
             
             try:
                 # Read the audio file created by VAD
@@ -441,7 +469,6 @@ class SimpleVoiceWebSocketManager:
                     complete_audio_data = f.read()
                 
                 # Process the complete audio with voice service
-                connection = simple_voice_connections[connection_id]
                 language = connection["language"]
                 voice_type = connection["voice_type"]
                 session_id = connection["session_id"]
@@ -454,6 +481,7 @@ class SimpleVoiceWebSocketManager:
                     "type": "turn_processing_started",
                     "success": True,
                     "timestamp": time.time(),
+                    "turn_id": last_turn_id,
                     "message": "Processing complete turn..."
                 })
                 
@@ -464,6 +492,16 @@ class SimpleVoiceWebSocketManager:
                     language=language,
                     gender=voice_type
                 )
+                
+                # Double-check we're still the active turn (prevent race conditions)
+                if connection_id not in simple_voice_connections:
+                    logger.warning(f"⚠️ Connection {connection_id} disconnected during processing - aborting")
+                    return
+                
+                current_connection = simple_voice_connections[connection_id]
+                if current_connection.get("last_turn_id") != last_turn_id:
+                    logger.warning(f"🚫 Turn ID mismatch for {connection_id} - aborting response (expected: {last_turn_id}, current: {current_connection.get('last_turn_id')})")
+                    return
                 
                 # Prepare and send response
                 audio_base64 = None
@@ -487,12 +525,13 @@ class SimpleVoiceWebSocketManager:
                     "session_id": session_id,
                     "message_count": connection["message_count"],
                     "timestamp": time.time(),
+                    "turn_id": last_turn_id,
                     "processing_mode": "vad_driven"
                 }
                 
                 await self.send_message(connection_id, response_data)
                 
-                logger.info(f"✅ VAD-driven turn processing completed for {connection_id}")
+                logger.info(f"✅ VAD-driven turn processing completed for {connection_id} (turn: {last_turn_id})")
                 
             except Exception as e:
                 logger.error(f"❌ Error processing turn complete for {connection_id}: {e}")
@@ -502,7 +541,8 @@ class SimpleVoiceWebSocketManager:
                     "success": False,
                     "error_code": "TURN_PROCESSING_ERROR",
                     "message": f"Failed to process complete turn: {str(e)}",
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
+                    "turn_id": last_turn_id
                 })
             
             finally:
@@ -512,9 +552,13 @@ class SimpleVoiceWebSocketManager:
                 except Exception:
                     pass
                 
-                # Mark turn processing as complete
+                # Mark turn processing as complete and reset VAD state
                 if connection_id in simple_voice_connections:
                     simple_voice_connections[connection_id]["processing_turn"] = False
+                    # Reset VAD service turn processing state to allow new turns
+                    if self.vad_service:
+                        self.vad_service.reset_turn_processing()
+                    logger.info(f"🏁 Turn processing completed for {connection_id} (turn: {last_turn_id})")
         
         # Set the callbacks
         self.vad_service.set_callbacks(

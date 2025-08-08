@@ -26,11 +26,35 @@ class BeautyAIChat {
         this.autoStopEnabled = false;
         this.silenceThreshold = 3000;
         
-        // Real-time VAD settings
-        this.vadEnabled = true;  // Enable VAD by default
+        // Real-time VAD settings (server-side VAD enabled by default)
+        this.vadEnabled = true;  // Enable VAD by default - server handles VAD processing
         this.streamingMode = true;  // Use streaming mode for real-time interaction
-        this.chunkSize = 1024;  // Audio chunk size for streaming
-        this.vadFeedback = true;  // Show real-time VAD feedback
+        this.chunkSize = 100;  // Audio chunk size for streaming (100ms chunks for real-time)
+        this.vadFeedback = true;  // Show real-time VAD feedback from server
+        this.useServerSideVAD = true;  // Use server-side VAD instead of client-side silence detection
+        
+        // Audio feedback prevention
+        this.isPlayingAIAudio = false;  // Track when AI is speaking to prevent feedback
+        this.audioFeedbackTimeout = null;  // Timeout for feedback prevention
+        
+        // VAD state management to prevent infinite loops
+        this.vadState = {
+            lastSpeechEnd: 0,  // Timestamp of last speech_end event
+            lastVoiceResponse: 0,  // Timestamp of last voice_response event
+            cooldownPeriod: 2000,  // 2 second cooldown before allowing new speech detection
+            isInCooldown: false,  // Flag to prevent immediate re-detection
+            consecutiveSpeechEnds: 0,  // Count consecutive speech_end events
+            maxConsecutiveEnds: 3  // Max consecutive ends before forcing longer cooldown
+        };
+        
+        // Response deduplication to prevent audio playback loops
+        this.responseState = {
+            lastResponseId: null,  // Track last response ID to prevent duplicates
+            processedResponses: new Set(),  // Set of processed response IDs
+            currentlyPlaying: false,  // Flag to prevent overlapping audio playback
+            audioQueue: [],  // Queue for managing multiple audio responses
+            maxProcessedResponses: 50  // Limit set size to prevent memory leaks
+        };
         
         // Overlay state
         this.overlayConnected = false;
@@ -50,6 +74,157 @@ class BeautyAIChat {
         this.updateVoiceOptions();
         this.updateOverlayVoiceOptions();
         this.setupAudioContext();
+        this.resetVADState(); // Initialize VAD state
+    }
+
+    resetVADState() {
+        /**
+         * Reset VAD state to prevent infinite loops and manage speech detection cooldowns.
+         */
+        this.vadState = {
+            lastSpeechEnd: 0,
+            lastVoiceResponse: 0,
+            cooldownPeriod: 2000,
+            isInCooldown: false,
+            consecutiveSpeechEnds: 0,
+            maxConsecutiveEnds: 3
+        };
+        
+        // Reset response state to prevent audio playback loops
+        this.responseState = {
+            lastResponseId: null,
+            processedResponses: new Set(),
+            currentlyPlaying: false,
+            audioQueue: [],
+            maxProcessedResponses: 50
+        };
+        
+        console.log('VAD state and response deduplication reset for clean conversation start');
+    }
+
+    isDuplicateResponse(data) {
+        /**
+         * Check if this voice response is a duplicate to prevent audio playback loops.
+         */
+        if (!data || !data.success || !data.audio_base64) {
+            return false; // Not a valid audio response
+        }
+        
+        // Create unique identifier for this response (using audio data + timestamp)
+        const responseId = data.audio_base64.substring(0, 50) + '_' + (data.timestamp || Date.now());
+        
+        // Check if we've already processed this response
+        if (this.responseState.processedResponses.has(responseId) || this.responseState.lastResponseId === responseId) {
+            console.warn('🚫 Duplicate voice response detected - preventing playback loop:', responseId.substring(0, 20) + '...');
+            return true;
+        }
+        
+        // Add to processed responses
+        this.responseState.processedResponses.add(responseId);
+        this.responseState.lastResponseId = responseId;
+        
+        // Limit set size to prevent memory leaks
+        if (this.responseState.processedResponses.size > this.responseState.maxProcessedResponses) {
+            const firstItem = this.responseState.processedResponses.values().next().value;
+            this.responseState.processedResponses.delete(firstItem);
+        }
+        
+        console.log('✅ New unique voice response accepted:', responseId.substring(0, 20) + '...');
+        return false;
+    }
+    
+    async playAudioResponse(audioBlob, isOverlay = false) {
+        /**
+         * Play audio response with queue management to prevent overlapping playback.
+         */
+        if (this.responseState.currentlyPlaying) {
+            console.log('🎵 Audio already playing - queuing response');
+            this.responseState.audioQueue.push({ audioBlob, isOverlay });
+            return;
+        }
+        
+        this.responseState.currentlyPlaying = true;
+        this.isPlayingAIAudio = true;
+        
+        try {
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            
+            // Set up event handlers
+            audio.onended = () => {
+                console.log('🔊 Audio playback completed');
+                URL.revokeObjectURL(audioUrl);
+                this.isPlayingAIAudio = false;
+                this.responseState.currentlyPlaying = false;
+                
+                // Process next item in queue
+                if (this.responseState.audioQueue.length > 0) {
+                    const nextItem = this.responseState.audioQueue.shift();
+                    setTimeout(() => this.playAudioResponse(nextItem.audioBlob, nextItem.isOverlay), 100);
+                } else {
+                    // Auto-restart logic here (if enabled)
+                    this.handleAudioPlaybackEnd(isOverlay);
+                }
+            };
+            
+            audio.onerror = () => {
+                console.error('❌ Error playing AI audio');
+                URL.revokeObjectURL(audioUrl);
+                this.isPlayingAIAudio = false;
+                this.responseState.currentlyPlaying = false;
+                
+                // Process next item in queue even on error
+                if (this.responseState.audioQueue.length > 0) {
+                    const nextItem = this.responseState.audioQueue.shift();
+                    setTimeout(() => this.playAudioResponse(nextItem.audioBlob, nextItem.isOverlay), 100);
+                }
+            };
+            
+            // Update status and play
+            if (isOverlay) {
+                this.showOverlayVoiceStatus('🔊 Playing AI response...');
+            } else {
+                this.showVoiceStatus('🔊 Playing AI response...');
+            }
+            
+            console.log('🎵 Starting audio playback...');
+            await audio.play();
+            
+        } catch (error) {
+            console.error('❌ Failed to play audio response:', error);
+            this.isPlayingAIAudio = false;
+            this.responseState.currentlyPlaying = false;
+        }
+    }
+    
+    handleAudioPlaybackEnd(isOverlay = false) {
+        /**
+         * Handle auto-restart logic after audio playback ends.
+         */
+        const autoStartEnabled = isOverlay ? this.overlayAutoStartEnabled : this.autoStartEnabled;
+        const isConnected = isOverlay ? this.overlayConnected : this.isConnected;
+        const isRecording = isOverlay ? this.overlayRecording : this.isRecording;
+        
+        if (autoStartEnabled && isConnected && !isRecording && this.useServerSideVAD) {
+            setTimeout(() => {
+                const now = Date.now();
+                const canRestart = !isRecording && 
+                                 !this.isPlayingAIAudio && 
+                                 !this.vadState.isInCooldown &&
+                                 (now - this.vadState.lastVoiceResponse) > 2000;
+                
+                if (canRestart) {
+                    console.log('🔄 Auto-restarting recording after audio playback ended');
+                    if (isOverlay) {
+                        this.startOverlayRecording();
+                    } else {
+                        this.startRecording();
+                    }
+                } else {
+                    console.log('🚫 Auto-restart blocked by audio playback management');
+                }
+            }, 2000);
+        }
     }
 
     initializeElements() {
@@ -349,10 +524,22 @@ class BeautyAIChat {
     handleVoiceToggle(isPressed) {
         if (this.currentMode !== 'voice') return;
         
-        if (isPressed && !this.isRecording && this.isConnected) {
-            this.startRecording();
-        } else if (!isPressed && this.isRecording) {
-            this.stopRecording();
+        // With server-side VAD, use toggle mode (click to start/stop) instead of push-to-talk
+        if (this.useServerSideVAD && this.vadEnabled) {
+            if (isPressed && !this.isRecording && this.isConnected) {
+                // Start continuous recording with VAD
+                this.startRecording();
+            } else if (isPressed && this.isRecording) {
+                // Stop continuous recording
+                this.stopRecording();
+            }
+        } else {
+            // Traditional push-to-talk mode
+            if (isPressed && !this.isRecording && this.isConnected) {
+                this.startRecording();
+            } else if (!isPressed && this.isRecording) {
+                this.stopRecording();
+            }
         }
     }
 
@@ -500,7 +687,8 @@ class BeautyAIChat {
             
             this.ws.onopen = () => {
                 this.isConnected = true;
-                this.updateConnectionStatus('connected', 'Connected - Hold space or mic button to talk');
+                // Status will be updated when we receive connection_established message with VAD info
+                this.updateConnectionStatus('connected', 'Connected - Waiting for VAD capabilities...');
                 console.log('Voice WebSocket connected');
             };
             
@@ -544,8 +732,24 @@ class BeautyAIChat {
             const data = JSON.parse(event.data);
             
             if (data.type === 'connection_established') {
-                // Connection established
+                // Connection established - check for VAD capabilities
                 console.log('Voice connection established:', data);
+                this.vadEnabled = data.vad_enabled !== false;  // Default to true unless explicitly disabled
+                this.useServerSideVAD = this.vadEnabled;
+                console.log(`VAD enabled: ${this.vadEnabled}, Server-side VAD: ${this.useServerSideVAD}`);
+                
+                // Reset VAD state for clean start
+                this.resetVADState();
+                
+                // Update UI based on VAD capabilities
+                this.updateVoiceButtonText();
+                
+                // Update connection status with VAD info
+                if (this.useServerSideVAD) {
+                    this.updateConnectionStatus('connected', 'Connected with AI Voice Detection - Click mic to start');
+                } else {
+                    this.updateConnectionStatus('connected', 'Connected - Hold space or mic button to talk');
+                }
                 
             } else if (data.type === 'vad_update') {
                 // Real-time VAD feedback
@@ -557,9 +761,34 @@ class BeautyAIChat {
                 console.log('Speech started');
                 
             } else if (data.type === 'speech_end') {
-                // Speech ended
+                // Speech ended - STOP recording to prevent feedback loop
+                console.log('Speech ended - applying VAD state management');
+                
+                const now = Date.now();
+                this.vadState.lastSpeechEnd = now;
+                this.vadState.consecutiveSpeechEnds++;
+                
+                // Check for consecutive speech_end events (indicates loop)
+                if (this.vadState.consecutiveSpeechEnds > this.vadState.maxConsecutiveEnds) {
+                    console.warn('� Multiple consecutive speech_end events detected - extending cooldown');
+                    this.vadState.cooldownPeriod = 5000; // Extend to 5 seconds
+                    this.vadState.consecutiveSpeechEnds = 0; // Reset counter
+                }
+                
+                // Enter cooldown state
+                this.vadState.isInCooldown = true;
+                setTimeout(() => {
+                    this.vadState.isInCooldown = false;
+                    this.vadState.cooldownPeriod = 2000; // Reset to normal cooldown
+                    console.log('VAD cooldown period ended');
+                }, this.vadState.cooldownPeriod);
+                
                 this.showVoiceStatus('🔄 Processing...');
-                console.log('Speech ended');
+                
+                // Stop recording when speech ends to prevent picking up AI response
+                if (this.isRecording) {
+                    this.stopRecording();
+                }
                 
             } else if (data.type === 'turn_processing_started') {
                 // Turn processing started
@@ -567,40 +796,47 @@ class BeautyAIChat {
                 console.log('Turn processing started');
                 
             } else if (data.type === 'voice_response') {
+                // Handle voice response from AI with deduplication and VAD state management
+                console.log('Voice response received - checking for duplicates and applying state management');
+                
+                // Update VAD state
+                this.vadState.lastVoiceResponse = Date.now();
+                this.vadState.consecutiveSpeechEnds = 0; // Reset consecutive counter on successful response
+                
+                // IMPORTANT: Stop recording immediately when we get a response to prevent feedback loop
+                if (this.isRecording) {
+                    console.log('🛑 Stopping recording due to voice response to prevent feedback loop');
+                    this.stopRecording();
+                }
+                
+                // Check for duplicate responses to prevent audio playback loops
+                if (this.isDuplicateResponse(data)) {
+                    console.warn('🚫 Skipping duplicate voice response to prevent audio loop');
+                    return;
+                }
+                
                 if (data.success && data.audio_base64) {
                     // Convert base64 to audio blob
                     const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
                     
-                    // Add to conversation with transcription and response text
+                    // Add to conversation with transcription and response text (only once)
                     this.addMessage('assistant', data.response_text, false, { 
-                        audioUrl,
                         transcription: data.transcription,
                         stats: {
                             time: data.response_time_ms,
                             tokens: data.response_text ? data.response_text.split(' ').length : 0,
                             speed: data.response_time_ms > 0 ? (data.response_text.split(' ').length / (data.response_time_ms / 1000)) : 0
                         },
-                        processingMode: data.processing_mode || 'traditional'
+                        processingMode: data.processing_mode || 'realtime_vad'
                     });
                     
-                    // Play audio
-                    audio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        
-                        // Auto-start recording if enabled
-                        if (this.autoStartEnabled && this.isConnected && !this.isRecording) {
-                            setTimeout(() => {
-                                this.startRecording();
-                            }, 500);
-                        }
-                    };
+                    // Play audio using the new queue management system
+                    await this.playAudioResponse(audioBlob, false);
                     
-                    await audio.play();
                 } else {
                     this.addMessage('assistant', `❌ Voice Error: ${data.message || 'Unknown error'}`);
                 }
+                
             } else if (data.type === 'processing_started') {
                 this.showVoiceStatus(data.message);
             } else if (data.type === 'error') {
@@ -615,27 +851,59 @@ class BeautyAIChat {
     
     handleVADUpdate(data) {
         /**
-         * Handle real-time VAD updates for improved user feedback.
+         * Handle real-time VAD updates from the server for improved user feedback.
+         * This replaces client-side silence detection with server-driven feedback.
          */
-        if (!this.vadFeedback) return;
+        if (!this.vadFeedback || !this.useServerSideVAD) return;
         
         const state = data.state || {};
         const isSpeaking = state.is_speaking;
         const silenceDuration = state.silence_duration_ms || 0;
         const bufferedChunks = state.buffered_chunks || 0;
         
-        // Update voice status with real-time feedback
+        // Update voice status with real-time feedback from server
         if (isSpeaking) {
-            this.showVoiceStatus(`🎤 Speaking... (${bufferedChunks} chunks)`);
+            this.showVoiceStatus(`🎤 Speaking detected... (${bufferedChunks} chunks buffered)`);
         } else if (silenceDuration > 0) {
             const silenceSeconds = (silenceDuration / 1000).toFixed(1);
-            this.showVoiceStatus(`🔇 Silence: ${silenceSeconds}s (${bufferedChunks} chunks buffered)`);
+            if (silenceDuration > 300) { // Show silence feedback after 300ms
+                this.showVoiceStatus(`🔇 Silence: ${silenceSeconds}s (${bufferedChunks} chunks ready)`);
+            }
         }
         
-        // Update visual indicators if available
+        // Update visual indicators based on server VAD state
         this.updateVADIndicators(state);
+        
+        console.log(`VAD Update: Speaking=${isSpeaking}, Silence=${silenceDuration}ms, Chunks=${bufferedChunks}`);
     }
     
+    updateVoiceButtonText() {
+        /**
+         * Update voice button text based on VAD capabilities.
+         */
+        if (this.useServerSideVAD && this.vadEnabled) {
+            // Server-side VAD mode - click to start/stop
+            if (this.voiceToggle) {
+                this.voiceToggle.title = 'Click to start/stop listening with AI voice detection';
+            }
+            if (this.overlayVoiceToggle) {
+                const span = this.overlayVoiceToggle.querySelector('span');
+                if (span) span.textContent = 'Click to Listen';
+                this.overlayVoiceToggle.title = 'Click to start/stop listening with AI voice detection';
+            }
+        } else {
+            // Traditional push-to-talk mode
+            if (this.voiceToggle) {
+                this.voiceToggle.title = 'Hold to talk (traditional mode)';
+            }
+            if (this.overlayVoiceToggle) {
+                const span = this.overlayVoiceToggle.querySelector('span');
+                if (span) span.textContent = 'Hold to Talk';
+                this.overlayVoiceToggle.title = 'Hold to talk (traditional mode)';
+            }
+        }
+    }
+
     updateVADIndicators(state) {
         /**
          * Update visual indicators based on VAD state.
@@ -666,15 +934,48 @@ class BeautyAIChat {
     async startRecording() {
         if (!this.isConnected || this.isRecording) return;
         
+        // Prevent recording while AI is speaking to avoid feedback
+        if (this.isPlayingAIAudio) {
+            console.log('🚫 Cannot start recording while AI is speaking (preventing feedback)');
+            return;
+        }
+        
+        // VAD state management: Check cooldown period to prevent infinite loops
+        const now = Date.now();
+        if (this.vadState.isInCooldown) {
+            const remainingCooldown = this.vadState.cooldownPeriod - (now - this.vadState.lastSpeechEnd);
+            console.log(`🚫 Cannot start recording during VAD cooldown (${remainingCooldown}ms remaining)`);
+            return;
+        }
+        
+        // Additional check: If recent speech_end or voice_response, wait longer
+        const timeSinceLastSpeechEnd = now - this.vadState.lastSpeechEnd;
+        const timeSinceLastVoiceResponse = now - this.vadState.lastVoiceResponse;
+        const minDelayAfterEvents = 1500; // Minimum 1.5 seconds after speech events
+        
+        if (timeSinceLastSpeechEnd < minDelayAfterEvents || timeSinceLastVoiceResponse < minDelayAfterEvents) {
+            console.log(`🚫 Cannot start recording too soon after speech events (need ${minDelayAfterEvents}ms delay)`);
+            return;
+        }
+        
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // Advanced audio configuration to prevent feedback loops
+            const audioConstraints = {
                 audio: {
                     sampleRate: 16000,
                     channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true
+                    echoCancellation: false,  // Disable echo cancellation for better real-time control
+                    noiseSuppression: true,
+                    autoGainControl: false,   // Disable auto gain to prevent feedback amplification
+                    googEchoCancellation: false,  // Google-specific echo cancellation off
+                    googAutoGainControl: false,   // Google-specific auto gain off
+                    googNoiseSuppression: true,   // Keep noise suppression
+                    googTypingNoiseDetection: false
                 }
-            });
+            };
+            
+            console.log('🎤 Requesting microphone access with feedback prevention settings...');
+            const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
             
             // Setup MediaRecorder
             const options = { mimeType: 'audio/webm;codecs=opus' };
@@ -690,18 +991,18 @@ class BeautyAIChat {
             this.mediaRecorder = new MediaRecorder(stream, options);
             this.audioChunks = [];
             
-            // Configure for streaming or traditional mode
-            if (this.streamingMode && this.vadEnabled) {
-                // Streaming mode - send smaller chunks frequently
+            // Always use streaming mode with server-side VAD when available
+            if (this.useServerSideVAD && this.vadEnabled) {
+                // Server-side VAD mode - send small chunks continuously
                 this.mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
-                        // Send chunk immediately for real-time processing
+                        // Send chunk immediately for server-side VAD processing
                         this.sendAudioChunk(event.data);
                     }
                 };
                 
                 // Start recording with small time slices for streaming
-                this.mediaRecorder.start(100); // 100ms chunks for real-time processing
+                this.mediaRecorder.start(this.chunkSize); // Use configurable chunk size (100ms default)
                 
                 this.mediaRecorder.onstop = () => {
                     // Clean up stream
@@ -709,7 +1010,7 @@ class BeautyAIChat {
                 };
                 
             } else {
-                // Traditional mode - collect all chunks
+                // Fallback: Traditional mode - collect all chunks
                 this.mediaRecorder.ondataavailable = (event) => {
                     if (event.data.size > 0) {
                         this.audioChunks.push(event.data);
@@ -724,8 +1025,8 @@ class BeautyAIChat {
                 this.mediaRecorder.start(100);
             }
             
-            // Setup silence detection
-            if (this.autoStopEnabled && this.audioContext) {
+            // Only setup local silence detection if server-side VAD is not available
+            if (this.autoStopEnabled && !this.useServerSideVAD && this.audioContext) {
                 this.setupSilenceDetection(stream);
             }
             
@@ -735,13 +1036,13 @@ class BeautyAIChat {
             this.voiceToggle.classList.add('recording');
             this.voiceToggle.textContent = '🔴';
             
-            if (this.streamingMode && this.vadEnabled) {
-                this.showVoiceStatus('🎤 Streaming audio... (VAD enabled)');
+            if (this.useServerSideVAD && this.vadEnabled) {
+                this.showVoiceStatus('🎤 Listening with VAD... (speak naturally)');
+                console.log('Recording started with server-side VAD streaming mode');
             } else {
                 this.showVoiceStatus('🎤 Recording... (release to send)');
+                console.log('Recording started in traditional mode');
             }
-            
-            console.log('Recording started in', this.streamingMode ? 'streaming' : 'traditional', 'mode');
             
         } catch (error) {
             console.error('Failed to start recording:', error);
@@ -831,9 +1132,9 @@ class BeautyAIChat {
         this.voiceToggle.classList.remove('recording');
         this.voiceToggle.textContent = '🎤';
         
-        if (this.streamingMode && this.vadEnabled) {
-            this.showVoiceStatus('⏹️ Stopped streaming');
-            console.log('Streaming recording stopped');
+        if (this.useServerSideVAD && this.vadEnabled) {
+            this.showVoiceStatus('⏹️ Stopped listening (server will process buffered audio)');
+            console.log('Server-side VAD recording stopped');
         } else {
             this.showVoiceStatus('📤 Processing audio...');
             console.log('Traditional recording stopped');
@@ -1028,7 +1329,8 @@ class BeautyAIChat {
             
             this.overlayWebSocket.onopen = () => {
                 this.overlayConnected = true;
-                this.updateOverlayConnectionStatus('connected', 'Connected - Hold space or mic button to talk');
+                // Status will be updated when we receive connection_established message with VAD info
+                this.updateOverlayConnectionStatus('connected', 'Connected - Waiting for VAD capabilities...');
                 console.log('Overlay Voice WebSocket connected');
             };
             
@@ -1072,11 +1374,21 @@ class BeautyAIChat {
             const data = JSON.parse(event.data);
             
             if (data.type === 'connection_established') {
-                // Connection established
+                // Connection established - check for VAD capabilities
                 console.log('Overlay voice connection established:', data);
                 
+                // Reset VAD state for clean overlay start
+                this.resetVADState();
+                
+                // Update overlay connection status with VAD info
+                if (this.useServerSideVAD) {
+                    this.updateOverlayConnectionStatus('connected', 'Connected with AI Voice Detection - Click mic to start');
+                } else {
+                    this.updateOverlayConnectionStatus('connected', 'Connected - Hold space or mic button to talk');
+                }
+                
             } else if (data.type === 'vad_update') {
-                // Real-time VAD feedback
+                // Real-time VAD feedback for overlay
                 this.handleOverlayVADUpdate(data);
                 
             } else if (data.type === 'speech_start') {
@@ -1085,9 +1397,34 @@ class BeautyAIChat {
                 console.log('Overlay speech started');
                 
             } else if (data.type === 'speech_end') {
-                // Speech ended
+                // Speech ended with VAD state management (overlay)
+                console.log('Overlay speech ended - applying VAD state management');
+                
+                const now = Date.now();
+                this.vadState.lastSpeechEnd = now;
+                this.vadState.consecutiveSpeechEnds++;
+                
+                // Check for consecutive speech_end events (indicates loop)
+                if (this.vadState.consecutiveSpeechEnds > this.vadState.maxConsecutiveEnds) {
+                    console.warn('🚨 Overlay: Multiple consecutive speech_end events detected - extending cooldown');
+                    this.vadState.cooldownPeriod = 5000; // Extend to 5 seconds
+                    this.vadState.consecutiveSpeechEnds = 0; // Reset counter
+                }
+                
+                // Enter cooldown state
+                this.vadState.isInCooldown = true;
+                setTimeout(() => {
+                    this.vadState.isInCooldown = false;
+                    this.vadState.cooldownPeriod = 2000; // Reset to normal cooldown
+                    console.log('Overlay VAD cooldown period ended');
+                }, this.vadState.cooldownPeriod);
+                
                 this.showOverlayVoiceStatus('🔄 Processing...');
-                console.log('Overlay speech ended');
+                
+                // Stop recording when speech ends to prevent picking up AI response
+                if (this.overlayRecording) {
+                    this.stopOverlayRecording();
+                }
                 
             } else if (data.type === 'turn_processing_started') {
                 // Turn processing started
@@ -1095,36 +1432,43 @@ class BeautyAIChat {
                 console.log('Overlay turn processing started');
                 
             } else if (data.type === 'voice_response') {
+                // Handle voice response from AI with deduplication and VAD state management (overlay)
+                console.log('Overlay voice response received - checking for duplicates and applying state management');
+                
+                // Update VAD state
+                this.vadState.lastVoiceResponse = Date.now();
+                this.vadState.consecutiveSpeechEnds = 0; // Reset consecutive counter on successful response
+                
+                // IMPORTANT: Stop recording immediately when we get a response to prevent feedback loop
+                if (this.overlayRecording) {
+                    console.log('🛑 Stopping overlay recording due to voice response to prevent feedback loop');
+                    this.stopOverlayRecording();
+                }
+                
+                // Check for duplicate responses to prevent audio playback loops
+                if (this.isDuplicateResponse(data)) {
+                    console.warn('🚫 Skipping duplicate overlay voice response to prevent audio loop');
+                    return;
+                }
+                
                 if (data.success && data.audio_base64) {
                     // Convert base64 to audio blob
                     const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
-                    const audioUrl = URL.createObjectURL(audioBlob);
-                    const audio = new Audio(audioUrl);
                     
-                    // Add to conversation with transcription and response text
+                    // Add to conversation with transcription and response text (only once)
                     this.addOverlayMessage('assistant', data.response_text, { 
-                        audioUrl,
                         transcription: data.transcription,
                         responseTime: data.response_time_ms,
-                        processingMode: data.processing_mode || 'traditional'
+                        processingMode: data.processing_mode || 'realtime_vad'
                     });
                     
-                    // Play audio
-                    audio.onended = () => {
-                        URL.revokeObjectURL(audioUrl);
-                        
-                        // Auto-start recording if enabled
-                        if (this.overlayAutoStartEnabled && this.overlayConnected && !this.overlayRecording) {
-                            setTimeout(() => {
-                                this.startOverlayRecording();
-                            }, 500);
-                        }
-                    };
+                    // Play audio using the new queue management system
+                    await this.playAudioResponse(audioBlob, true);
                     
-                    await audio.play();
                 } else {
                     this.addOverlayMessage('assistant', `❌ Voice Error: ${data.message || 'Unknown error'}`);
                 }
+                
             } else if (data.type === 'processing_started') {
                 this.showOverlayVoiceStatus(data.message);
             } else if (data.type === 'error') {
@@ -1161,25 +1505,70 @@ class BeautyAIChat {
     }
 
     handleOverlayVoiceToggle(isPressed) {
-        if (isPressed && !this.overlayRecording && this.overlayConnected) {
-            this.startOverlayRecording();
-        } else if (!isPressed && this.overlayRecording) {
-            this.stopOverlayRecording();
+        // Use same VAD logic for overlay as main interface
+        if (this.useServerSideVAD && this.vadEnabled) {
+            if (isPressed && !this.overlayRecording && this.overlayConnected) {
+                // Start continuous recording with VAD
+                this.startOverlayRecording();
+            } else if (isPressed && this.overlayRecording) {
+                // Stop continuous recording
+                this.stopOverlayRecording();
+            }
+        } else {
+            // Traditional push-to-talk mode
+            if (isPressed && !this.overlayRecording && this.overlayConnected) {
+                this.startOverlayRecording();
+            } else if (!isPressed && this.overlayRecording) {
+                this.stopOverlayRecording();
+            }
         }
     }
 
     async startOverlayRecording() {
         if (!this.overlayConnected || this.overlayRecording) return;
         
+        // Prevent recording while AI is speaking to avoid feedback
+        if (this.isPlayingAIAudio) {
+            console.log('🚫 Cannot start overlay recording while AI is speaking (preventing feedback)');
+            return;
+        }
+        
+        // VAD state management: Check cooldown period to prevent infinite loops (overlay)
+        const now = Date.now();
+        if (this.vadState.isInCooldown) {
+            const remainingCooldown = this.vadState.cooldownPeriod - (now - this.vadState.lastSpeechEnd);
+            console.log(`🚫 Cannot start overlay recording during VAD cooldown (${remainingCooldown}ms remaining)`);
+            return;
+        }
+        
+        // Additional check: If recent speech_end or voice_response, wait longer (overlay)
+        const timeSinceLastSpeechEnd = now - this.vadState.lastSpeechEnd;
+        const timeSinceLastVoiceResponse = now - this.vadState.lastVoiceResponse;
+        const minDelayAfterEvents = 1500; // Minimum 1.5 seconds after speech events
+        
+        if (timeSinceLastSpeechEnd < minDelayAfterEvents || timeSinceLastVoiceResponse < minDelayAfterEvents) {
+            console.log(`🚫 Cannot start overlay recording too soon after speech events (need ${minDelayAfterEvents}ms delay)`);
+            return;
+        }
+        
         try {
-            const stream = await navigator.mediaDevices.getUserMedia({
+            // Advanced audio configuration to prevent feedback loops (overlay)
+            const audioConstraints = {
                 audio: {
                     sampleRate: 16000,
                     channelCount: 1,
-                    echoCancellation: true,
-                    noiseSuppression: true
+                    echoCancellation: false,  // Disable echo cancellation for better real-time control
+                    noiseSuppression: true,
+                    autoGainControl: false,   // Disable auto gain to prevent feedback amplification
+                    googEchoCancellation: false,  // Google-specific echo cancellation off
+                    googAutoGainControl: false,   // Google-specific auto gain off
+                    googNoiseSuppression: true,   // Keep noise suppression
+                    googTypingNoiseDetection: false
                 }
-            });
+            };
+            
+            console.log('🎤 Requesting overlay microphone access with feedback prevention settings...');
+            const stream = await navigator.mediaDevices.getUserMedia(audioConstraints);
             
             // Setup MediaRecorder
             const options = { mimeType: 'audio/webm;codecs=opus' };
@@ -1195,31 +1584,58 @@ class BeautyAIChat {
             this.overlayMediaRecorder = new MediaRecorder(stream, options);
             this.overlayAudioChunks = [];
             
-            this.overlayMediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.overlayAudioChunks.push(event.data);
-                }
-            };
+            // Use server-side VAD for overlay too
+            if (this.useServerSideVAD && this.vadEnabled) {
+                // Server-side VAD mode - send small chunks continuously
+                this.overlayMediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        // Send chunk immediately for server-side VAD processing
+                        this.sendOverlayAudioChunk(event.data);
+                    }
+                };
+                
+                // Start recording with small time slices for streaming
+                this.overlayMediaRecorder.start(this.chunkSize);
+                
+                this.overlayMediaRecorder.onstop = () => {
+                    // Clean up stream
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+            } else {
+                // Traditional mode - collect all chunks
+                this.overlayMediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        this.overlayAudioChunks.push(event.data);
+                    }
+                };
+                
+                this.overlayMediaRecorder.onstop = () => {
+                    this.sendOverlayVoiceData();
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                this.overlayMediaRecorder.start(100);
+            }
             
-            this.overlayMediaRecorder.onstop = () => {
-                this.sendOverlayVoiceData();
-                stream.getTracks().forEach(track => track.stop());
-            };
-            
-            // Setup silence detection
-            if (this.overlayAutoStopEnabled && this.audioContext) {
+            // Only setup local silence detection if server-side VAD is not available
+            if (this.overlayAutoStopEnabled && !this.useServerSideVAD && this.audioContext) {
                 this.setupOverlaySilenceDetection(stream);
             }
             
-            this.overlayMediaRecorder.start(100);
             this.overlayRecording = true;
             
             // Update UI
             this.overlayVoiceToggle.classList.add('recording');
             this.overlayVoiceToggle.querySelector('span').textContent = 'Recording...';
-            this.showOverlayVoiceStatus('🎤 Recording... (release to send)');
             
-            console.log('Overlay recording started');
+            if (this.useServerSideVAD && this.vadEnabled) {
+                this.showOverlayVoiceStatus('🎤 Listening with VAD... (speak naturally)');
+                console.log('Overlay recording started with server-side VAD streaming mode');
+            } else {
+                this.showOverlayVoiceStatus('🎤 Recording... (release to send)');
+                console.log('Overlay recording started in traditional mode');
+            }
             
         } catch (error) {
             console.error('Failed to start overlay recording:', error);
@@ -1288,12 +1704,34 @@ class BeautyAIChat {
             this.overlayMediaRecorder.stop();
         }
         
-        // Update UI
+        // Update UI - use correct button text based on VAD mode
         this.overlayVoiceToggle.classList.remove('recording');
-        this.overlayVoiceToggle.querySelector('span').textContent = 'Hold to Talk';
+        const span = this.overlayVoiceToggle.querySelector('span');
+        if (span) {
+            if (this.useServerSideVAD && this.vadEnabled) {
+                span.textContent = 'Click to Listen';
+            } else {
+                span.textContent = 'Hold to Talk';
+            }
+        }
         this.showOverlayVoiceStatus('📤 Processing audio...');
         
         console.log('Overlay recording stopped');
+    }
+
+    sendOverlayAudioChunk(audioChunk) {
+        /**
+         * Send individual audio chunk for real-time VAD processing (overlay mode).
+         */
+        if (!this.overlayWebSocket || this.overlayWebSocket.readyState !== WebSocket.OPEN) {
+            console.warn('Overlay WebSocket not ready for audio chunk');
+            return;
+        }
+        
+        // Send the chunk immediately
+        this.overlayWebSocket.send(audioChunk);
+        
+        console.log('Overlay audio chunk sent:', audioChunk.size, 'bytes');
     }
 
     sendOverlayVoiceData() {
@@ -1375,6 +1813,20 @@ class BeautyAIChat {
         
         const byteArray = new Uint8Array(byteNumbers);
         return new Blob([byteArray], { type: contentType });
+    }
+    
+    muteAllAudioElements(mute) {
+        /**
+         * Mute or unmute all audio elements to prevent feedback during AI playback.
+         */
+        const audioElements = document.querySelectorAll('audio');
+        audioElements.forEach(audio => {
+            if (mute) {
+                audio.muted = true;
+            } else {
+                audio.muted = false;
+            }
+        });
     }
 }
 
