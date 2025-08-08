@@ -200,31 +200,76 @@ class BeautyAIChat {
     handleAudioPlaybackEnd(isOverlay = false) {
         /**
          * Handle auto-restart logic after audio playback ends.
+         * FIXED: Better state management with controlled auto-restart
          */
+        this.isPlayingAIAudio = false;
         const autoStartEnabled = isOverlay ? this.overlayAutoStartEnabled : this.autoStartEnabled;
         const isConnected = isOverlay ? this.overlayConnected : this.isConnected;
         const isRecording = isOverlay ? this.overlayRecording : this.isRecording;
         
+        // IMPORTANT: Update UI to show ready state but implement controlled auto-restart
         if (autoStartEnabled && isConnected && !isRecording && this.useServerSideVAD) {
+            console.log('✅ AI finished speaking. Preparing for auto-restart with proper delay...');
+            
+            if (isOverlay) {
+                this.updateOverlayConnectionStatus('connected', 'AI finished. Ready for your next input...');
+                this.overlayVoiceToggle.classList.remove('recording');
+                this.overlayVoiceToggle.querySelector('span').textContent = 'Auto-restart pending...';
+            } else {
+                this.updateConnectionStatus('connected', 'AI finished. Ready for your next input...');
+                this.voiceToggle.classList.remove('recording');
+                this.voiceToggle.textContent = '🎤';
+            }
+            
+            // Controlled auto-restart with extended delay and comprehensive checks
             setTimeout(() => {
                 const now = Date.now();
-                const canRestart = !isRecording && 
+                const currentIsRecording = isOverlay ? this.overlayRecording : this.isRecording;
+                const minRestartDelay = 3000; // Extended to 3 seconds for better stability
+                
+                const canRestart = !currentIsRecording && 
                                  !this.isPlayingAIAudio && 
                                  !this.vadState.isInCooldown &&
-                                 (now - this.vadState.lastVoiceResponse) > 2000;
+                                 (now - this.vadState.lastVoiceResponse) > minRestartDelay &&
+                                 (now - this.vadState.lastSpeechEnd) > minRestartDelay;
                 
                 if (canRestart) {
-                    console.log('🔄 Auto-restarting recording after audio playback ended');
+                    console.log('🔄 Auto-restarting recording after safe delay and state validation');
                     if (isOverlay) {
                         this.startOverlayRecording();
                     } else {
                         this.startRecording();
                     }
                 } else {
-                    console.log('🚫 Auto-restart blocked by audio playback management');
+                    console.log('🚫 Auto-restart blocked by state management - user must manually start next turn');
+                    // Update UI to indicate manual start required
+                    if (isOverlay) {
+                        this.overlayVoiceToggle.querySelector('span').textContent = 'Click to Start';
+                        this.updateOverlayConnectionStatus('connected', 'Ready. Click mic to start next turn.');
+                    } else {
+                        this.updateConnectionStatus('connected', 'Ready. Click mic to start next turn.');
+                    }
                 }
-            }, 2000);
+            }, 3000); // Extended delay for better stability
+        } else {
+            // Manual mode or no auto-restart - update UI to indicate ready state
+            console.log('✅ AI finished speaking. Manual restart required.');
+            if (isOverlay) {
+                this.updateOverlayConnectionStatus('connected', 'Ready. Click mic to speak.');
+                this.overlayVoiceToggle.classList.remove('recording');
+                this.overlayVoiceToggle.querySelector('span').textContent = 'Click to Start';
+            } else {
+                this.updateConnectionStatus('connected', 'Ready. Click mic to speak.');
+                this.voiceToggle.classList.remove('recording');
+                this.voiceToggle.textContent = '🎤';
+            }
         }
+        
+        // Reset VAD state to clean slate for next conversation turn
+        this.resetVADState();
+        
+        // Release any orphaned audio resources
+        this.muteAllAudioElements(false);
     }
 
     initializeElements() {
@@ -783,10 +828,12 @@ class BeautyAIChat {
                     console.log('VAD cooldown period ended');
                 }, this.vadState.cooldownPeriod);
                 
-                this.showVoiceStatus('🔄 Processing...');
+                this.showVoiceStatus('🔄 Processing your speech...');
+                console.log('Entered processing state - microphone disabled until AI responds');
                 
-                // Stop recording when speech ends to prevent picking up AI response
+                // CRITICAL: Stop recording immediately when speech ends
                 if (this.isRecording) {
+                    console.log('🛑 Stopping recording due to speech_end detection');
                     this.stopRecording();
                 }
                 
@@ -1397,8 +1444,14 @@ class BeautyAIChat {
                 console.log('Overlay speech started');
                 
             } else if (data.type === 'speech_end') {
-                // Speech ended with VAD state management (overlay)
-                console.log('Overlay speech ended - applying VAD state management');
+                // Speech ended - STOP recording immediately to prevent feedback loop (overlay)
+                console.log('Overlay speech ended - stopping recording and entering processing state');
+                
+                // CRITICAL: Stop recording immediately when speech ends
+                if (this.overlayRecording) {
+                    console.log('🛑 Stopping overlay recording due to speech_end detection');
+                    this.stopOverlayRecording();
+                }
                 
                 const now = Date.now();
                 this.vadState.lastSpeechEnd = now;
@@ -1411,7 +1464,7 @@ class BeautyAIChat {
                     this.vadState.consecutiveSpeechEnds = 0; // Reset counter
                 }
                 
-                // Enter cooldown state
+                // Enter cooldown state to prevent immediate restart
                 this.vadState.isInCooldown = true;
                 setTimeout(() => {
                     this.vadState.isInCooldown = false;
@@ -1419,12 +1472,8 @@ class BeautyAIChat {
                     console.log('Overlay VAD cooldown period ended');
                 }, this.vadState.cooldownPeriod);
                 
-                this.showOverlayVoiceStatus('🔄 Processing...');
-                
-                // Stop recording when speech ends to prevent picking up AI response
-                if (this.overlayRecording) {
-                    this.stopOverlayRecording();
-                }
+                this.showOverlayVoiceStatus('🔄 Processing your speech...');
+                console.log('Overlay entered processing state - microphone disabled until AI responds');
                 
             } else if (data.type === 'turn_processing_started') {
                 // Turn processing started

@@ -344,72 +344,177 @@ class SimpleVoiceWebSocketManager:
         audio_data: bytes
     ) -> Dict[str, Any]:
         """
-        Process real-time audio chunk with VAD for smooth conversation.
+        Process real-time audio chunk with proper accumulation for WebM streams.
         
-        This method implements Gemini Live / GPT Voice style interaction:
-        - Processes audio in small chunks (20-30ms)
-        - Uses VAD to detect speech start/stop
-        - Buffers audio during speech
-        - Triggers turn completion on silence
-        - Provides real-time feedback
+        CRITICAL FIX: MediaRecorder WebM chunks are NOT standalone files!
+        - Only the first chunk contains WebM headers/metadata
+        - Subsequent chunks are raw data fragments
+        - Individual chunks CANNOT be decoded by ffmpeg
+        - Must accumulate chunks into complete audio segments
+        
+        This method implements proper chunk accumulation:
+        - Buffers WebM chunks until complete segment is ready
+        - Uses VAD to detect speech boundaries for segmentation
+        - Only processes complete, decodable audio segments
+        - Prevents infinite loop from failed individual chunk decoding
         """
         if connection_id not in simple_voice_connections:
             return {"success": False, "error": "Connection not found"}
         
         connection = simple_voice_connections[connection_id]
         
-        # Check if VAD is available
+        # 🛡️ CRITICAL: Ignore chunks during turn processing
+        if connection.get("processing_turn", False):
+            logger.debug(f"🚫 BLOCKED: Ignoring chunk during processing for {connection_id}")
+            return {"success": True, "status": "ignored_during_processing"}
+        
+        # Initialize chunk buffer if not exists
+        if "chunk_buffer" not in connection:
+            connection["chunk_buffer"] = []
+            connection["first_chunk_received"] = False
+            connection["total_buffered_bytes"] = 0
+        
+        # Add chunk to buffer
+        connection["chunk_buffer"].append(audio_data)
+        connection["total_buffered_bytes"] += len(audio_data)
+        
+        # Mark if this is the first chunk (contains WebM header)
+        if not connection["first_chunk_received"]:
+            connection["first_chunk_received"] = True
+            logger.info(f"📦 First chunk received for {connection_id}: {len(audio_data)} bytes")
+        
+        logger.debug(f"📦 Buffered chunk {len(connection['chunk_buffer'])} for {connection_id}: {len(audio_data)} bytes (total: {connection['total_buffered_bytes']})")
+        
+        # 🚨 CRITICAL FIX: Detect audio format from first chunk
+        audio_format = "webm"  # Default assumption for MediaRecorder
+        if connection.get("first_chunk_received", False) and len(connection["chunk_buffer"]) > 0:
+            first_chunk = connection["chunk_buffer"][0]
+            audio_format = self._detect_audio_format(first_chunk)
+        
+        # 🛡️ CRITICAL: VAD Service cannot process WebM format properly!  
+        # VAD expects PCM/WAV data, not WebM container format.
+        # For WebM streams, we MUST use time-based accumulation instead of VAD.
+        if audio_format == "webm":
+            logger.info(f"🎯 WebM format detected - using time-based accumulation (VAD disabled for WebM)")
+            
+            # Use time-based segmentation for WebM (no VAD)
+            # Process when we have accumulated sufficient chunks for a meaningful segment
+            if len(connection["chunk_buffer"]) >= 30:  # ~3 seconds worth of data
+                logger.info(f"🕒 WebM time-based segment complete for {connection_id} ({len(connection['chunk_buffer'])} chunks) - processing buffered audio")
+                return await self._process_buffered_chunks(connection_id)
+            else:
+                logger.debug(f"📦 WebM accumulating: {len(connection['chunk_buffer'])}/30 chunks for {connection_id}")
+                return {"success": True, "status": "buffering", "chunks_buffered": len(connection["chunk_buffer"])}
+        
+        # For non-WebM formats, we can try VAD if available
         if not connection.get("vad_enabled", False) or not self.vad_service:
-            # Fallback to traditional processing
-            logger.info("VAD not available, falling back to traditional processing")
-            return await self.process_audio_message(connection_id, audio_data)
+            # Without VAD: Use time-based segmentation (fallback)
+            if len(connection["chunk_buffer"]) >= 50:  # ~5 seconds at 100ms chunks
+                logger.info(f"🕒 Time-based segment complete for {connection_id} - processing buffered audio")
+                return await self._process_buffered_chunks(connection_id)
+            else:
+                return {"success": True, "status": "buffering", "chunks_buffered": len(connection["chunk_buffer"])}
         
         try:
-            # Detect audio format
-            audio_format = self._detect_audio_format(audio_data)
-            
-            # Setup VAD callbacks for this connection if not already done
+            # Setup VAD callbacks if needed (only for non-WebM formats)
             if not hasattr(self, f'_vad_setup_{connection_id}'):
                 await self._setup_vad_callbacks(connection_id)
                 setattr(self, f'_vad_setup_{connection_id}', True)
             
-            # Process chunk with VAD
-            vad_result = await self.vad_service.process_audio_chunk(audio_data, audio_format)
-            
-            if not vad_result.get("success", False):
-                logger.error(f"VAD processing failed: {vad_result.get('error', 'Unknown error')}")
-                # Fallback to traditional processing
-                return await self.process_audio_message(connection_id, audio_data)
-            
-            # Send real-time feedback to client
-            current_state = vad_result.get("current_state", {})
-            
-            await self.send_message(connection_id, {
-                "type": "vad_update",
-                "success": True,
-                "timestamp": time.time(),
-                "state": {
-                    "is_speaking": current_state.get("is_speaking", False),
-                    "silence_duration_ms": current_state.get("silence_duration_ms", 0),
-                    "buffered_chunks": current_state.get("buffered_chunks", 0)
-                },
-                "processing_time_ms": vad_result.get("processing_time_ms", 0)
-            })
+            # Try to process accumulated chunks with VAD
+            # Note: Only process if we have enough data to attempt decoding
+            if len(connection["chunk_buffer"]) >= 5:  # Minimum viable segment
+                concatenated_audio = b''.join(connection["chunk_buffer"])
+                
+                # Try VAD processing on accumulated data
+                vad_result = await self.vad_service.process_audio_chunk(concatenated_audio, audio_format)
+                
+                if vad_result.get("success", False):
+                    # Send VAD feedback
+                    current_state = vad_result.get("current_state", {})
+                    
+                    await self.send_message(connection_id, {
+                        "type": "vad_update",
+                        "success": True,
+                        "timestamp": time.time(),
+                        "state": {
+                            "is_speaking": current_state.get("is_speaking", False),
+                            "silence_duration_ms": current_state.get("silence_duration_ms", 0),
+                            "buffered_chunks": len(connection["chunk_buffer"])
+                        },
+                        "processing_time_ms": vad_result.get("processing_time_ms", 0)
+                    })
+                else:
+                    logger.warning(f"⚠️ VAD failed on accumulated chunks for {connection_id}, falling back to time-based processing")
+                    # Fallback to time-based processing when VAD fails
+                    if len(connection["chunk_buffer"]) >= 10:
+                        return await self._process_buffered_chunks(connection_id)
             
             return {
                 "success": True,
-                "processing_mode": "realtime_vad",
-                "vad_result": vad_result
+                "processing_mode": "chunk_accumulation",
+                "chunks_buffered": len(connection["chunk_buffer"]),
+                "total_bytes": connection["total_buffered_bytes"]
             }
             
         except Exception as e:
-            logger.error(f"❌ Error processing realtime audio chunk for {connection_id}: {e}")
+            logger.error(f"❌ Error processing chunk accumulation for {connection_id}: {e}")
             
-            # Fallback to traditional processing on error
-            logger.info("Falling back to traditional processing due to error")
-            return await self.process_audio_message(connection_id, audio_data)
+            # Emergency fallback: try to process buffered chunks
+            if len(connection["chunk_buffer"]) >= 10:
+                logger.info(f"🆘 Emergency processing of buffered chunks for {connection_id}")
+                return await self._process_buffered_chunks(connection_id)
+            
+            return {"success": False, "error": f"Chunk processing failed: {str(e)}"}
     
-    async def _setup_vad_callbacks(self, connection_id: str):
+    async def _process_buffered_chunks(self, connection_id: str) -> Dict[str, Any]:
+        """
+        Process accumulated audio chunks as a complete WebM stream.
+        
+        This method handles the conversion of accumulated WebM chunks into
+        a complete, decodable audio file for speech processing.
+        """
+        if connection_id not in simple_voice_connections:
+            return {"success": False, "error": "Connection not found"}
+        
+        connection = simple_voice_connections[connection_id]
+        
+        if not connection.get("chunk_buffer") or len(connection["chunk_buffer"]) == 0:
+            logger.warning(f"⚠️ No chunks to process for {connection_id}")
+            return {"success": False, "error": "No buffered chunks"}
+        
+        # Mark as processing to prevent new chunks
+        connection["processing_turn"] = True
+        last_turn_id = f"turn_{connection['message_count'] + 1}_{int(time.time() * 1000)}"
+        connection["last_turn_id"] = last_turn_id
+        
+        logger.info(f"🎯 Processing {len(connection['chunk_buffer'])} buffered chunks for {connection_id} (turn: {last_turn_id})")
+        
+        try:
+            # Concatenate all buffered chunks
+            concatenated_audio = b''.join(connection["chunk_buffer"])
+            
+            # Clear the buffer
+            connection["chunk_buffer"] = []
+            connection["total_buffered_bytes"] = 0
+            
+            logger.info(f"📦 Concatenated {len(concatenated_audio)} bytes for processing")
+            
+            # Process the complete audio with traditional flow
+            # This now has a complete WebM file that should be decodable
+            result = await self.process_audio_message(connection_id, concatenated_audio)
+            
+            return result
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing buffered chunks for {connection_id}: {e}")
+            return {"success": False, "error": f"Buffered chunk processing failed: {str(e)}"}
+        finally:
+            # Always reset processing state
+            if connection_id in simple_voice_connections:
+                simple_voice_connections[connection_id]["processing_turn"] = False
+    
+    async def _legacy_setup_vad_callbacks(self, connection_id: str):
         """Setup VAD callbacks for a specific connection."""
         if not self.vad_service:
             return
@@ -784,3 +889,49 @@ async def get_simple_voice_status():
             }
         }
     }
+
+    async def _setup_vad_callbacks(self, connection_id: str):
+        """Set up VAD callbacks for this connection"""
+        if connection_id not in simple_voice_connections:
+            return
+        
+        connection = simple_voice_connections[connection_id]
+        websocket = connection["websocket"]
+        
+        async def on_speech_start():
+            """Called when speech is detected"""
+            logger.info(f"🎙️ Speech started for {connection_id}")
+            await websocket.send_text(json.dumps({
+                "type": "vad_event",
+                "event": "speech_start",
+                "timestamp": time.time()
+            }))
+        
+        async def on_speech_end():
+            """Called when speech ends"""
+            logger.info(f"🔇 Speech ended for {connection_id}")
+            await websocket.send_text(json.dumps({
+                "type": "vad_event", 
+                "event": "speech_end",
+                "timestamp": time.time()
+            }))
+        
+        async def on_turn_complete():
+            """Called when a complete turn is detected - process buffered chunks"""
+            logger.info(f"✅ Turn complete for {connection_id} - processing buffered audio")
+            
+            # Process all buffered chunks as complete audio
+            result = await self._process_buffered_chunks(connection_id)
+            
+            if result.get("success"):
+                logger.info(f"✅ Successfully processed buffered turn for {connection_id}")
+            else:
+                logger.error(f"❌ Failed to process buffered turn for {connection_id}: {result.get('error')}")
+        
+        # Set callbacks on VAD service
+        if connection.get("vad_service"):
+            connection["vad_service"].set_callbacks(
+                on_speech_start=on_speech_start,
+                on_speech_end=on_speech_end,
+                on_turn_complete=on_turn_complete
+            )

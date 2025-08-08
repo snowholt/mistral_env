@@ -1,0 +1,12 @@
+{
+  "success": true,
+  "connection_id": "792cbc64-f91c-4bfc-87c3-cb1d3fd1fcee",
+  "chunks_sent": 30,
+  "total_messages": 2,
+  "voice_responses": 1,
+  "unclear_audio_count": 0,
+  "webm_errors": 0,
+  "vad_errors": 0,
+  "fix_working": true,
+  "infinite_loop_prevented": true
+}
