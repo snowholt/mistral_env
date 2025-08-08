@@ -26,6 +26,12 @@ class BeautyAIChat {
         this.autoStopEnabled = false;
         this.silenceThreshold = 3000;
         
+        // Real-time VAD settings
+        this.vadEnabled = true;  // Enable VAD by default
+        this.streamingMode = true;  // Use streaming mode for real-time interaction
+        this.chunkSize = 1024;  // Audio chunk size for streaming
+        this.vadFeedback = true;  // Show real-time VAD feedback
+        
         // Overlay state
         this.overlayConnected = false;
         this.overlayRecording = false;
@@ -537,7 +543,30 @@ class BeautyAIChat {
             // Parse JSON response from backend
             const data = JSON.parse(event.data);
             
-            if (data.type === 'voice_response') {
+            if (data.type === 'connection_established') {
+                // Connection established
+                console.log('Voice connection established:', data);
+                
+            } else if (data.type === 'vad_update') {
+                // Real-time VAD feedback
+                this.handleVADUpdate(data);
+                
+            } else if (data.type === 'speech_start') {
+                // Speech started
+                this.showVoiceStatus('🎤 Listening...');
+                console.log('Speech started');
+                
+            } else if (data.type === 'speech_end') {
+                // Speech ended
+                this.showVoiceStatus('🔄 Processing...');
+                console.log('Speech ended');
+                
+            } else if (data.type === 'turn_processing_started') {
+                // Turn processing started
+                this.showVoiceStatus('⚡ Processing complete turn...');
+                console.log('Turn processing started');
+                
+            } else if (data.type === 'voice_response') {
                 if (data.success && data.audio_base64) {
                     // Convert base64 to audio blob
                     const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
@@ -552,7 +581,8 @@ class BeautyAIChat {
                             time: data.response_time_ms,
                             tokens: data.response_text ? data.response_text.split(' ').length : 0,
                             speed: data.response_time_ms > 0 ? (data.response_text.split(' ').length / (data.response_time_ms / 1000)) : 0
-                        }
+                        },
+                        processingMode: data.processing_mode || 'traditional'
                     });
                     
                     // Play audio
@@ -580,6 +610,56 @@ class BeautyAIChat {
         } catch (error) {
             console.error('Error handling voice message:', error);
             this.addMessage('assistant', `❌ Error processing voice response: ${error.message}`);
+        }
+    }
+    
+    handleVADUpdate(data) {
+        /**
+         * Handle real-time VAD updates for improved user feedback.
+         */
+        if (!this.vadFeedback) return;
+        
+        const state = data.state || {};
+        const isSpeaking = state.is_speaking;
+        const silenceDuration = state.silence_duration_ms || 0;
+        const bufferedChunks = state.buffered_chunks || 0;
+        
+        // Update voice status with real-time feedback
+        if (isSpeaking) {
+            this.showVoiceStatus(`🎤 Speaking... (${bufferedChunks} chunks)`);
+        } else if (silenceDuration > 0) {
+            const silenceSeconds = (silenceDuration / 1000).toFixed(1);
+            this.showVoiceStatus(`🔇 Silence: ${silenceSeconds}s (${bufferedChunks} chunks buffered)`);
+        }
+        
+        // Update visual indicators if available
+        this.updateVADIndicators(state);
+    }
+    
+    updateVADIndicators(state) {
+        /**
+         * Update visual indicators based on VAD state.
+         */
+        // Update voice button appearance based on VAD state
+        if (this.voiceToggle) {
+            if (state.is_speaking) {
+                this.voiceToggle.classList.add('speaking');
+                this.voiceToggle.classList.remove('silent');
+            } else {
+                this.voiceToggle.classList.add('silent');
+                this.voiceToggle.classList.remove('speaking');
+            }
+        }
+        
+        // Update overlay indicators if in overlay mode
+        if (this.overlayVoiceToggle && !this.voiceOverlay.classList.contains('hidden')) {
+            if (state.is_speaking) {
+                this.overlayVoiceToggle.classList.add('speaking');
+                this.overlayVoiceToggle.classList.remove('silent');
+            } else {
+                this.overlayVoiceToggle.classList.add('silent');
+                this.overlayVoiceToggle.classList.remove('speaking');
+            }
         }
     }
 
@@ -610,36 +690,80 @@ class BeautyAIChat {
             this.mediaRecorder = new MediaRecorder(stream, options);
             this.audioChunks = [];
             
-            this.mediaRecorder.ondataavailable = (event) => {
-                if (event.data.size > 0) {
-                    this.audioChunks.push(event.data);
-                }
-            };
-            
-            this.mediaRecorder.onstop = () => {
-                this.sendVoiceData();
-                stream.getTracks().forEach(track => track.stop());
-            };
+            // Configure for streaming or traditional mode
+            if (this.streamingMode && this.vadEnabled) {
+                // Streaming mode - send smaller chunks frequently
+                this.mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        // Send chunk immediately for real-time processing
+                        this.sendAudioChunk(event.data);
+                    }
+                };
+                
+                // Start recording with small time slices for streaming
+                this.mediaRecorder.start(100); // 100ms chunks for real-time processing
+                
+                this.mediaRecorder.onstop = () => {
+                    // Clean up stream
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+            } else {
+                // Traditional mode - collect all chunks
+                this.mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0) {
+                        this.audioChunks.push(event.data);
+                    }
+                };
+                
+                this.mediaRecorder.onstop = () => {
+                    this.sendVoiceData();
+                    stream.getTracks().forEach(track => track.stop());
+                };
+                
+                this.mediaRecorder.start(100);
+            }
             
             // Setup silence detection
             if (this.autoStopEnabled && this.audioContext) {
                 this.setupSilenceDetection(stream);
             }
             
-            this.mediaRecorder.start(100);
             this.isRecording = true;
             
             // Update UI
             this.voiceToggle.classList.add('recording');
             this.voiceToggle.textContent = '🔴';
-            this.showVoiceStatus('🎤 Recording... (release to send)');
             
-            console.log('Recording started');
+            if (this.streamingMode && this.vadEnabled) {
+                this.showVoiceStatus('🎤 Streaming audio... (VAD enabled)');
+            } else {
+                this.showVoiceStatus('🎤 Recording... (release to send)');
+            }
+            
+            console.log('Recording started in', this.streamingMode ? 'streaming' : 'traditional', 'mode');
             
         } catch (error) {
             console.error('Failed to start recording:', error);
             this.showVoiceStatus('❌ Microphone access denied');
         }
+    }
+    
+    sendAudioChunk(audioChunk) {
+        /**
+         * Send individual audio chunk for real-time processing.
+         */
+        if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            console.warn('WebSocket not ready for audio chunk');
+            return;
+        }
+        
+        this.startConversation();
+        
+        // Send the chunk immediately
+        this.ws.send(audioChunk);
+        
+        console.log('Audio chunk sent:', audioChunk.size, 'bytes');
     }
 
     setupSilenceDetection(stream) {
@@ -706,9 +830,14 @@ class BeautyAIChat {
         // Update UI
         this.voiceToggle.classList.remove('recording');
         this.voiceToggle.textContent = '🎤';
-        this.showVoiceStatus('📤 Processing audio...');
         
-        console.log('Recording stopped');
+        if (this.streamingMode && this.vadEnabled) {
+            this.showVoiceStatus('⏹️ Stopped streaming');
+            console.log('Streaming recording stopped');
+        } else {
+            this.showVoiceStatus('📤 Processing audio...');
+            console.log('Traditional recording stopped');
+        }
     }
 
     sendVoiceData() {
@@ -942,7 +1071,30 @@ class BeautyAIChat {
             // Parse JSON response from backend
             const data = JSON.parse(event.data);
             
-            if (data.type === 'voice_response') {
+            if (data.type === 'connection_established') {
+                // Connection established
+                console.log('Overlay voice connection established:', data);
+                
+            } else if (data.type === 'vad_update') {
+                // Real-time VAD feedback
+                this.handleOverlayVADUpdate(data);
+                
+            } else if (data.type === 'speech_start') {
+                // Speech started
+                this.showOverlayVoiceStatus('🎤 Listening...');
+                console.log('Overlay speech started');
+                
+            } else if (data.type === 'speech_end') {
+                // Speech ended
+                this.showOverlayVoiceStatus('🔄 Processing...');
+                console.log('Overlay speech ended');
+                
+            } else if (data.type === 'turn_processing_started') {
+                // Turn processing started
+                this.showOverlayVoiceStatus('⚡ Processing complete turn...');
+                console.log('Overlay turn processing started');
+                
+            } else if (data.type === 'voice_response') {
                 if (data.success && data.audio_base64) {
                     // Convert base64 to audio blob
                     const audioBlob = this.base64ToBlob(data.audio_base64, 'audio/wav');
@@ -953,7 +1105,8 @@ class BeautyAIChat {
                     this.addOverlayMessage('assistant', data.response_text, { 
                         audioUrl,
                         transcription: data.transcription,
-                        responseTime: data.response_time_ms
+                        responseTime: data.response_time_ms,
+                        processingMode: data.processing_mode || 'traditional'
                     });
                     
                     // Play audio
@@ -982,6 +1135,29 @@ class BeautyAIChat {
             console.error('Error handling overlay voice message:', error);
             this.addOverlayMessage('assistant', `❌ Error processing voice response: ${error.message}`);
         }
+    }
+    
+    handleOverlayVADUpdate(data) {
+        /**
+         * Handle real-time VAD updates for overlay mode.
+         */
+        if (!this.vadFeedback) return;
+        
+        const state = data.state || {};
+        const isSpeaking = state.is_speaking;
+        const silenceDuration = state.silence_duration_ms || 0;
+        const bufferedChunks = state.buffered_chunks || 0;
+        
+        // Update voice status with real-time feedback
+        if (isSpeaking) {
+            this.showOverlayVoiceStatus(`🎤 Speaking... (${bufferedChunks} chunks)`);
+        } else if (silenceDuration > 0) {
+            const silenceSeconds = (silenceDuration / 1000).toFixed(1);
+            this.showOverlayVoiceStatus(`🔇 Silence: ${silenceSeconds}s (${bufferedChunks} chunks buffered)`);
+        }
+        
+        // Update visual indicators
+        this.updateVADIndicators(state);
     }
 
     handleOverlayVoiceToggle(isPressed) {

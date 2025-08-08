@@ -29,6 +29,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
 
 from ...services.voice.conversation.simple_voice_service import SimpleVoiceService
+from ...services.voice.vad_service import RealTimeVADService, VADConfig, get_vad_service, initialize_vad_service
 
 logger = logging.getLogger(__name__)
 
@@ -40,26 +41,54 @@ simple_voice_connections: Dict[str, Dict[str, Any]] = {}
 
 class SimpleVoiceWebSocketManager:
     """
-    Lightweight WebSocket manager for simple voice conversations.
+    Enhanced WebSocket manager for simple voice conversations with VAD.
     
     Features:
-    - Minimal connection tracking
-    - Direct service integration  
-    - Fast cleanup and error handling
-    - No complex session management
+    - Real-time VAD-driven turn-taking
+    - Audio chunk buffering and processing
+    - Server-side silence detection
+    - Automatic turn completion
+    - Gemini Live / GPT Voice style interaction
     """
     
     def __init__(self):
         self.voice_service = SimpleVoiceService()
         self._service_initialized = False
         
+        # VAD service for real-time processing
+        self.vad_service = None
+        self._vad_initialized = False
+        
     async def _ensure_service_initialized(self):
-        """Ensure the voice service is initialized."""
+        """Ensure the voice service and VAD service are initialized."""
         if not self._service_initialized:
             logger.info("Initializing SimpleVoiceService...")
             await self.voice_service.initialize()
             self._service_initialized = True
             logger.info("✅ SimpleVoiceService initialized successfully")
+        
+        if not self._vad_initialized:
+            logger.info("Initializing VAD service for real-time processing...")
+            
+            # Create VAD configuration optimized for real-time processing
+            vad_config = VADConfig(
+                chunk_size_ms=30,  # 30ms chunks for low latency
+                silence_threshold_ms=500,  # 500ms silence to trigger turn end
+                sampling_rate=16000,  # Standard sampling rate
+                speech_threshold=0.5,  # Speech detection threshold
+                buffer_max_duration_ms=30000  # 30 second max buffer
+            )
+            
+            # Initialize global VAD service
+            success = await initialize_vad_service(vad_config)
+            if success:
+                self.vad_service = get_vad_service()
+                self._vad_initialized = True
+                logger.info("✅ VAD service initialized successfully")
+            else:
+                logger.error("❌ Failed to initialize VAD service")
+                # Continue without VAD for backward compatibility
+                self.vad_service = None
     
     async def connect(
         self, 
@@ -83,7 +112,10 @@ class SimpleVoiceWebSocketManager:
                 "voice_type": voice_type,  # Fixed: male/female
                 "session_id": session_id or f"simple_{connection_id}",
                 "connected_at": time.time(),
-                "message_count": 0
+                "message_count": 0,
+                "vad_enabled": self._vad_initialized,  # Track VAD availability
+                "audio_buffer": [],  # Buffer for real-time chunks
+                "processing_turn": False  # Track if we're processing a complete turn
             }
             
             simple_voice_connections[connection_id] = connection_state
@@ -300,6 +332,196 @@ class SimpleVoiceWebSocketManager:
                 "timestamp": time.time()
             })
             return {"success": False, "error": str(e)}
+    
+    async def process_realtime_audio_chunk(
+        self,
+        connection_id: str,
+        audio_data: bytes
+    ) -> Dict[str, Any]:
+        """
+        Process real-time audio chunk with VAD for smooth conversation.
+        
+        This method implements Gemini Live / GPT Voice style interaction:
+        - Processes audio in small chunks (20-30ms)
+        - Uses VAD to detect speech start/stop
+        - Buffers audio during speech
+        - Triggers turn completion on silence
+        - Provides real-time feedback
+        """
+        if connection_id not in simple_voice_connections:
+            return {"success": False, "error": "Connection not found"}
+        
+        connection = simple_voice_connections[connection_id]
+        
+        # Check if VAD is available
+        if not connection.get("vad_enabled", False) or not self.vad_service:
+            # Fallback to traditional processing
+            logger.info("VAD not available, falling back to traditional processing")
+            return await self.process_audio_message(connection_id, audio_data)
+        
+        try:
+            # Detect audio format
+            audio_format = self._detect_audio_format(audio_data)
+            
+            # Setup VAD callbacks for this connection if not already done
+            if not hasattr(self, f'_vad_setup_{connection_id}'):
+                await self._setup_vad_callbacks(connection_id)
+                setattr(self, f'_vad_setup_{connection_id}', True)
+            
+            # Process chunk with VAD
+            vad_result = await self.vad_service.process_audio_chunk(audio_data, audio_format)
+            
+            if not vad_result.get("success", False):
+                logger.error(f"VAD processing failed: {vad_result.get('error', 'Unknown error')}")
+                # Fallback to traditional processing
+                return await self.process_audio_message(connection_id, audio_data)
+            
+            # Send real-time feedback to client
+            current_state = vad_result.get("current_state", {})
+            
+            await self.send_message(connection_id, {
+                "type": "vad_update",
+                "success": True,
+                "timestamp": time.time(),
+                "state": {
+                    "is_speaking": current_state.get("is_speaking", False),
+                    "silence_duration_ms": current_state.get("silence_duration_ms", 0),
+                    "buffered_chunks": current_state.get("buffered_chunks", 0)
+                },
+                "processing_time_ms": vad_result.get("processing_time_ms", 0)
+            })
+            
+            return {
+                "success": True,
+                "processing_mode": "realtime_vad",
+                "vad_result": vad_result
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing realtime audio chunk for {connection_id}: {e}")
+            
+            # Fallback to traditional processing on error
+            logger.info("Falling back to traditional processing due to error")
+            return await self.process_audio_message(connection_id, audio_data)
+    
+    async def _setup_vad_callbacks(self, connection_id: str):
+        """Setup VAD callbacks for a specific connection."""
+        if not self.vad_service:
+            return
+        
+        async def on_speech_start():
+            """Called when speech is detected."""
+            await self.send_message(connection_id, {
+                "type": "speech_start",
+                "success": True,
+                "timestamp": time.time(),
+                "message": "Speech detected - recording..."
+            })
+        
+        async def on_speech_end():
+            """Called when speech ends."""
+            await self.send_message(connection_id, {
+                "type": "speech_end",
+                "success": True,
+                "timestamp": time.time(),
+                "message": "Speech ended - processing..."
+            })
+        
+        async def on_turn_complete(audio_file_path: str, audio_data):
+            """Called when a complete turn is ready for processing."""
+            logger.info(f"🔄 Turn complete for {connection_id}, processing complete audio...")
+            
+            # Mark connection as processing a turn
+            if connection_id in simple_voice_connections:
+                simple_voice_connections[connection_id]["processing_turn"] = True
+            
+            try:
+                # Read the audio file created by VAD
+                with open(audio_file_path, "rb") as f:
+                    complete_audio_data = f.read()
+                
+                # Process the complete audio with voice service
+                connection = simple_voice_connections[connection_id]
+                language = connection["language"]
+                voice_type = connection["voice_type"]
+                session_id = connection["session_id"]
+                
+                # Update message count
+                connection["message_count"] += 1
+                
+                # Send processing started message
+                await self.send_message(connection_id, {
+                    "type": "turn_processing_started",
+                    "success": True,
+                    "timestamp": time.time(),
+                    "message": "Processing complete turn..."
+                })
+                
+                # Process with voice service
+                result = await self.voice_service.process_voice_message(
+                    audio_data=complete_audio_data,
+                    audio_format="wav",  # VAD service saves as WAV
+                    language=language,
+                    gender=voice_type
+                )
+                
+                # Prepare and send response
+                audio_base64 = None
+                if result.get("audio_file_path"):
+                    audio_path = Path(result["audio_file_path"])
+                    if audio_path.exists():
+                        with open(audio_path, "rb") as audio_file:
+                            audio_bytes = audio_file.read()
+                        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                        audio_path.unlink()
+                
+                response_data = {
+                    "type": "voice_response",
+                    "success": True,
+                    "audio_base64": audio_base64,
+                    "transcription": result.get("transcribed_text", ""),
+                    "response_text": result.get("response_text", ""),
+                    "language": result.get("language_detected", language),
+                    "voice_type": voice_type,
+                    "response_time_ms": result.get("processing_time", 0) * 1000,
+                    "session_id": session_id,
+                    "message_count": connection["message_count"],
+                    "timestamp": time.time(),
+                    "processing_mode": "vad_driven"
+                }
+                
+                await self.send_message(connection_id, response_data)
+                
+                logger.info(f"✅ VAD-driven turn processing completed for {connection_id}")
+                
+            except Exception as e:
+                logger.error(f"❌ Error processing turn complete for {connection_id}: {e}")
+                
+                await self.send_message(connection_id, {
+                    "type": "error",
+                    "success": False,
+                    "error_code": "TURN_PROCESSING_ERROR",
+                    "message": f"Failed to process complete turn: {str(e)}",
+                    "timestamp": time.time()
+                })
+            
+            finally:
+                # Clean up VAD audio file
+                try:
+                    Path(audio_file_path).unlink()
+                except Exception:
+                    pass
+                
+                # Mark turn processing as complete
+                if connection_id in simple_voice_connections:
+                    simple_voice_connections[connection_id]["processing_turn"] = False
+        
+        # Set the callbacks
+        self.vad_service.set_callbacks(
+            on_speech_start=on_speech_start,
+            on_speech_end=on_speech_end,
+            on_turn_complete=on_turn_complete
+        )
 
 
 # Global WebSocket manager instance
@@ -411,11 +633,21 @@ async def websocket_simple_voice_chat(
                     if len(audio_data) > 0:
                         logger.info(f"🎵 Received audio data: {len(audio_data)} bytes from {connection_id}")
                         
-                        # Process audio message for fast response
-                        await simple_ws_manager.process_audio_message(
-                            connection_id,
-                            audio_data
-                        )
+                        # Check if we should use real-time VAD processing
+                        connection_state = simple_voice_connections.get(connection_id, {})
+                        
+                        if connection_state.get("vad_enabled", False) and not connection_state.get("processing_turn", False):
+                            # Use real-time VAD processing for smoother interaction
+                            await simple_ws_manager.process_realtime_audio_chunk(
+                                connection_id,
+                                audio_data
+                            )
+                        else:
+                            # Use traditional processing (complete audio at once)
+                            await simple_ws_manager.process_audio_message(
+                                connection_id,
+                                audio_data
+                            )
                     else:
                         logger.warning(f"⚠️ Received empty audio data from {connection_id}")
                 
@@ -480,7 +712,10 @@ async def get_simple_voice_status():
             "Simplified parameter set",
             "No complex configuration",
             "Direct Edge TTS integration",
-            "Arabic and English only"
+            "Arabic and English only",
+            "Real-time VAD processing",
+            "Server-side turn-taking",
+            "Gemini Live / GPT Voice style interaction"
         ],
         "audio_formats": {
             "input": ["webm", "wav", "mp3"],
