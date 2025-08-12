@@ -24,6 +24,9 @@ from typing import Dict, Any, Optional
 from pathlib import Path
 import base64
 import tempfile
+import os
+import subprocess
+import shlex
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
@@ -58,6 +61,93 @@ class SimpleVoiceWebSocketManager:
         # VAD service for real-time processing
         self.vad_service = None
         self._vad_initialized = False
+    # (imports moved to module scope)
+
+    # --------------------------------------------------
+    # Debug utilities for audio capture & inspection
+    # --------------------------------------------------
+    def _get_debug_audio_dir(self) -> Path:
+        """Resolve stable absolute directory for saving debug audio.
+        Priority:
+          1. BEAUTYAI_AUDIO_DEBUG_DIR env var
+          2. Writable backend directory  / 'vad_testting_temp' (works with ProtectSystem=strict)
+          3. Repo root (parent containing 'backend') / 'vad_testting_temp' (legacy)
+          4. /tmp/beautyai_vad_debug (may be private when PrivateTmp=yes)
+        Ensures directory exists and is writable; falls through until a writable path is found.
+        """
+        candidates: list[Path] = []
+
+        # 1. Environment variable override
+        env_dir = os.environ.get("BEAUTYAI_AUDIO_DEBUG_DIR")
+        if env_dir:
+            candidates.append(Path(env_dir).expanduser())
+
+        # 2. Backend local writable directory (inside systemd ReadWritePaths)
+        # Locate backend directory containing this file (…/backend/src/…)
+        file_path = Path(__file__).resolve()
+        backend_dir = None
+        for parent in file_path.parents:
+            if parent.name == "backend":
+                backend_dir = parent
+                break
+        if backend_dir:
+            candidates.append(backend_dir / "vad_testting_temp")
+
+        # 3. Legacy repo root/vad_testting_temp (may be read-only under ProtectSystem=strict)
+        repo_root = None
+        for parent in file_path.parents:
+            if (parent / "backend").exists():
+                repo_root = parent
+                break
+        if repo_root:
+            candidates.append(repo_root / "vad_testting_temp")
+
+        # 4. Fallback /tmp (note: PrivateTmp=yes isolates this path for the service)
+        candidates.append(Path("/tmp/beautyai_vad_debug"))
+
+        for cand in candidates:
+            try:
+                cand.mkdir(parents=True, exist_ok=True)
+                test_file = cand / ".write_test"
+                with open(test_file, "w") as f:
+                    f.write("ok")
+                test_file.unlink(missing_ok=True)  # type: ignore[arg-type]
+                if not getattr(self, "_debug_dir_reported", False):
+                    logger.info("🔍 Using debug audio directory: %s", cand)
+                    self._debug_dir_reported = True
+                return cand
+            except Exception as e:  # pragma: no cover - best effort
+                logger.debug("Debug dir candidate not writable (%s): %s", cand, e)
+
+        # Last resort: current working directory
+        cwd_fallback = Path.cwd() / "vad_testting_temp"
+        cwd_fallback.mkdir(parents=True, exist_ok=True)
+        logger.warning("⚠️ Falling back to CWD debug directory: %s", cwd_fallback)
+        return cwd_fallback
+
+    def _maybe_convert_and_probe(self, webm_path: Path) -> Optional[Path]:  # type: ignore[name-defined]
+        """If BEAUTYAI_DEBUG_VOICE=1 convert WebM to 16k mono WAV and log metadata."""
+        try:
+            if os.environ.get("BEAUTYAI_DEBUG_VOICE") != "1":
+                return None
+            wav_path = webm_path.with_suffix(".wav")
+            cmd = f"ffmpeg -y -i {shlex.quote(str(webm_path))} -ar 16000 -ac 1 {shlex.quote(str(wav_path))}"
+            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            if wav_path.exists():
+                probe_cmd = [
+                    "ffprobe", "-v", "error", "-select_streams", "a:0",
+                    "-show_entries", "stream=codec_name,sample_rate,channels",
+                    "-of", "json", str(wav_path)
+                ]
+                proc = subprocess.run(probe_cmd, capture_output=True, text=True)
+                if proc.returncode == 0:
+                    logger.info(f"🔍 Segment probe ({webm_path.name}): {proc.stdout.strip()}")
+                else:
+                    logger.warning(f"⚠️ ffprobe failed on {wav_path.name}: {proc.stderr.strip()}")
+                return wav_path
+        except Exception as e:
+            logger.warning(f"⚠️ WAV conversion/probe failed for {webm_path.name}: {e}")
+        return None
         
     async def _ensure_service_initialized(self):
         """Ensure the voice service and VAD service are initialized."""
@@ -115,7 +205,9 @@ class SimpleVoiceWebSocketManager:
                 "message_count": 0,
                 "vad_enabled": self._vad_initialized,  # Track VAD availability
                 "audio_buffer": [],  # Buffer for real-time chunks
-                "processing_turn": False  # Track if we're processing a complete turn
+                "processing_turn": False,  # Track if we're processing a complete turn
+                # Test capture file path (will be created on first audio chunk)
+                "capture_file_path": None
             }
             
             simple_voice_connections[connection_id] = connection_state
@@ -514,8 +606,10 @@ class SimpleVoiceWebSocketManager:
             if connection_id in simple_voice_connections:
                 simple_voice_connections[connection_id]["processing_turn"] = False
     
-    async def _legacy_setup_vad_callbacks(self, connection_id: str):
-        """Setup VAD callbacks for a specific connection."""
+    async def _setup_vad_callbacks(self, connection_id: str):
+        """Setup VAD callbacks for a specific connection.
+        Renamed from _legacy_setup_vad_callbacks to match call sites.
+        """
         if not self.vad_service:
             return
         
@@ -536,7 +630,6 @@ class SimpleVoiceWebSocketManager:
                 "timestamp": time.time(),
                 "message": "Speech ended - processing..."
             })
-        
         async def on_turn_complete(audio_file_path: str, audio_data):
             """Called when a complete turn is ready for processing."""
             logger.info(f"🔄 Turn complete for {connection_id}, processing complete audio...")
@@ -552,7 +645,7 @@ class SimpleVoiceWebSocketManager:
             
             connection = simple_voice_connections[connection_id]
             
-            # 🛡️ CRITICAL FIX: Prevent duplicate turn processing
+            # 🛡️ Prevent duplicate turn processing
             if connection.get("processing_turn", False):
                 logger.warning(f"🚫 Turn already being processed for {connection_id} - ignoring duplicate turn complete")
                 try:
@@ -665,12 +758,16 @@ class SimpleVoiceWebSocketManager:
                         self.vad_service.reset_turn_processing()
                     logger.info(f"🏁 Turn processing completed for {connection_id} (turn: {last_turn_id})")
         
-        # Set the callbacks
-        self.vad_service.set_callbacks(
-            on_speech_start=on_speech_start,
-            on_speech_end=on_speech_end,
-            on_turn_complete=on_turn_complete
-        )
+        # Set the callbacks (ensure consistent indentation / spaces only)
+        if self.vad_service:
+            self.vad_service.set_callbacks(
+                on_speech_start=on_speech_start,
+                on_speech_end=on_speech_end,
+                on_turn_complete=on_turn_complete
+            )
+            logger.debug("✅ VAD callbacks registered for connection %s", connection_id)
+        else:
+            logger.warning("VAD service missing while setting callbacks for %s", connection_id)
 
 
 # Global WebSocket manager instance
@@ -781,6 +878,49 @@ async def websocket_simple_voice_chat(
                     
                     if len(audio_data) > 0:
                         logger.info(f"🎵 Received audio data: {len(audio_data)} bytes from {connection_id}")
+
+                        # ================= TEST AUDIO CAPTURE (Raw WebM stream) =================
+                        # Unified capture directory using helper for stability
+                        try:
+                            conn_state = simple_voice_connections.get(connection_id, {})
+                            if conn_state is not None:
+                                # Lazy-init capture path
+                                if not conn_state.get("capture_file_path"):
+                                    debug_dir = simple_ws_manager._get_debug_audio_dir()
+                                    capture_filename = f"ws_capture_{connection_id}_{int(time.time())}.webm"
+                                    capture_path = debug_dir / capture_filename
+                                    conn_state["capture_file_path"] = str(capture_path)
+                                    logger.info(
+                                        "💾 Initiated raw audio capture for %s -> %s", connection_id, capture_path
+                                    )
+                                try:
+                                    with open(conn_state["capture_file_path"], "ab") as cap_f:
+                                        cap_f.write(audio_data)
+                                except OSError as primary_err:
+                                    # Handle read-only filesystem (errno 30) or permission errors gracefully
+                                    if getattr(primary_err, "errno", None) in (30, 13):  # 30=Read-only FS, 13=Permission
+                                        fallback_dir = Path("/tmp/beautyai_vad_debug")
+                                        try:
+                                            fallback_dir.mkdir(parents=True, exist_ok=True)
+                                            if not conn_state.get("_capture_fallback_switched"):
+                                                logger.warning(
+                                                    "⚠️ Primary capture path unwritable (%s). Switching to fallback %s", 
+                                                    primary_err, fallback_dir
+                                                )
+                                            fallback_path = fallback_dir / Path(conn_state["capture_file_path"]).name
+                                            conn_state["capture_file_path"] = str(fallback_path)
+                                            conn_state["_capture_fallback_switched"] = True
+                                            with open(fallback_path, "ab") as cap_f2:
+                                                cap_f2.write(audio_data)
+                                        except Exception as fb_err:
+                                            logger.warning(
+                                                "⚠️ Fallback capture also failed for %s: %s", connection_id, fb_err
+                                            )
+                                    else:
+                                        raise
+                        except Exception as cap_err:
+                            logger.warning("⚠️ Failed to capture raw audio chunk for %s: %s", connection_id, cap_err)
+                        # ========================================================================
                         
                         # Check if we should use real-time VAD processing
                         connection_state = simple_voice_connections.get(connection_id, {})
@@ -890,48 +1030,3 @@ async def get_simple_voice_status():
         }
     }
 
-    async def _setup_vad_callbacks(self, connection_id: str):
-        """Set up VAD callbacks for this connection"""
-        if connection_id not in simple_voice_connections:
-            return
-        
-        connection = simple_voice_connections[connection_id]
-        websocket = connection["websocket"]
-        
-        async def on_speech_start():
-            """Called when speech is detected"""
-            logger.info(f"🎙️ Speech started for {connection_id}")
-            await websocket.send_text(json.dumps({
-                "type": "vad_event",
-                "event": "speech_start",
-                "timestamp": time.time()
-            }))
-        
-        async def on_speech_end():
-            """Called when speech ends"""
-            logger.info(f"🔇 Speech ended for {connection_id}")
-            await websocket.send_text(json.dumps({
-                "type": "vad_event", 
-                "event": "speech_end",
-                "timestamp": time.time()
-            }))
-        
-        async def on_turn_complete():
-            """Called when a complete turn is detected - process buffered chunks"""
-            logger.info(f"✅ Turn complete for {connection_id} - processing buffered audio")
-            
-            # Process all buffered chunks as complete audio
-            result = await self._process_buffered_chunks(connection_id)
-            
-            if result.get("success"):
-                logger.info(f"✅ Successfully processed buffered turn for {connection_id}")
-            else:
-                logger.error(f"❌ Failed to process buffered turn for {connection_id}: {result.get('error')}")
-        
-        # Set callbacks on VAD service
-        if connection.get("vad_service"):
-            connection["vad_service"].set_callbacks(
-                on_speech_start=on_speech_start,
-                on_speech_end=on_speech_end,
-                on_turn_complete=on_turn_complete
-            )
