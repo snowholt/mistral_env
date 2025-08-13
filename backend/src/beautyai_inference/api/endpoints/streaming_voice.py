@@ -35,6 +35,12 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
 
 from beautyai_inference.services.voice.streaming.streaming_session import StreamingSession
+from beautyai_inference.services.voice.streaming.decoder_loop import (
+    incremental_decode_loop,
+    DecoderConfig,
+)
+from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
+from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
 
 logger = logging.getLogger(__name__)
 
@@ -174,19 +180,42 @@ async def streaming_voice_endpoint(
     session_registry.add(state)
     logger.info("🌐 Streaming voice connection established: %s (lang=%s)", connection_id, language)
 
+    run_phase4 = os.getenv("VOICE_STREAMING_PHASE4", "0") == "1"
+
     await _send_json(websocket, {
         "type": "ready",
         "session_id": session_id,
         "connection_id": connection_id,
         "timestamp": time.time(),
-        "feature": "streaming_voice_phase2",
-        "message": "Streaming voice ready (mock decode + PCM buffer)",
+        "feature": "streaming_voice_phase4" if run_phase4 else "streaming_voice_phase2",
+        "message": "Streaming voice ready (incremental decode)" if run_phase4 else "Streaming voice ready (mock decode + PCM buffer)",
         "language": language,
         "pcm_sample_rate": state.audio_session.sample_rate if state.audio_session else 16000,
         "ring_buffer_seconds": 40.0,
+        "decode_interval_ms": 480 if run_phase4 else None,
+        "window_seconds": 8.0 if run_phase4 else None,
     })
 
-    state.mock_task = asyncio.create_task(_mock_decode_loop(state, language))
+    if run_phase4:
+        fw_service = FasterWhisperTranscriptionService()
+        ep_state = EndpointState(config=EndpointConfig())
+
+        async def decoder_task() -> None:
+            try:
+                async for event in incremental_decode_loop(
+                    state.audio_session, fw_service, ep_state, DecoderConfig(language=language)
+                ):
+                    # Forward events to client
+                    if event["type"] == "partial_transcript":
+                        await _send_json(state.websocket, event)
+                    elif event["type"] == "endpoint_event":
+                        await _send_json(state.websocket, {"type": "endpoint", **event})
+            except Exception as e:  # pragma: no cover
+                logger.error("Incremental decoder error (%s): %s", connection_id, e)
+
+        state.mock_task = asyncio.create_task(decoder_task())
+    else:
+        state.mock_task = asyncio.create_task(_mock_decode_loop(state, language))
 
     try:
         while True:
@@ -236,9 +265,10 @@ async def streaming_voice_endpoint(
 async def streaming_voice_status() -> Dict[str, Any]:
     """Lightweight status endpoint for monitoring."""
     # Provide aggregate ring buffer stats (lightweight – approximated)
+    run_phase4 = os.getenv("VOICE_STREAMING_PHASE4", "0") == "1"
     return {
         "feature_enabled": STREAMING_FEATURE_ENABLED,
         "active_connections": session_registry.active_count(),
-        "phase": 2,
-        "description": "Streaming voice operational (mock decode + PCM buffering)",
+        "phase": 4 if run_phase4 else 2,
+        "description": "Streaming voice operational (incremental windowed decode)" if run_phase4 else "Streaming voice operational (mock decode + PCM buffering)",
     }

@@ -6,7 +6,7 @@
 | 1.5   | Minimal Client Preprocessor            | ✅ Done | Worklet + client skeleton committed |
 | 2     | Ring Buffer + Frame Handling           | ⏳ In Progress | Ingesting PCM + buffer stats |
 | 3     | Endpointing (Mock Tokens)              | ⏳ In Progress | Endpoint logic module added |
-| 4     | Whisper Integration (Incremental)      | ⬜ Pending |  |
+| 4     | Whisper Integration (Incremental)      | ⏳ In Progress | Windowed decode loop + partials |
 | 5     | Endpoint Finalization Logic            | ⬜ Pending |  |
 | 6     | LLM + TTS Integration Path             | ⬜ Pending |  |
 | 7     | Frontend Streaming Client              | ⬜ Pending |  |
