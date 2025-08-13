@@ -196,6 +196,7 @@ async def streaming_voice_endpoint(
         "ring_buffer_seconds": 40.0,
         "decode_interval_ms": 480 if run_phase4 else None,
         "window_seconds": 8.0 if run_phase4 else None,
+    "metrics": {"phase9_instrumented": bool(run_phase4)},
     })
 
     if run_phase4:
@@ -305,6 +306,9 @@ async def streaming_voice_endpoint(
                     elif etype == "endpoint_event":
                         await _send_json(state.websocket, {"type": "endpoint", **event})
                     elif etype == "final_transcript":
+                        await _send_json(state.websocket, event)
+                    elif etype == "perf_cycle":
+                        # Low-volume performance heartbeat; can be filtered client-side
                         await _send_json(state.websocket, event)
                         # Kick off LLM + TTS if not already running for this utterance
                         if state.llm_tts_task is None:

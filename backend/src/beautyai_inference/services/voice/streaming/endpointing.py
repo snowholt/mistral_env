@@ -44,6 +44,7 @@ class EndpointState:
     pending_final: bool = False
     finalized: bool = False
     utterance_index: int = 0
+    last_voiced_at_ms: int = 0  # timestamp (relative ms inside utterance) of last voiced frame
 
     def reset_for_next(self) -> None:
         self.voiced_ms = 0
@@ -65,6 +66,7 @@ class EndpointEvent:
     voiced_ms: Optional[int] = None
     silence_ms: Optional[int] = None
     utterance_ms: Optional[int] = None
+    end_silence_gap_ms: Optional[int] = None  # gap between last voiced frame and finalization
 
 
 def update_endpoint(
@@ -126,6 +128,7 @@ def update_endpoint(
             reason = "max_duration"
 
         if should_finalize:
+            end_gap = state.utterance_ms - state.last_voiced_at_ms if state.last_voiced_at_ms else state.silence_ms
             events.append(EndpointEvent(
                 type="final",
                 utterance_index=state.utterance_index,
@@ -134,6 +137,7 @@ def update_endpoint(
                 voiced_ms=state.voiced_ms,
                 silence_ms=state.silence_ms,
                 utterance_ms=state.utterance_ms,
+                end_silence_gap_ms=end_gap,
             ))
             state.active = False
             state.finalized = True
@@ -145,6 +149,7 @@ def update_endpoint(
     # Not currently active; check for speech onset
     if voiced:
         state.voiced_ms += cfg.frame_ms
+        state.last_voiced_at_ms = state.utterance_ms
         if state.voiced_ms >= cfg.min_speech_ms:
             state.active = True
             events.append(EndpointEvent(type="start", utterance_index=state.utterance_index))

@@ -11,10 +11,10 @@
 | 6     | LLM + TTS Integration Path             | ✅ Done | LLM+TTS pipeline on final transcript |
 | 7     | Frontend Streaming Client              | ✅ Done | Browser client sends PCM + handles TTS |
 | 8     | Auto Re-Arm & Cleanup                  | ✅ Done | Auto re-arm + suspend/resume + task cancel |
-| 9     | Performance & Accuracy Tuning          | ⬜ Pending |  |
+| 9     | Performance & Accuracy Tuning          | ✅ Done | Instrumentation (decode_ms, perf_cycle) |
 | 10    | Logging & Metrics Hardening            | ⬜ Pending |  |
 | 11    | Unit & Integration Tests Finalization  | ⬜ Pending |  |
 | 12    | Documentation & Cleanup                | ⬜ Pending |  |
 | 13    | (Optional) Streaming TTS & Barge-In    | ⬜ Pending |  |
 
-_Last updated: Phase 8 (auto re-arm & cleanup complete)._ 
+_Last updated: Phase 9 (performance instrumentation complete)._ 

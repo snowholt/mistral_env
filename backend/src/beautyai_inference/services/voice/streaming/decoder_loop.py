@@ -113,9 +113,11 @@ async def incremental_decode_loop(
                     frame_rms = math.sqrt(acc / count) if count else 0.0
 
             # 2. Decode the current window (windowed re-decode approach)
+            decode_start = time.time()
             transcription = fw_service.transcribe_audio_bytes(
                 pcm_window, audio_format="wav", language=config.language
             )
+            decode_ms = int((time.time() - decode_start) * 1000)
             tokens: List[str] = []
             if transcription:
                 tokens = transcription.strip().split()
@@ -144,6 +146,7 @@ async def incremental_decode_loop(
                     "stable_tokens": len(state.stable_prefix_tokens),
                     "total_tokens": len(tokens),
                     "window_seconds": config.window_seconds,
+                    "decode_ms": decode_ms,
                 }
 
             # 4. Advance endpoint state with current tokens (Phase 5 integration)
@@ -158,6 +161,7 @@ async def incremental_decode_loop(
                     "voiced_ms": ev.voiced_ms,
                     "silence_ms": ev.silence_ms,
                     "utterance_ms": ev.utterance_ms,
+                    "end_silence_gap_ms": getattr(ev, "end_silence_gap_ms", None),
                     "timestamp": time.time(),
                 }
                 if ev.type == "final":
@@ -178,12 +182,24 @@ async def incremental_decode_loop(
                         "utterance_ms": final_event.utterance_ms,
                         "stable_tokens": len(state.stable_prefix_tokens),
                         "total_tokens": len(tokens),
+                        "decode_ms": decode_ms,
                     }
                 state.last_final_utterance_index = final_event.utterance_index
                 state.reset_after_final()
 
             # Sleep remaining interval
             elapsed = time.time() - cycle_start
+            cycle_latency_ms = int(elapsed * 1000)
+            # Emit performance heartbeat event (Phase 9 instrumentation)
+            yield {
+                "type": "perf_cycle",
+                "timestamp": time.time(),
+                "decode_ms": decode_ms,
+                "cycle_latency_ms": cycle_latency_ms,
+                "window_seconds": config.window_seconds,
+                "interval_ms": config.decode_interval_ms,
+                "tokens": len(tokens),
+            }
             to_sleep = interval - elapsed
             if to_sleep > 0:
                 await asyncio.sleep(to_sleep)
