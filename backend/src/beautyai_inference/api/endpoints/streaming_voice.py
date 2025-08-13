@@ -402,6 +402,22 @@ async def streaming_voice_endpoint(
 
 
 @streaming_voice_router.get("/streaming-voice/status")
+async def streaming_voice_status() -> Dict[str, Any]:  # Phase 12: lightweight status probe for docs
+    """Return current streaming voice feature status and active session count.
+
+    Enabled only when VOICE_STREAMING_ENABLED=1. This mirrors legacy voice-conversation status
+    endpoint shape in a minimal form so existing monitoring can incorporate the new path during
+    migration. Kept intentionally small (no per-session details) to avoid leaking identifiers.
+    """
+    return {
+        "enabled": STREAMING_FEATURE_ENABLED,
+        "active_sessions": session_registry.active_count(),
+        "feature_flag": bool(STREAMING_FEATURE_ENABLED),
+        "endpoint": "/api/v1/ws/streaming-voice",
+    }
+
+
+@streaming_voice_router.get("/streaming-voice/status")
 async def streaming_voice_status() -> Dict[str, Any]:
     """Lightweight status endpoint for monitoring."""
     # Provide aggregate ring buffer stats (lightweight – approximated)

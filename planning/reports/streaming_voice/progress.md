@@ -14,7 +14,7 @@
 | 9     | Performance & Accuracy Tuning          | ✅ Done | Instrumentation (decode_ms, perf_cycle) |
 | 10    | Logging & Metrics Hardening            | ✅ Done | SessionMetrics + structured logging |
 | 11    | Unit & Integration Tests Finalization  | ✅ Done | Core unit tests (ring buffer, endpoint, decoder loop) |
-| 12    | Documentation & Cleanup                | ⬜ Pending |  |
+| 12    | Documentation & Cleanup                | ✅ Done | VOICE.md updated; status endpoint added |
 | 13    | (Optional) Streaming TTS & Barge-In    | ⬜ Pending |  |
 
-_Last updated: Phase 11 (initial unit test layer complete)._ 
+_Last updated: Phase 12 (documentation & cleanup complete)._ 

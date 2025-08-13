@@ -7,11 +7,15 @@ Complete guide to voice conversation capabilities in BeautyAI.
 BeautyAI provides ultra-fast voice conversation with <2 second response times using Edge TTS and WebSocket streaming.
 
 ### Key Features
+- **(New) Streaming Mode**: Low-latency incremental ASR + partial transcript events
 - **Real-time Voice Chat**: WebSocket-based bidirectional communication
 - **Language Support**: Arabic and English with automatic detection
-- **Ultra-Fast Response**: <2 second end-to-end latency
+- **Ultra-Fast Response**: <2 second typical first TTS packet; partial text <600 ms
 - **Browser Integration**: Works with modern web browsers
 - **API Access**: Both WebSocket and REST API interfaces
+- **Graceful Fallback**: Legacy chunked voice endpoint retained during migration
+
+> Deprecation: The legacy `/ws/voice-conversation` chunked + heuristic VAD path is now considered deprecated. The new streaming incremental endpoint `/api/v1/ws/streaming-voice` (feature-flag gated by `VOICE_STREAMING_ENABLED=1`) provides superior latency, transcript stability, and conversational flow. The old path will be removed after a stabilization period.
 
 ## 🚀 Quick Start
 
@@ -21,9 +25,13 @@ BeautyAI provides ultra-fast voice conversation with <2 second response times us
 3. Open http://localhost:5001
 4. Click the microphone button and start talking
 
-### WebSocket API
+### WebSocket API (Legacy vs Streaming)
 ```javascript
-const ws = new WebSocket('ws://localhost:8000/ws/voice-conversation?language=auto&voice_type=default');
+// Legacy (deprecated) chunked conversation endpoint
+const legacy = new WebSocket('ws://localhost:8000/ws/voice-conversation?language=auto&voice_type=default');
+
+// New streaming incremental endpoint (enable with VOICE_STREAMING_ENABLED=1)
+const streaming = new WebSocket('ws://localhost:8000/api/v1/ws/streaming-voice?language=ar');
 
 ws.onmessage = (event) => {
     const response = JSON.parse(event.data);
@@ -62,6 +70,12 @@ Audio Input → Speech Recognition → Language Model → Text-to-Speech → Aud
 ```bash
 # Simple voice conversation (primary)
 ws://localhost:8000/ws/voice-conversation
+# Streaming (incremental ASR + partials + perf heartbeat)
+ws://localhost:8000/api/v1/ws/streaming-voice
+
+# Streaming status (Phase 12)
+GET http://localhost:8000/api/v1/ws/streaming-voice/status
+
 
 # With parameters
 ws://localhost:8000/ws/voice-conversation?language=auto&voice_type=default
@@ -79,19 +93,54 @@ GET /api/v1/voice/endpoints
 GET /api/v1/health/voice
 ```
 
-### WebSocket Message Format
+### WebSocket Message Format (Streaming)
 ```javascript
-// Outgoing (browser to server)
-// Send raw audio blob directly
+// Outgoing (browser -> server) for streaming endpoint:
+// Send raw 16kHz mono little-endian Int16 PCM frames (recommended frame duration 20–40 ms)
 
-// Incoming (server to browser)
+// Incoming (server -> browser) event examples:
 {
-  "type": "voice_response",
-  "audio_base64": "UklGRnoGAABXQVZFZm10...",
-  "transcript": "Your spoken message",
-  "response_text": "AI response text",
-  "language": "en",
-  "processing_time": 1.2
+    "type": "ready",
+    "session_id": "stream_f87...",
+    "decode_interval_ms": 480,
+    "window_seconds": 8.0
+}
+{
+    "type": "partial_transcript",
+    "text": "مرحبا بك",
+    "stable": false,
+    "stable_tokens": 2,
+    "total_tokens": 3,
+    "decode_ms": 92
+}
+{
+    "type": "endpoint",
+    "event": "start",
+    "utterance_index": 0
+}
+{
+    "type": "final_transcript",
+    "utterance_index": 0,
+    "text": "مرحبا بك في الوضع الجديد",
+    "reason": "silence+stable",
+    "decode_ms": 105
+}
+{
+    "type": "tts_start", "utterance_index": 0 }
+{
+    "type": "tts_audio",
+    "utterance_index": 0,
+    "mime_type": "audio/wav",
+    "encoding": "base64",
+    "audio": "UklGR..."
+}
+{
+    "type": "tts_complete", "utterance_index": 0, "processing_ms": 840 }
+{
+    "type": "perf_cycle",
+    "decode_ms": 94,
+    "cycle_latency_ms": 480,
+    "tokens": 11
 }
 ```
 
@@ -156,10 +205,13 @@ function stopVoiceChat() {
 
 ## 🔧 Development
 
-### Testing Voice Features
+### Testing Voice Features (Both Modes)
 ```bash
 # Check WebSocket status
 curl http://localhost:8000/ws/voice-conversation/status
+
+# Streaming status
+curl http://localhost:8000/api/v1/ws/streaming-voice/status
 
 # Test voice endpoints
 curl http://localhost:8000/api/v1/voice/endpoints
@@ -261,13 +313,23 @@ ping api.gmai.sa
 - **Edge**: Full support
 - **Mobile browsers**: Limited support
 
-### Performance Monitoring
+### Performance Monitoring (Streaming)
 ```javascript
-// Monitor response times
-const startTime = Date.now();
-websocket.onmessage = (event) => {
-    const responseTime = Date.now() - startTime;
-    console.log(`Response time: ${responseTime}ms`);
+// Track latency and decode performance via perf_cycle events
+const ws = new WebSocket('ws://localhost:8000/api/v1/ws/streaming-voice?language=ar');
+let firstPartialAt = null;
+ws.onmessage = (e) => {
+    const msg = JSON.parse(e.data);
+    if (msg.type === 'partial_transcript' && !firstPartialAt) {
+        firstPartialAt = performance.now();
+        console.log('First partial latency ms', firstPartialAt - startTs);
+    }
+    if (msg.type === 'final_transcript') {
+        console.log('Final reason', msg.reason, 'decode_ms', msg.decode_ms);
+    }
+    if (msg.type === 'perf_cycle') {
+        console.log('Cycle decode', msg.decode_ms, 'latency', msg.cycle_latency_ms);
+    }
 };
 ```
 

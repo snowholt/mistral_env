@@ -29,7 +29,7 @@ Refer to detailed plan for content. Mark off here as phases complete.
 [x] Phase 9   Performance & Accuracy Tuning
 [x] Phase 10  Logging & Metrics Hardening
 [x] Phase 11  Unit & Integration Tests Finalization
-[ ] Phase 12  Documentation & Cleanup
+[x] Phase 12  Documentation & Cleanup
 [ ] Phase 13  (Optional) Streaming TTS & Barge-In Prep
 ```
 
