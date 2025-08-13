@@ -1,21 +1,36 @@
-"""PCM Int16 Ring Buffer (Phase 2)
+"""PCM Int16 Ring Buffer (Phase 2+)
+
+Adds basic telemetry & lifecycle methods used by the streaming endpoint.
 
 Features:
  - Fixed maximum duration (seconds) based on sample rate.
  - Write Int16 frames (bytes or memoryview) and maintain rolling position.
  - Read last N samples window for decode window assembly.
- - Compute rolling RMS (simple naive implementation for now).
+ - Compute rolling RMS (naive implementation, optimized later if needed).
+ - Simple usage ratio + drop accounting (oversized writes collapse history).
+ - Async close semantics so endpoint can signal shutdown to analyzers.
 
 Design notes:
  - Raw int16 stored in bytearray.
- - Single producer, single consumer; protected by asyncio.Lock for now.
- - Later phases might add metrics (overflow counts, jitter, etc.).
+ - Single producer, single consumer; protected by asyncio.Lock.
+ - Metrics intentionally minimal until Phase 10 hardening.
 """
 from __future__ import annotations
 
 import asyncio
 import math
+from dataclasses import dataclass
 from typing import Optional
+
+
+@dataclass
+class RingBufferStats:
+    capacity_samples: int
+    total_write_calls: int = 0
+    total_samples_written: int = 0
+    total_dropped_events: int = 0  # count of times an oversized write truncated history
+    max_usage_ratio: float = 0.0
+    total_rms_reads: int = 0
 
 
 class PCMInt16RingBuffer:
@@ -27,6 +42,8 @@ class PCMInt16RingBuffer:
         self.write_index = 0  # sample index (0..capacity-1)
         self.total_written = 0  # cumulative samples written
         self.lock = asyncio.Lock()
+        self._closed = False
+        self.stats = RingBufferStats(capacity_samples=self.capacity_samples)
 
     @property
     def duration_filled_seconds(self) -> float:
@@ -37,6 +54,8 @@ class PCMInt16RingBuffer:
         return self.total_written >= self.capacity_samples
 
     async def write(self, pcm_int16: bytes) -> None:
+        if self._closed:
+            return
         if len(pcm_int16) % 2 != 0:
             raise ValueError("PCM data length must be multiple of 2")
         samples = len(pcm_int16) // 2
@@ -45,6 +64,7 @@ class PCMInt16RingBuffer:
                 # Keep only last capacity worth
                 pcm_int16 = pcm_int16[-self.capacity_samples * 2 :]
                 samples = self.capacity_samples
+                self.stats.total_dropped_events += 1
             start = self.write_index % self.capacity_samples
             end = start + samples
             if end <= self.capacity_samples:
@@ -55,6 +75,11 @@ class PCMInt16RingBuffer:
                 self.buffer[: (samples * 2) - first] = pcm_int16[first:]
             self.write_index = (self.write_index + samples) % self.capacity_samples
             self.total_written += samples
+            self.stats.total_write_calls += 1
+            self.stats.total_samples_written += samples
+            usage = self.usage_ratio()
+            if usage > self.stats.max_usage_ratio:
+                self.stats.max_usage_ratio = usage
 
     async def read_last_window(self, seconds: float) -> bytes:
         if seconds <= 0:
@@ -92,7 +117,20 @@ class PCMInt16RingBuffer:
         for s in samples:
             f = s / 32768.0
             acc += f * f
+        self.stats.total_rms_reads += 1
         return math.sqrt(acc / count)
 
+    def usage_ratio(self) -> float:
+        # proportion of capacity currently containing valid historical data
+        filled = min(self.total_written, self.capacity_samples)
+        return filled / self.capacity_samples if self.capacity_samples else 0.0
 
-__all__ = ["PCMInt16RingBuffer"]
+    @property
+    def closed(self) -> bool:  # used by endpoint cleanup
+        return self._closed
+
+    async def close(self) -> None:
+        async with self.lock:
+            self._closed = True
+
+__all__ = ["PCMInt16RingBuffer", "RingBufferStats"]
