@@ -13,8 +13,8 @@
 | 8     | Auto Re-Arm & Cleanup                  | ✅ Done | Auto re-arm + suspend/resume + task cancel |
 | 9     | Performance & Accuracy Tuning          | ✅ Done | Instrumentation (decode_ms, perf_cycle) |
 | 10    | Logging & Metrics Hardening            | ✅ Done | SessionMetrics + structured logging |
-| 11    | Unit & Integration Tests Finalization  | ⬜ Pending |  |
+| 11    | Unit & Integration Tests Finalization  | ✅ Done | Core unit tests (ring buffer, endpoint, decoder loop) |
 | 12    | Documentation & Cleanup                | ⬜ Pending |  |
 | 13    | (Optional) Streaming TTS & Barge-In    | ⬜ Pending |  |
 
-_Last updated: Phase 10 (metrics hardening complete)._ 
+_Last updated: Phase 11 (initial unit test layer complete)._ 
