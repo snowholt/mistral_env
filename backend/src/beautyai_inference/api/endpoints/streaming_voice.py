@@ -40,6 +40,7 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
     DecoderConfig,
 )
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
+from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
 from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
 
 logger = logging.getLogger(__name__)
@@ -65,6 +66,7 @@ class SessionState:
     audio_session: Optional[StreamingSession] = None  # Phase 2
     conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
     llm_tts_task: Optional[asyncio.Task] = None  # background processing task for final transcript
+    metrics: Optional[SessionMetrics] = None  # Phase 10 metrics aggregator
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -177,6 +179,7 @@ async def streaming_voice_endpoint(
     await websocket.accept()
 
     state = SessionState(connection_id=connection_id, session_id=session_id, websocket=websocket)
+    state.metrics = SessionMetrics(session_id=session_id)
     # Phase 2: attach audio streaming session (ring buffer size ~40s)
     state.audio_session = StreamingSession(connection_id=connection_id, session_id=session_id, language=language)
     session_registry.add(state)
@@ -302,12 +305,34 @@ async def streaming_voice_endpoint(
                     # Forward events to client
                     etype = event["type"]
                     if etype == "partial_transcript":
+                        if state.metrics and "decode_ms" in event:
+                            state.metrics.inc_partial()
                         await _send_json(state.websocket, event)
                     elif etype == "endpoint_event":
+                        if state.metrics:
+                            state.metrics.update_endpoint(event.get("end_silence_gap_ms"))
                         await _send_json(state.websocket, {"type": "endpoint", **event})
                     elif etype == "final_transcript":
+                        if state.metrics:
+                            state.metrics.inc_final()
+                        await _send_json(state.websocket, event)
+                        # Log snapshot after each final for observability
+                        if state.metrics:
+                            maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
                         await _send_json(state.websocket, event)
                     elif etype == "perf_cycle":
+                        if state.metrics:
+                            state.metrics.update_perf_cycle(
+                                decode_ms=event.get("decode_ms", 0),
+                                cycle_latency_ms=event.get("cycle_latency_ms", 0),
+                            )
+                            # Periodic lightweight log every ~10 cycles
+                            if state.metrics.decode_ms.count % 10 == 0:
+                                maybe_log_structured(logger, "voice_stream_perf_cycle", {
+                                    "session_id": session_id,
+                                    "decode_ms_last": event.get("decode_ms"),
+                                    "cycle_latency_ms_last": event.get("cycle_latency_ms"),
+                                })
                         # Low-volume performance heartbeat; can be filtered client-side
                         await _send_json(state.websocket, event)
                         # Kick off LLM + TTS if not already running for this utterance

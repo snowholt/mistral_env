@@ -12,9 +12,9 @@
 | 7     | Frontend Streaming Client              | ✅ Done | Browser client sends PCM + handles TTS |
 | 8     | Auto Re-Arm & Cleanup                  | ✅ Done | Auto re-arm + suspend/resume + task cancel |
 | 9     | Performance & Accuracy Tuning          | ✅ Done | Instrumentation (decode_ms, perf_cycle) |
-| 10    | Logging & Metrics Hardening            | ⬜ Pending |  |
+| 10    | Logging & Metrics Hardening            | ✅ Done | SessionMetrics + structured logging |
 | 11    | Unit & Integration Tests Finalization  | ⬜ Pending |  |
 | 12    | Documentation & Cleanup                | ⬜ Pending |  |
 | 13    | (Optional) Streaming TTS & Barge-In    | ⬜ Pending |  |
 
-_Last updated: Phase 9 (performance instrumentation complete)._ 
+_Last updated: Phase 10 (metrics hardening complete)._ 
