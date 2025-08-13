@@ -17,18 +17,21 @@ class StreamingVoiceClient {
     this.audioContext = null;
     this.workletNode = null;
     this.processorReady = false;
-  this.frameSizeMs = 20; // target packet duration
-  this.samplesPerFrame = (this.targetSampleRate * this.frameSizeMs) / 1000; // e.g. 320 samples @16k
-  this._floatDownsampleQueue = new Float32Array(0);
-  this._int16SendQueue = [];
+    this.frameSizeMs = 20; // target packet duration
     this.targetSampleRate = 16000;
+    this.samplesPerFrame = (this.targetSampleRate * this.frameSizeMs) / 1000; // e.g. 320 samples @16k
+    this._floatDownsampleQueue = new Float32Array(0);
+    this._int16SendQueue = [];
     this.debug = !!opts.debug;
     this.onEvent = opts.onEvent || (() => {});
     this._connected = false;
-  this._lastFrameSentAt = 0;
-  this._livePartial = '';
-  this.autoplay = opts.autoplay !== false;
-  this._audioSink = opts.audioSink || null; // <audio> element reference optional
+    this._lastFrameSentAt = 0;
+    this._livePartial = '';
+    this.autoplay = opts.autoplay !== false;
+    this._audioSink = opts.audioSink || null; // <audio> element reference optional
+    // Phase 8 additions
+    this.autoRearm = opts.autoRearm !== false; // auto re-arm after TTS complete
+    this._suspended = false;
   }
 
   async initAudio() {
@@ -63,75 +66,63 @@ class StreamingVoiceClient {
     });
     const src = this.audioContext.createMediaStreamSource(stream);
     src.connect(this.workletNode); // no monitor to avoid echo
-    // Tap processed audio for capture
-    this._setupCapture();
+    this._setupCapture(); // begin capture chain
     this.onEvent({ type: 'audio_ready' });
   }
 
   _setupCapture() {
-    // Create ScriptProcessorNode or AudioWorklet message? Simpler: use worklet output via ScriptProcessor.
-    // Since we already have workletNode, we create a Gain->ScriptProcessor chain.
     const gain = this.audioContext.createGain();
     this.workletNode.connect(gain);
     const bufferSize = 1024; // small enough for low latency
     const processor = this.audioContext.createScriptProcessor(bufferSize, 1, 1);
     processor.onaudioprocess = (e) => {
-      if (!this._connected || !this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+      if (!this._connected || !this.ws || this.ws.readyState !== WebSocket.OPEN || this._suspended) return;
       const input = e.inputBuffer.getChannelData(0);
       this._enqueueAndDownsample(input);
       this._maybeSendFrames();
     };
     gain.connect(processor);
-    processor.connect(this.audioContext.destination); // required in some browsers for processing to run
+    processor.connect(this.audioContext.destination); // ensure processing continues
     this._captureNode = processor;
   }
 
   _enqueueAndDownsample(float32Chunk) {
-    // Concatenate onto queue
     const prev = this._floatDownsampleQueue;
     const merged = new Float32Array(prev.length + float32Chunk.length);
     merged.set(prev, 0); merged.set(float32Chunk, prev.length);
-    // Downsample from 48k -> 16k by simple averaging (3:1). For better quality, implement low-pass; OK for speech MVP.
     const ratio = 48000 / this.targetSampleRate; // 3
     const outLen = Math.floor(merged.length / ratio);
     const down = new Float32Array(outLen);
     let inIdx = 0;
     for (let i = 0; i < outLen; i++) {
-      // simple average of ratio samples
       let sum = 0;
       for (let r = 0; r < ratio; r++) sum += merged[inIdx++];
       down[i] = sum / ratio;
     }
-    // Convert to Int16 frames and append to send queue
     const int16 = new Int16Array(down.length);
     for (let i = 0; i < down.length; i++) {
       let s = Math.max(-1, Math.min(1, down[i]));
       int16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
     }
     this._int16SendQueue.push(int16);
-    // Store leftover merged samples (none because we consumed exact multiple via floor). Keep empty array.
     this._floatDownsampleQueue = new Float32Array(0);
   }
 
   _maybeSendFrames() {
     if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
-    // Aggregate until we have >= samplesPerFrame
     let total = 0;
     for (const arr of this._int16SendQueue) total += arr.length;
     if (total < this.samplesPerFrame) return;
-    // Concatenate
     const concat = new Int16Array(total);
     let offset = 0;
     for (const arr of this._int16SendQueue) { concat.set(arr, offset); offset += arr.length; }
     this._int16SendQueue = [];
-    // Slice into frame-sized packets
     for (let pos = 0; pos + this.samplesPerFrame <= concat.length; pos += this.samplesPerFrame) {
       const frame = concat.subarray(pos, pos + this.samplesPerFrame);
-      this.ws.send(frame.buffer);
+      try { this.ws.send(frame.buffer); } catch {}
       this._lastFrameSentAt = performance.now();
       if (this.debug) this.onEvent({ type: 'frame_sent', samples: frame.length });
     }
-    // Keep leftover tail (< frame) for next round
     const leftoverSamples = concat.length % this.samplesPerFrame;
     if (leftoverSamples) {
       const tail = concat.subarray(concat.length - leftoverSamples);
@@ -142,7 +133,7 @@ class StreamingVoiceClient {
   async connect() {
     if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host; // includes port
+    const host = window.location.host;
     const url = `${protocol}//${host}/api/v1/ws/streaming-voice?language=${encodeURIComponent(this.language)}`;
     this.ws = new WebSocket(url);
     this.ws.onopen = () => { this._connected = true; this.onEvent({ type: 'ws_open' }); };
@@ -152,12 +143,26 @@ class StreamingVoiceClient {
       try {
         const data = JSON.parse(msg.data);
         this._handleServerEvent(data);
-      } catch { /* binary frames ignored */ }
+      } catch {}
     };
   }
 
   disconnect() {
     if (this.ws) { try { this.ws.close(); } catch(_){} }
+  }
+
+  suspend() {
+    this._suspended = true;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+      try { this.ws.close(); } catch(_){}
+    }
+    this.onEvent({ type: 'suspended' });
+  }
+
+  resume() {
+    this._suspended = false;
+    this.connect();
+    this.onEvent({ type: 'resumed' });
   }
 
   _handleServerEvent(ev) {
@@ -186,6 +191,9 @@ class StreamingVoiceClient {
         break;
       case 'tts_complete':
         this.onEvent({ type: 'tts_complete', processing_ms: ev.processing_ms });
+        if (this.autoRearm && !this._suspended) {
+          this.onEvent({ type: 'auto_rearm' });
+        }
         break;
       case 'error':
         this.onEvent({ type: 'error', message: ev.message, stage: ev.stage });

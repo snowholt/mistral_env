@@ -17,15 +17,15 @@ This file guides each implementation phase of the Streaming Voice Refactor (see 
 ## 2. Phase Checklist (Top-Level)
 Refer to detailed plan for content. Mark off here as phases complete.
 ```
-[ ] Phase 1   Backend Scaffolding
-[ ] Phase 1.5 Minimal Client Preprocessor
-[ ] Phase 2   Ring Buffer + Frame Handling
-[ ] Phase 3   Endpointing (Mock Tokens)
-[ ] Phase 4   Whisper Integration (Incremental)
-[ ] Phase 5   Endpoint Finalization Logic
-[ ] Phase 6   LLM + TTS Integration Path
-[ ] Phase 7   Frontend Streaming Client
-[ ] Phase 8   Auto Re-Arm & Cleanup
+[x] Phase 1   Backend Scaffolding
+[x] Phase 1.5 Minimal Client Preprocessor
+[x] Phase 2   Ring Buffer + Frame Handling
+[x] Phase 3   Endpointing (Mock Tokens)
+[x] Phase 4   Whisper Integration (Incremental)
+[x] Phase 5   Endpoint Finalization Logic
+[x] Phase 6   LLM + TTS Integration Path
+[x] Phase 7   Frontend Streaming Client
+[x] Phase 8   Auto Re-Arm & Cleanup
 [ ] Phase 9   Performance & Accuracy Tuning
 [ ] Phase 10  Logging & Metrics Hardening
 [ ] Phase 11  Unit & Integration Tests Finalization
@@ -160,3 +160,21 @@ Rollback: Toggle disable; bypass processing.
 
 ---
 Ready for Phase 1 execution once this template is accepted.
+\n+### Phase 8 Execution (Completed)
+Goal: Implement automatic re-arm after each assistant TTS response and robust session/task cleanup.
+Deliverables: Updated frontend `streamingVoiceClient.js` with `autoRearm`, `suspend()`, `resume()`, backend ws disconnect cancellation.
+Non-Goals: Performance tuning, adaptive silence parameters.
+Key Risks & Mitigations:
+ - Multiple concurrent WS connections → guard by checking OPEN state before reconnect.
+ - Orphaned LLM/TTS tasks → ensure explicit cancel on disconnect.
+Metrics: Qualitative latency unchanged (<1 frame difference); no memory growth across restarts.
+Implementation Steps:
+ 1. Add flags (autoRearm, _suspended) + lifecycle methods.
+ 2. Fire synthetic `auto_rearm` event upon `tts_complete`.
+ 3. Backend: cancel llm_tts_task in disconnect path.
+ 4. Update progress + phase report.
+Test Plan:
+ - Open WS, speak, confirm TTS plays and client remains ready (no manual reload).
+ - Call suspend(); verify capture ceases & WS closes.
+ - Call resume(); verify new WS opens and audio resumes.
+Rollback Strategy: Set autoRearm false or revert single JS file + backend minor block.

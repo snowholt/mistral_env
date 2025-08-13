@@ -360,6 +360,11 @@ async def streaming_voice_endpoint(
             state.mock_task.cancel()
             with contextlib.suppress(Exception):  # type: ignore[arg-type]
                 await state.mock_task
+        # Phase 8: ensure background LLM+TTS task cancelled
+        if state.llm_tts_task and not state.llm_tts_task.done():
+            state.llm_tts_task.cancel()
+            with contextlib.suppress(Exception):
+                await state.llm_tts_task
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:
             await state.audio_session.pcm_buffer.close()
