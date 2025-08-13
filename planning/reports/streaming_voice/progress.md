@@ -3,7 +3,7 @@
 | Phase | Name                                   | Status | Notes |
 |-------|----------------------------------------|--------|-------|
 | 1     | Backend Scaffolding                    | ⏳ In Progress | Endpoint + mock loop file created |
-| 1.5   | Minimal Client Preprocessor            | ⬜ Pending |  |
+| 1.5   | Minimal Client Preprocessor            | ⏳ In Progress | Worklet + client skeleton added |
 | 2     | Ring Buffer + Frame Handling           | ⬜ Pending |  |
 | 3     | Endpointing (Mock Tokens)              | ⬜ Pending |  |
 | 4     | Whisper Integration (Incremental)      | ⬜ Pending |  |
