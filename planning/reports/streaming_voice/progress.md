@@ -8,8 +8,8 @@
 | 3     | Endpointing (Mock Tokens)              | ✅ Done | Endpoint logic module added |
 | 4     | Whisper Integration (Incremental)      | ✅ Done | Windowed decode loop + partials |
 | 5     | Endpoint Finalization Logic            | ✅ Done | Final transcript emission wiring |
-| 6     | LLM + TTS Integration Path             | ⏳ In Progress | LLM+TTS pipeline on final transcript |
-| 7     | Frontend Streaming Client              | ⬜ Pending |  |
+| 6     | LLM + TTS Integration Path             | ✅ Done | LLM+TTS pipeline on final transcript |
+| 7     | Frontend Streaming Client              | ✅ Done | Browser client sends PCM + handles TTS |
 | 8     | Auto Re-Arm & Cleanup                  | ⬜ Pending |  |
 | 9     | Performance & Accuracy Tuning          | ⬜ Pending |  |
 | 10    | Logging & Metrics Hardening            | ⬜ Pending |  |
