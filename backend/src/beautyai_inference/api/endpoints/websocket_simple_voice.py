@@ -223,6 +223,8 @@ class SimpleVoiceWebSocketManager:
                 "timestamp": time.time(),
                 "message": "Simple voice chat WebSocket connected successfully",
                 "vad_enabled": connection_state["vad_enabled"],  # Send VAD availability to frontend
+                # Echo back the language actually in use server-side for clarity
+                "actual_language": language,
                 "config": {
                     "language": language,
                     "voice_type": voice_type,
@@ -388,22 +390,42 @@ class SimpleVoiceWebSocketManager:
                         audio_path.unlink()
                 
                 # Prepare response
-                response_data = {
-                    "type": "voice_response",
-                    "success": True,
-                    "audio_base64": audio_base64,
-                    "transcription": result.get("transcribed_text", ""),
-                    "response_text": result.get("response_text", ""),
-                    "language": result.get("language_detected", language),  # Use actual detected language
-                    "voice_type": voice_type,
-                    "response_time_ms": int(processing_time * 1000),
-                    "session_id": session_id,
-                    "message_count": connection["message_count"],
-                    "timestamp": time.time()
-                }
-                
-                # Send the response
-                await self.send_message(connection_id, response_data)
+                transcribed_text = result.get("transcribed_text", "") or ""
+                unclear = any(marker in transcribed_text.lower() for marker in ["unclear audio", "صوت غير واضح"])
+                transcription_quality = "unclear" if unclear else "ok"
+
+                if unclear and audio_base64 is None:
+                    # Send guidance-only message (prevents loops & auto-restart)
+                    guidance = result.get("response_text") or ("أعد المحاولة وتحدث بوضوح لمدة ثانيتين" if language == "ar" else "Please try again and speak clearly for 2 seconds")
+                    await self.send_message(connection_id, {
+                        "type": "guidance",
+                        "success": False,
+                        "guidance": guidance,
+                        "transcription": transcribed_text,
+                        "transcription_quality": transcription_quality,
+                        "language": result.get("language_detected", language),
+                        "voice_type": voice_type,
+                        "response_time_ms": int(processing_time * 1000),
+                        "session_id": session_id,
+                        "message_count": connection["message_count"],
+                        "timestamp": time.time()
+                    })
+                else:
+                    response_data = {
+                        "type": "voice_response",
+                        "success": True,
+                        "audio_base64": audio_base64,
+                        "transcription": transcribed_text,
+                        "response_text": result.get("response_text", ""),
+                        "language": result.get("language_detected", language),  # Use actual detected language
+                        "voice_type": voice_type,
+                        "response_time_ms": int(processing_time * 1000),
+                        "session_id": session_id,
+                        "message_count": connection["message_count"],
+                        "transcription_quality": transcription_quality,
+                        "timestamp": time.time()
+                    }
+                    await self.send_message(connection_id, response_data)
                 
                 logger.info(f"✅ Simple voice processing completed in {processing_time:.2f}s for {connection_id}")
                 return {"success": True, "processing_time": processing_time}
@@ -473,6 +495,8 @@ class SimpleVoiceWebSocketManager:
         # Mark if this is the first chunk (contains WebM header)
         if not connection["first_chunk_received"]:
             connection["first_chunk_received"] = True
+            # Preserve the initial WebM header chunk for re-use (subsequent buffered segments lack header)
+            connection["webm_header_chunk"] = audio_data
             logger.info(f"📦 First chunk received for {connection_id}: {len(audio_data)} bytes")
         
         logger.debug(f"📦 Buffered chunk {len(connection['chunk_buffer'])} for {connection_id}: {len(audio_data)} bytes (total: {connection['total_buffered_bytes']})")
@@ -583,18 +607,110 @@ class SimpleVoiceWebSocketManager:
         logger.info(f"🎯 Processing {len(connection['chunk_buffer'])} buffered chunks for {connection_id} (turn: {last_turn_id})")
         
         try:
-            # Concatenate all buffered chunks
-            concatenated_audio = b''.join(connection["chunk_buffer"])
+            # Concatenate all buffered chunks; ensure header present for decodability
+            raw_buffer = b''.join(connection["chunk_buffer"])
+            if connection.get("webm_header_chunk") and connection.get("_segments_processed", 0) > 0:
+                concatenated_audio = connection["webm_header_chunk"] + raw_buffer
+            else:
+                concatenated_audio = raw_buffer
             
             # Clear the buffer
             connection["chunk_buffer"] = []
             connection["total_buffered_bytes"] = 0
             
             logger.info(f"📦 Concatenated {len(concatenated_audio)} bytes for processing")
+
+            # ------------------------------------------------------------
+            # SILENCE / ENERGY CHECK (Prevent repeated unclear guidance)
+            # ------------------------------------------------------------
+            def _compute_rms_and_dbfs(webm_bytes: bytes) -> tuple[float, float]:  # type: ignore
+                """Compute RMS and dBFS of a WebM audio buffer via ffmpeg conversion.
+                Returns (rms, dbfs). On failure returns (0.0, -100.0).
+                """
+                try:
+                    import tempfile, subprocess, math, wave, contextlib, os
+                    with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as src_f:
+                        src_f.write(webm_bytes)
+                        src_path = src_f.name
+                    wav_path = src_path + ".wav"
+                    cmd = [
+                        "ffmpeg", "-y", "-i", src_path,
+                        "-ac", "1", "-ar", "16000", wav_path
+                    ]
+                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
+                    if not os.path.exists(wav_path):
+                        return 0.0, -100.0
+                    import numpy as np
+                    with contextlib.closing(wave.open(wav_path, 'rb')) as wf:
+                        frames = wf.readframes(wf.getnframes())
+                        if wf.getsampwidth() == 2:
+                            import array
+                            arr = array.array('h')
+                            arr.frombytes(frames)
+                            data = np.array(arr, dtype=np.float32) / 32768.0
+                        else:
+                            return 0.0, -100.0
+                    if data.size == 0:
+                        return 0.0, -100.0
+                    rms = float(np.sqrt(np.mean(np.square(data))))
+                    if rms <= 0:
+                        dbfs = -100.0
+                    else:
+                        dbfs = 20 * math.log10(rms)
+                    return rms, dbfs
+                except Exception as e:  # pragma: no cover
+                    logger.debug(f"RMS computation failed: {e}")
+                    return 0.0, -100.0
+                finally:
+                    try:
+                        if 'src_path' in locals() and os.path.exists(src_path):
+                            os.unlink(src_path)
+                        if 'wav_path' in locals() and os.path.exists(wav_path):
+                            os.unlink(wav_path)
+                    except Exception:
+                        pass
+
+            # Only attempt energy check for webm (streaming) format and if sizable data
+            if len(concatenated_audio) > 500:  # avoid tiny segments
+                rms, dbfs = _compute_rms_and_dbfs(concatenated_audio)
+                logger.info(f"🔊 Segment energy for {connection_id}: RMS={rms:.5f}, dBFS={dbfs:.1f}")
+                # Thresholds (tunable): treat as silence if below -45 dBFS OR rms < 0.008
+                silence = (dbfs < -45.0) or (rms < 0.008)
+                if silence:
+                    # Send guidance only once until a non-silent segment arrives
+                    last_guidance = connection.get("_last_silence_guidance_ts", 0)
+                    now_ts = time.time()
+                    # 3 second spacing between silence guidance messages
+                    if now_ts - last_guidance > 3:
+                        guidance_text = "أعد المحاولة وتحدث بوضوح خلال ثانيتين" if connection.get("language") == "ar" else "Please try again and speak clearly for 2 seconds"
+                        await self.send_message(connection_id, {
+                            "type": "guidance",
+                            "success": False,
+                            "guidance": guidance_text,
+                            "transcription": "",
+                            "transcription_quality": "unclear",
+                            "language": connection.get("language", "ar"),
+                            "voice_type": connection.get("voice_type", "female"),
+                            "response_time_ms": 0,
+                            "session_id": connection.get("session_id"),
+                            "message_count": connection.get("message_count", 0),
+                            "timestamp": time.time(),
+                            "note": "silence_suppressed_segment"
+                        })
+                        connection["_last_silence_guidance_ts"] = now_ts
+                    else:
+                        logger.debug(f"Silence guidance suppressed (cooldown) for {connection_id}")
+                    # Mark not processing turn since we skipped
+                    connection["processing_turn"] = False
+                    return {"success": True, "status": "silence_segment_skipped"}
+                else:
+                    # Reset silence guidance timer on voiced segment
+                    connection.pop("_last_silence_guidance_ts", None)
             
             # Process the complete audio with traditional flow
             # This now has a complete WebM file that should be decodable
             result = await self.process_audio_message(connection_id, concatenated_audio)
+            connection["_segments_processed"] = connection.get("_segments_processed", 0) + 1
             
             return result
             

@@ -143,8 +143,10 @@ class BeautyAIChat {
             return;
         }
         
-        this.responseState.currentlyPlaying = true;
-        this.isPlayingAIAudio = true;
+    this.responseState.currentlyPlaying = true;
+    this.isPlayingAIAudio = true;
+    // Initial single-speaker lock while AI begins speaking
+    this.singleSpeakerLockUntil = Date.now() + 1500;
         
         try {
             const audioUrl = URL.createObjectURL(audioBlob);
@@ -156,6 +158,8 @@ class BeautyAIChat {
                 URL.revokeObjectURL(audioUrl);
                 this.isPlayingAIAudio = false;
                 this.responseState.currentlyPlaying = false;
+                // Short tail lock to avoid immediate user overlap
+                this.singleSpeakerLockUntil = Date.now() + 600;
                 
                 // Process next item in queue
                 if (this.responseState.audioQueue.length > 0) {
@@ -188,7 +192,15 @@ class BeautyAIChat {
             }
             
             console.log('🎵 Starting audio playback...');
+            // Cancel any browser TTS fallback that might produce stray phrases
+            if (window.speechSynthesis) {
+                try { window.speechSynthesis.cancel(); } catch(e) { /* ignore */ }
+            }
             await audio.play();
+            // Extend lock roughly to duration (fallback minimum)
+            if (!isNaN(audio.duration) && audio.duration > 0) {
+                this.singleSpeakerLockUntil = Date.now() + Math.max(1500, audio.duration * 1000);
+            }
             
         } catch (error) {
             console.error('❌ Failed to play audio response:', error);
@@ -434,7 +446,30 @@ class BeautyAIChat {
         
         // Overlay settings
         if (this.overlayLanguage) {
-            this.overlayLanguage.addEventListener('change', () => this.updateOverlayVoiceOptions());
+            this.overlayLanguage.addEventListener('change', () => {
+                this.updateOverlayVoiceOptions();
+                // Reconnect immediately to apply new language selection
+                if (this.overlayConnected) {
+                    console.log('🌐 Overlay language changed, reconnecting to apply new language');
+                    const wasRecording = this.overlayRecording;
+                    this._pendingOverlayReconnect = { wasRecording };
+                    if (wasRecording) this.stopOverlayRecording();
+                    // Mark as disconnected preemptively so connectOverlayVoice isn't blocked by guard
+                    this.overlayConnected = false;
+                    const oldSocket = this.overlayWebSocket;
+                    try { oldSocket?.close(); } catch(e) { /* ignore */ }
+                    // Attach one-time onclose to ensure orderly reconnect
+                    if (oldSocket) {
+                        oldSocket.addEventListener('close', () => {
+                            setTimeout(() => {
+                                this.connectOverlayVoice(true); // force
+                            }, 120);
+                        }, { once: true });
+                    } else {
+                        this.connectOverlayVoice(true);
+                    }
+                }
+            });
         }
         if (this.overlayAutoStart) {
             this.overlayAutoStart.addEventListener('change', (e) => {
@@ -910,6 +945,11 @@ class BeautyAIChat {
         
         // Update voice status with real-time feedback from server
         if (isSpeaking) {
+            // Mark that user produced speech this session
+            if (!this.detectedSpeechThisSession) {
+                this.detectedSpeechThisSession = true;
+                if (this.noSpeechTimer) { clearTimeout(this.noSpeechTimer); this.noSpeechTimer = null; }
+            }
             this.showVoiceStatus(`🎤 Speaking detected... (${bufferedChunks} chunks buffered)`);
         } else if (silenceDuration > 0) {
             const silenceSeconds = (silenceDuration / 1000).toFixed(1);
@@ -984,6 +1024,12 @@ class BeautyAIChat {
         // Prevent recording while AI is speaking to avoid feedback
         if (this.isPlayingAIAudio) {
             console.log('🚫 Cannot start recording while AI is speaking (preventing feedback)');
+            return;
+        }
+
+        // Enforce single-speaker lock (AI just spoke or cooldown period) if set
+        if (this.singleSpeakerLockUntil && Date.now() < this.singleSpeakerLockUntil) {
+            console.log('🚫 Single-speaker lock active, delaying user recording start');
             return;
         }
         
@@ -1078,6 +1124,20 @@ class BeautyAIChat {
             }
             
             this.isRecording = true;
+            // Mark user as active speaker
+            this.singleSpeakerUserActive = true;
+            this.detectedSpeechThisSession = false;
+
+            // Start no-speech grace timeout (stop after 5s if user stays silent)
+            if (this.noSpeechTimer) clearTimeout(this.noSpeechTimer);
+            this.noSpeechTimer = setTimeout(() => {
+                if (this.isRecording && !this.detectedSpeechThisSession) {
+                    console.log('⏱️ No speech detected within 5s grace - stopping recording');
+                    this.stopRecording();
+                    this.showVoiceStatus('⏹️ No speech detected');
+                    this.singleSpeakerUserActive = false;
+                }
+            }, 5000);
             
             // Update UI
             this.voiceToggle.classList.add('recording');
@@ -1165,6 +1225,10 @@ class BeautyAIChat {
         
         this.isRecording = false;
         this.silenceDetectionActive = false;
+
+    // Clear no-speech timer if active
+    if (this.noSpeechTimer) { clearTimeout(this.noSpeechTimer); this.noSpeechTimer = null; }
+    this.singleSpeakerUserActive = false;
         
         if (this.silenceTimeout) {
             clearTimeout(this.silenceTimeout);
@@ -1354,8 +1418,8 @@ class BeautyAIChat {
         }
     }
 
-    async connectOverlayVoice() {
-        if (this.overlayConnected) return;
+    async connectOverlayVoice(force=false) {
+        if (this.overlayConnected && !force) return;
         
         try {
             this.updateOverlayConnectionStatus('processing', 'Connecting...');
@@ -1379,6 +1443,14 @@ class BeautyAIChat {
                 // Status will be updated when we receive connection_established message with VAD info
                 this.updateOverlayConnectionStatus('connected', 'Connected - Waiting for VAD capabilities...');
                 console.log('Overlay Voice WebSocket connected');
+                if (this._pendingOverlayReconnect?.wasRecording) {
+                    // Resume recording after establishment if auto-start desired
+                    setTimeout(() => {
+                        if (this.overlayConnected) {
+                            this.handleOverlayVoiceToggle(true);
+                        }
+                    }, 200);
+                }
             };
             
             this.overlayWebSocket.onmessage = (event) => {
@@ -1423,6 +1495,9 @@ class BeautyAIChat {
             if (data.type === 'connection_established') {
                 // Connection established - check for VAD capabilities
                 console.log('Overlay voice connection established:', data);
+                if (data.actual_language) {
+                    console.log('🔤 Server actual language:', data.actual_language);
+                }
                 
                 // Reset VAD state for clean overlay start
                 this.resetVADState();
@@ -1442,6 +1517,10 @@ class BeautyAIChat {
                 // Speech started
                 this.showOverlayVoiceStatus('🎤 Listening...');
                 console.log('Overlay speech started');
+                this.overlayConversation.classList.add('speaker-user');
+                this.overlayConversation.classList.remove('speaker-ai','speaker-idle');
+                // Mark that real speech happened to allow safe auto-restart later
+                this._speechDetectedYet = true;
                 
             } else if (data.type === 'speech_end') {
                 // Speech ended - STOP recording immediately to prevent feedback loop (overlay)
@@ -1479,10 +1558,14 @@ class BeautyAIChat {
                 // Turn processing started
                 this.showOverlayVoiceStatus('⚡ Processing complete turn...');
                 console.log('Overlay turn processing started');
+                this.overlayConversation.classList.add('speaker-user');
+                this.overlayConversation.classList.remove('speaker-ai');
                 
             } else if (data.type === 'voice_response') {
                 // Handle voice response from AI with deduplication and VAD state management (overlay)
                 console.log('Overlay voice response received - checking for duplicates and applying state management');
+                this.overlayConversation.classList.add('speaker-ai');
+                this.overlayConversation.classList.remove('speaker-user','speaker-idle');
                 
                 // Update VAD state
                 this.vadState.lastVoiceResponse = Date.now();
@@ -1520,6 +1603,22 @@ class BeautyAIChat {
                 
             } else if (data.type === 'processing_started') {
                 this.showOverlayVoiceStatus(data.message);
+            } else if (data.type === 'guidance') {
+                // Guidance only - force stop and require manual restart to avoid silent looping
+                console.log('🛈 Guidance received (unclear or silent). Forcing stop & manual restart.');
+                if (this.overlayRecording) {
+                    this.stopOverlayRecording();
+                }
+                this.resetVADState();
+                this.vadState.isInCooldown = true;
+                setTimeout(() => { this.vadState.isInCooldown = false; }, 3000);
+                this.addOverlayMessage('assistant', data.guidance || '(guidance)');
+                this.updateOverlayConnectionStatus('connected', 'Guidance: ' + (data.guidance || 'Speak clearly.') + ' (Click mic to try again)');
+                this._speechDetectedYet = false;
+                if (this.overlayVoiceToggle) {
+                    const span = this.overlayVoiceToggle.querySelector('span');
+                    if (span) span.textContent = 'Click to Try Again';
+                }
             } else if (data.type === 'error') {
                 console.error('Overlay voice server error:', data.message);
                 this.addOverlayMessage('assistant', `❌ Voice Error: ${data.message}`);

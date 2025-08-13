@@ -333,6 +333,23 @@ class SimpleVoiceService:
                 transcribed_text = "صوت غير واضح" if language == "ar" else "unclear audio"
                 
             self.logger.info(f"Transcribed: {transcribed_text}")
+
+            # NEW: If transcription is unclear, do NOT generate AI response to avoid infinite loop of filler phrase.
+            unclear_markers = ["unclear audio", "صوت غير واضح", "unclear audio /no_think", "unclear audio /no_think".strip()]
+            base_transcribed_lower = transcribed_text.lower()
+            if any(m in base_transcribed_lower for m in ["unclear audio", "صوت غير واضح"]) or transcribed_text.startswith("unclear audio /no_think"):
+                guidance = "أعد المحاولة وتحدث بوضوح خلال ثانيتين" if (language or 'ar') == 'ar' else "Please try again and speak clearly for 2 seconds"
+                self.logger.info("Skipping AI generation due to unclear transcription; sending guidance only")
+                # Return minimal result without TTS to prevent loop
+                return {
+                    "transcribed_text": transcribed_text,
+                    "response_text": guidance,
+                    "response_text_clean": guidance,
+                    "audio_file_path": None,
+                    "processing_time": time.time() - start_time,
+                    "voice_used": None,
+                    "language_detected": language or 'ar'
+                }
             
             # Step 3: Detect language if not provided, but respect user's choice
             if language is None:
