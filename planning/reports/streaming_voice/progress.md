@@ -2,9 +2,9 @@
 
 | Phase | Name                                   | Status | Notes |
 |-------|----------------------------------------|--------|-------|
-| 1     | Backend Scaffolding                    | ⏳ In Progress | Endpoint + mock loop file created |
-| 1.5   | Minimal Client Preprocessor            | ⏳ In Progress | Worklet + client skeleton added |
-| 2     | Ring Buffer + Frame Handling           | ⬜ Pending |  |
+| 1     | Backend Scaffolding                    | ✅ Done | Endpoint + mock loop operational |
+| 1.5   | Minimal Client Preprocessor            | ✅ Done | Worklet + client skeleton committed |
+| 2     | Ring Buffer + Frame Handling           | ⏳ In Progress | Ingesting PCM + buffer stats |
 | 3     | Endpointing (Mock Tokens)              | ⬜ Pending |  |
 | 4     | Whisper Integration (Incremental)      | ⬜ Pending |  |
 | 5     | Endpoint Finalization Logic            | ⬜ Pending |  |
@@ -17,4 +17,4 @@
 | 12    | Documentation & Cleanup                | ⬜ Pending |  |
 | 13    | (Optional) Streaming TTS & Barge-In    | ⬜ Pending |  |
 
-_Last updated: Phase 1 scaffold creation._
+_Last updated: Phase 2 (ingestion active, mock decode continues)._ 
