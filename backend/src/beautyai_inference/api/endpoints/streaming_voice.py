@@ -29,7 +29,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Dict, Optional, Any
+from typing import Dict, Optional, Any, List
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
@@ -63,6 +63,8 @@ class SessionState:
     bytes_received: int = 0
     pcm_frames_received: int = 0
     audio_session: Optional[StreamingSession] = None  # Phase 2
+    conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
+    llm_tts_task: Optional[asyncio.Task] = None  # background processing task for final transcript
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -200,16 +202,120 @@ async def streaming_voice_endpoint(
         fw_service = FasterWhisperTranscriptionService()
         ep_state = EndpointState(config=EndpointConfig())
 
+        # Lazy globals for LLM + TTS (Phase 6)
+        chat_service_ref: Dict[str, Any] = {}
+        voice_service_ref: Dict[str, Any] = {}
+
+        async def _ensure_services() -> Dict[str, Any]:
+            """Lazily initialize ChatService & SimpleVoiceService once (cached)."""
+            if "chat" not in chat_service_ref:
+                from beautyai_inference.services.inference.chat_service import ChatService
+                chat = ChatService()
+                # Attempt to load default model for fast responses
+                with contextlib.suppress(Exception):
+                    chat.load_default_model_from_config()
+                chat_service_ref["chat"] = chat
+            if "voice" not in voice_service_ref:
+                from beautyai_inference.services.voice.conversation.simple_voice_service import SimpleVoiceService
+                voice = SimpleVoiceService()
+                # Initialize Edge TTS etc.
+                with contextlib.suppress(Exception):
+                    await voice.initialize()
+                voice_service_ref["voice"] = voice
+            return {"chat": chat_service_ref["chat"], "voice": voice_service_ref["voice"]}
+
+        async def _process_final_transcript(utterance_index: int, text: str, lang: str, state: SessionState) -> None:
+            """Handle LLM + TTS pipeline for a finalized user utterance.
+
+            Emits sequence: tts_start -> tts_audio (base64) -> tts_complete
+            Failure paths emit error event.
+            """
+            started_ts = time.time()
+            await _send_json(state.websocket, {
+                "type": "tts_start",
+                "utterance_index": utterance_index,
+                "timestamp": started_ts,
+            })
+            try:
+                services = await _ensure_services()
+                chat_service = services["chat"]
+                voice_service = services["voice"]
+
+                # Append user message to conversation history
+                state.conversation.append({"role": "user", "content": text})
+
+                # Generate LLM response (limit length for latency)
+                chat_result = chat_service.chat(
+                    message=text,
+                    conversation_history=state.conversation,
+                    max_length=256,
+                    language=lang or "auto",
+                    temperature=0.3,
+                )
+                if not chat_result.get("success"):
+                    raise RuntimeError(f"Chat generation failed: {chat_result.get('error')}")
+                response_text = chat_result.get("response", "")
+                if not response_text:
+                    response_text = ""
+
+                state.conversation.append({"role": "assistant", "content": response_text})
+
+                # Synthesize speech (use language heuristic)
+                from base64 import b64encode
+                tts_path = await voice_service.text_to_speech(response_text, language=lang or chat_result.get("detected_language", "ar"))
+                audio_bytes = tts_path.read_bytes()
+                audio_b64 = b64encode(audio_bytes).decode("utf-8")
+
+                await _send_json(state.websocket, {
+                    "type": "tts_audio",
+                    "utterance_index": utterance_index,
+                    "mime_type": "audio/wav",  # current synthesis output
+                    "encoding": "base64",
+                    "audio": audio_b64,
+                    "text": response_text,
+                    "chars": len(response_text),
+                    "timestamp": time.time(),
+                })
+
+                await _send_json(state.websocket, {
+                    "type": "tts_complete",
+                    "utterance_index": utterance_index,
+                    "processing_ms": int((time.time() - started_ts) * 1000),
+                })
+            except Exception as e:  # pragma: no cover
+                logger.exception("TTS pipeline failure (%s): %s", connection_id, e)
+                await _send_json(state.websocket, {
+                    "type": "error",
+                    "stage": "tts_pipeline",
+                    "message": str(e),
+                    "utterance_index": utterance_index,
+                })
+            finally:
+                state.llm_tts_task = None
+
         async def decoder_task() -> None:
             try:
                 async for event in incremental_decode_loop(
                     state.audio_session, fw_service, ep_state, DecoderConfig(language=language)
                 ):
                     # Forward events to client
-                    if event["type"] == "partial_transcript":
+                    etype = event["type"]
+                    if etype == "partial_transcript":
                         await _send_json(state.websocket, event)
-                    elif event["type"] == "endpoint_event":
+                    elif etype == "endpoint_event":
                         await _send_json(state.websocket, {"type": "endpoint", **event})
+                    elif etype == "final_transcript":
+                        await _send_json(state.websocket, event)
+                        # Kick off LLM + TTS if not already running for this utterance
+                        if state.llm_tts_task is None:
+                            state.llm_tts_task = asyncio.create_task(
+                                _process_final_transcript(
+                                    event.get("utterance_index", 0),
+                                    event.get("text", ""),
+                                    language,
+                                    state,
+                                )
+                            )
             except Exception as e:  # pragma: no cover
                 logger.error("Incremental decoder error (%s): %s", connection_id, e)
 
