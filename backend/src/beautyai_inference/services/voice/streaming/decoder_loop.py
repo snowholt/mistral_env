@@ -50,6 +50,12 @@ class DecoderState:
     last_transcript: str = ""
     last_emit_time: float = field(default_factory=time.time)
     running: bool = True
+    last_final_utterance_index: int = -1  # guard against double final emits
+
+    def reset_after_final(self) -> None:
+        """Reset token stability tracking for next utterance."""
+        self.stable_prefix_tokens.clear()
+        self.last_transcript = ""
 
 
 async def incremental_decode_loop(
@@ -84,66 +90,97 @@ async def incremental_decode_loop(
         while state.running and not session.closed:
             cycle_start = time.time()
 
-            # 1. Obtain audio window (raw PCM bytes) and compute RMS for endpoint frame
+            # 1. Obtain audio window (raw PCM bytes) and compute RMS for this interval
             pcm_window = await session.pcm_buffer.read_last_window(config.window_seconds)
-            if pcm_window:
-                # Derive a frame RMS sample from a short tail slice
-                tail_seconds = min(config.frame_rms_window, config.window_seconds)
-                tail_pcm = await session.pcm_buffer.read_last_window(tail_seconds)
-                frame_rms = 0.0
-                if tail_pcm:
-                    import struct, math
-                    count = len(tail_pcm) // 2
+            if not pcm_window:
+                # Nothing buffered yet; sleep next interval
+                await asyncio.sleep(interval)
+                continue
+
+            # Derive a frame RMS sample from a short tail slice to feed endpoint
+            tail_seconds = min(config.frame_rms_window, config.window_seconds)
+            tail_pcm = await session.pcm_buffer.read_last_window(tail_seconds)
+            frame_rms = 0.0
+            if tail_pcm:
+                import struct, math
+                count = len(tail_pcm) // 2
+                if count:
                     samples = struct.unpack('<' + 'h' * count, tail_pcm)
                     acc = 0.0
                     for s in samples:
                         f = s / 32768.0
                         acc += f * f
                     frame_rms = math.sqrt(acc / count) if count else 0.0
-                # Advance endpoint state (mock token list for now – replaced after stable diff)
-                endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=None)
-                for ev in endpoint_events:
+
+            # 2. Decode the current window (windowed re-decode approach)
+            transcription = fw_service.transcribe_audio_bytes(
+                pcm_window, audio_format="wav", language=config.language
+            )
+            tokens: List[str] = []
+            if transcription:
+                tokens = transcription.strip().split()
+
+            # 3. Update token stability (simple prefix diff)
+            if tokens:
+                prefix_len = 0
+                for a, b in zip(state.stable_prefix_tokens, tokens):
+                    if a == b:
+                        prefix_len += 1
+                    else:
+                        break
+                state.stable_prefix_tokens = tokens[:prefix_len]
+
+            full_text = " ".join(tokens) if tokens else ""
+            stable = tokens and (len(tokens) == len(state.stable_prefix_tokens))
+
+            # Emit partial before endpoint events (client sees freshest text first)
+            if full_text and full_text != state.last_transcript and len(full_text) >= config.min_emit_chars:
+                state.last_transcript = full_text
+                yield {
+                    "type": "partial_transcript",
+                    "text": full_text,
+                    "stable": bool(stable),
+                    "timestamp": time.time(),
+                    "stable_tokens": len(state.stable_prefix_tokens),
+                    "total_tokens": len(tokens),
+                    "window_seconds": config.window_seconds,
+                }
+
+            # 4. Advance endpoint state with current tokens (Phase 5 integration)
+            endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=tokens or None)
+            final_event = None
+            for ev in endpoint_events:
+                yield {
+                    "type": "endpoint_event",
+                    "event": ev.type,
+                    "utterance_index": ev.utterance_index,
+                    "reason": ev.reason,
+                    "voiced_ms": ev.voiced_ms,
+                    "silence_ms": ev.silence_ms,
+                    "utterance_ms": ev.utterance_ms,
+                    "timestamp": time.time(),
+                }
+                if ev.type == "final":
+                    final_event = ev
+
+            # 5. Emit final transcript exactly once per utterance
+            if final_event and final_event.utterance_index > state.last_final_utterance_index:
+                final_text = full_text or state.last_transcript
+                if final_text:
                     yield {
-                        "type": "endpoint_event",
-                        "event": ev.type,
-                        "utterance_index": ev.utterance_index,
-                        "reason": ev.reason,
-                        "voiced_ms": ev.voiced_ms,
-                        "silence_ms": ev.silence_ms,
-                        "utterance_ms": ev.utterance_ms,
+                        "type": "final_transcript",
+                        "text": final_text,
+                        "utterance_index": final_event.utterance_index,
+                        "reason": final_event.reason,
                         "timestamp": time.time(),
+                        "voiced_ms": final_event.voiced_ms,
+                        "silence_ms": final_event.silence_ms,
+                        "utterance_ms": final_event.utterance_ms,
+                        "stable_tokens": len(state.stable_prefix_tokens),
+                        "total_tokens": len(tokens),
                     }
-
-                # 2. Decode the current window (write to temp file path via existing service helper)
-                transcription = fw_service.transcribe_audio_bytes(pcm_window, audio_format="wav", language=config.language)
-                if transcription:
-                    tokens = transcription.strip().split()
-                    # Compute stable prefix
-                    prefix_len = 0
-                    for a, b in zip(state.stable_prefix_tokens, tokens):
-                        if a == b:
-                            prefix_len += 1
-                        else:
-                            break
-                    new_stable = tokens[:prefix_len]
-                    if not state.stable_prefix_tokens:
-                        new_stable = tokens[:prefix_len]
-                    state.stable_prefix_tokens = new_stable
-
-                    full_text = " ".join(tokens)
-                    stable = len(tokens) == len(state.stable_prefix_tokens)
-
-                    if full_text != state.last_transcript and len(full_text) >= config.min_emit_chars:
-                        state.last_transcript = full_text
-                        yield {
-                            "type": "partial_transcript",
-                            "text": full_text,
-                            "stable": stable,
-                            "timestamp": time.time(),
-                            "stable_tokens": len(state.stable_prefix_tokens),
-                            "total_tokens": len(tokens),
-                            "window_seconds": config.window_seconds,
-                        }
+                state.last_final_utterance_index = final_event.utterance_index
+                state.reset_after_final()
 
             # Sleep remaining interval
             elapsed = time.time() - cycle_start
