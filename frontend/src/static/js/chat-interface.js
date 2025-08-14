@@ -75,6 +75,22 @@ class BeautyAIChat {
         this.updateOverlayVoiceOptions();
         this.setupAudioContext();
         this.resetVADState(); // Initialize VAD state
+
+        // ================= Streaming Voice Integration (Phase 12.1) =================
+        this.streamingFeatureFlag = !!window.BEAUTYAI_STREAMING_VOICE;
+        this.voiceMode = (localStorage.getItem('voiceMode') || (this.streamingFeatureFlag ? 'streaming' : 'legacy'));
+        this.streamingClient = null;
+        this.streamingConnected = false;
+        this.lastStreamingUtterance = -1;
+        this.firstPartialTimestamp = null;
+        this.wsOpenTimestamp = null;
+        this.streamingMetricsOverlay = document.getElementById('streamingMetricsOverlay');
+        this.debugStreaming = window.location.search.includes('debug_audio=1');
+        this.livePartialDiv = document.getElementById('livePartialTranscript');
+        if (this.voiceMode === 'streaming' && this.streamingFeatureFlag) {
+            document.body.classList.add('streaming-mode');
+            this.initStreamingClient();
+        }
     }
 
     resetVADState() {
@@ -1962,6 +1978,132 @@ class BeautyAIChat {
         const byteArray = new Uint8Array(byteNumbers);
         return new Blob([byteArray], { type: contentType });
     }
+
+    // ================= Streaming Integration Methods =================
+    initStreamingClient() {
+        if (!window.StreamingVoiceClient) {
+            console.warn('StreamingVoiceClient not loaded; falling back to legacy');
+            this.switchToLegacyFallback('client_missing');
+            return;
+        }
+        this.streamingClient = new StreamingVoiceClient({
+            language: (this.language && this.language.value) || 'ar',
+            autoRearm: true,
+            debug: this.debugStreaming,
+            onEvent: (e) => this.handleStreamingEvent(e)
+        });
+        this.streamingClient.connect();
+        this.wsOpenTimestamp = performance.now();
+        this.streamingClient.start().catch(err => {
+            console.error('Streaming audio init failed', err);
+            this.switchToLegacyFallback('audio_init_error');
+        });
+        this.updateConnectionStatus('connecting', 'Initializing streaming voice...');
+    }
+
+    handleStreamingEvent(ev) {
+        switch(ev.type) {
+            case 'ws_open':
+                this.updateConnectionStatus('connecting', 'Socket open…');
+                break;
+            case 'ready':
+                this.streamingConnected = true;
+                this.updateConnectionStatus('connected', 'Ready (Streaming)');
+                break;
+            case 'partial':
+                if (!this.firstPartialTimestamp) {
+                    this.firstPartialTimestamp = performance.now();
+                    const latency = Math.round(this.firstPartialTimestamp - (this.wsOpenTimestamp || this.firstPartialTimestamp));
+                    this.appendStreamingMetric('first_partial_latency_ms=' + latency);
+                }
+                this.showLivePartial(ev.text || '');
+                break;
+            case 'final':
+                if (typeof ev.utterance_index === 'number' && ev.utterance_index === this.lastStreamingUtterance) break;
+                this.lastStreamingUtterance = ev.utterance_index;
+                this.commitLivePartial(ev.text || '');
+                break;
+            case 'endpoint':
+                this.appendStreamingMetric('endpoint:' + (ev.event || '')); break;
+            case 'tts_start':
+                this.showVoiceStatus('🔊 Synthesizing...'); break;
+            case 'tts_audio':
+                this.appendStreamingMetric('tts_audio chars=' + ev.chars); break;
+            case 'tts_complete':
+                this.showVoiceStatus('✅ Response complete'); break;
+            case 'perf_cycle':
+                if (this.debugStreaming) this.appendStreamingMetric(`perf decode=${ev.decode_ms}ms latency=${ev.cycle_latency_ms}ms tokens=${ev.tokens}`);
+                break;
+            case 'error':
+                if (!this.streamingConnected) this.switchToLegacyFallback('early_error');
+                else this.showVoiceStatus('⚠️ Streaming error');
+                break;
+            case 'ws_close':
+                if (!this.streamingConnected) this.switchToLegacyFallback('ws_close_pre_ready');
+                else this.showVoiceStatus('🔌 Closed');
+                break;
+            case 'auto_rearm':
+                this.showVoiceStatus('🎤 Listening...');
+                break;
+            default:
+                break;
+        }
+    }
+
+    showLivePartial(text) {
+        if (!this.livePartialDiv) return;
+        if (!text) {
+            this.livePartialDiv.classList.add('hidden');
+            this.livePartialDiv.textContent = '';
+            return;
+        }
+        this.livePartialDiv.textContent = text;
+        this.livePartialDiv.classList.remove('hidden');
+    }
+
+    commitLivePartial(text) {
+        if (text) this.addMessage('user', text);
+        this.showLivePartial('');
+    }
+
+    appendStreamingMetric(msg) {
+        if (!this.streamingMetricsOverlay || (!this.debugStreaming && !this.streamingMetricsOverlay.classList.contains('visible'))) return;
+        const line = document.createElement('div');
+        line.textContent = msg;
+        this.streamingMetricsOverlay.appendChild(line);
+        while (this.streamingMetricsOverlay.childNodes.length > 250) {
+            this.streamingMetricsOverlay.removeChild(this.streamingMetricsOverlay.firstChild);
+        }
+    }
+
+    switchToLegacyFallback(reason) {
+        console.warn('Fallback to legacy due to', reason);
+        localStorage.setItem('voiceMode', 'legacy');
+        this.voiceMode = 'legacy';
+        document.body.classList.remove('streaming-mode');
+        this.showVoiceStatus('⚠️ Streaming unavailable – legacy mode');
+    }
+
+    // Override start/stop for streaming mode
+    startRecording() {
+        if (this.voiceMode === 'streaming' && this.streamingClient) {
+            this.showVoiceStatus('🎤 Streaming active');
+            return;
+        }
+        return this._startRecordingLegacy();
+    }
+    stopRecording() {
+        if (this.voiceMode === 'streaming' && this.streamingClient) {
+            this.streamingClient.suspend();
+            this.showVoiceStatus('⏸️ Suspended');
+            return;
+        }
+        return this._stopRecordingLegacy();
+    }
+
+    // Preserve references to original implementations (defined later in file)
+    _startRecordingLegacy() { /* legacy placeholder forward */ return; }
+    _stopRecordingLegacy() { /* legacy placeholder forward */ return; }
     
     muteAllAudioElements(mute) {
         /**

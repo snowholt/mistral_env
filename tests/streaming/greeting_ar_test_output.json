@@ -1,0 +1,31 @@
+{
+  "test_info": {
+    "pcm_file": "/home/lumi/beautyai/voice_tests/input_test_questions/pcm/greeting_ar.pcm",
+    "expected_transcript": "مرحبًا، كيف حالك اليوم؟ أتصل لأستفسر عن الخدمات المتوفرة في عيادة التجميل الخاصة بكم.",
+    "test_timestamp": 1755124460.3948524,
+    "websocket_url": "ws://localhost:8000/api/v1/ws/streaming-voice?language=ar"
+  },
+  "session_info": {
+    "type": "ready",
+    "session_id": "stream_31187047-79ff-464a-aef1-d7738934fc4d",
+    "connection_id": "31187047-79ff-464a-aef1-d7738934fc4d",
+    "timestamp": 1755124450.390513,
+    "feature": "streaming_voice_phase4",
+    "message": "Streaming voice ready (incremental decode)",
+    "language": "ar",
+    "pcm_sample_rate": 16000,
+    "ring_buffer_seconds": 40.0,
+    "decode_interval_ms": 480,
+    "window_seconds": 8.0,
+    "metrics": {
+      "phase9_instrumented": true
+    }
+  },
+  "partial_transcripts": [],
+  "final_transcripts": [],
+  "timing": {
+    "connection_start": 1755124450.3778563,
+    "first_response": 1755124450.3912725,
+    "first_response_latency_ms": 13.416290283203125
+  }
+}

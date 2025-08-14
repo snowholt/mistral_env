@@ -18,14 +18,11 @@ from .config import config_router
 from .system import system_router
 import os
 
-# Optional import of streaming voice scaffold (Phase 1). Guarded by env flag to
-# avoid loading unused code / dependencies when feature disabled.
-if os.getenv("VOICE_STREAMING_ENABLED", "0") == "1":  # pragma: no cover (environment dependent)
-    try:  # noqa: WPS501
-        from .streaming_voice import streaming_voice_router  # type: ignore
-    except Exception:  # broad except acceptable for optional feature import
-        streaming_voice_router = None  # type: ignore
-else:
+# Always attempt to import streaming voice router; feature flag now enforced at runtime
+# inside the endpoint handler so importing is safe and keeps OpenAPI documentation stable.
+try:  # noqa: WPS501
+    from .streaming_voice import streaming_voice_router  # type: ignore
+except Exception:  # pragma: no cover - optional feature import failure path
     streaming_voice_router = None  # type: ignore
 
 __all__ = [

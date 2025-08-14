@@ -41,11 +41,22 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
 )
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
 from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
-from beautyai_inference.services.voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
+from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
 
 logger = logging.getLogger(__name__)
 
-STREAMING_FEATURE_ENABLED = os.getenv("VOICE_STREAMING_ENABLED", "0") == "1"
+def streaming_feature_enabled() -> bool:
+    """Return True if streaming feature enabled (evaluated at call time).
+
+    Defaults to enabled if the router was imported but env var not explicitly set.
+    This prevents 403s in development where systemd env propagation or reload
+    timing may omit the variable in child processes.
+    Set VOICE_STREAMING_ENABLED=0 to force disable.
+    """
+    flag = os.getenv("VOICE_STREAMING_ENABLED")
+    if flag is None:
+        return True  # router already imported -> enable by default
+    return flag == "1"
 
 streaming_voice_router = APIRouter(prefix="/ws", tags=["streaming-voice"])  # included conditionally in app
 
@@ -128,7 +139,8 @@ async def _mock_decode_loop(state: SessionState, language: str) -> None:
             if state.audio_session:
                 rb = state.audio_session.pcm_buffer
                 buffer_usage = rb.usage_ratio()
-                drops = rb.stats.total_dropped
+                # Corrected stats field name (was total_dropped)
+                drops = rb.stats.total_dropped_events
                 # crude level proxy: normalized buffer usage * 0.8 + random jitter (omitted jitter for determinism)
                 audio_level = round(min(1.0, buffer_usage * 0.8), 3)
             await _send_json(state.websocket, {
@@ -167,7 +179,8 @@ async def streaming_voice_endpoint(
     language: str = Query("ar", description="Language code (ar|en)"),
 ) -> None:
     """Phase 1 streaming voice endpoint (mock transcription only)."""
-    if not STREAMING_FEATURE_ENABLED:
+    logger.debug("[streaming_voice] connection attempt language=%s enabled=%s", language, streaming_feature_enabled())
+    if not streaming_feature_enabled():
         await websocket.close(code=1003, reason="Streaming voice disabled")
         return
     if language not in ("ar", "en"):
@@ -203,7 +216,7 @@ async def streaming_voice_endpoint(
     })
 
     if run_phase4:
-        fw_service = FasterWhisperTranscriptionService()
+        fw_service = create_transcription_service()
         ep_state = EndpointState(config=EndpointConfig())
 
         # Lazy globals for LLM + TTS (Phase 6)
@@ -241,28 +254,53 @@ async def streaming_voice_endpoint(
                 "timestamp": started_ts,
             })
             try:
+                if os.getenv("VOICE_STREAMING_DISABLE_TTS", "0") == "1":
+                    # Skip synthesis entirely – still append conversation and emit synthetic completion
+                    state.conversation.append({"role": "user", "content": text})
+                    state.conversation.append({"role": "assistant", "content": "(TTS disabled)"})
+                    await _send_json(state.websocket, {
+                        "type": "tts_complete",
+                        "utterance_index": utterance_index,
+                        "processing_ms": int((time.time() - started_ts) * 1000),
+                        "disabled": True,
+                    })
+                    return
                 services = await _ensure_services()
                 chat_service = services["chat"]
                 voice_service = services["voice"]
 
-                # Append user message to conversation history
-                state.conversation.append({"role": "user", "content": text})
+                # NOTE: Do NOT append the current user message before calling chat().
+                # chat_service.chat expects 'message' to be the *new* user turn and
+                # 'conversation_history' to contain ONLY previous exchanges.
+                # Previously we appended first which duplicated the user content in the prompt
+                # inflating effective context tokens and causing context window overflow.
+
+                prev_history = list(state.conversation)  # pass a shallow copy of prior turns
 
                 # Generate LLM response (limit length for latency)
                 chat_result = chat_service.chat(
                     message=text,
-                    conversation_history=state.conversation,
+                    conversation_history=prev_history,
                     max_length=256,
                     language=lang or "auto",
                     temperature=0.3,
                 )
                 if not chat_result.get("success"):
-                    raise RuntimeError(f"Chat generation failed: {chat_result.get('error')}")
-                response_text = chat_result.get("response", "")
-                if not response_text:
-                    response_text = ""
+                    # Provide a graceful fallback response instead of raising to keep audio pipeline alive
+                    logger.warning("Chat generation failed for utterance %s: %s", utterance_index, chat_result.get('error'))
+                    response_text = (
+                        "Hello! I'm here but couldn't generate a full answer just now. Please continue speaking or ask another question."
+                        if (lang or "en").startswith("en") else
+                        "مرحباً! لم أستطع توليد إجابة كاملة الآن، تابع أو اطرح سؤالاً آخر." if (lang or "ar").startswith("ar") else
+                        "I'm here and listening. Could you repeat or ask differently?"
+                    )
+                else:
+                    response_text = chat_result.get("response", "") or ""
 
-                state.conversation.append({"role": "assistant", "content": response_text})
+                # Update conversation history (append user then assistant so history stays canonical)
+                state.conversation.append({"role": "user", "content": text})
+                if response_text:
+                    state.conversation.append({"role": "assistant", "content": response_text})
 
                 # Synthesize speech (use language heuristic)
                 from base64 import b64encode
@@ -286,6 +324,9 @@ async def streaming_voice_endpoint(
                     "utterance_index": utterance_index,
                     "processing_ms": int((time.time() - started_ts) * 1000),
                 })
+            except asyncio.CancelledError:  # pragma: no cover - client closed during synthesis
+                logger.debug("TTS pipeline cancelled (client disconnect?) connection=%s", connection_id)
+                return
             except Exception as e:  # pragma: no cover
                 logger.exception("TTS pipeline failure (%s): %s", connection_id, e)
                 await _send_json(state.websocket, {
@@ -308,6 +349,11 @@ async def streaming_voice_endpoint(
                         if state.metrics and "decode_ms" in event:
                             state.metrics.inc_partial()
                         await _send_json(state.websocket, event)
+                        # Emit metrics snapshot as a dedicated event (easier for tests)
+                        await _send_json(state.websocket, {
+                            "type": "metrics_snapshot",
+                            **(state.metrics.snapshot() if state.metrics else {}),
+                        })
                     elif etype == "endpoint_event":
                         if state.metrics:
                             state.metrics.update_endpoint(event.get("end_silence_gap_ms"))
@@ -315,11 +361,36 @@ async def streaming_voice_endpoint(
                     elif etype == "final_transcript":
                         if state.metrics:
                             state.metrics.inc_final()
+                        # Send final transcript once
+                        # Guard: skip empty or whitespace-only finals to avoid pointless LLM cycles
+                        final_text_candidate = (event.get("text") or "").strip()
+                        if not final_text_candidate:
+                            logger.debug("[streaming_voice] Ignoring empty final_transcript event (utterance_index=%s)", event.get("utterance_index"))
+                            continue
                         await _send_json(state.websocket, event)
-                        # Log snapshot after each final for observability
+                        # Metrics snapshot
                         if state.metrics:
                             maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
-                        await _send_json(state.websocket, event)
+                        # Kick off LLM + TTS only after final transcript (not on perf cycles)
+                        if state.llm_tts_task is None:
+                            final_text = final_text_candidate
+                            # Enforce minimal length for semantic content (tunable)
+                            min_chars = int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
+                            if len(final_text) >= min_chars:
+                                state.llm_tts_task = asyncio.create_task(
+                                    _process_final_transcript(
+                                        event.get("utterance_index", 0),
+                                        final_text,
+                                        language,
+                                        state,
+                                    )
+                                )
+                            else:
+                                logger.debug(
+                                    "[streaming_voice] Final transcript below min chars (%d < %d) skipping LLM pipeline",
+                                    len(final_text),
+                                    min_chars,
+                                )
                     elif etype == "perf_cycle":
                         if state.metrics:
                             state.metrics.update_perf_cycle(
@@ -335,16 +406,6 @@ async def streaming_voice_endpoint(
                                 })
                         # Low-volume performance heartbeat; can be filtered client-side
                         await _send_json(state.websocket, event)
-                        # Kick off LLM + TTS if not already running for this utterance
-                        if state.llm_tts_task is None:
-                            state.llm_tts_task = asyncio.create_task(
-                                _process_final_transcript(
-                                    event.get("utterance_index", 0),
-                                    event.get("text", ""),
-                                    language,
-                                    state,
-                                )
-                            )
             except Exception as e:  # pragma: no cover
                 logger.error("Incremental decoder error (%s): %s", connection_id, e)
 
@@ -402,29 +463,20 @@ async def streaming_voice_endpoint(
 
 
 @streaming_voice_router.get("/streaming-voice/status")
-async def streaming_voice_status() -> Dict[str, Any]:  # Phase 12: lightweight status probe for docs
-    """Return current streaming voice feature status and active session count.
-
-    Enabled only when VOICE_STREAMING_ENABLED=1. This mirrors legacy voice-conversation status
-    endpoint shape in a minimal form so existing monitoring can incorporate the new path during
-    migration. Kept intentionally small (no per-session details) to avoid leaking identifiers.
-    """
-    return {
-        "enabled": STREAMING_FEATURE_ENABLED,
-        "active_sessions": session_registry.active_count(),
-        "feature_flag": bool(STREAMING_FEATURE_ENABLED),
-        "endpoint": "/api/v1/ws/streaming-voice",
-    }
-
-
-@streaming_voice_router.get("/streaming-voice/status")
 async def streaming_voice_status() -> Dict[str, Any]:
-    """Lightweight status endpoint for monitoring."""
-    # Provide aggregate ring buffer stats (lightweight – approximated)
+    """Unified lightweight status endpoint for streaming voice feature.
+
+    Consolidated duplicates introduced during phased development; provides a stable
+    shape for monitoring & docs.
+    """
     run_phase4 = os.getenv("VOICE_STREAMING_PHASE4", "0") == "1"
     return {
-        "feature_enabled": STREAMING_FEATURE_ENABLED,
-        "active_connections": session_registry.active_count(),
+        "enabled": streaming_feature_enabled(),
+        "active_sessions": session_registry.active_count(),
         "phase": 4 if run_phase4 else 2,
-        "description": "Streaming voice operational (incremental windowed decode)" if run_phase4 else "Streaming voice operational (mock decode + PCM buffering)",
+        "endpoint": "/api/v1/ws/streaming-voice",
+        "description": (
+            "Streaming voice operational (incremental windowed decode)" if run_phase4 else
+            "Streaming voice operational (mock decode + PCM buffering)"
+        ),
     }

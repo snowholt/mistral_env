@@ -581,6 +581,37 @@ class SimpleVoiceService:
             
             if not temp_wav_file.exists():
                 raise Exception(f"Failed to generate speech file: {temp_wav_file}")
+
+            # Edge TTS current python client (edge_tts) streams MPEG (MP3) data even when we give a .wav
+            # filename because the output format is hard-coded (e.g. audio-24khz-48kbitrate-mono-mp3).
+            # Our downstream pipeline (and tests) expect a *real* RIFF/WAV file when output_format == 'wav'.
+            # Detect MP3 by header (0xFF 0xF3 / 0xFF 0xFB) and convert to PCM WAV via ffmpeg.
+            try:
+                with open(temp_wav_file, "rb") as _f:
+                    header = _f.read(4)
+                # MPEG audio frame sync: 11 bits set => 0xFFE, often starting bytes 0xFF 0xF3 / 0xFF 0xFB / 0xFF 0xF2
+                is_mpeg_frame = len(header) >= 2 and header[0] == 0xFF and (header[1] & 0xE0) == 0xE0 and not header.startswith(b"RIFF")
+                if output_format.lower() == "wav" and is_mpeg_frame:
+                    converted_path = self.temp_dir / f"converted_{uuid.uuid4().hex}.wav"
+                    import subprocess
+                    cmd = [
+                        "ffmpeg", "-y", "-loglevel", "error", "-i", str(temp_wav_file),
+                        "-ac", "1", "-ar", "24000", "-c:a", "pcm_s16le", str(converted_path)
+                    ]
+                    result = subprocess.run(cmd, capture_output=True, text=True)
+                    if result.returncode != 0 or not converted_path.exists():
+                        self.logger.warning(
+                            "TTS WAV conversion failed (rc=%s). stderr=%s", result.returncode, result.stderr.strip()[:300]
+                        )
+                    else:
+                        try:
+                            temp_wav_file.unlink(missing_ok=True)
+                        except Exception:
+                            pass
+                        temp_wav_file = converted_path
+                        self.logger.info("Converted MP3-like TTS stream to PCM WAV: %s", converted_path)
+            except Exception as conv_e:
+                self.logger.warning("TTS format detection/conversion error (non-fatal): %s", conv_e)
             
             # If WebM output is requested, convert from WAV to WebM
             if output_format.lower() == "webm":

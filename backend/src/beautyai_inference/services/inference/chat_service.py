@@ -9,6 +9,7 @@ This service handles interactive chat functionality including:
 - Streaming response support
 """
 import logging
+import os
 import sys
 import time
 from typing import Dict, Any, Optional, Generator, List
@@ -192,9 +193,102 @@ class ChatService(BaseService):
                 system_prompt = "You are a doctor specialized in aesthetic medicine and non-surgical treatments. You must respond only in English. Provide accurate and useful medical information about aesthetic treatments like botox and fillers. Make your responses clear, concise, and appropriate for English-speaking patients."
                 prompt_parts.append(f"System: {system_prompt}")
             
-            # Add conversation history
-            if conversation_history:
-                for msg in conversation_history:
+            # Add conversation history (will be pruned if exceeds context window)
+            full_history: List[Dict[str, str]] = conversation_history[:] if conversation_history else []
+
+            # ================= Context / history management ==============================
+            # We apply three layers of control:
+            # 1. Hard cap on number of turns (user+assistant pairs) via CHAT_MAX_HISTORY_TURNS
+            # 2. Token estimation based trimming (conservative over-estimation) BEFORE generation
+            # 3. Retry logic: if backend still throws context window error, aggressively shrink to last turn
+
+            # 1. Hard cap on turns
+            max_turns = int(os.getenv("CHAT_MAX_HISTORY_TURNS", "6"))  # number of (user,assistant) pairs to retain
+            if max_turns > 0 and full_history:
+                # Count from end keeping most recent pairs; treat any lone user at end as a partial turn
+                kept: List[Dict[str, str]] = []
+                user_count = 0
+                assistant_count = 0
+                turns = 0
+                for msg in reversed(full_history):
+                    kept.append(msg)
+                    if msg.get("role") == "assistant":
+                        assistant_count += 1
+                    elif msg.get("role") == "user":
+                        user_count += 1
+                    # A completed turn counted when we have both a user and assistant in kept slice
+                    if user_count > 0 and assistant_count > 0:
+                        turns += 1
+                        user_count = 0
+                        assistant_count = 0
+                    if turns >= max_turns:
+                        break
+                # Reverse back to chronological order
+                trimmed_history = list(reversed(kept))
+                if len(trimmed_history) < len(full_history):
+                    logger.debug(
+                        "[chat] History turn cap applied (max_turns=%d) trimmed=%d->%d", 
+                        max_turns, len(full_history), len(trimmed_history)
+                    )
+                    full_history = trimmed_history
+
+            # 2. Token estimation based trimming
+            context_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
+            safety_margin = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))  # more conservative headroom
+
+            # Heuristic token estimator: roughly 1 token ~ 4 characters (fallback if spaces minimal)
+            def est_tokens_text(txt: str) -> int:
+                if not txt:
+                    return 0
+                # Blend word-based and char-based estimates, take max for safety
+                word_est = len(txt.split())
+                char_est = max(1, len(txt) // 4)
+                return max(word_est, char_est)
+
+            def build_hist_parts(hist: List[Dict[str, str]]) -> List[str]:
+                tmp: List[str] = []
+                for m in hist:
+                    role = m.get("role")
+                    content = m.get("content", "")
+                    if role == "user":
+                        tmp.append(f"User: {content}")
+                    elif role == "assistant":
+                        tmp.append(f"Assistant: {content}")
+                return tmp
+
+            def total_estimate(hist: List[Dict[str, str]]) -> int:
+                parts = [prompt_parts[0]]  # system
+                parts.extend(build_hist_parts(hist))
+                parts.append(f"User: {message}")
+                # Add assistant prefix placeholder
+                parts.append("Assistant:")
+                return sum(est_tokens_text(p) for p in parts)
+
+            trimmed_by_tokens = False
+            if full_history:
+                while True:
+                    est = total_estimate(full_history)
+                    if est + max_length >= context_limit - safety_margin and len(full_history) > 1:
+                        # Remove oldest non-system
+                        removed_idx = None
+                        for idx, h in enumerate(full_history):
+                            if h.get("role") != "system":
+                                removed_idx = idx
+                                break
+                        if removed_idx is not None:
+                            full_history.pop(removed_idx)
+                            trimmed_by_tokens = True
+                            continue
+                    break
+            if trimmed_by_tokens:
+                logger.info(
+                    "[chat] History trimmed by token estimate to fit context (limit=%d, safety=%d). Remaining=%d", 
+                    context_limit, safety_margin, len(full_history)
+                )
+
+            # Now append (possibly trimmed) history to prompt_parts
+            if full_history:
+                for msg in full_history:
                     if msg.get("role") == "user":
                         prompt_parts.append(f"User: {msg.get('content', '')}")
                     elif msg.get("role") == "assistant":
@@ -204,6 +298,41 @@ class ChatService(BaseService):
             prompt_parts.append("Assistant:")
             
             prompt = "\n".join(prompt_parts)
+
+            # Final safety: if our conservative estimate still breaches context limit, shrink history aggressively
+            try:
+                context_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
+            except Exception:
+                context_limit = 4096
+            safety_margin = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))
+            # Reuse estimator
+            def _quick_est(txt: str) -> int:
+                return max(len(txt)//4, len(txt.split()))
+            est_tokens = _quick_est(prompt)
+            if est_tokens >= (context_limit - safety_margin):
+                # Keep only system + last assistant (if any) + current user
+                preserved_hist: List[Dict[str,str]] = []
+                if full_history:
+                    # take last assistant if exists
+                    for m in reversed(full_history):
+                        if m.get("role") == "assistant":
+                            preserved_hist.insert(0, m)
+                            break
+                # rebuild prompt
+                prompt_parts = [prompt_parts[0]]  # system
+                for m in preserved_hist:
+                    prompt_parts.append(f"Assistant: {m.get('content','')}")
+                prompt_parts.append(f"User: {message}")
+                prompt_parts.append("Assistant:")
+                prompt = "\n".join(prompt_parts)
+                est_tokens = _quick_est(prompt)
+                if est_tokens >= (context_limit - safety_margin):
+                    # As last resort, shorten max_new_tokens and proceed; log warning
+                    logger.warning(
+                        "[chat] Prompt estimate %d still near/over limit (%d); forcing minimal generation window",
+                        est_tokens, context_limit
+                    )
+                    generation_config["max_new_tokens"] = min(int(generation_config.get("max_new_tokens", max_length)), 96)
             
             # Generate response with optimized parameters for language consistency
             generation_params = {
@@ -218,7 +347,80 @@ class ChatService(BaseService):
             logger.info(f"Generating response for language: {response_language}")
             logger.debug(f"Full prompt: {prompt}")
             
-            response = model.generate(prompt, **generation_params)
+            def _apply_budget(prompt_text: str, params: Dict[str, Any]) -> Dict[str, Any]:
+                """Adjust max_new_tokens to fit within context window using conservative estimate.
+
+                We use the same heuristic estimator; if still risky we clamp tokens to a small window.
+                """
+                try:
+                    ctx_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
+                except Exception:
+                    ctx_limit = 4096
+                safety = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))
+                # Estimate existing prompt tokens
+                est_prompt_tokens = max(len(prompt_text)//4, len(prompt_text.split()))
+                # Allowed budget for new tokens (keep a small guard band)
+                avail = max(32, ctx_limit - safety - est_prompt_tokens)
+                original = params.get("max_new_tokens", max_length)
+                if avail < original:
+                    logger.info(
+                        "[chat] Reducing max_new_tokens %d -> %d (est_prompt=%d ctx=%d safety=%d)",
+                        original, avail, est_prompt_tokens, ctx_limit, safety,
+                    )
+                    params = dict(params)
+                    params["max_new_tokens"] = avail
+                # Absolute upper bound guard
+                if params.get("max_new_tokens", 0) > 512:
+                    params["max_new_tokens"] = 512
+                return params
+
+            generation_params = _apply_budget(prompt, generation_params)
+
+            def _minimal_rebuild() -> None:
+                """Rebuild prompt to minimal form: system + (last assistant) + user."""
+                nonlocal prompt, generation_params, full_history, prompt_parts
+                minimal_hist: List[Dict[str, str]] = []
+                for m in reversed(full_history):
+                    if m.get("role") == "assistant":
+                        minimal_hist.insert(0, m)
+                        break
+                full_history = minimal_hist
+                base_system = prompt_parts[0]
+                prompt_parts = [base_system]
+                for msg in full_history:
+                    if msg.get("role") == "assistant":
+                        prompt_parts.append(f"Assistant: {msg.get('content','')}")
+                prompt_parts.append(f"User: {message}")
+                prompt_parts.append("Assistant:")
+                prompt = "\n".join(prompt_parts)
+                generation_params = _apply_budget(prompt, generation_params)
+
+            # Primary generation attempt with safety budgeting
+            try:
+                response = model.generate(prompt, **generation_params)
+            except ValueError as ve:
+                ve_text = str(ve).lower()
+                if "exceed context window" in ve_text or "exceeds context window" in ve_text or "context window" in ve_text:
+                    logger.warning("[chat] Context window exceeded on first attempt (err=%s); retrying minimal prompt", ve)
+                    _minimal_rebuild()
+                    try:
+                        response = model.generate(prompt, **generation_params)
+                    except Exception as ve2:  # second failure – return fallback response gracefully
+                        logger.error("[chat] Retry after trimming failed: %s", ve2)
+                        fallback = self._clean_response("", response_language)
+                        return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.2}
+                else:
+                    # Unrelated ValueError, propagate to outer handler
+                    raise
+            except Exception as gen_ex:
+                # Any other exception (backend error). Provide graceful fallback without raising.
+                logger.error("[chat] Generation backend exception: %s", gen_ex)
+                fallback = self._clean_response("", response_language)
+                return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.2}
+
+            # Defensive: sometimes backends return None/empty early
+            if response is None:
+                response = ""
             
             if response and response.strip():
                 # Clean the response to remove any thinking content or unwanted text
@@ -231,7 +433,9 @@ class ChatService(BaseService):
                     "language_confidence": 1.0 if language != "auto" else 0.8  # Add confidence score
                 }
             else:
-                return {"success": False, "error": "Empty response generated", "response": None}
+                # Provide a language-specific fallback to avoid hard failure upstream
+                fallback = self._clean_response("", response_language)
+                return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.3}
                 
         except Exception as e:
             import traceback

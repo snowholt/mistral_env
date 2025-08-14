@@ -221,8 +221,18 @@ class TransformersWhisperService(BaseService):
             if not self.pipe:
                 raise Exception("Whisper pipeline not loaded. Call load_whisper_model() first.")
             
-            # Prepare audio for inference
-            audio_array = self._prepare_audio_for_inference(audio_bytes, audio_format)
+            # Detect raw PCM (no RIFF header) for expected streaming path and wrap directly
+            if audio_format.lower() in ("wav", "pcm", "pcm_raw") and not (len(audio_bytes) >= 12 and audio_bytes[:4] == b"RIFF" and audio_bytes[8:12] == b"WAVE"):
+                # Interpret as 16kHz mono int16 little-endian PCM
+                try:
+                    audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32) / 32768.0
+                    logger.debug(f"Interpreted raw PCM bytes -> samples={audio_array.shape[0]}")
+                except Exception as e:
+                    logger.error(f"Raw PCM interpretation failed: {e}")
+                    audio_array = self._prepare_audio_for_inference(audio_bytes, audio_format)
+            else:
+                # Prepare via standard path (librosa / pydub)
+                audio_array = self._prepare_audio_for_inference(audio_bytes, audio_format)
             
             # Log audio stats for debugging
             logger.debug(f"Audio array shape: {audio_array.shape}, dtype: {audio_array.dtype}, "
@@ -328,6 +338,10 @@ class TransformersWhisperService(BaseService):
             "gpu_memory_cached": torch.cuda.memory_reserved() / 1024**3 if torch.cuda.is_available() else 0,
         }
 
+    # Compatibility helpers (align with FasterWhisper service interface)
+    def is_model_loaded(self) -> bool:  # type: ignore[override]
+        return self.model is not None
+
     def cleanup(self):
         """Clean up GPU memory and resources."""
         try:
@@ -352,5 +366,4 @@ class TransformersWhisperService(BaseService):
             logger.error(f"Error during cleanup: {e}")
 
 
-# Compatibility alias for existing code
-FasterWhisperTranscriptionService = TransformersWhisperService
+# NOTE: Compatibility alias removed to allow coexistence of both implementations.

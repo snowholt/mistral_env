@@ -138,25 +138,77 @@ class LlamaCppEngine(ModelInterface):
                 "n_threads": min(n_threads, 8),
             })
         
-        try:
-            logger.info(f"Initializing Llama with {n_gpu_layers} GPU layers, context: {n_ctx}")
-            logger.info(f"Model parameters:")
-            for key, value in model_params.items():
-                logger.info(f"  {key}: {value}")
-            self.model = Llama(**model_params)
-            
-            loading_time = time.time() - start_time
-            logger.info(f"✅ GGUF model loaded successfully in {loading_time:.2f} seconds")
-            
-            if has_cuda and n_gpu_layers != 0:
-                # Note: torch.cuda.memory_allocated() doesn't track llama.cpp's CUDA usage
-                # llama.cpp manages CUDA memory independently from PyTorch
-                logger.info("✅ Model successfully loaded on GPU!")
-                logger.info("💡 Note: llama.cpp uses independent CUDA memory management")
-                logger.info("   Use nvidia-smi or nvtop to monitor actual GPU usage")
-        except Exception as e:
-            logger.error(f"Failed to load GGUF model: {e}")
-            raise
+        def _attempt_load(params: dict, label: str) -> bool:
+            try:
+                logger.info(f"Initializing Llama ({label}) with n_gpu_layers={params.get('n_gpu_layers')} n_ctx={params.get('n_ctx')}")
+                for key, value in params.items():
+                    logger.debug(f"  {key}: {value}")
+                self.model = Llama(**params)
+                return True
+            except Exception as e:  # pragma: no cover - depends on local environment
+                logger.error(f"Load attempt '{label}' failed: {e}")
+                return False
+
+        # Primary attempt
+        primary_ok = _attempt_load(model_params, "primary")
+        if not primary_ok:
+            # Fallback strategy matrix
+            fallbacks: List[dict] = []
+            # 1. Reduce context
+            if model_params.get("n_ctx", 0) > 2048:
+                fb = dict(model_params)
+                fb["n_ctx"] = 2048
+                fallbacks.append(fb)
+            # 2. CPU-only minimal (detect GPU issues or unsupported quantization kernels)
+            if has_cuda:
+                fb = dict(model_params)
+                fb["n_gpu_layers"] = 0
+                fallbacks.append(fb)
+            # 3. Smaller batch & threads
+            fb = dict(model_params)
+            fb["n_batch"] = 256
+            fb["n_threads"] = min(fb.get("n_threads", 4), 8)
+            fallbacks.append(fb)
+            # 4. Combined minimal (CPU + reduced ctx)
+            if has_cuda:
+                fb = dict(model_params)
+                fb["n_gpu_layers"] = 0
+                fb["n_ctx"] = 2048
+                fb["n_batch"] = 128
+                fb["n_threads"] = 4
+                fallbacks.append(fb)
+
+            # 5. If quantization is *_Q4_K_S try alternate *_Q4_K_M file in same dir
+            alt_path = None
+            if "Q4_K_S" in os.path.basename(model_path):
+                directory = os.path.dirname(model_path)
+                for fname in os.listdir(directory):
+                    if fname.endswith(".gguf") and "Q4_K_M" in fname:
+                        alt_path = os.path.join(directory, fname)
+                        break
+                if alt_path:
+                    fb = dict(model_params)
+                    fb["model_path"] = alt_path
+                    fallbacks.append(fb)
+                    logger.warning(f"Adding alternate quantization fallback file: {alt_path}")
+
+            for idx, fb in enumerate(fallbacks, 1):
+                if _attempt_load(fb, f"fallback#{idx}"):
+                    model_params = fb  # record winning params
+                    primary_ok = True
+                    break
+
+        if not primary_ok:
+            raise RuntimeError(
+                "All llama.cpp model load attempts failed. See prior log entries for diagnostics. "
+                "Consider updating llama-cpp-python or using a different quantization (e.g. Q4_K_M)."
+            )
+
+        loading_time = time.time() - start_time
+        logger.info(f"✅ GGUF model loaded successfully in {loading_time:.2f} seconds (params={ {k: model_params[k] for k in ['model_path','n_gpu_layers','n_ctx']} })")
+        if has_cuda and model_params.get("n_gpu_layers", 0) != 0:
+            logger.info("✅ Model successfully loaded on GPU (llama.cpp independent allocator)")
+            logger.info("   Verify with: nvidia-smi | grep $(basename ${model_params['model_path']}) || true")
     
     def _find_gguf_model_path(self) -> Optional[str]:
         """Find the GGUF model file path."""

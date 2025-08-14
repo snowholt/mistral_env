@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from typing import Dict, Any
 import logging
 import time
+import os
 
 # Import the routers
 from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
@@ -183,6 +184,12 @@ async def startup_event():
     logger.info("📚 API Documentation available at: http://localhost:8000/docs")
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
+    
+    # Check if model preloading should be skipped (useful for development/testing)
+    skip_preload = os.getenv("SKIP_MODEL_PRELOAD", "0") == "1"
+    if skip_preload:
+        logger.info("⏭️ Skipping model pre-loading (SKIP_MODEL_PRELOAD=1)")
+        return
     
     # Pre-load essential models for WebSocket voice services
     logger.info("⏳ Pre-loading essential models for WebSocket voice services...")

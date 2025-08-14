@@ -238,32 +238,41 @@ class FasterWhisperTranscriptionService(BaseService):
                 audio_format = audio_config.format
                 logger.info(f"Using audio format from voice config: {audio_format}")
             
-            # Create temporary file for audio processing
-            tests_dir = Path(__file__).parent.parent.parent / "tests" / "faster_whisper_temp"
-            tests_dir.mkdir(parents=True, exist_ok=True)
+            # Special handling: if audio_format is 'wav' but bytes appear to be RAW PCM (no RIFF header),
+            # wrap with a minimal WAV header so downstream file-based transcribe works.
+            needs_header = False
+            if audio_format.lower() == "wav":
+                if len(audio_bytes) < 12 or audio_bytes[:4] != b"RIFF" or audio_bytes[8:12] != b"WAVE":
+                    needs_header = True
             
-            temp_input_path = tests_dir / f"temp_audio_{int(time.time() * 1000)}.{audio_format}"
-            
+            # Directory for temporary files (keep deterministic location for debugging)
+            temp_dir = Path(__file__).parent.parent.parent / "tests" / "faster_whisper_temp"
+            temp_dir.mkdir(parents=True, exist_ok=True)
+            temp_path = temp_dir / f"temp_audio_{int(time.time()*1000)}.wav"
             try:
-                # Write bytes to temporary file
-                with open(temp_input_path, 'wb') as temp_file:
-                    temp_file.write(audio_bytes)
-                
-                logger.info(f"Processing {len(audio_bytes)} bytes of {audio_format} audio")
-                
-                # Faster-Whisper handles format conversion internally via PyAV
-                # No need for external FFmpeg conversion
-                transcription = self.transcribe_audio_file(str(temp_input_path), language)
-                
-                return transcription
-                    
+                if needs_header:
+                    import wave, io, struct
+                    # Assume 16 kHz mono int16 PCM (as produced by streaming ring buffer)
+                    sample_rate = 16000
+                    sampwidth = 2
+                    channels = 1
+                    nframes = len(audio_bytes) // sampwidth
+                    with wave.open(str(temp_path), 'wb') as wf:
+                        wf.setnchannels(channels)
+                        wf.setsampwidth(sampwidth)
+                        wf.setframerate(sample_rate)
+                        wf.writeframes(audio_bytes)
+                    logger.debug(f"Wrapped raw PCM into WAV header frames={nframes} path={temp_path}")
+                else:
+                    # Write original bytes directly
+                    with open(temp_path, 'wb') as f:
+                        f.write(audio_bytes)
+                logger.info(f"Processing {len(audio_bytes)} bytes of {audio_format}{' (raw-pcm-wrapped)' if needs_header else ''}")
+                return self.transcribe_audio_file(str(temp_path), language)
             finally:
-                # Clean up temporary file
-                try:
-                    if temp_input_path.exists():
-                        temp_input_path.unlink()
-                except:
-                    pass
+                with contextlib.suppress(Exception):
+                    if temp_path.exists():
+                        temp_path.unlink()
                     
         except Exception as e:
             logger.error(f"Audio bytes transcription failed: {e}")

@@ -108,6 +108,20 @@ def update_endpoint(
             if state.active:
                 state.no_token_change_ms += cfg.frame_ms
 
+    # Token-driven activation: if we have decoded tokens but never crossed the
+    # RMS gate to enter an utterance, promote to active state so downstream
+    # logic (silence + token stability) can still finalize. This guards against
+    # high initial baseline calibration (speech captured during calibration)
+    # inflating the dynamic threshold and suppressing voiced detection, which
+    # we observed prevented any 'start' / 'final' events while still producing
+    # transcripts.
+    if (not state.active) and current_tokens:
+        state.active = True
+        # Treat this frame as voiced activity; seed voiced_ms so we satisfy
+        # min_speech_ms without waiting multiple large frames (e.g. 480ms).
+        state.voiced_ms = max(state.voiced_ms, cfg.min_speech_ms)
+        events.append(EndpointEvent(type="start", utterance_index=state.utterance_index))
+
     # Inside utterance processing
     if state.active:
         state.utterance_ms += cfg.frame_ms
