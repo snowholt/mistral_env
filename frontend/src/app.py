@@ -1708,6 +1708,159 @@ def debug_mic_hybrid():
     </script></body></html>'''
     return Response(html, mimetype='text/html')
 
+# ---------------------------------------------------------------------------
+# Streaming Voice Dedicated Debug Page (English only, pure client PCM)
+# ---------------------------------------------------------------------------
+@app.route('/debug/streaming-live')
+def debug_streaming_live():
+        """A focused page for debugging streaming voice with ONLY:
+        - English language (no auto / overlay / legacy fallback)
+        - Client-side AudioWorklet capture -> 16k PCM Int16 frames
+        - Real-time mic level bar
+        - Ingest mode / connection status / sample rate display
+        - Event log + partial/final transcript panels
+        - TTS audio auto-play (handled by StreamingVoiceClient)
+        This bypasses MediaRecorder entirely and helps isolate overlay issues.
+        """
+        html = r'''<!DOCTYPE html><html lang="en"><head><meta charset="utf-8" />
+<title>BeautyAI Streaming Voice Live Debug (EN)</title>
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<style>
+body{font-family:system-ui,Arial,sans-serif;margin:0;background:#10151c;color:#f1f5f9;}
+header{background:#1e293b;padding:14px 22px;display:flex;align-items:center;gap:16px;}
+h1{margin:0;font-size:18px;font-weight:600;color:#fff;letter-spacing:.5px;}
+main{max-width:1200px;margin:0 auto;padding:20px 24px;display:grid;grid-template-columns:320px 1fr;gap:20px;}
+section{background:#16202b;border:1px solid #1f2935;border-radius:10px;padding:16px;}
+section h2{margin:0 0 10px;font-size:14px;letter-spacing:.6px;text-transform:uppercase;color:#8fb3ff;font-weight:600;}
+button{cursor:pointer;border:none;border-radius:6px;font-weight:600;font-size:13px;letter-spacing:.4px;padding:8px 14px;background:#2563eb;color:#fff;display:inline-flex;align-items:center;gap:6px;}
+button.secondary{background:#334155;}
+button.danger{background:#b91c1c;}
+button:disabled{opacity:.55;cursor:not-allowed;}
+.controls{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px;}
+.status-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:6px;margin-top:6px;}
+.status-box{background:#1e2a36;padding:6px 8px;border-radius:6px;font-size:11px;line-height:1.3;}
+.status-box span{display:block;font-size:10px;opacity:.65;letter-spacing:.5px;text-transform:uppercase;}
+#micBarWrap{height:28px;background:#1e2a36;border-radius:6px;overflow:hidden;position:relative;margin:8px 0 4px;}
+#micBar{position:absolute;left:0;top:0;bottom:0;width:0%;background:linear-gradient(90deg,#22c55e,#f59e0b,#dc2626);transition:width .12s;}
+#micLevelText{font-size:11px;opacity:.75;letter-spacing:.4px;}
+.live-partial{font-style:italic;background:#1e2a36;padding:10px 12px;border-radius:6px;margin:0 0 10px;font-size:13px;color:#e2e8f0;}
+.transcripts-log{max-height:240px;overflow:auto;font-size:13px;line-height:1.45;display:flex;flex-direction:column;gap:8px;}
+.utt-user{background:#1e2a36;padding:8px 10px;border-radius:6px;align-self:flex-end;}
+.utt-assistant{background:#233242;padding:8px 10px;border-radius:6px;}
+table{width:100%;border-collapse:collapse;font-size:11px;}
+th,td{border:1px solid #223040;padding:4px 6px;text-align:left;}
+th{background:#1b2733;font-weight:600;letter-spacing:.4px;}
+#eventsTableWrapper{max-height:280px;overflow:auto;}
+.pill{display:inline-block;padding:2px 6px;border-radius:10px;font-weight:600;font-size:10px;letter-spacing:.5px;}
+.pill.partial{background:#facc1533;color:#fbbf24;}
+.pill.final{background:#10b98133;color:#34d399;}
+.pill.tts{background:#6366f133;color:#818cf8;}
+.pill.sys{background:#475569;color:#cbd5e1;}
+.log-line{white-space:nowrap;}
+.flex{display:flex;gap:8px;align-items:center;}
+.mono{font-family:ui-monospace,monospace;font-size:12px;}
+.badge{background:#334155;color:#cbd5e1;padding:2px 6px;border-radius:4px;font-size:11px;letter-spacing:.4px;}
+a.export{font-size:11px;color:#60a5fa;text-decoration:none;margin-left:8px;}
+@media (max-width:900px){main{grid-template-columns:1fr;}section#left{order:2;}section#right{order:1;}}
+</style>
+</head><body>
+<header><h1>Streaming Voice Live Debug (EN)</h1><span class="badge" id="connState">idle</span><span class="badge" id="ingestMode">mode: -</span><span class="badge" id="sampleRate">sr: -</span></header>
+<main>
+    <section id="left">
+        <h2>Microphone & Status</h2>
+        <div class="controls">
+            <button id="btnStart">Start</button>
+            <button id="btnSuspend" class="secondary" disabled>Suspend</button>
+            <button id="btnResume" class="secondary" disabled>Resume</button>
+            <button id="btnDisconnect" class="danger" disabled>Disconnect</button>
+            <button id="btnClear" class="secondary">Clear</button>
+        </div>
+        <div id="micBarWrap"><div id="micBar"></div></div>
+        <div id="micLevelText">Mic: --</div>
+        <div class="status-grid" id="statusGrid"></div>
+        <h2 style="margin-top:20px;">Live Partial</h2>
+        <div id="livePartial" class="live-partial" style="display:none;"></div>
+        <h2>Final Transcripts</h2>
+        <div class="transcripts-log" id="transcriptsLog"></div>
+        <h2 style="margin-top:20px;">TTS Audio</h2>
+        <div id="ttsAudio"><em>No TTS yet.</em></div>
+    </section>
+    <section id="right">
+        <h2>Events</h2>
+        <div id="eventsTableWrapper">
+            <table id="eventsTable"><thead><tr><th>#</th><th>Type</th><th>Idx</th><th>Info</th><th>Latency</th></tr></thead><tbody></tbody></table>
+        </div>
+        <h2 style="margin-top:18px;">Raw Log <a id="exportLink" class="export" href="#" style="display:none;">Export</a></h2>
+        <div style="background:#0f1720;border:1px solid #1e2a33;border-radius:6px;padding:8px;height:180px;overflow:auto;font:11px/1.4 ui-monospace,monospace;" id="rawLog"></div>
+    </section>
+</main>
+<script>
+// Feature flag just for consistency
+window.BEAUTYAI_STREAMING_VOICE = true;
+(function(){ if(!window.BEAUTYAI_API_HOST){ const hn=location.hostname; if(/\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)){ window.BEAUTYAI_API_HOST='api.gmai.sa'; } } })();
+</script>
+<script src="/static/js/streamingVoiceClient.js"></script>
+<script>
+const btnStart=document.getElementById('btnStart');
+const btnSuspend=document.getElementById('btnSuspend');
+const btnResume=document.getElementById('btnResume');
+const btnDisconnect=document.getElementById('btnDisconnect');
+const btnClear=document.getElementById('btnClear');
+const micBar=document.getElementById('micBar');
+const micLevelText=document.getElementById('micLevelText');
+const connState=document.getElementById('connState');
+const ingestModeBadge=document.getElementById('ingestMode');
+const sampleRateBadge=document.getElementById('sampleRate');
+const statusGrid=document.getElementById('statusGrid');
+const livePartialDiv=document.getElementById('livePartial');
+const transcriptsLog=document.getElementById('transcriptsLog');
+const ttsAudio=document.getElementById('ttsAudio');
+const eventsBody=document.querySelector('#eventsTable tbody');
+const rawLog=document.getElementById('rawLog');
+const exportLink=document.getElementById('exportLink');
+let client=null; let startTs=null; let eventCounter=0; let finalCount=0; let partialCount=0; let ttsCount=0; let rawEvents=[];
+
+function addStatus(k,v){ const box=document.createElement('div'); box.className='status-box'; box.innerHTML='<span>'+k+'</span>'+v; statusGrid.appendChild(box); }
+function refreshStatus(){ statusGrid.innerHTML=''; addStatus('Partials',partialCount); addStatus('Finals',finalCount); addStatus('TTS',ttsCount); }
+function logRaw(o){ rawEvents.push({ts:Date.now(), ...o}); const line=document.createElement('div'); line.className='log-line'; line.textContent=JSON.stringify(o); rawLog.appendChild(line); rawLog.scrollTop=rawLog.scrollHeight; exportLink.style.display='inline'; }
+function addEventRow(evt){ eventCounter++; const tr=document.createElement('tr'); const lat=startTs? (Date.now()-startTs):0; const pillClass= evt.type==='partial'? 'partial': evt.type==='final'? 'final': (evt.type && evt.type.startsWith('tts_'))? 'tts':'sys'; const idx = evt.utterance_index ?? evt.cursor ?? ''; const info=(evt.text||evt.message||'').slice(0,120); tr.innerHTML=`<td>${eventCounter}</td><td><span class="pill ${pillClass}">${evt.type}</span></td><td>${idx}</td><td>${info}</td><td>${lat}</td>`; eventsBody.appendChild(tr); }
+function showPartial(text){ if(!text){ livePartialDiv.style.display='none'; livePartialDiv.textContent=''; return; } livePartialDiv.style.display='block'; livePartialDiv.textContent=text; }
+function addFinal(text){ const d=document.createElement('div'); d.className='utt-user'; d.textContent=text||'(empty)'; transcriptsLog.appendChild(d); transcriptsLog.scrollTop=transcriptsLog.scrollHeight; }
+function addAssistant(text){ const d=document.createElement('div'); d.className='utt-assistant'; d.textContent=text||'(no text)'; transcriptsLog.appendChild(d); transcriptsLog.scrollTop=transcriptsLog.scrollHeight; }
+
+function handleEvent(ev){
+    switch(ev.type){
+        case 'ws_open': connState.textContent='opening'; logRaw({evt:'ws_open'}); break;
+        case 'ready': connState.textContent='ready'; logRaw({evt:'ready'}); addEventRow({type:'ready'}); break;
+        case 'mic_level': const pct=Math.round(Math.min(1,ev.level*4)*100); micBar.style.width=pct+'%'; micLevelText.textContent='Mic RMS ~ '+pct+'%'; break;
+        case 'partial': partialCount++; showPartial(ev.text); addEventRow({type:'partial', text:ev.text}); refreshStatus(); break;
+        case 'final': finalCount++; showPartial(''); addFinal(ev.text); addEventRow({type:'final', text:ev.text, utterance_index:ev.utterance_index}); refreshStatus(); break;
+        case 'ingest_mode': ingestModeBadge.textContent='mode: '+ev.mode; logRaw({evt:'ingest_mode', mode:ev.mode}); addEventRow({type:'ingest_mode', text:ev.mode}); break;
+        case 'ingest_summary': logRaw({evt:'ingest_summary', summary:ev.summary}); addEventRow({type:'ingest_summary', text: (ev.summary&&ev.summary.mode)||''}); break;
+        case 'tts_audio': ttsCount++; refreshStatus(); addEventRow({type:'tts_audio', text:'chars='+ev.chars}); break;
+        case 'tts_complete': addEventRow({type:'tts_complete'}); break;
+        case 'error': connState.textContent='error'; logRaw({evt:'error', message:ev.message, stage:ev.stage}); addEventRow({type:'error', text:ev.message||ev.stage||''}); break;
+        case 'ws_close': connState.textContent='closed'; logRaw({evt:'ws_close', code:ev.code, reason:ev.reason}); addEventRow({type:'ws_close', text:ev.reason||''}); btnSuspend.disabled=true; btnResume.disabled=true; btnDisconnect.disabled=true; break;
+        default: break;
+    }
+}
+
+btnStart.onclick=async ()=>{
+    if(client){ try{client.disconnect();}catch(e){} }
+    transcriptsLog.innerHTML=''; eventsBody.innerHTML=''; rawLog.innerHTML=''; rawEvents=[]; eventCounter=0; finalCount=0; partialCount=0; ttsCount=0; refreshStatus(); ingestModeBadge.textContent='mode: -'; connState.textContent='init';
+    client=new StreamingVoiceClient({language:'en', debug:true, onEvent:handleEvent});
+    startTs=Date.now();
+    try{ client.connect(); await client.start(); sampleRateBadge.textContent='sr: '+(client.audioContext?client.audioContext.sampleRate:'?'); connState.textContent='starting'; btnSuspend.disabled=false; btnDisconnect.disabled=false; }catch(e){ connState.textContent='start_error'; logRaw({evt:'start_error', error:String(e)}); }
+};
+btnSuspend.onclick=()=>{ if(!client) return; client.setSuspended(true); connState.textContent='suspended'; btnSuspend.disabled=true; btnResume.disabled=false; };
+btnResume.onclick=()=>{ if(!client) return; client.setSuspended(false); connState.textContent='resuming'; btnSuspend.disabled=false; btnResume.disabled=true; };
+btnDisconnect.onclick=()=>{ if(!client) return; client.disconnect(); connState.textContent='disconnecting'; };
+btnClear.onclick=()=>{ rawLog.innerHTML=''; rawEvents=[]; };
+exportLink.onclick=(e)=>{ e.preventDefault(); if(!rawEvents.length) return; const report={ generated_at:new Date().toISOString(), total_events:rawEvents.length, partials:partialCount, finals:finalCount, tts:ttsCount, events:rawEvents }; const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='streaming_debug_'+new Date().toISOString().replace(/[:.]/g,'-')+'.json'; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 800); };
+</script>
+</body></html>'''
+        return Response(html, mimetype='text/html')
+
 @app.route('/worklet/pcm_downsampler.js')
 def serve_worklet_pcm_downsampler():
     js = r'''class PcmDownsampler extends AudioWorkletProcessor { constructor(opts){ super(); const o=opts.processorOptions||{}; this.target=o.targetSampleRate||16000; this.frame=o.frameSamples||320; this.srcRate=sampleRate; this.ratio=this.srcRate/this.target; this.buffer=new Float32Array(0);} process(inputs){ const ch=inputs[0]; if(!ch||ch.length===0) return true; const data=ch[0]; // append

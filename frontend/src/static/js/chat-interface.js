@@ -2151,6 +2151,7 @@ class BeautyAIChat {
                 if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
                     this.updateOverlayConnectionStatus('connected', 'Streaming ready');
                 }
+                this.appendStreamingMetric('status:ready');
                 break;
             case 'partial':
                 if (!this.firstPartialTimestamp) {
@@ -2186,6 +2187,21 @@ class BeautyAIChat {
                 this.showVoiceStatus('✅ Response complete'); break;
             case 'perf_cycle':
                 if (this.debugStreaming) this.appendStreamingMetric(`perf decode=${ev.decode_ms}ms latency=${ev.cycle_latency_ms}ms tokens=${ev.tokens}`);
+                break;
+            case 'mic_level':
+                if (this.debugStreaming) {
+                    const pct = Math.round(Math.min(1, ev.level * 4) * 100); // amplify low RMS for display
+                    this.appendStreamingMetric(`mic_level:${pct}%`);
+                }
+                break;
+            case 'ingest_mode':
+                this.appendStreamingMetric('ingest_mode:' + ev.mode);
+                if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.showOverlayVoiceStatus('Ingest: ' + ev.mode);
+                }
+                break;
+            case 'ingest_summary':
+                this.appendStreamingMetric('ingest_summary bytes=' + (ev.summary?.total_bytes||0) + ' frames=' + (ev.summary?.pcm_frames||0));
                 break;
             case 'error':
                 if (!this.streamingConnected) this.switchToLegacyFallback('early_error');

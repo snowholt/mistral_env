@@ -32,6 +32,9 @@ class StreamingVoiceClient {
     // Phase 8 additions
     this.autoRearm = opts.autoRearm !== false; // auto re-arm after TTS complete
     this._suspended = false;
+  this._lastMicLevel = 0;
+  this._ingestMode = null; // 'pcm16le' | 'webm-opus' etc
+  this._diag = { firstFrameAt: null, readyAt: null };
   }
 
   async initAudio() {
@@ -78,6 +81,15 @@ class StreamingVoiceClient {
     processor.onaudioprocess = (e) => {
       if (!this._connected || !this.ws || this.ws.readyState !== WebSocket.OPEN || this._suspended) return;
       const input = e.inputBuffer.getChannelData(0);
+      // quick RMS for mic level
+      let sum = 0; for (let i=0;i<input.length;i++){ const v=input[i]; sum+=v*v; }
+      const rms = Math.sqrt(sum / input.length);
+      // simple decay smoothing
+      this._lastMicLevel = this._lastMicLevel * 0.85 + rms * 0.15;
+      if (this.debug && (performance.now() - (this._lastMicEmit||0) > 250)) {
+        this._lastMicEmit = performance.now();
+        this.onEvent({ type: 'mic_level', level: this._lastMicLevel });
+      }
       this._enqueueAndDownsample(input);
       this._maybeSendFrames();
     };
@@ -201,6 +213,7 @@ class StreamingVoiceClient {
     switch (type) {
       case 'ready':
         this.onEvent({ type: 'ready', data: ev });
+  this._diag.readyAt = performance.now();
         break;
       case 'partial_transcript':
         this._livePartial = ev.text || '';
@@ -226,6 +239,13 @@ class StreamingVoiceClient {
         if (this.autoRearm && !this._suspended) {
           this.onEvent({ type: 'auto_rearm' });
         }
+        break;
+      case 'ingest_mode':
+        this._ingestMode = ev.mode;
+        this.onEvent({ type: 'ingest_mode', mode: ev.mode, bytes: ev.bytes_received });
+        break;
+      case 'ingest_summary':
+        this.onEvent({ type: 'ingest_summary', summary: ev });
         break;
       case 'error':
         this.onEvent({ type: 'error', message: ev.message, stage: ev.stage });

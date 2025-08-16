@@ -564,6 +564,14 @@ async def streaming_voice_endpoint(
                                 )
                                 state.ffmpeg_writer_open = True
                                 await _send_json(websocket, {"type": "info", "stage": "ingest", "message": f"Activated {state.compressed_mode} decoder"})
+                                # Emit ingest_mode event so frontend can display mode early
+                                await _send_json(websocket, {
+                                    "type": "ingest_mode",
+                                    "mode": state.compressed_mode,
+                                    "timestamp": time.time(),
+                                    "bytes_received": state.bytes_received,
+                                    "frame_hint_bytes": 640,
+                                })
 
                                 async def _reader():
                                     assert state.ffmpeg_proc and state.ffmpeg_proc.stdout
@@ -612,6 +620,15 @@ async def streaming_voice_endpoint(
                             state.pcm_frames_received += 1
                             if state.pcm_frames_received <= 3:  # log only first few for noise control
                                 logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
+                            # Emit ingest_mode once on first raw PCM frame (if not already sent)
+                            if state.pcm_frames_received == 1 and state.compressed_mode is None:
+                                await _send_json(websocket, {
+                                    "type": "ingest_mode",
+                                    "mode": "pcm16le",
+                                    "timestamp": time.time(),
+                                    "bytes_received": state.bytes_received,
+                                    "frame_size_bytes": len(payload),
+                                })
     except WebSocketDisconnect:
         logger.info("🔌 Streaming voice disconnect: %s", connection_id)
     except Exception as e:  # pragma: no cover
@@ -643,6 +660,15 @@ async def streaming_voice_endpoint(
                 await asyncio.wait_for(state.ffmpeg_proc.wait(), timeout=2)
         session_registry.remove(connection_id)
         logger.info("🧹 Cleaned streaming session %s (active=%d)", connection_id, session_registry.active_count())
+        # Emit final metrics summary if still connected (best-effort; socket may already be closed)
+        with contextlib.suppress(Exception):
+            await _send_json(websocket, {
+                "type": "ingest_summary",
+                "mode": state.compressed_mode or "pcm16le",
+                "total_bytes": state.bytes_received,
+                "pcm_frames": state.pcm_frames_received,
+                "duration_sec": round(time.time() - state.created_at, 3),
+            })
 
 
 @streaming_voice_router.get("/streaming-voice/status")
