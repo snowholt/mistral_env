@@ -679,7 +679,7 @@ console.log('Are they the same element?', thinkingCheckbox === domCheckbox);</di
                             <button onclick="toggleIframeCheckbox()">Toggle Iframe Checkbox</button>
                         </div>
                     `;
-                else:
+                } else {
                     results.innerHTML = `
                         <div class="status error">
                             <h3>Cannot find checkbox in iframe</h3>
@@ -1675,23 +1675,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -1756,7 +1756,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
@@ -2076,23 +2076,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -2157,7 +2157,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
@@ -2477,23 +2477,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -2558,7 +2558,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
@@ -2878,23 +2878,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -2959,7 +2959,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
@@ -3281,23 +3281,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -3362,7 +3362,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
@@ -3675,7 +3675,7 @@ def chat():
                 generation_config['top_k'] = int(data['top_k'])
             if 'min_p' in data:
                 generation_config['min_p'] = float(data['min_p'])
-        elif engine_type == 'transformers' {
+        } else if engine_type == 'transformers' {
             # Transformers engine is more limited, stick to basic parameters
             logger.info(f"Using Transformers engine for {model_name}, using basic parameters only")
         }
@@ -3683,23 +3683,23 @@ def chat():
         # Prepare chat message with correct API structure
         original_message = data.get('message', '')
         
-        # Check if thinking mode is disabled and add \no_think prefix
+        // Check if thinking mode is disabled and add \no_think prefix
         thinking_mode = None
-        if "thinking_mode" in data:
+        if 'thinking_mode' in data {
             // Handle both string and boolean values
             if isinstance(data['thinking_mode'], str) {
                 // Handle string values: "enable"/"disable" or "true"/"false"
                 thinking_value = data['thinking_mode'].lower()
                 thinking_mode = thinking_value in ['enable', 'true']
-            else:
+            } else {
                 thinking_mode = bool(data['thinking_mode'])
             }
             logger.info(f"Thinking mode from request: {data['thinking_mode']} -> {thinking_mode}")
-        elif 'enable_thinking' in data {
+        } else if 'enable_thinking' in data {
             // Fallback for legacy parameter
             thinking_mode = bool(data['enable_thinking'])
             logger.info(f"Thinking mode from legacy enable_thinking: {data['enable_thinking']} -> {thinking_mode}")
-        else:
+        } else {
             logger.info("No thinking_mode parameter found in request")
         }
         
@@ -3764,7 +3764,7 @@ def chat():
                 'thinking_enabled': result.get('thinking_enabled', False),
                 'content_filter_strictness': result.get('content_filter_strictness', 'balanced')
             })
-        else:
+        } else {
             error_msg = result.get('error', 'Unknown error')
             logger.error(f"Chat failed: {error_msg}")
             return jsonify({
