@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union, List
 from dataclasses import dataclass
 import edge_tts
+from ....services.voice.utils.text_cleaning import sanitize_tts_text
 
 from ....config.configuration_manager import ConfigurationManager
 
@@ -525,16 +526,18 @@ class SimpleVoiceService:
             logger.info(f"Optimized message: {optimized_message[:100]}... (target_language: {target_language})")
             
             # Use the real chat service with specified target language
-            result = self.chat_service.chat(
+            # Use low-latency wrapper that enforces no thinking
+            result = self.chat_service.chat_fast(
                 message=optimized_message,
-                max_length=128,  # Reduced for faster responses
-                language=target_language  # Use specified target language instead of auto
+                max_length=128,
+                language=target_language,
             )
             
             if result.get("success"):
                 raw_response = result.get("response", "")
                 # Clean thinking blocks from the response before TTS
-                clean_response = self._clean_thinking_blocks(raw_response)
+                # Already disable thinking in chat_fast, but perform defensive clean & emoji strip
+                clean_response = sanitize_tts_text(raw_response)
                 logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
                 return clean_response
             else:

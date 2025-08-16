@@ -42,6 +42,7 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
 from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
 from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
+from beautyai_inference.services.voice.utils.text_cleaning import sanitize_tts_text
 
 logger = logging.getLogger(__name__)
 
@@ -395,10 +396,10 @@ async def streaming_voice_endpoint(
                 # Offload potentially blocking LLM generation to thread pool to avoid stalling event loop
                 loop = asyncio.get_running_loop()
                 def _run_chat():
-                    return chat_service.chat(
+                    return chat_service.chat_fast(
                         message=text,
                         conversation_history=prev_history,
-                        max_length=256,
+                        max_length=192,
                         language=lang or "auto",
                         temperature=0.3,
                     )
@@ -414,6 +415,8 @@ async def streaming_voice_endpoint(
                     )
                 else:
                     response_text = chat_result.get("response", "") or ""
+                # Sanitize (remove thinking & emojis) defensively
+                response_text = sanitize_tts_text(response_text)
 
                 # Update conversation history (append user then assistant so history stays canonical)
                 state.conversation.append({"role": "user", "content": text})

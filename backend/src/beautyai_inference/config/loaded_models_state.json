@@ -1,10 +1,10 @@
 {
-  "timestamp": 1755377656.4631073,
+  "timestamp": 1755383316.986806,
   "loaded_models": {
     "qwen3-unsloth-q4ks": {
       "model_id": "unsloth/Qwen3-14B-GGUF",
       "engine": "llama.cpp",
-      "loaded_at": 1755377656.4631095,
+      "loaded_at": 1755383316.986808,
       "status": "loaded"
     }
   }

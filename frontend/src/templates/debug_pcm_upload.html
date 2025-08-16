@@ -2,98 +2,292 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Debug: PCM Upload</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_upload.css') }}">
+  <title>Offline File → Streaming WS Debug</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_streaming.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_pcm_enhanced.css') }}">
 </head>
 <body>
-  <h1>PCM Upload Debug</h1>
+  <h1>Offline Audio File Streaming WebSocket Debug</h1>
   <div class="note-banner">
-    <strong>Note:</strong> The diagnostic POST endpoint <code>/api/v1/stream/upload-chunk</code> is <em>not implemented</em> in the current version. This page remains only as a reference for manual PCM capture & formatting. Prefer the <a href="/debug/streaming-live">Live Streaming Debug</a> page for real-time tests.
+    Provide an audio file (wav / pcm / most browser-decodable formats). The file will be decoded, downsampled to 16 kHz Int16, then streamed frame-by-frame to the <code>/api/v1/ws/streaming-voice</code> endpoint to simulate a live session. No microphone capture is used here.
   </div>
-  <p>Record short PCM chunks (16kHz mono) and POST to backend streaming endpoint for diagnostics.</p>
-  <div class="row">
-    <button id="btn-start">Start Recording</button>
-    <button id="btn-stop" disabled>Stop</button>
-    <button id="btn-clear">Clear Log</button>
-  </div>
-  <div class="row">
-    <label>Language: <input id="language" value="en" size="4"/></label>
-    <label>Chunk (ms): <input id="chunkMs" type="number" value="400" min="50" max="2000" step="50" /></label>
-  </div>
-  <div class="row">
-    <strong>Log</strong>
+
+  <section class="panel" id="configPanel">
+    <h2>Configuration</h2>
+    <div class="cfg-grid">
+      <label>Audio File
+        <input type="file" id="audioFile" accept="audio/*,.pcm" />
+      </label>
+      <label>Language
+        <select id="langSel">
+          <option value="auto">auto</option>
+          <option value="ar" selected>ar</option>
+          <option value="en">en</option>
+        </select>
+      </label>
+      <label>Frame (ms)
+        <input id="frameMs" type="number" min="10" max="60" step="5" value="20" />
+      </label>
+      <label>Pacing
+        <select id="paceMode">
+          <option value="realtime" selected>real-time</option>
+          <option value="fast">as-fast-as-possible</option>
+        </select>
+      </label>
+      <label>WS Endpoint
+        <input id="wsUrl" placeholder="(auto)" />
+      </label>
+      <label>Autoplay TTS
+        <input type="checkbox" id="autoplayTTS" checked />
+      </label>
+      <div class="status-box" id="wsStatus" data-state="disconnected">● Disconnected</div>
+      <button id="btnConnect" class="primary">Connect</button>
+      <button id="btnDisconnect" disabled>Disconnect</button>
+      <button id="btnStream" disabled>Stream File</button>
+      <button id="btnAbort" disabled>Abort Stream</button>
+      <button id="btnExport" disabled>Export Log</button>
+      <button id="btnClear">Clear</button>
+    </div>
+    <div class="metrics">
+      <div><span>Decoded Rate:</span><code id="mDecodedRate">-</code></div>
+      <div><span>Frames Sent:</span><code id="mFrames">0</code></div>
+      <div><span>Bytes Sent:</span><code id="mBytes">0</code></div>
+      <div><span>Partials:</span><code id="mPartials">0</code></div>
+      <div><span>Finals:</span><code id="mFinals">0</code></div>
+      <div><span>Responses:</span><code id="mResponses">0</code></div>
+      <div><span>First Partial (ms):</span><code id="mFirstPartial">-</code></div>
+      <div><span>First Final (ms):</span><code id="mFirstFinal">-</code></div>
+      <div><span>TTS Start (ms):</span><code id="mTTSStart">-</code></div>
+      <div><span>TTS Complete (ms):</span><code id="mTTSComplete">-</code></div>
+    </div>
+  </section>
+
+  <section class="panel split">
+    <div>
+      <h3>Partial Transcript</h3>
+      <div id="partialBox" class="partial-box mono">&nbsp;</div>
+      <h3>Final Transcript</h3>
+      <textarea id="finalBox" class="mono" readonly></textarea>
+    </div>
+    <div>
+      <h3>Assistant Responses</h3>
+      <textarea id="assistantBox" class="mono" readonly></textarea>
+      <h3>Received TTS (latest)</h3>
+      <audio id="ttsAudio" controls></audio>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Event Log</h2>
+    <div class="log-toolbar">
+      <label><input type="checkbox" id="showHeartbeat" checked /> Heartbeats</label>
+      <label><input type="checkbox" id="showFrames" /> Frame Sent</label>
+    </div>
     <div id="log" class="log"></div>
-  </div>
+  </section>
+
+  <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
   <script>
-    const logEl = document.getElementById('log');
-    const btnStart = document.getElementById('btn-start');
-    const btnStop = document.getElementById('btn-stop');
-    const btnClear = document.getElementById('btn-clear');
-    const languageEl = document.getElementById('language');
-    const chunkMsEl = document.getElementById('chunkMs');
+    // ==========================================
+    // Utility / State
+    // ==========================================
+    const evLog = [];
+    let ws = null;
+    let int16Audio = null; // Int16Array (16kHz)
+    let streamOffset = 0;
+    let frameTimer = null;
+    let sessionStart = null;
+    let framesSent=0, bytesSent=0, partials=0, finals=0, responses=0;
+    let firstPartialAt=null, firstFinalAt=null, ttsStartAt=null, ttsCompleteAt=null;
 
-    let mediaStream, mediaRecorder, audioCtx, processor, source;
+    const E = id => document.getElementById(id);
+    const els = {
+      wsStatus: E('wsStatus'), wsUrl: E('wsUrl'), lang: E('langSel'), frameMs: E('frameMs'), paceMode: E('paceMode'), autoplay: E('autoplayTTS'),
+      file: E('audioFile'), btnConnect: E('btnConnect'), btnDisconnect: E('btnDisconnect'), btnStream: E('btnStream'), btnAbort: E('btnAbort'), btnExport: E('btnExport'), btnClear: E('btnClear'),
+      mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'),
+      partial: E('partialBox'), final: E('finalBox'), assistant: E('assistantBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames')
+    };
 
-    function log(msg){
-      const ts = new Date().toISOString().split('T')[1].replace('Z','');
-      logEl.textContent += `[${ts}] ${msg}\n`;
-      logEl.scrollTop = logEl.scrollHeight;
-    }
-    btnClear.onclick = () => logEl.textContent='';
-
-  // Using shared AudioUtils for PCM conversion (audioUtils.js)
-
-    async function start(){
-      btnStart.disabled = true; btnStop.disabled = false;
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:16000});
-      mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
-      source = audioCtx.createMediaStreamSource(mediaStream);
-      const chunkSizeMs = parseInt(chunkMsEl.value,10) || 400;
-      const framesPerBuffer = Math.round(audioCtx.sampleRate * (chunkSizeMs/1000));
-      processor = audioCtx.createScriptProcessor(4096, 1, 1);
-      let accumulate = new Float32Array(0);
-      processor.onaudioprocess = e => {
-        const input = e.inputBuffer.getChannelData(0);
-        // accumulate
-        const merged = new Float32Array(accumulate.length + input.length);
-        merged.set(accumulate,0); merged.set(input, accumulate.length);
-        accumulate = merged;
-        if(accumulate.length >= framesPerBuffer){
-          const toSend = accumulate.slice(0, framesPerBuffer);
-          accumulate = accumulate.slice(framesPerBuffer);
-          sendChunk(toSend);
-        }
-      };
-      source.connect(processor); processor.connect(audioCtx.destination);
-      log('Recording started');
+    function autoUrl(){
+      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+      let host = window.BEAUTYAI_API_HOST || location.host; const hn = location.hostname;
+      if (/\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)) host = 'api.gmai.sa';
+      return `${proto}//${host}/api/v1/ws/streaming-voice?language=${encodeURIComponent(els.lang.value)}`;
     }
 
-    function stop(){
-      btnStart.disabled = false; btnStop.disabled = true;
-      if(processor){ processor.disconnect(); processor.onaudioprocess = null; }
-      if(source){ source.disconnect(); }
-      if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); }
-      log('Recording stopped');
+    function setStatus(state){
+      els.wsStatus.dataset.state = state;
+      els.wsStatus.textContent = state==='connected'?'● Connected': state==='connecting'?'● Connecting...':'● Disconnected';
     }
 
-    async function sendChunk(floatBuf){
-      try{
-  const ab = AudioUtils.floatToInt16Buffer(floatBuf);
-        const blob = new Blob([ab], {type:'application/octet-stream'});
-        const form = new FormData();
-        form.append('audio', blob, 'chunk.pcm');
-        form.append('language', languageEl.value || 'en');
-        const r = await fetch('/api/v1/stream/upload-chunk', {method:'POST', body: form});
-        const js = await r.json();
-        log(`Chunk -> status=${r.status} partial_transcript=${js.partial_transcript || ''}`);
-      }catch(err){
-        log('Send error: '+ err.message);
+    function log(type, data={}){
+      const now = performance.now();
+      const ev = { t: now, type, ...data };
+      evLog.push(ev);
+      const rel = sessionStart? (now - sessionStart).toFixed(1): '0.0';
+      if ((type==='heartbeat' && !els.showHeartbeat.checked) || (type==='frame_sent' && !els.showFrames.checked)) return;
+      els.log.textContent += `[+${rel}ms] ${type} ${JSON.stringify(data)}\n`;
+      els.log.scrollTop = els.log.scrollHeight;
+    }
+
+    function resetSession(){
+      sessionStart = performance.now();
+      framesSent=bytesSent=partials=finals=responses=0;
+      firstPartialAt=firstFinalAt=ttsStartAt=ttsCompleteAt=null;
+      [els.mFrames, els.mBytes, els.mPartials, els.mFinals, els.mResponses].forEach(el=>el.textContent='0');
+      [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mTTSStart, els.mTTSComplete].forEach(el=>el.textContent='-');
+      els.partial.textContent=''; els.final.value=''; els.assistant.value='';
+    }
+
+    // ==========================================
+    // File Decoding
+    // ==========================================
+    async function decodeSelectedFile(){
+      const file = els.file.files?.[0];
+      if(!file){ alert('Select an audio file.'); return; }
+      const arrBuf = await file.arrayBuffer();
+      // If raw .pcm (assume 16kHz mono 16-bit LE)
+      if (file.name.match(/\.pcm$/i)) {
+        const raw = new Int16Array(arrBuf);
+        int16Audio = raw; els.mDecodedRate.textContent = '16000 (assumed)';
+        log('file_decoded', {samples: raw.length, assumed:true});
+        return;
+      }
+      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      const audioBuf = await audioCtx.decodeAudioData(arrBuf.slice(0));
+      const ch0 = audioBuf.getChannelData(0);
+      const srcRate = audioBuf.sampleRate;
+      els.mDecodedRate.textContent = String(srcRate);
+      const targetRate = 16000;
+      const ratio = srcRate / targetRate;
+      const outLen = Math.floor(ch0.length / ratio);
+      const outFloat = new Float32Array(outLen);
+      let inPos=0;
+      for (let i=0;i<outLen;i++) { // simple average decimate
+        let sum=0; let cnt=0;
+        for (let r=0;r<ratio && inPos<ch0.length;r++){ sum+=ch0[inPos++]; cnt++; }
+        outFloat[i]= sum / (cnt||1);
+      }
+      const int16 = new Int16Array(outFloat.length);
+      for (let i=0;i<outFloat.length;i++) {
+        let s=outFloat[i]; if(s>1)s=1; else if(s<-1)s=-1; int16[i]= s<0? s*0x8000: s*0x7FFF;
+      }
+      int16Audio = int16;
+      log('file_decoded', {samples:int16.length, src_rate:srcRate});
+    }
+
+    // ==========================================
+    // WebSocket Handling
+    // ==========================================
+    function connect(){
+      if (ws && ws.readyState===WebSocket.OPEN) return;
+      resetSession();
+      setStatus('connecting');
+      const url = (els.wsUrl.value.trim() || autoUrl());
+      els.wsUrl.value = url;
+      ws = new WebSocket(url);
+      ws.onopen = ()=>{ setStatus('connected'); log('ws_open'); toggleButtons(); };
+      ws.onclose = (e)=>{ setStatus('disconnected'); log('ws_close',{code:e.code}); toggleButtons(); abortStream(); };
+      ws.onerror = (e)=>{ log('ws_error'); };
+      ws.onmessage = (e)=>handleServerMessage(e.data);
+      toggleButtons();
+    }
+    function disconnect(){ if(ws){ try{ ws.close(); }catch{} } }
+
+    function handleServerMessage(data){
+      try { const msg = JSON.parse(data); const type = msg.type || msg.event; switch(type){
+        case 'partial_transcript':
+          partials++; if(!firstPartialAt) firstPartialAt=performance.now(); els.mPartials.textContent=partials; els.partial.textContent = msg.text || ''; els.mFirstPartial.textContent = delta(firstPartialAt); log('partial',{text:msg.text}); break;
+        case 'final_transcript':
+          finals++; if(!firstFinalAt) firstFinalAt=performance.now(); els.mFinals.textContent=finals; els.final.value += (els.final.value?'\n':'') + (msg.text||''); els.mFirstFinal.textContent = delta(firstFinalAt); log('final',{text:msg.text}); break;
+        case 'assistant_response':
+          responses++; els.mResponses.textContent=responses; els.assistant.value += (els.assistant.value?'\n':'') + (msg.text||''); log('assistant_response',{chars:msg.chars}); break;
+        case 'tts_start':
+          if(!ttsStartAt) ttsStartAt=performance.now(); els.mTTSStart.textContent = delta(ttsStartAt); log('tts_start'); break;
+        case 'tts_audio':
+          log('tts_audio',{chars:msg.chars}); if(els.autoplay.checked && msg.audio){ playBase64Wav(msg.audio); } break;
+        case 'tts_complete':
+          if(!ttsCompleteAt) ttsCompleteAt=performance.now(); els.mTTSComplete.textContent = delta(ttsCompleteAt); log('tts_complete',{processing_ms:msg.processing_ms}); break;
+        case 'heartbeat':
+          log('heartbeat', msg); break;
+        case 'error':
+          log('error',{message:msg.message}); break;
+        default:
+          log('server_event', msg);
+      }} catch { log('non_json'); }
+    }
+
+    function delta(ts){ return sessionStart? (ts - sessionStart).toFixed(1): '-'; }
+
+    function playBase64Wav(b64){
+      try { const bin=atob(b64); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); const blob=new Blob([u8],{type:'audio/wav'}); const url=URL.createObjectURL(blob); els.ttsAudio.src=url; els.ttsAudio.play().catch(()=>{}); els.ttsAudio.onended=()=>URL.revokeObjectURL(url);}catch{}
+    }
+
+    // ==========================================
+    // Streaming the Decoded Int16 Buffer
+    // ==========================================
+    function streamFile(){
+      if(!ws || ws.readyState!==WebSocket.OPEN){ alert('Connect first'); return; }
+      if(!int16Audio){ alert('Decode / select a file first'); return; }
+      streamOffset = 0; framesSent=bytesSent=0; els.mFrames.textContent='0'; els.mBytes.textContent='0'; log('stream_start',{samples:int16Audio.length});
+      scheduleNextFrame(); toggleButtons();
+    }
+    function scheduleNextFrame(){
+      if(!ws || ws.readyState!==WebSocket.OPEN) return;
+      const frameMs = parseInt(els.frameMs.value,10) || 20;
+      const samplesPerFrame = 16000 * frameMs / 1000; // 320 for 20ms
+      if(streamOffset >= int16Audio.length){ log('stream_complete'); toggleButtons(); return; }
+      const end = Math.min(int16Audio.length, streamOffset + samplesPerFrame);
+      const frame = int16Audio.subarray(streamOffset, end);
+      try { ws.send(frame.buffer); } catch(e){ log('send_error'); return; }
+      framesSent++; bytesSent += frame.length*2; els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent; log('frame_sent',{samples:frame.length});
+      streamOffset = end;
+      if(els.paceMode.value === 'fast') {
+        scheduleNextFrame();
+      } else {
+        frameTimer = setTimeout(scheduleNextFrame, frameMs);
       }
     }
+    function abortStream(){ if(frameTimer){ clearTimeout(frameTimer); frameTimer=null; log('stream_aborted'); toggleButtons(); } }
 
-    btnStart.onclick = start;
-    btnStop.onclick = stop;
+    // ==========================================
+    // Export & Clear
+    // ==========================================
+    function exportLog(){
+      const blob = new Blob([JSON.stringify({created:new Date().toISOString(), events:evLog}, null, 2)], {type:'application/json'});
+      const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='offline_stream_log.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),500);
+    }
+    function clearAll(){ evLog.length=0; els.log.textContent=''; resetSession(); log('cleared'); }
+
+    // ==========================================
+    // Button / State Logic
+    // ==========================================
+    function toggleButtons(){
+      const connected = ws && ws.readyState===WebSocket.OPEN;
+      const streaming = frameTimer !== null;
+      els.btnConnect.disabled = connected;
+      els.btnDisconnect.disabled = !connected;
+      els.btnStream.disabled = !connected || !int16Audio || streaming;
+      els.btnAbort.disabled = !streaming;
+      els.btnExport.disabled = evLog.length===0;
+    }
+
+    // ==========================================
+    // Event Bindings
+    // ==========================================
+    els.btnConnect.onclick = connect;
+    els.btnDisconnect.onclick = ()=>{ disconnect(); toggleButtons(); };
+    els.btnStream.onclick = streamFile;
+    els.btnAbort.onclick = abortStream;
+    els.btnExport.onclick = exportLog;
+    els.btnClear.onclick = clearAll;
+    els.file.onchange = async ()=>{ await decodeSelectedFile(); toggleButtons(); };
+    els.lang.onchange = ()=>{ if(ws) { log('lang_change_ignored'); } };
+    els.frameMs.oninput = ()=>{ if(frameTimer) log('frame_size_change_runtime'); };
+    els.showFrames.onchange = ()=>{}; els.showHeartbeat.onchange = ()=>{};
+
+    resetSession();
+    log('ready');
   </script>
-  <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
 </body>
 </html>

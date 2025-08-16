@@ -35,6 +35,41 @@ class ChatService(BaseService):
         self.active_sessions: Dict[str, Dict[str, Any]] = {}
         self._default_model_loaded = False
         self._default_model_name = None
+
+    def chat_fast(
+        self,
+        message: str,
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        max_length: int = 192,
+        language: str = "auto",
+        **generation_config,
+    ) -> Dict[str, Any]:
+        """Low-latency wrapper that forcibly disables thinking mode.
+
+        This is used by voice (simple + streaming) pipelines where any hidden
+        reasoning blocks (<think>...</think>) add latency and produce noisy
+        TTS output if leaked.
+
+        Guarantees:
+        - thinking_mode False
+        - enable_thinking flag stripped / overridden to False
+        - conservative max_length (default 192)
+        - stable low temperature defaults unless explicitly overridden
+        """
+        # Remove any external attempts to enable thinking
+        generation_config.pop("enable_thinking", None)
+        generation_config.pop("thinking_mode", None)
+        # Provide latency-oriented defaults if caller didn't override
+        generation_config.setdefault("temperature", 0.3)
+        generation_config.setdefault("top_p", 0.8)
+        return self.chat(
+            message=message,
+            conversation_history=conversation_history,
+            max_length=max_length,
+            language=language,
+            thinking_mode=False,
+            **generation_config,
+        )
     
     def load_default_model_from_config(self) -> bool:
         """
