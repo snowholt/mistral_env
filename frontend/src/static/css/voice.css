@@ -1,0 +1,40 @@
+/* Voice / overlay & control styles extracted from original main.css */
+
+/* Floating voice button */
+.floating-voice-btn { position:fixed; bottom:30px; right:30px; width:60px; height:60px; background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); border-radius:50%; display:flex; align-items:center; justify-content:center; color:#fff; cursor:pointer; box-shadow:0 4px 20px rgba(102,126,234,0.3); transition:.3s; z-index:1000; }
+.floating-voice-btn:hover { transform:scale(1.1); box-shadow:0 6px 25px rgba(102,126,234,0.4); }
+.floating-voice-btn:active { transform:scale(.95); }
+
+/* Overlay */
+.voice-overlay { position:fixed; inset:0; background:rgba(0,0,0,.75); backdrop-filter:blur(10px); display:flex; align-items:center; justify-content:center; z-index:2000; opacity:1; transition:.3s; }
+.voice-overlay.hidden { opacity:0; pointer-events:none; }
+.voice-overlay-content { background:#fff; border-radius:20px; padding:30px; max-width:500px; width:90%; max-height:80vh; overflow-y:auto; box-shadow:0 20px 60px rgba(0,0,0,.3); }
+.voice-overlay-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:25px; padding-bottom:15px; border-bottom:2px solid #f0f0f0; }
+.close-btn { background:none; border:none; font-size:2rem; color:#9ca3af; cursor:pointer; width:30px; height:30px; display:flex; align-items:center; justify-content:center; border-radius:50%; transition:.2s; }
+.close-btn:hover { background:#f3f4f6; color:#6b7280; }
+
+/* Status indicator reused (see base.css) */
+.status-indicator.connected { color:#10b981; }
+.status-indicator.disconnected { color:#ef4444; }
+.status-indicator.processing { color:#f59e0b; }
+
+/* Voice toggle */
+.voice-toggle-btn { background:linear-gradient(135deg,#667eea 0%,#764ba2 100%); border:none; border-radius:50%; width:80px; height:80px; color:#fff; cursor:pointer; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; font-size:.75rem; font-weight:500; transition:.3s; margin:0 auto 15px; }
+.voice-toggle-btn:hover { transform:scale(1.05); box-shadow:0 6px 20px rgba(102,126,234,0.3); }
+.voice-toggle-btn.recording { background:linear-gradient(135deg,#ef4444 0%,#dc2626 100%); transform:scale(.95); }
+
+.voice-status { min-height:24px; color:#6b7280; font-size:.9rem; padding:8px; background:#f9fafb; border-radius:8px; }
+
+/* Visualizer */
+.voice-visualizer { margin:40px 0; display:flex; justify-content:center; align-items:center; height:100px; }
+.voice-wave { display:flex; align-items:flex-end; gap:4px; height:80px; }
+.voice-bar { width:6px; background:linear-gradient(to top,#4facfe,#00f2fe); border-radius:3px; transition:.1s; height:10px; opacity:.3; }
+.voice-visualizer.active .voice-bar { opacity:1; animation:voiceWave .5s ease-in-out infinite alternate; }
+@keyframes voiceWave { 0%{height:10px;} 100%{height:60px;} }
+
+/* Transcript simplified */
+.voice-transcript { margin-top:20px; padding:16px; background:#f8fafc; border-radius:12px; max-height:300px; overflow-y:auto; }
+.voice-transcript-message { margin-bottom:12px; padding:10px 12px; border-radius:8px; font-size:13px; line-height:1.4; background:#fff; border-left:3px solid #667eea; }
+.voice-transcript-message.assistant { border-left-color:#34a853; }
+
+@media (max-width:600px){ .floating-voice-btn { bottom:20px; right:20px; width:50px; height:50px; } .voice-overlay-content { margin:20px; padding:20px; } .voice-toggle-btn { width:70px; height:70px; } }

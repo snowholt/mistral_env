@@ -1,0 +1,7 @@
+/* Transcript / message styling extracted */
+.transcript-header { display:flex; justify-content:space-between; align-items:center; margin-bottom:4px; font-size:11px; opacity:.7; }
+.transcript-role { font-weight:600; text-transform:uppercase; letter-spacing:.5px; }
+.transcript-time { font-family:monospace; }
+.transcript-content { font-size:13px; line-height:1.4; }
+@keyframes transcriptSlide { from { opacity:0; transform:translateY(8px);} to { opacity:1; transform:translateY(0);} }
+.voice-transcript-message { animation:transcriptSlide .25s ease-out; }

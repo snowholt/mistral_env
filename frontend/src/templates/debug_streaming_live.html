@@ -3,19 +3,13 @@
 <head>
   <meta charset="UTF-8" />
   <title>Debug: Streaming Live</title>
-  <style>
-    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
-    .col { display:flex; gap:2rem; }
-    textarea { width:100%; height:140px; }
-    .log { white-space: pre-wrap; background:#111; color:#0f0; padding:1rem; height:200px; overflow:auto; font-size:0.75rem; }
-    button { margin:0.25rem 0.5rem 0.25rem 0; }
-  </style>
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_streaming.css') }}">
 </head>
 <body>
   <h1>Live Streaming Debug</h1>
   <p>WebSocket streaming test: capture microphone, send PCM frames, view partial + final ASR and TTS events.</p>
   <div>
-    <label>WS URL: <input id="wsUrl" size="60" value="ws://localhost:8000/ws/audio-stream" /></label>
+  <label>WS URL: <input id="wsUrl" size="60" value="ws://localhost:8000/ws/simple-voice" /></label>
     <label>Lang: <input id="language" value="en" size="4" /></label>
     <label>Chunk ms: <input id="chunkMs" type="number" value="320" style="width:70px" /></label>
   </div>
@@ -58,14 +52,7 @@
 
     btnClear.onclick = () => { logEl.textContent=''; transcriptEl.value=''; assistantEl.value=''; };
 
-    function pcm16(float32){
-      const out = new Int16Array(float32.length);
-      for(let i=0;i<float32.length;i++){
-        const s = Math.max(-1, Math.min(1, float32[i]));
-        out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
-      }
-      return out;
-    }
+  // Using shared AudioUtils (loaded at bottom) for PCM conversion.
 
     function connect(){
       ws = new WebSocket(wsUrlEl.value);
@@ -114,7 +101,7 @@
           const slice = acc.slice(0, framesPerChunk);
             acc = acc.slice(framesPerChunk);
           if(ws && ws.readyState === WebSocket.OPEN){
-            const int16 = pcm16(slice);
+            const int16 = AudioUtils.floatToInt16(slice);
             ws.send(int16.buffer);
           }
         }
@@ -134,5 +121,6 @@
     btnConnect.onclick = connect;
     btnDisconnect.onclick = disconnect;
   </script>
+  <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
 </body>
 </html>
