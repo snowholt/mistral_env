@@ -24,6 +24,7 @@ class EndpointConfig:
     calibration_ms: int = 400
     min_speech_ms: int = 120  # need this much voiced energy to commit speech
     min_silence_ms: int = 600  # required trailing silence for endpoint
+    token_stable_ms: int = 600  # how long tokens must remain unchanged to finalize
     max_utterance_ms: int = 12_000
     rms_factor: float = 1.8
     rms_margin: float = 0.0005
@@ -134,7 +135,7 @@ def update_endpoint(
         # Endpoint conditions
         should_finalize = False
         reason = None
-        if state.silence_ms >= cfg.min_silence_ms and state.no_token_change_ms >= 600:
+        if state.silence_ms >= cfg.min_silence_ms and state.no_token_change_ms >= cfg.token_stable_ms:
             should_finalize = True
             reason = "silence+stable"
         elif state.utterance_ms >= cfg.max_utterance_ms:
@@ -158,7 +159,7 @@ def update_endpoint(
             state.utterance_index += 1
             # Prepare for next after finalization; tokens reset next pass
             state.reset_for_next()
-        return events
+    return events
 
     # Not currently active; check for speech onset
     if voiced:

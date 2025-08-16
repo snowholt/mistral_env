@@ -19,7 +19,7 @@ current_dir = Path(__file__).parent.resolve()
 sys.path.insert(0, str(current_dir))
 
 try:
-    from flask import Flask, render_template, request, jsonify, session, Response
+    from flask import Flask, render_template, request, jsonify, session, Response, send_file
     import aiohttp
     import json
     from datetime import datetime
@@ -1494,6 +1494,228 @@ def audio_download(session_id):
             'success': False,
             'error': str(e)
         }), 500
+
+# ---------------------------------------------------------------------------
+# Debug: PCM Upload → WebSocket streaming test page (no microphone)
+# ---------------------------------------------------------------------------
+@app.route('/debug/pcm-upload')
+def debug_pcm_upload_page():
+    """Serve a standalone HTML page for uploading a raw 16 kHz mono s16le
+    PCM file (.pcm) and streaming it over the BeautyAI streaming voice
+    WebSocket endpoint. No microphone required. Intentionally self-contained
+    for rapid debugging of partial/final transcripts and TTS events.
+    """
+    html = r'''<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>BeautyAI PCM → WebSocket Debug</title>
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <style>
+        body { font-family: system-ui, Arial, sans-serif; margin: 0; padding: 0; background:#f5f7fa; color:#222; }
+        header { background:#3f51b5; color:#fff; padding:16px 24px; }
+        h1 { margin:0; font-size:20px; }
+        main { max-width: 1100px; margin: 0 auto; padding: 24px; }
+        section { background:#fff; border-radius:10px; box-shadow:0 2px 6px rgba(0,0,0,0.07); padding:20px; margin-bottom:24px; }
+        label { display:block; margin: 8px 0 4px; font-weight:600; }
+        input[type=text], select, input[type=number] { width:100%; padding:8px 10px; border:1px solid #ccc; border-radius:6px; font-size:14px; }
+        input[type=file] { margin-top:4px; }
+    button { cursor:pointer; border:none; background:#3f51b5; color:#fff; padding:10px 18px; border-radius:6px; font-size:14px; font-weight:600; letter-spacing:.3px; display:inline-flex; align-items:center; gap:6px; }
+        button:disabled { background:#9fa8da; cursor:not-allowed; }
+        button.secondary { background:#607d8b; }
+    button.outline { background:#fff; color:#3f51b5; border:1px solid #3f51b5; }
+    button.outline:hover { background:#3f51b5; color:#fff; }
+        .row { display:flex; flex-wrap:wrap; gap:18px; }
+        .col { flex:1 1 260px; min-width:260px; }
+        .log { background:#0d1117; color:#e6edf3; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; padding:12px; height:340px; overflow:auto; border-radius:6px; font-size:13px; line-height:1.4; }
+        .status-bar { display:flex; flex-wrap:wrap; gap:10px; margin:12px 0; font-size:13px; }
+        .status-item { background:#e8eef5; padding:6px 10px; border-radius:5px; }
+        .events-table { width:100%; border-collapse:collapse; font-size:13px; }
+        .events-table th, .events-table td { border:1px solid #ddd; padding:4px 6px; text-align:left; }
+        .events-table th { background:#f1f5f9; }
+        .pill { display:inline-block; padding:2px 6px; border-radius:12px; font-size:11px; font-weight:600; }
+        .pill.partial { background:#fff8e1; color:#9c6500; }
+        .pill.final { background:#e0f7fa; color:#006064; }
+        .pill.tts { background:#ede7f6; color:#4527a0; }
+        audio { width:100%; margin-top:8px; }
+        .progress { height:6px; background:#e2e8f0; border-radius:3px; overflow:hidden; margin-top:6px; }
+        .progress span { display:block; height:6px; background:#3f51b5; width:0%; transition: width .2s; }
+    </style>
+</head>
+<body>
+    <header><h1>BeautyAI PCM → WebSocket Streaming Debug</h1></header>
+    <main>
+        <section>
+            <h2>1. Select PCM File</h2>
+            <p>Upload a <strong>raw 16 kHz mono signed 16-bit little-endian PCM</strong> file (.pcm). Frames are sent over the WebSocket to debug partial/final transcripts & TTS without microphone.</p>
+            <div class="row">
+                <div class="col"><label for="pcmFile">PCM File (.pcm)</label><input type="file" id="pcmFile" accept=".pcm" /></div>
+                <div class="col"><label for="language">Language</label><select id="language"><option value="en">en</option><option value="ar">ar</option></select></div>
+                <div class="col"><label for="frameMs">Frame (ms)</label><input type="number" id="frameMs" value="20" min="10" max="200" step="5" /></div>
+                <div class="col"><label for="endpointUrl">WebSocket URL</label><input type="text" id="endpointUrl" value="wss://api.gmai.sa/api/v1/ws/streaming-voice" /></div>
+            </div>
+            <div class="row" style="margin-top:12px;">
+                <div class="col"><label for="tailSilenceMs">Tail Silence (ms)</label><input type="number" id="tailSilenceMs" value="1200" min="0" step="100" /></div>
+                <div class="col"><label for="autoCloseSec">Auto-Close After (s)</label><input type="number" id="autoCloseSec" value="6" min="0" step="0.5" /></div>
+                                <div class="col"><label>&nbsp;</label>
+                                    <div class="flex-col">
+                                        <button id="connectBtn">Connect & Start</button>
+                                        <div style="margin-top:8px; font-size:11px; color:#444; line-height:1.3;">Tip: Set Auto-Close=0 to keep socket open until you manually abort or server closes after TTS.</div>
+                                    </div>
+                                </div>
+                                <div class="col"><label>&nbsp;</label>
+                                    <div class="flex-col" style="gap:6px;display:flex;">
+                                        <button id="abortBtn" class="secondary" disabled>Abort / Close</button>
+                                        <button id="exportBtn" class="outline" disabled>Export Report</button>
+                                    </div>
+                                </div>
+            </div>
+            <div class="progress"><span id="progressBar"></span></div>
+            <div class="status-bar" id="statusBar"></div>
+                        <details style="margin-top:10px;">
+                            <summary><strong>Auto-Close Behavior</strong></summary>
+                            <p style="font-size:13px; line-height:1.5;">If you choose a non-zero Auto-Close value the page will schedule a closure AFTER audio streaming finishes. If a <code>tts_start</code> event arrives the timer is extended to allow TTS generation. If no <code>tts_audio</code> or <code>tts_complete</code> arrives before the extended timeout you'll see a warning in the report. Code 1005 (no close frame) usually means the browser or proxy cut the connection before a normal close handshake.</p>
+                        </details>
+        </section>
+        <section>
+            <h2>2. Events</h2>
+            <table class="events-table" id="eventsTable"><thead><tr><th>#</th><th>Type</th><th>Idx</th><th>Text / Info</th><th>Latency (ms)</th></tr></thead><tbody></tbody></table>
+        </section>
+        <section>
+            <h2>3. Raw JSON Log</h2>
+            <div class="log" id="log"></div>
+        </section>
+        <section>
+            <h2>4. TTS Audio</h2>
+            <div id="ttsContainer"><em>No TTS yet.</em></div>
+        </section>
+    </main>
+    <script>
+        const logEl=document.getElementById('log');
+        const eventsBody=document.querySelector('#eventsTable tbody');
+        const statusBar=document.getElementById('statusBar');
+        const progressBar=document.getElementById('progressBar');
+        const ttsContainer=document.getElementById('ttsContainer');
+    const connectBtn=document.getElementById('connectBtn');
+    const abortBtn=document.getElementById('abortBtn');
+    const exportBtn=document.getElementById('exportBtn');
+    let ws=null,startTs=null,partialCount=0,finalCount=0,ttsCount=0;
+    let audioStreamFinished=false;
+    let ttsStarted=false;
+    let ttsAudioReceived=false;
+    let autoCloseTimer=null;
+    let eventsCollected=[]; // raw event objects (including meta)
+    let lastEventTs=null;
+        function addStatus(k,v){const d=document.createElement('div');d.className='status-item';d.textContent=`${k}: ${v}`;statusBar.appendChild(d);}function clearStatus(){statusBar.innerHTML='';}
+    function logJson(o){eventsCollected.push({ts:Date.now(), ...o});const line=document.createElement('div');line.textContent=JSON.stringify(o);logEl.appendChild(line);logEl.scrollTop=logEl.scrollHeight;lastEventTs=Date.now();}
+        function addEventRow(e){const tr=document.createElement('tr');const lat=startTs?Date.now()-startTs:0;const idx=e.cursor??e.utterance_index??'';let pc='';if(e.type==='partial_transcript')pc='partial';else if(e.type==='final_transcript')pc='final';else if(e.type && e.type.startsWith('tts_'))pc='tts';tr.innerHTML=`<td>${eventsBody.children.length+1}</td><td><span class="pill ${pc}">${e.type}</span></td><td>${idx}</td><td>${(e.text||e.message||'').slice(0,140)}</td><td>${lat}</td>`;eventsBody.appendChild(tr);} 
+        function decodeB64Wav(b){const bin=atob(b);const len=bin.length;const bytes=new Uint8Array(len);for(let i=0;i<len;i++)bytes[i]=bin.charCodeAt(i);return new Blob([bytes],{type:'audio/wav'});} 
+                function scheduleAutoClose(label, seconds){ if(seconds<=0) return; if(autoCloseTimer){ clearTimeout(autoCloseTimer); autoCloseTimer=null; }
+                    autoCloseTimer=setTimeout(()=>{ if(ws&&ws.readyState===WebSocket.OPEN){ logJson({event:'auto_close', reason:label}); ws.close(); } }, seconds*1000); }
+                function streamPcm(pcmBytes,frameSamples,frameMs,tailSilenceMs,autoCloseSec){const total=pcmBytes.byteLength/2;let off=0;function step(){if(!ws||ws.readyState!==WebSocket.OPEN)return;if(off<total){const remain=total-off;const thisS=Math.min(remain,frameSamples);const slice=pcmBytes.slice(off*2,(off+thisS)*2);ws.send(slice);off+=thisS;progressBar.style.width=`${Math.min(100,(off/total)*100)}%`;setTimeout(step,frameMs);}else{audioStreamFinished=true; if(tailSilenceMs>0){const silenceFrames=Math.max(1,Math.round(tailSilenceMs/frameMs));const silence=new Uint8Array(frameSamples*2);for(let i=0;i<silenceFrames;i++)ws.send(silence);}progressBar.style.width='100%'; if(autoCloseSec>0) scheduleAutoClose('post_audio', autoCloseSec); } }step();}
+                connectBtn.addEventListener('click',()=>{const f=document.getElementById('pcmFile');if(!f.files.length){alert('Select a .pcm file');return;}eventsCollected=[];ttsStarted=false;ttsAudioReceived=false;audioStreamFinished=false;partialCount=0;finalCount=0;ttsCount=0;exportBtn.disabled=true;const lang=document.getElementById('language').value.trim();const frameMs=parseInt(document.getElementById('frameMs').value,10)||20;const endpoint=document.getElementById('endpointUrl').value.trim();const tailSilenceMs=parseInt(document.getElementById('tailSilenceMs').value,10)||0;const autoCloseSec=parseFloat(document.getElementById('autoCloseSec').value)||0;const file=f.files[0];const url=`${endpoint}?language=${encodeURIComponent(lang)}`;ws=new WebSocket(url);ws.binaryType='arraybuffer';startTs=Date.now();clearStatus();addStatus('State','Connecting');connectBtn.disabled=true;abortBtn.disabled=false;logJson({event:'connecting',url,frame_ms:frameMs,tail_silence_ms:tailSilenceMs,auto_close_sec:autoCloseSec});ws.onopen=()=>{clearStatus();addStatus('State','Open');logJson({event:'open'});file.arrayBuffer().then(buf=>{const frameSamples=Math.round(16000*(frameMs/1000));streamPcm(new Uint8Array(buf),frameSamples,frameMs,tailSilenceMs,autoCloseSec);});};ws.onmessage=ev=>{let d;try{d=JSON.parse(ev.data);}catch{return;}logJson(d);addEventRow(d);if(d.type==='partial_transcript')partialCount++;if(d.type==='final_transcript')finalCount++;if(d.type==='tts_start'){ttsStarted=true; if(autoCloseSec>0){ // extend timer if needed
+                            scheduleAutoClose('tts_wait_extension', Math.max(8, autoCloseSec));
+                        }}
+                        if(d.type==='tts_audio'&&d.audio){ttsCount++;ttsAudioReceived=true;const blob=decodeB64Wav(d.audio);const url=URL.createObjectURL(blob);const audio=document.createElement('audio');audio.controls=true;audio.src=url;const meta=document.createElement('div');meta.textContent=`TTS #${ttsCount} (${blob.size} bytes, chars=${d.chars||''})`;ttsContainer.prepend(meta);ttsContainer.prepend(audio);}
+                        if(d.type==='tts_complete'){ttsAudioReceived=true; if(autoCloseSec>0){ scheduleAutoClose('tts_complete_grace', 2); }}
+                        clearStatus();addStatus('State','Open');addStatus('Partials',partialCount);addStatus('Finals',finalCount);addStatus('TTS',ttsCount);};ws.onerror=e=>{logJson({event:'error',message:'WebSocket error',detail:e.message||String(e)});addStatus('Error','Yes');};ws.onclose=e=>{logJson({event:'close',code:e.code,reason:e.reason});clearStatus();addStatus('State','Closed');addStatus('Code',e.code);if(partialCount||finalCount)addStatus('Totals',`P=${partialCount},F=${finalCount},TTS=${ttsCount}`);if(ttsStarted&&!ttsAudioReceived){addStatus('Warning','TTS started but no audio (increase Auto-Close or check server logs)');logJson({event:'diagnostic',warning:'tts_started_no_audio',suggestion:'Set Auto-Close=0 or larger, inspect server TTS logs'});}connectBtn.disabled=false;abortBtn.disabled=true;exportBtn.disabled=false;};});
+        abortBtn.addEventListener('click',()=>{if(ws&&ws.readyState===WebSocket.OPEN)ws.close();});
+                exportBtn.addEventListener('click',()=>{ if(!eventsCollected.length){return;} const meta={ generated_at:new Date().toISOString(), total_events:eventsCollected.length, partials:partialCount, finals:finalCount, tts_audio:ttsCount, tts_started:ttsStarted, tts_audio_received:ttsAudioReceived, auto_close_timer_present:!!autoCloseTimer, duration_ms: lastEventTs && startTs ? (lastEventTs-startTs): null }; const report={ meta, events:eventsCollected }; const blob=new Blob([JSON.stringify(report,null,2)],{type:'application/json'}); const url=URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; const fname=`beautyai_ws_debug_${new Date().toISOString().replace(/[:.]/g,'-')}.json`; a.download=fname; document.body.appendChild(a); a.click(); setTimeout(()=>{ URL.revokeObjectURL(url); a.remove(); }, 1000); });
+    </script>
+</body></html>'''
+    return Response(html, mimetype='text/html')
+
+# ---------------------------------------------------------------------------
+# Hybrid Microphone Streaming Debug Page (Client PCM + Fallback)
+# ---------------------------------------------------------------------------
+@app.route('/debug/mic-hybrid')
+def debug_mic_hybrid():
+    """Serve a page that attempts AudioWorklet capture -> 16k PCM frames.
+    Falls back to MediaRecorder (webm) if worklet unsupported.
+    """
+    html = r'''<!DOCTYPE html><html><head><meta charset="utf-8" />
+    <title>BeautyAI Hybrid Mic Streaming</title>
+    <style>body{font-family:system-ui,Arial;margin:0;padding:18px;background:#f5f7fa;color:#222}h1{margin-top:0}.log{background:#0d1117;color:#e6edf3;font:13px ui-monospace;white-space:pre-wrap;padding:10px;border-radius:6px;height:240px;overflow:auto}button{background:#3f51b5;color:#fff;border:none;padding:10px 18px;border-radius:6px;margin:4px;cursor:pointer;font-weight:600}button.secondary{background:#607d8b}#status span{display:inline-block;background:#e3e8ef;padding:4px 8px;border-radius:4px;margin:2px;font-size:12px}fieldset{border:1px solid #cfd8dc;border-radius:8px;margin-bottom:18px;padding:12px}legend{padding:0 6px;font-weight:600}label{display:block;font-size:13px;margin-top:6px}input,select{padding:6px 8px;border:1px solid #b0bec5;border-radius:4px;width:100%;font-size:14px;box-sizing:border-box}.row{display:flex;gap:14px;flex-wrap:wrap}.col{flex:1 1 180px;min-width:180px}audio{margin-top:8px;width:100%}.pill{display:inline-block;padding:2px 6px;font-size:11px;border-radius:10px;background:#eceff1;margin-right:4px}</style>
+    </head><body><h1>Hybrid Microphone Streaming Debug</h1>
+    <p>This page tries to stream raw 16 kHz PCM frames via an AudioWorklet. If unavailable, it falls back to MediaRecorder (WebM/Opus). The backend will auto-detect and decode WebM when allowed.</p>
+    <fieldset><legend>Connection</legend>
+      <div class="row">
+        <div class="col"><label>WebSocket URL<input id="wsUrl" value="wss://api.gmai.sa/api/v1/ws/streaming-voice"></label></div>
+        <div class="col"><label>Language<select id="lang"><option value="en">en</option><option value="ar">ar</option></select></label></div>
+        <div class="col"><label>Frame (ms)<input id="frameMs" type="number" value="20" min="10" max="120" step="5"></label></div>
+        <div class="col"><label>Max Duration (s)<input id="maxSec" type="number" value="12" min="2" max="120"></label></div>
+      </div>
+      <div><button id="startBtn">Start</button><button id="stopBtn" class="secondary" disabled>Stop</button><button id="clearBtn" class="secondary">Clear Log</button></div>
+      <div id="status"></div>
+    </fieldset>
+    <fieldset><legend>Events</legend><div class="log" id="log"></div></fieldset>
+    <fieldset><legend>TTS Audio</legend><div id="tts"></div></fieldset>
+    <script>
+    const logEl=document.getElementById('log');
+    const statusEl=document.getElementById('status');
+    const ttsEl=document.getElementById('tts');
+    const startBtn=document.getElementById('startBtn');
+    const stopBtn=document.getElementById('stopBtn');
+    const clearBtn=document.getElementById('clearBtn');
+    let ws=null;let workletSupported=false;let mediaStream=null;let mediaRecorder=null;let audioCtx=null;let pcmNodePort=null;let closed=false;let chunks=[];let frameTimer=null;let startTs=null;let ttsCount=0;let rawMode='';
+    function log(o){if(typeof o!=='string')o=JSON.stringify(o);logEl.textContent+=o+'\n';logEl.scrollTop=logEl.scrollHeight;}
+    function putStatus(k,v){const span=document.createElement('span');span.textContent=`${k}:${v}`;statusEl.appendChild(span);} function clearStatus(){statusEl.innerHTML='';}
+    async function start(){
+        clearStatus();closed=false;chunks=[];ttsEl.innerHTML='';
+        const url=document.getElementById('wsUrl').value.trim()+`?language=${encodeURIComponent(document.getElementById('lang').value)}`;
+        const frameMs=parseInt(document.getElementById('frameMs').value,10)||20;
+        const maxSec=parseFloat(document.getElementById('maxSec').value)||12;
+        putStatus('connecting', '...');
+        ws=new WebSocket(url); ws.binaryType='arraybuffer';
+        ws.onopen=()=>{clearStatus();putStatus('open','1');log({event:'open'});initCapture(frameMs,maxSec);};
+        ws.onmessage=(ev)=>{let d;try{d=JSON.parse(ev.data);}catch{return;}log(d);if(d.type==='partial_transcript'){putStatus('partial',Date.now()-startTs);} if(d.type==='final_transcript'){putStatus('final',Date.now()-startTs);} if(d.type==='tts_audio'&&d.audio){ttsCount++; const b64=d.audio; const bin=atob(b64); const bytes=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i); const blob=new Blob([bytes],{type:'audio/wav'}); const a=document.createElement('audio'); a.controls=true; a.src=URL.createObjectURL(blob); const meta=document.createElement('div'); meta.textContent=`TTS #${ttsCount} (${blob.size} bytes)`; ttsEl.prepend(meta); ttsEl.prepend(a);} };
+        ws.onerror=e=>{log({event:'error',detail:e.message||String(e)});};
+        ws.onclose=e=>{log({event:'close',code:e.code,reason:e.reason}); cleanup();};
+        startBtn.disabled=true; stopBtn.disabled=false;
+        startTs=Date.now();
+    }
+    async function initCapture(frameMs,maxSec){
+        try{mediaStream=await navigator.mediaDevices.getUserMedia({audio:true});}catch(e){log({event:'mic_error',message:e.message}); return;}
+        // Try worklet
+        if(window.AudioWorkletNode){
+            try{
+                audioCtx=new AudioContext();
+                await audioCtx.audioWorklet.addModule('/worklet/pcm_downsampler.js');
+                const src=audioCtx.createMediaStreamSource(mediaStream);
+                const node=new AudioWorkletNode(audioCtx,'pcm-downsampler',{processorOptions:{targetSampleRate:16000, frameSamples:Math.round(16000*(frameMs/1000))}});
+                pcmNodePort=node.port; workletSupported=true; rawMode='worklet';
+                node.port.onmessage=(e)=>{ if(ws && ws.readyState===WebSocket.OPEN){ ws.send(e.data); } };
+                src.connect(node); // no destination to stay silent
+                log({event:'capture_mode',mode:'worklet_pcm'});
+                putStatus('mode','worklet');
+                setTimeout(()=>{ if(!closed) stop(); }, maxSec*1000);
+                return;
+            }catch(e){ log({event:'worklet_fail',message:e.message}); }
+        }
+        // Fallback: MediaRecorder (webm opus)
+        try {
+            mediaRecorder=new MediaRecorder(mediaStream,{mimeType:'audio/webm'});
+            rawMode='mediarecorder'; putStatus('mode','webm');
+            mediaRecorder.ondataavailable=ev=>{ if(ev.data && ev.data.size>0 && ws && ws.readyState===WebSocket.OPEN){ ev.data.arrayBuffer().then(buf=>{ ws.send(buf); }); } };
+            mediaRecorder.start(frameMs); // timeslice in ms; may clamp
+            log({event:'capture_mode',mode:'mediarecorder_webm'});
+            setTimeout(()=>{ if(!closed) stop(); }, maxSec*1000);
+        } catch(e){ log({event:'fallback_fail',message:e.message}); }
+    }
+    function stop(){closed=true; if(mediaRecorder && mediaRecorder.state!=='inactive'){mediaRecorder.stop();} if(audioCtx){audioCtx.close();} if(ws && ws.readyState===WebSocket.OPEN){ws.close();} cleanup();}
+    function cleanup(){stopBtn.disabled=true; startBtn.disabled=false;}
+    startBtn.onclick=start; stopBtn.onclick=stop; clearBtn.onclick=()=>{logEl.textContent='';};
+    </script></body></html>'''
+    return Response(html, mimetype='text/html')
+
+@app.route('/worklet/pcm_downsampler.js')
+def serve_worklet_pcm_downsampler():
+    js = r'''class PcmDownsampler extends AudioWorkletProcessor { constructor(opts){ super(); const o=opts.processorOptions||{}; this.target=o.targetSampleRate||16000; this.frame=o.frameSamples||320; this.srcRate=sampleRate; this.ratio=this.srcRate/this.target; this.buffer=new Float32Array(0);} process(inputs){ const ch=inputs[0]; if(!ch||ch.length===0) return true; const data=ch[0]; // append
+        const merged=new Float32Array(this.buffer.length+data.length); merged.set(this.buffer,0); merged.set(data,this.buffer.length); this.buffer=merged; const need=this.frame*this.ratio; if(this.buffer.length<need) return true; // produce one frame
+        const out=new Int16Array(this.frame); for(let i=0;i<this.frame;i++){ const srcPos=i*this.ratio; const i0=Math.floor(srcPos); const i1=Math.min(i0+1,this.buffer.length-1); const frac=srcPos-i0; const sample=this.buffer[i0]+(this.buffer[i1]-this.buffer[i0])*frac; let s=Math.max(-1,Math.min(1,sample)); out[i]=s<0? s*0x8000 : s*0x7FFF; }
+        // consume
+        const consumed=Math.floor(this.frame*this.ratio); this.buffer=this.buffer.slice(consumed); this.port.postMessage(out.buffer,[out.buffer]); return true; }} registerProcessor('pcm-downsampler',PcmDownsampler);'''
+    return Response(js, mimetype='application/javascript')
 
 if __name__ == '__main__':
     import ssl

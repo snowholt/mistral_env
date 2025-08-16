@@ -78,6 +78,12 @@ class SessionState:
     conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
     llm_tts_task: Optional[asyncio.Task] = None  # background processing task for final transcript
     metrics: Optional[SessionMetrics] = None  # Phase 10 metrics aggregator
+    # Hybrid ingest additions (Aug 16 2025)
+    compressed_mode: Optional[str] = None  # e.g. 'webm-opus'
+    ffmpeg_proc: Optional[asyncio.subprocess.Process] = None
+    ffmpeg_reader_task: Optional[asyncio.Task] = None
+    ffmpeg_writer_open: bool = False
+    pending_pcm_fragment: bytearray = field(default_factory=bytearray)
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -178,27 +184,81 @@ async def streaming_voice_endpoint(
     websocket: WebSocket,
     language: str = Query("ar", description="Language code (ar|en)"),
 ) -> None:
-    """Phase 1 streaming voice endpoint (mock transcription only)."""
-    logger.debug("[streaming_voice] connection attempt language=%s enabled=%s", language, streaming_feature_enabled())
-    if not streaming_feature_enabled():
-        await websocket.close(code=1003, reason="Streaming voice disabled")
+    """Phase 1+ streaming voice endpoint (now with incremental decode & LLM/TTS).
+
+    Patch (Aug 15 2025): Accept the WebSocket *before* feature flag / param validation so that
+    browser clients see a normal 101 Switching Protocols instead of an HTTP 403 when the
+    feature is disabled or parameters are invalid. We then emit a structured `error` event
+    and close with an application close code. This prevents frontend libraries from
+    classifying the failure as a hard permission error and allows us to implement client-side
+    retry / diagnostics without triggering legacy fallback prematurely.
+    """
+    # Accept early to avoid nginx / ASGI surfacing 403 on close-before-accept.
+    try:
+        await websocket.accept()
+    except Exception as e:  # pragma: no cover - accept failures are rare
+        logger.error("[streaming_voice] failed to accept websocket: %s", e)
+        return
+    # Early debug trace of raw requested language prior to validation / feature flag checks
+    try:
+        logger.debug("[streaming_voice] accepted ws raw_query_language=%s", language)
+    except Exception:
+        pass
+
+    flag_enabled = streaming_feature_enabled()
+    logger.debug(
+        "[streaming_voice] connection attempt language=%s env_flag_enabled=%s raw_env=%s",
+        language,
+        flag_enabled,
+        os.getenv("VOICE_STREAMING_ENABLED"),
+    )
+    if not flag_enabled:
+        await _send_json(websocket, {
+            "type": "error",
+            "stage": "init",
+            "message": "Streaming voice disabled (set VOICE_STREAMING_ENABLED=1)",
+        })
+        # Use normal close (1000) so client can decide to retry later if flag toggles.
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1000, reason="streaming_disabled")
         return
     if language not in ("ar", "en"):
-        await websocket.close(code=1003, reason="Unsupported language")
+        await _send_json(websocket, {
+            "type": "error",
+            "stage": "init",
+            "message": f"Unsupported language '{language}' (allowed: ar,en)",
+        })
+        with contextlib.suppress(Exception):
+            await websocket.close(code=1000, reason="unsupported_language")
         return
 
     connection_id = str(uuid.uuid4())
     session_id = f"stream_{connection_id}"
-    await websocket.accept()
 
     state = SessionState(connection_id=connection_id, session_id=session_id, websocket=websocket)
     state.metrics = SessionMetrics(session_id=session_id)
     # Phase 2: attach audio streaming session (ring buffer size ~40s)
     state.audio_session = StreamingSession(connection_id=connection_id, session_id=session_id, language=language)
     session_registry.add(state)
-    logger.info("🌐 Streaming voice connection established: %s (lang=%s)", connection_id, language)
+    logger.info("🌐 Streaming voice connection established: %s (lang=%s) phase4_env=%s force_real=%s disable_mock=%s", connection_id, language, os.getenv("VOICE_STREAMING_PHASE4"), os.getenv("VOICE_STREAMING_FORCE_REAL"), os.getenv("VOICE_STREAMING_DISABLE_MOCK"))
 
-    run_phase4 = os.getenv("VOICE_STREAMING_PHASE4", "0") == "1"
+    # Phase control flags
+    # VOICE_STREAMING_PHASE4=1 -> enable incremental real decoding path
+    # VOICE_STREAMING_FORCE_REAL=1 -> force real decoding even if PHASE4 flag not set (helpful when disabling mock)
+    # VOICE_STREAMING_DISABLE_MOCK=1 -> refuse connection if real decoding not active (fail fast instead of emitting synthetic tokens)
+    force_real = os.getenv("VOICE_STREAMING_FORCE_REAL", "0") == "1"
+    disable_mock = os.getenv("VOICE_STREAMING_DISABLE_MOCK", "0") == "1"
+    run_phase4 = os.getenv("VOICE_STREAMING_PHASE4", "0") == "1" or force_real
+
+    if disable_mock and not run_phase4:
+        # Client explicitly does not want mock output – close early with clear reason
+        await _send_json(websocket, {
+            "type": "error",
+            "stage": "init",
+            "message": "Mock decoding disabled (set VOICE_STREAMING_PHASE4=1 or VOICE_STREAMING_FORCE_REAL=1)",
+        })
+        await websocket.close(code=1011, reason="mock_disabled_no_real_decode")
+        return
 
     await _send_json(websocket, {
         "type": "ready",
@@ -212,12 +272,34 @@ async def streaming_voice_endpoint(
         "ring_buffer_seconds": 40.0,
         "decode_interval_ms": 480 if run_phase4 else None,
         "window_seconds": 8.0 if run_phase4 else None,
-    "metrics": {"phase9_instrumented": bool(run_phase4)},
+        "metrics": {"phase9_instrumented": bool(run_phase4)},
+        "flags": {
+            "forced_real": force_real,
+            "mock_disabled": disable_mock,
+        }
     })
 
     if run_phase4:
         fw_service = create_transcription_service()
-        ep_state = EndpointState(config=EndpointConfig())
+        # Endpoint / decoder dynamic tuning via env
+        decode_interval_ms = int(os.getenv("VOICE_STREAMING_DECODE_INTERVAL_MS", "480"))
+        window_seconds = float(os.getenv("VOICE_STREAMING_WINDOW_SECONDS", "8.0"))
+        min_silence_ms = int(os.getenv("VOICE_STREAMING_MIN_SILENCE_MS", "600"))
+        token_stable_ms = int(os.getenv("VOICE_STREAMING_TOKEN_STABLE_MS", "600"))
+        max_utterance_ms = int(os.getenv("VOICE_STREAMING_MAX_UTTERANCE_MS", "12000"))
+        ep_cfg = EndpointConfig(
+            min_silence_ms=min_silence_ms,
+            token_stable_ms=token_stable_ms,
+            max_utterance_ms=max_utterance_ms,
+        )
+        ep_state = EndpointState(config=ep_cfg)
+        # Provide aggressive fast-path if requested
+        if os.getenv("VOICE_STREAMING_LOW_LATENCY_PRESET", "0") == "1":
+            ep_state.config.min_silence_ms = min(ep_state.config.min_silence_ms, 480)
+            ep_state.config.token_stable_ms = min(ep_state.config.token_stable_ms, 480)
+        # Hard stop guard: force finalize if no final after grace window
+        force_final_grace = float(os.getenv("VOICE_STREAMING_FORCE_FINAL_AFTER_SEC", "15"))
+        session_start_time = time.time()
 
         # Lazy globals for LLM + TTS (Phase 6)
         chat_service_ref: Dict[str, Any] = {}
@@ -338,77 +420,100 @@ async def streaming_voice_endpoint(
             finally:
                 state.llm_tts_task = None
 
-        async def decoder_task() -> None:
-            try:
-                async for event in incremental_decode_loop(
-                    state.audio_session, fw_service, ep_state, DecoderConfig(language=language)
-                ):
-                    # Forward events to client
-                    etype = event["type"]
-                    if etype == "partial_transcript":
-                        if state.metrics and "decode_ms" in event:
-                            state.metrics.inc_partial()
-                        await _send_json(state.websocket, event)
-                        # Emit metrics snapshot as a dedicated event (easier for tests)
-                        await _send_json(state.websocket, {
-                            "type": "metrics_snapshot",
-                            **(state.metrics.snapshot() if state.metrics else {}),
-                        })
-                    elif etype == "endpoint_event":
-                        if state.metrics:
-                            state.metrics.update_endpoint(event.get("end_silence_gap_ms"))
-                        await _send_json(state.websocket, {"type": "endpoint", **event})
-                    elif etype == "final_transcript":
-                        if state.metrics:
-                            state.metrics.inc_final()
-                        # Send final transcript once
-                        # Guard: skip empty or whitespace-only finals to avoid pointless LLM cycles
-                        final_text_candidate = (event.get("text") or "").strip()
-                        if not final_text_candidate:
-                            logger.debug("[streaming_voice] Ignoring empty final_transcript event (utterance_index=%s)", event.get("utterance_index"))
-                            continue
-                        await _send_json(state.websocket, event)
-                        # Metrics snapshot
-                        if state.metrics:
-                            maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
-                        # Kick off LLM + TTS only after final transcript (not on perf cycles)
-                        if state.llm_tts_task is None:
-                            final_text = final_text_candidate
-                            # Enforce minimal length for semantic content (tunable)
-                            min_chars = int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
-                            if len(final_text) >= min_chars:
-                                state.llm_tts_task = asyncio.create_task(
-                                    _process_final_transcript(
-                                        event.get("utterance_index", 0),
-                                        final_text,
-                                        language,
-                                        state,
-                                    )
-                                )
-                            else:
-                                logger.debug(
-                                    "[streaming_voice] Final transcript below min chars (%d < %d) skipping LLM pipeline",
-                                    len(final_text),
-                                    min_chars,
-                                )
-                    elif etype == "perf_cycle":
-                        if state.metrics:
-                            state.metrics.update_perf_cycle(
-                                decode_ms=event.get("decode_ms", 0),
-                                cycle_latency_ms=event.get("cycle_latency_ms", 0),
-                            )
-                            # Periodic lightweight log every ~10 cycles
-                            if state.metrics.decode_ms.count % 10 == 0:
-                                maybe_log_structured(logger, "voice_stream_perf_cycle", {
-                                    "session_id": session_id,
-                                    "decode_ms_last": event.get("decode_ms"),
-                                    "cycle_latency_ms_last": event.get("cycle_latency_ms"),
-                                })
-                        # Low-volume performance heartbeat; can be filtered client-side
-                        await _send_json(state.websocket, event)
-            except Exception as e:  # pragma: no cover
-                logger.error("Incremental decoder error (%s): %s", connection_id, e)
+    async def decoder_task() -> None:
+        """Incremental decoder task wrapper.
 
+        Restored after indentation corruption. Handles forwarding incremental decode
+        events, metrics snapshots, endpoint events, finals, perf cycles, & forced finals.
+        """
+        try:
+            async for event in incremental_decode_loop(
+                state.audio_session,
+                fw_service,
+                ep_state,
+                DecoderConfig(
+                    language=language,
+                    decode_interval_ms=decode_interval_ms,
+                    window_seconds=window_seconds,
+                ),
+            ):
+                # Forward events to client
+                etype = event["type"]
+                if etype == "partial_transcript":
+                    if state.metrics and "decode_ms" in event:
+                        state.metrics.inc_partial()
+                    await _send_json(state.websocket, event)
+                    # Emit metrics snapshot as a dedicated event (easier for tests)
+                    await _send_json(state.websocket, {
+                        "type": "metrics_snapshot",
+                        **(state.metrics.snapshot() if state.metrics else {}),
+                    })
+                elif etype == "endpoint_event":
+                    if state.metrics:
+                        state.metrics.update_endpoint(event.get("end_silence_gap_ms"))
+                    await _send_json(state.websocket, {"type": "endpoint", **event})
+                elif etype == "final_transcript":
+                    if state.metrics:
+                        state.metrics.inc_final()
+                    final_text_candidate = (event.get("text") or "").strip()
+                    if not final_text_candidate:
+                        logger.debug("[streaming_voice] Ignoring empty final_transcript event (utterance_index=%s)", event.get("utterance_index"))
+                        continue
+                    await _send_json(state.websocket, event)
+                    if state.metrics:
+                        maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
+                    if state.llm_tts_task is None:
+                        final_text = final_text_candidate
+                        min_chars = int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
+                        if len(final_text) >= min_chars:
+                            state.llm_tts_task = asyncio.create_task(
+                                _process_final_transcript(
+                                    event.get("utterance_index", 0),
+                                    final_text,
+                                    language,
+                                    state,
+                                )
+                            )
+                        else:
+                            logger.debug(
+                                "[streaming_voice] Final transcript below min chars (%d < %d) skipping LLM pipeline",
+                                len(final_text),
+                                min_chars,
+                            )
+                elif etype == "perf_cycle":
+                    if state.metrics:
+                        state.metrics.update_perf_cycle(
+                            decode_ms=event.get("decode_ms", 0),
+                            cycle_latency_ms=event.get("cycle_latency_ms", 0),
+                        )
+                        if state.metrics.decode_ms.count % 10 == 0:
+                            maybe_log_structured(logger, "voice_stream_perf_cycle", {
+                                "session_id": session_id,
+                                "decode_ms_last": event.get("decode_ms"),
+                                "cycle_latency_ms_last": event.get("cycle_latency_ms"),
+                            })
+                    await _send_json(state.websocket, event)
+                # Forced final injection logic
+                if (
+                    os.getenv("VOICE_STREAMING_LENIENT_FINAL", "0") == "1" and
+                    (time.time() - session_start_time) > force_final_grace and
+                    etype == "perf_cycle" and
+                    state.metrics and
+                    state.metrics.final_transcripts == 0 and
+                    state.metrics.partial_transcripts > 0
+                ):
+                    await _send_json(state.websocket, {
+                        "type": "final_transcript",
+                        "text": "",
+                        "utterance_index": 0,
+                        "reason": "force_final_grace_expired",
+                        "timestamp": time.time(),
+                    })
+        except Exception as e:  # pragma: no cover
+            logger.error("Incremental decoder error (%s): %s", connection_id, e)
+
+    # Schedule appropriate processing task based on phase selection
+    if run_phase4:
         state.mock_task = asyncio.create_task(decoder_task())
     else:
         state.mock_task = asyncio.create_task(_mock_decode_loop(state, language))
@@ -432,14 +537,81 @@ async def streaming_voice_endpoint(
                     payload = msg["bytes"]
                     state.bytes_received += len(payload)
                     state.touch()
-                    # Expect raw little-endian int16 PCM @ 16kHz
-                    if state.audio_session:
-                        if len(payload) % 2 != 0:
-                            logger.debug("[%s] odd-length PCM payload=%d", connection_id, len(payload))
-                        await state.audio_session.ingest_pcm(payload)
-                        state.pcm_frames_received += 1
-                        if state.pcm_frames_received <= 3:  # log only first few for noise control
-                            logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
+                    # Hybrid ingest logic: detect compressed container on first frame
+                    if state.compressed_mode is None and state.pcm_frames_received == 0 and state.bytes_received < 32768:
+                        # Basic signature checks
+                        if len(payload) >= 4 and payload[:4] == b"\x1a\x45\xdf\xa3":
+                            state.compressed_mode = "webm-opus"
+                        elif len(payload) >= 4 and payload[:4] == b"OggS":
+                            state.compressed_mode = "ogg-opus"
+                        if state.compressed_mode:
+                            allow = os.getenv("VOICE_STREAMING_ALLOW_WEBM", "1") == "1"
+                            if not allow:
+                                await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"Compressed {state.compressed_mode} not allowed (set VOICE_STREAMING_ALLOW_WEBM=1)"})
+                                await websocket.close(code=1003, reason="compressed_not_allowed")
+                                break
+                            # Spawn ffmpeg decoder process
+                            try:
+                                # Map mode to ffmpeg demux format parameters
+                                demux_hint = []  # ffmpeg usually auto-detects
+                                cmd = [
+                                    "ffmpeg", "-hide_banner", "-loglevel", "error",
+                                    "-i", "pipe:0",
+                                    "-f", "s16le", "-ac", "1", "-ar", "16000", "pipe:1"
+                                ]
+                                state.ffmpeg_proc = await asyncio.create_subprocess_exec(
+                                    *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
+                                )
+                                state.ffmpeg_writer_open = True
+                                await _send_json(websocket, {"type": "info", "stage": "ingest", "message": f"Activated {state.compressed_mode} decoder"})
+
+                                async def _reader():
+                                    assert state.ffmpeg_proc and state.ffmpeg_proc.stdout
+                                    CHUNK = 640  # 20 ms @16k mono int16
+                                    buf = bytearray()
+                                    try:
+                                        while True:
+                                            data = await state.ffmpeg_proc.stdout.read(4096)
+                                            if not data:
+                                                break
+                                            buf.extend(data)
+                                            while len(buf) >= CHUNK:
+                                                frame = bytes(buf[:CHUNK])
+                                                del buf[:CHUNK]
+                                                if state.audio_session:
+                                                    await state.audio_session.ingest_pcm(frame)
+                                                    state.pcm_frames_received += 1
+                                                    if state.pcm_frames_received <= 3:
+                                                        logger.debug("[%s] (dec) ingested PCM frame bytes=%d buf_usage=%.3f", connection_id, len(frame), state.audio_session.pcm_buffer.usage_ratio())
+                                    except Exception as e:
+                                        logger.warning("ffmpeg reader error %s: %s", connection_id, e)
+                                state.ffmpeg_reader_task = asyncio.create_task(_reader())
+                            except FileNotFoundError:
+                                await _send_json(websocket, {"type": "error", "stage": "ingest", "message": "ffmpeg not installed on server"})
+                                state.compressed_mode = None
+                            except Exception as e:
+                                logger.exception("Failed to start ffmpeg decoder: %s", e)
+                                await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"decoder_start_failed: {e}"})
+                                state.compressed_mode = None
+
+                    if state.compressed_mode:
+                        # Feed compressed payload into ffmpeg stdin
+                        if state.ffmpeg_proc and state.ffmpeg_proc.stdin and state.ffmpeg_writer_open:
+                            try:
+                                state.ffmpeg_proc.stdin.write(payload)
+                                await state.ffmpeg_proc.stdin.drain()
+                            except Exception as e:
+                                logger.warning("ffmpeg stdin write failed %s: %s", connection_id, e)
+                                state.ffmpeg_writer_open = False
+                    else:
+                        # Raw PCM path (default)
+                        if state.audio_session:
+                            if len(payload) % 2 != 0:
+                                logger.debug("[%s] odd-length PCM payload=%d", connection_id, len(payload))
+                            await state.audio_session.ingest_pcm(payload)
+                            state.pcm_frames_received += 1
+                            if state.pcm_frames_received <= 3:  # log only first few for noise control
+                                logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
     except WebSocketDisconnect:
         logger.info("🔌 Streaming voice disconnect: %s", connection_id)
     except Exception as e:  # pragma: no cover
@@ -458,6 +630,17 @@ async def streaming_voice_endpoint(
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:
             await state.audio_session.pcm_buffer.close()
+        # Tear down decoder if active
+        if state.ffmpeg_proc:
+            with contextlib.suppress(Exception):
+                if state.ffmpeg_proc.stdin and state.ffmpeg_writer_open:
+                    state.ffmpeg_proc.stdin.close()
+            if state.ffmpeg_reader_task and not state.ffmpeg_reader_task.done():
+                state.ffmpeg_reader_task.cancel()
+                with contextlib.suppress(Exception):
+                    await state.ffmpeg_reader_task
+            with contextlib.suppress(Exception):
+                await asyncio.wait_for(state.ffmpeg_proc.wait(), timeout=2)
         session_registry.remove(connection_id)
         logger.info("🧹 Cleaned streaming session %s (active=%d)", connection_id, session_registry.active_count())
 

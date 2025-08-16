@@ -87,6 +87,25 @@ class BeautyAIChat {
         this.streamingMetricsOverlay = document.getElementById('streamingMetricsOverlay');
         this.debugStreaming = window.location.search.includes('debug_audio=1');
         this.livePartialDiv = document.getElementById('livePartialTranscript');
+        this.streamingToggle = document.getElementById('streamingVoiceToggle');
+        this.overlayStreamingToggle = document.getElementById('overlayStreamingToggle');
+        if (this.streamingToggle) {
+            // Initialize toggle state from localStorage
+            const storedMode = this.voiceMode;
+            this.streamingToggle.checked = storedMode === 'streaming';
+            this.applyVoiceModeUI();
+            this.streamingToggle.addEventListener('change', () => {
+                const wantStreaming = this.streamingToggle.checked;
+                this.setVoiceMode(wantStreaming ? 'streaming' : 'legacy', 'user_toggle');
+            });
+        }
+        if (this.overlayStreamingToggle) {
+            this.overlayStreamingToggle.checked = this.voiceMode === 'streaming';
+            this.overlayStreamingToggle.addEventListener('change', () => {
+                const wantStreaming = this.overlayStreamingToggle.checked;
+                this.setVoiceMode(wantStreaming ? 'streaming' : 'legacy', 'overlay_user_toggle');
+            });
+        }
         if (this.voiceMode === 'streaming' && this.streamingFeatureFlag) {
             document.body.classList.add('streaming-mode');
             this.initStreamingClient();
@@ -455,9 +474,25 @@ class BeautyAIChat {
         
         // Overlay voice toggle
         if (this.overlayVoiceToggle) {
-            this.overlayVoiceToggle.addEventListener('mousedown', () => this.handleOverlayVoiceToggle(true));
-            this.overlayVoiceToggle.addEventListener('mouseup', () => this.handleOverlayVoiceToggle(false));
-            this.overlayVoiceToggle.addEventListener('mouseleave', () => this.handleOverlayVoiceToggle(false));
+            // Streaming mode: single click toggles listen/pause; legacy retains press logic
+            this.overlayVoiceToggle.addEventListener('mousedown', (e) => {
+                if (this.voiceMode === 'streaming') {
+                    e.preventDefault();
+                    const active = this.overlayVoiceToggle.classList.toggle('recording');
+                    this.handleOverlayVoiceToggle(active);
+                } else {
+                    this.handleOverlayVoiceToggle(true);
+                }
+            });
+            this.overlayVoiceToggle.addEventListener('mouseup', (e) => {
+                if (this.voiceMode !== 'streaming') this.handleOverlayVoiceToggle(false);
+            });
+            this.overlayVoiceToggle.addEventListener('mouseleave', (e) => {
+                if (this.voiceMode !== 'streaming' && this.overlayVoiceToggle.classList.contains('recording')) {
+                    this.handleOverlayVoiceToggle(false);
+                    this.overlayVoiceToggle.classList.remove('recording');
+                }
+            });
         }
         
         // Overlay settings
@@ -759,9 +794,21 @@ class BeautyAIChat {
         if (language === 'auto') {
             voiceSelect.value = 'ar-SA-ZariyahNeural';
         }
+
+        // If streaming active and language changed, reconnect streaming client with new param
+        if (this.voiceMode === 'streaming' && this.streamingClient) {
+            clearTimeout(this._pendingStreamReconnectTimer);
+            this._pendingStreamReconnectTimer = setTimeout(() => {
+                this.reconnectStreamingClient();
+            }, 500); // debounce rapid changes
+        }
     }
 
     async connectVoice() {
+        if (this.voiceMode === 'streaming') {
+            // streaming mode uses separate client; ignore legacy connect
+            return;
+        }
         if (this.isConnected) return;
         
         try {
@@ -813,13 +860,13 @@ class BeautyAIChat {
     }
 
     disconnectVoice() {
-        if (this.ws) {
-            this.ws.close();
+        if (this.voiceMode === 'streaming') {
+            if (this.streamingClient) this.streamingClient.suspend();
+            return;
         }
+        if (this.ws) { this.ws.close(); }
         this.isConnected = false;
-        if (this.isRecording) {
-            this.stopRecording();
-        }
+        if (this.isRecording) { this.stopRecording(); }
     }
 
     async handleVoiceMessage(event) {
@@ -1370,11 +1417,16 @@ class BeautyAIChat {
         this.voiceOverlay.classList.remove('hidden');
         this.initializeOverlaySettings();
         this.clearOverlayConversation();
-        
-        // Auto-connect voice when overlay opens
-        if (!this.overlayConnected) {
-            this.connectOverlayVoice();
+        // Streaming mode: do not create legacy socket; rely on streaming client
+        if (this.voiceMode === 'streaming') {
+            this.updateOverlayConnectionStatus(this.streamingClient && this.streamingClient._connected ? 'connected' : 'connecting', this.streamingClient && this.streamingClient._connected ? 'Streaming ready' : 'Streaming mode – initializing...');
+            if (!this.streamingClient && this.streamingFeatureFlag) {
+                this.initStreamingClient();
+            }
+            return;
         }
+        // Legacy mode only
+        if (!this.overlayConnected) this.connectOverlayVoice();
     }
 
     closeVoiceOverlayMethod() {
@@ -1435,6 +1487,12 @@ class BeautyAIChat {
     }
 
     async connectOverlayVoice(force=false) {
+        // Guard: if streaming mode active, suppress legacy overlay WS connection to avoid
+        // duplicate partial transcripts / hallucinated English output from simple voice service.
+        if (this.voiceMode === 'streaming') {
+            if (this.debugStreaming) console.log('[Streaming] Skipping legacy overlay connect (streaming mode active)');
+            return;
+        }
         if (this.overlayConnected && !force) return;
         
         try {
@@ -1451,7 +1509,7 @@ class BeautyAIChat {
                 ? 'localhost:8000' 
                 : 'api.gmai.sa';
             const wsUrl = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${language}&voice_type=${voiceType}`;
-            console.log('🎤 Connecting to Overlay WebSocket:', wsUrl);
+            console.log('🎤 Connecting to Overlay WebSocket (legacy simple-voice):', wsUrl);
             this.overlayWebSocket = new WebSocket(wsUrl);
             
             this.overlayWebSocket.onopen = () => {
@@ -1669,6 +1727,23 @@ class BeautyAIChat {
     }
 
     handleOverlayVoiceToggle(isPressed) {
+        // Streaming mode: treat press/release as soft suspend/resume
+        if (this.voiceMode === 'streaming' && this.streamingClient) {
+            if (isPressed) {
+                this.streamingClient.setSuspended(false);
+                this.overlayVoiceToggle.classList.add('recording');
+                const span = this.overlayVoiceToggle.querySelector('span');
+                if (span) span.textContent = 'Listening...';
+                this.showOverlayVoiceStatus('🎤 Streaming capture active');
+            } else {
+                this.streamingClient.setSuspended(true);
+                this.overlayVoiceToggle.classList.remove('recording');
+                const span = this.overlayVoiceToggle.querySelector('span');
+                if (span) span.textContent = 'Click to Listen';
+                this.showOverlayVoiceStatus('⏸️ Paused (streaming)');
+            }
+            return;
+        }
         // Use same VAD logic for overlay as main interface
         if (this.useServerSideVAD && this.vadEnabled) {
             if (isPressed && !this.overlayRecording && this.overlayConnected) {
@@ -1986,8 +2061,12 @@ class BeautyAIChat {
             this.switchToLegacyFallback('client_missing');
             return;
         }
+    // Resolve initial streaming language (prefer explicit selection, default Arabic for multilingual focus)
+    let initLang = (this.language && this.language.value) || 'ar';
+    if (initLang === 'auto' || !initLang) initLang = 'ar';
+    if (this.debugStreaming) console.log('[StreamingVoice] init resolved language =', initLang);
         this.streamingClient = new StreamingVoiceClient({
-            language: (this.language && this.language.value) || 'ar',
+            language: initLang,
             autoRearm: true,
             debug: this.debugStreaming,
             onEvent: (e) => this.handleStreamingEvent(e)
@@ -2001,14 +2080,77 @@ class BeautyAIChat {
         this.updateConnectionStatus('connecting', 'Initializing streaming voice...');
     }
 
+    reconnectStreamingClient() {
+        if (!this.streamingClient) return;
+        try { this.streamingClient.disconnect(); } catch(_){}
+    const langSrc = (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) ? this.overlayLanguage : this.language;
+    let langVal = (langSrc && langSrc.value) ? langSrc.value : 'ar';
+    if (langVal === 'auto' || !langVal) langVal = 'ar';
+    if (this.debugStreaming) console.log('[StreamingVoice] reconnect resolved language =', langVal);
+        this.streamingClient.language = langVal;
+        this.wsOpenTimestamp = performance.now();
+        this.firstPartialTimestamp = null;
+        this.streamingConnected = false;
+        this.updateConnectionStatus('connecting', 'Reconnecting streaming...');
+        this.streamingClient.connect();
+    }
+
+    setVoiceMode(mode, reason='') {
+        if (mode === this.voiceMode) return;
+        this.voiceMode = mode;
+        localStorage.setItem('voiceMode', mode);
+        if (mode === 'streaming') {
+            if (!this.streamingFeatureFlag) {
+                console.warn('Streaming feature flag disabled');
+                return;
+            }
+            if (this.overlayConnected) {
+                this.disconnectOverlayVoice();
+            }
+            document.body.classList.add('streaming-mode');
+            this.initStreamingClient();
+        } else {
+            document.body.classList.remove('streaming-mode');
+            if (this.streamingClient) {
+                try { this.streamingClient.disconnect(); } catch(_){ }
+            }
+            this.updateConnectionStatus('disconnected', 'Voice (legacy)');
+        }
+        this.applyVoiceModeUI();
+        console.log('Voice mode switched to', mode, 'reason=', reason);
+    }
+
+    applyVoiceModeUI() {
+        if (this.streamingToggle) {
+            this.streamingToggle.checked = (this.voiceMode === 'streaming');
+        }
+        if (this.overlayStreamingToggle) {
+            this.overlayStreamingToggle.checked = (this.voiceMode === 'streaming');
+        }
+        if (this.voiceMode === 'streaming') {
+            document.body.classList.add('streaming-mode');
+            if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                this.updateOverlayConnectionStatus(this.streamingClient && this.streamingClient._connected ? 'connected' : 'connecting', this.streamingClient && this.streamingClient._connected ? 'Streaming ready' : 'Streaming mode – initializing...');
+            }
+        } else {
+            document.body.classList.remove('streaming-mode');
+        }
+    }
+
     handleStreamingEvent(ev) {
         switch(ev.type) {
             case 'ws_open':
                 this.updateConnectionStatus('connecting', 'Socket open…');
                 break;
+            case 'ws_error':
+                console.warn('Streaming WS error', ev.error);
+                break;
             case 'ready':
                 this.streamingConnected = true;
                 this.updateConnectionStatus('connected', 'Ready (Streaming)');
+                if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.updateOverlayConnectionStatus('connected', 'Streaming ready');
+                }
                 break;
             case 'partial':
                 if (!this.firstPartialTimestamp) {
@@ -2017,11 +2159,22 @@ class BeautyAIChat {
                     this.appendStreamingMetric('first_partial_latency_ms=' + latency);
                 }
                 this.showLivePartial(ev.text || '');
+                if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.showOverlayVoiceStatus('🗣️ ' + (ev.text || '...'));
+                }
                 break;
             case 'final':
                 if (typeof ev.utterance_index === 'number' && ev.utterance_index === this.lastStreamingUtterance) break;
                 this.lastStreamingUtterance = ev.utterance_index;
                 this.commitLivePartial(ev.text || '');
+                if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.addOverlayMessage('user', ev.text || '(empty)');
+                }
+                break;
+            case 'frame_sent':
+                if (this.debugStreaming && this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.showOverlayVoiceStatus('📡 Sending audio frames');
+                }
                 break;
             case 'endpoint':
                 this.appendStreamingMetric('endpoint:' + (ev.event || '')); break;
@@ -2039,8 +2192,25 @@ class BeautyAIChat {
                 else this.showVoiceStatus('⚠️ Streaming error');
                 break;
             case 'ws_close':
-                if (!this.streamingConnected) this.switchToLegacyFallback('ws_close_pre_ready');
-                else this.showVoiceStatus('🔌 Closed');
+                if (!this.streamingConnected) {
+                    // implement limited retry before fallback
+                    this._streamingCloseAttempts = (this._streamingCloseAttempts || 0) + 1;
+                    const code = ev.code;
+                    console.warn('Streaming socket closed before ready', ev);
+                    if (this._streamingCloseAttempts <= 3) {
+                        const backoff = 200 * this._streamingCloseAttempts;
+                        this.updateConnectionStatus('connecting', `Retrying streaming (${this._streamingCloseAttempts})…`);
+                        setTimeout(() => {
+                            if (this.voiceMode === 'streaming') {
+                                this.reconnectStreamingClient();
+                            }
+                        }, backoff);
+                    } else {
+                        this.switchToLegacyFallback('ws_close_pre_ready');
+                    }
+                } else {
+                    this.showVoiceStatus('🔌 Closed');
+                }
                 break;
             case 'auto_rearm':
                 this.showVoiceStatus('🎤 Listening...');
@@ -2082,15 +2252,32 @@ class BeautyAIChat {
         this.voiceMode = 'legacy';
         document.body.classList.remove('streaming-mode');
         this.showVoiceStatus('⚠️ Streaming unavailable – legacy mode');
+        if (this.streamingToggle) {
+            this.streamingToggle.checked = false;
+        }
     }
 
-    // Override start/stop for streaming mode
+    // Wrap legacy start/stop so we don't lose original behavior
+    _ensureLegacyWrappersInstalled() {
+        if (this._legacyWrapped) return;
+        // Capture originals only once
+        this._legacyStart = this._legacyStart || BeautyAIChat.prototype.startRecordingOriginal;
+        this._legacyStop = this._legacyStop || BeautyAIChat.prototype.stopRecordingOriginal;
+        if (!this._legacyStart || !this._legacyStop) {
+            // Fallback: if originals not stored yet, bind current proto versions (first definition earlier in file)
+            this._legacyStart = this._legacyStart || this.__proto__.__proto__.startRecording; // heuristic
+            this._legacyStop = this._legacyStop || this.__proto__.__proto__.stopRecording;
+        }
+        this._legacyWrapped = true;
+    }
+
     startRecording() {
         if (this.voiceMode === 'streaming' && this.streamingClient) {
             this.showVoiceStatus('🎤 Streaming active');
             return;
         }
-        return this._startRecordingLegacy();
+        this._ensureLegacyWrappersInstalled();
+        if (this._legacyStart) return this._legacyStart.apply(this, arguments);
     }
     stopRecording() {
         if (this.voiceMode === 'streaming' && this.streamingClient) {
@@ -2098,12 +2285,9 @@ class BeautyAIChat {
             this.showVoiceStatus('⏸️ Suspended');
             return;
         }
-        return this._stopRecordingLegacy();
+        this._ensureLegacyWrappersInstalled();
+        if (this._legacyStop) return this._legacyStop.apply(this, arguments);
     }
-
-    // Preserve references to original implementations (defined later in file)
-    _startRecordingLegacy() { /* legacy placeholder forward */ return; }
-    _stopRecordingLegacy() { /* legacy placeholder forward */ return; }
     
     muteAllAudioElements(mute) {
         /**

@@ -131,13 +131,29 @@ class StreamingVoiceClient {
   }
 
   async connect() {
-    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+  if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    // Determine appropriate API host. Prefer explicit override, else map frontend -> api subdomain.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.host;
-    const url = `${protocol}//${host}/api/v1/ws/streaming-voice?language=${encodeURIComponent(this.language)}`;
+    let apiHost = window.BEAUTYAI_API_HOST || window.location.host;
+    const hn = window.location.hostname;
+    // If we're on a non-api gmai.sa host (e.g., dev.gmai.sa, app.gmai.sa) route to api.gmai.sa
+    if (!window.BEAUTYAI_API_HOST && /\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)) {
+      apiHost = 'api.gmai.sa';
+    }
+    // Normalize unsupported language values (e.g., 'auto') to 'ar' default
+  let lang = (this.language === 'auto' || !this.language) ? 'ar' : this.language;
+  // Heuristic: if user started speaking English but UI stuck on 'ar', allow override via window.FORCE_STREAM_LANG
+  if (window.FORCE_STREAM_LANG) lang = window.FORCE_STREAM_LANG;
+    const url = `${protocol}//${apiHost}/api/v1/ws/streaming-voice?language=${encodeURIComponent(lang)}`;
+    this._attempts = (this._attempts || 0) + 1;
+    if (this.debug) console.log('[StreamingVoice] connecting attempt', this._attempts, url);
     this.ws = new WebSocket(url);
     this.ws.onopen = () => { this._connected = true; this.onEvent({ type: 'ws_open' }); };
-    this.ws.onclose = () => { this._connected = false; this.onEvent({ type: 'ws_close' }); };
+    this.ws.onclose = (ev) => {
+      const wasConnected = this._connected;
+      this._connected = false;
+      this.onEvent({ type: 'ws_close', code: ev.code, reason: ev.reason, was_connected: wasConnected, attempts: this._attempts });
+    };
     this.ws.onerror = (e) => { this.onEvent({ type: 'ws_error', error: e }); };
     this.ws.onmessage = (msg) => {
       try {
@@ -165,6 +181,21 @@ class StreamingVoiceClient {
     this.onEvent({ type: 'resumed' });
   }
 
+  /**
+   * Soft suspend without closing socket (for push-to-talk UX in streaming overlay).
+   * If flag=false and socket closed, will reconnect.
+   */
+  setSuspended(flag) {
+    const was = this._suspended;
+    this._suspended = !!flag;
+    if (!this._suspended && (!this.ws || this.ws.readyState !== WebSocket.OPEN)) {
+      this.connect();
+    }
+    if (was !== this._suspended) {
+      this.onEvent({ type: this._suspended ? 'soft_suspended' : 'soft_resumed' });
+    }
+  }
+
   _handleServerEvent(ev) {
     const type = ev.type;
     switch (type) {
@@ -173,6 +204,7 @@ class StreamingVoiceClient {
         break;
       case 'partial_transcript':
         this._livePartial = ev.text || '';
+        if (this.debug) console.log('[StreamingVoiceClient] partial', ev.text);
         this.onEvent({ type: 'partial', text: ev.text, stable: ev.stable, stable_tokens: ev.stable_tokens });
         break;
       case 'final_transcript':

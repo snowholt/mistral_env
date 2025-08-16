@@ -664,17 +664,24 @@
                     </select>
                 </div>
 
+                <!-- Streaming / Legacy Mode Toggle -->
                 <div class="checkbox-item">
+                    <input type="checkbox" id="streamingVoiceToggle">
+                    <label for="streamingVoiceToggle">Streaming Voice (Beta)</label>
+                    <span class="streaming-badge" id="streamingModeBadge">STREAMING</span>
+                </div>
+
+                <div class="checkbox-item" data-vad-only>
                     <input type="checkbox" id="autoStart">
                     <label for="autoStart">Auto-start listening after response (VAD mode)</label>
                 </div>
                 
-                <div class="checkbox-item">
+                <div class="checkbox-item" data-vad-only>
                     <input type="checkbox" id="autoStop">
                     <label for="autoStop">Auto-stop on silence (fallback mode)</label>
                 </div>
                 
-                <div class="setting-item">
+                <div class="setting-item" data-vad-only>
                     <label for="silenceThreshold">Silence Threshold (fallback) <span id="silenceValue" class="range-value">3.0s</span></label>
                     <input type="range" id="silenceThreshold" min="1" max="5" step="0.5" value="3">
                 </div>
@@ -718,6 +725,12 @@
                         <option value="strict">Strict</option>
                     </select>
                 </div>
+            </div>
+            <!-- Streaming Toggle (Overlay) -->
+            <div class="checkbox-setting" style="margin-bottom:20px; display:flex; align-items:center; gap:8px;">
+                <input type="checkbox" id="overlayStreamingToggle">
+                <label for="overlayStreamingToggle">Streaming Voice (Beta)</label>
+                <span class="streaming-badge">STREAMING</span>
             </div>
             
             <div class="voice-detection-settings">
@@ -1081,30 +1094,34 @@
         }
     </style>
 
-    <script src="{{ url_for('static', filename='js/chat-interface.js') }}"></script>
-        <!-- Streaming Voice Client (new incremental ASR path) -->
+        <!-- Streaming Voice Feature Flag MUST load before chat-interface.js -->
         <script>
-            window.BEAUTYAI_STREAMING_VOICE = true; // feature flag
+            window.BEAUTYAI_STREAMING_VOICE = true;
+            // Allow overriding API host (e.g., different subdomain). If served from dev.gmai.sa, target api.gmai.sa.
+            (function(){
+                if (!window.BEAUTYAI_API_HOST) {
+                    const hn = window.location.hostname;
+                    if (/\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)) {
+                        window.BEAUTYAI_API_HOST = 'api.gmai.sa';
+                    }
+                }
+            })();
         </script>
+        <!-- Streaming client library (defines window.StreamingVoiceClient) BEFORE chat interface -->
         <script src="{{ url_for('static', filename='js/streamingVoiceClient.js') }}"></script>
+        <!-- Main chat interface (will auto-init streaming if flag true) -->
+        <script src="{{ url_for('static', filename='js/chat-interface.js') }}"></script>
         <script>
-            // UX placeholders injected for streaming mode
+            // Inject live partial transcript container early (idempotent)
             document.addEventListener('DOMContentLoaded', () => {
-                // Inject live partial container if not present (near messages container or overlay)
                 if (!document.getElementById('livePartialTranscript')) {
                     const live = document.createElement('div');
                     live.id = 'livePartialTranscript';
                     live.className = 'live-partial hidden';
                     live.setAttribute('aria-live','polite');
-                    // Place before messages container for visibility
                     const msgs = document.getElementById('messagesContainer');
-                    if (msgs && msgs.parentNode) {
-                        msgs.parentNode.insertBefore(live, msgs);
-                    }
+                    if (msgs && msgs.parentNode) msgs.parentNode.insertBefore(live, msgs);
                 }
-                // Streaming badge in settings header if voice settings exist
-                const voiceSettingsHeader = document.querySelector('.settings-section h3:contains("Voice Settings")');
-                // (CSS :contains not standard; we will add badge manually in styles section instead.)
             });
         </script>
         <style>

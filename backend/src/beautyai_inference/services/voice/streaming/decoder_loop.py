@@ -22,6 +22,7 @@ import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
+import os
 from typing import AsyncGenerator, List, Optional, Dict, Any
 
 from .streaming_session import StreamingSession
@@ -83,6 +84,13 @@ async def incremental_decode_loop(
     """
     if config is None:
         config = DecoderConfig(language=session.language)
+    # Allow runtime tuning of emission thresholds via env
+    try:
+        config.min_emit_chars = int(os.getenv("VOICE_STREAMING_MIN_EMIT_CHARS", str(config.min_emit_chars)))
+    except Exception:
+        pass
+    lenient_final = os.getenv("VOICE_STREAMING_LENIENT_FINAL", "0") == "1"
+    lenient_final_delay = float(os.getenv("VOICE_STREAMING_LENIENT_FINAL_DELAY_SEC", "1.1"))
 
     state = DecoderState()
 
@@ -203,16 +211,28 @@ async def incremental_decode_loop(
                 and len(full_text) >= config.min_emit_chars
             ):
                 state.last_transcript = full_text
+                state.last_emit_time = time.time()
                 yield {
                     "type": "partial_transcript",
                     "text": full_text,
                     "stable": bool(stable),
-                    "timestamp": time.time(),
+                    "timestamp": state.last_emit_time,
                     "stable_tokens": len(state.stable_prefix_tokens),
                     "total_tokens": len(tokens),
                     "window_seconds": config.window_seconds,
                     "decode_ms": decode_ms,
                 }
+            elif not full_text:
+                # Optional debug event when nothing decoded (only if debug env set)
+                if os.getenv("VOICE_STREAMING_DEBUG_EMPTY", "0") == "1":
+                    yield {
+                        "type": "decode_debug",
+                        "reason": "empty_transcription",
+                        "timestamp": time.time(),
+                        "decode_ms": decode_ms,
+                        "window_seconds": config.window_seconds,
+                        "rms_frame": frame_rms,
+                    }
 
             # 4. Advance endpoint state with current tokens (Phase 5 integration)
             endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=tokens or None)
@@ -233,6 +253,7 @@ async def incremental_decode_loop(
                     final_event = ev
 
             # 5. Emit final transcript exactly once per utterance
+            final_emitted = False
             if final_event and final_event.utterance_index > state.last_final_utterance_index:
                 # Prefer newest non-empty full_text; fallback to last_transcript
                 final_text = full_text or state.last_transcript
@@ -254,6 +275,7 @@ async def incremental_decode_loop(
                             "total_tokens": len(tokens),
                             "decode_ms": decode_ms,
                         }
+                        final_emitted = True
                 else:
                     logger.debug(
                         "[decode] Suppressing empty/short final transcript (chars=%d utterance_index=%d)",
@@ -265,6 +287,32 @@ async def incremental_decode_loop(
                 # Record last_final_text only if non-empty to further suppress duplicates
                 if final_text and final_text.strip():
                     state.reset_after_final()
+
+            # Lenient fallback finalization (if no endpoint driven final)
+            if (
+                not final_emitted
+                and lenient_final
+                and full_text
+                and full_text != state.last_final_text
+                and state.last_emit_time
+                and (time.time() - state.last_emit_time) >= lenient_final_delay
+                and len(full_text) >= int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
+            ):
+                yield {
+                    "type": "final_transcript",
+                    "text": full_text,
+                    "utterance_index": state.last_final_utterance_index + 1,
+                    "reason": "lenient_timeout",
+                    "timestamp": time.time(),
+                    "voiced_ms": None,
+                    "silence_ms": None,
+                    "utterance_ms": None,
+                    "stable_tokens": len(state.stable_prefix_tokens),
+                    "total_tokens": len(full_text.split()),
+                    "decode_ms": decode_ms,
+                }
+                state.last_final_utterance_index += 1
+                state.reset_after_final()
 
             # Sleep remaining interval
             elapsed = time.time() - cycle_start
