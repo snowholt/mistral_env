@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Debug: Streaming Live</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+    .col { display:flex; gap:2rem; }
+    textarea { width:100%; height:140px; }
+    .log { white-space: pre-wrap; background:#111; color:#0f0; padding:1rem; height:200px; overflow:auto; font-size:0.75rem; }
+    button { margin:0.25rem 0.5rem 0.25rem 0; }
+  </style>
+</head>
+<body>
+  <h1>Live Streaming Debug</h1>
+  <p>WebSocket streaming test: capture microphone, send PCM frames, view partial + final ASR and TTS events.</p>
+  <div>
+    <label>WS URL: <input id="wsUrl" size="60" value="ws://localhost:8000/ws/audio-stream" /></label>
+    <label>Lang: <input id="language" value="en" size="4" /></label>
+    <label>Chunk ms: <input id="chunkMs" type="number" value="320" style="width:70px" /></label>
+  </div>
+  <div>
+    <button id="btn-connect">Connect</button>
+    <button id="btn-disconnect" disabled>Disconnect</button>
+    <button id="btn-clear">Clear Log</button>
+  </div>
+  <div class="col">
+    <div style="flex:1">
+      <h3>Events</h3>
+      <div id="log" class="log"></div>
+    </div>
+    <div style="flex:1">
+      <h3>Transcription</h3>
+      <textarea id="transcript" readonly></textarea>
+      <h3>Assistant</h3>
+      <textarea id="assistant" readonly></textarea>
+    </div>
+  </div>
+  <script>
+    const logEl = document.getElementById('log');
+    const transcriptEl = document.getElementById('transcript');
+    const assistantEl = document.getElementById('assistant');
+    const wsUrlEl = document.getElementById('wsUrl');
+    const languageEl = document.getElementById('language');
+    const chunkMsEl = document.getElementById('chunkMs');
+    const btnConnect = document.getElementById('btn-connect');
+    const btnDisconnect = document.getElementById('btn-disconnect');
+    const btnClear = document.getElementById('btn-clear');
+
+    let ws, audioCtx, source, processor, mediaStream;
+    let currentPartial='';
+
+    function log(msg){
+      const ts = new Date().toISOString().split('T')[1].replace('Z','');
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    btnClear.onclick = () => { logEl.textContent=''; transcriptEl.value=''; assistantEl.value=''; };
+
+    function pcm16(float32){
+      const out = new Int16Array(float32.length);
+      for(let i=0;i<float32.length;i++){
+        const s = Math.max(-1, Math.min(1, float32[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return out;
+    }
+
+    function connect(){
+      ws = new WebSocket(wsUrlEl.value);
+      ws.binaryType = 'arraybuffer';
+      ws.onopen = () => { log('WS open'); startCapture(); btnConnect.disabled=true; btnDisconnect.disabled=false; };
+      ws.onclose = () => { log('WS closed'); stopCapture(); btnConnect.disabled=false; btnDisconnect.disabled=true; };
+      ws.onerror = e => log('WS error');
+      ws.onmessage = e => handleMessage(e.data);
+    }
+
+    function disconnect(){ if(ws){ ws.close(); } }
+
+    function handleMessage(data){
+      try {
+        const msg = JSON.parse(data);
+        if(msg.event === 'partial_transcript'){
+          currentPartial = msg.text;
+          transcriptEl.value = transcriptEl.value.split('\n').filter(l=>!l.startsWith('[PARTIAL]')).join('\n');
+          if(currentPartial){ transcriptEl.value += `\n[PARTIAL] ${currentPartial}`; }
+        } else if(msg.event === 'final_transcript'){
+          transcriptEl.value += `\n${msg.text}`;
+          currentPartial='';
+        } else if(msg.event === 'assistant_text'){
+          assistantEl.value += `\n${msg.text}`;
+        } else if(msg.event === 'tts_chunk'){
+          // could optionally play audio chunk
+        }
+        log(`RX: ${msg.event}`);
+      }catch(err){ log('Non-JSON message'); }
+    }
+
+    async function startCapture(){
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:16000});
+      mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      source = audioCtx.createMediaStreamSource(mediaStream);
+      processor = audioCtx.createScriptProcessor(4096,1,1);
+      const chunkSizeMs = parseInt(chunkMsEl.value,10) || 320;
+      const framesPerChunk = Math.round(audioCtx.sampleRate * (chunkSizeMs/1000));
+      let acc = new Float32Array(0);
+      processor.onaudioprocess = e => {
+        const input = e.inputBuffer.getChannelData(0);
+        const merged = new Float32Array(acc.length + input.length);
+        merged.set(acc,0); merged.set(input, acc.length);
+        acc = merged;
+        if(acc.length >= framesPerChunk){
+          const slice = acc.slice(0, framesPerChunk);
+            acc = acc.slice(framesPerChunk);
+          if(ws && ws.readyState === WebSocket.OPEN){
+            const int16 = pcm16(slice);
+            ws.send(int16.buffer);
+          }
+        }
+      };
+      source.connect(processor); processor.connect(audioCtx.destination);
+      log('Capture started');
+    }
+
+    function stopCapture(){
+      if(processor){ processor.disconnect(); processor.onaudioprocess=null; }
+      if(source){ source.disconnect(); }
+      if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); }
+      if(audioCtx){ audioCtx.close(); }
+      log('Capture stopped');
+    }
+
+    btnConnect.onclick = connect;
+    btnDisconnect.onclick = disconnect;
+  </script>
+</body>
+</html>

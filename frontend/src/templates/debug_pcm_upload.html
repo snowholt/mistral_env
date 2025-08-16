@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Debug: PCM Upload</title>
+  <style>
+    body { font-family: system-ui, Arial, sans-serif; margin: 2rem; }
+    .log { white-space: pre-wrap; background:#111; color:#0f0; padding:1rem; height:220px; overflow:auto; font-size:0.8rem; }
+    button { margin:0.25rem 0.5rem 0.25rem 0; }
+    .row { margin-bottom:1rem; }
+  </style>
+</head>
+<body>
+  <h1>PCM Upload Debug</h1>
+  <p>Record short PCM chunks (16kHz mono) and POST to backend streaming endpoint for diagnostics.</p>
+  <div class="row">
+    <button id="btn-start">Start Recording</button>
+    <button id="btn-stop" disabled>Stop</button>
+    <button id="btn-clear">Clear Log</button>
+  </div>
+  <div class="row">
+    <label>Language: <input id="language" value="en" size="4"/></label>
+    <label>Chunk (ms): <input id="chunkMs" type="number" value="400" min="50" max="2000" step="50" /></label>
+  </div>
+  <div class="row">
+    <strong>Log</strong>
+    <div id="log" class="log"></div>
+  </div>
+  <script>
+    const logEl = document.getElementById('log');
+    const btnStart = document.getElementById('btn-start');
+    const btnStop = document.getElementById('btn-stop');
+    const btnClear = document.getElementById('btn-clear');
+    const languageEl = document.getElementById('language');
+    const chunkMsEl = document.getElementById('chunkMs');
+
+    let mediaStream, mediaRecorder, audioCtx, processor, source;
+
+    function log(msg){
+      const ts = new Date().toISOString().split('T')[1].replace('Z','');
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+    btnClear.onclick = () => logEl.textContent='';
+
+    function pcm16le(buffer){
+      // Convert Float32 PCM to 16-bit little-endian Int16 raw
+      const l = buffer.length;
+      const out = new Int16Array(l);
+      for (let i=0;i<l;i++){
+        let s = Math.max(-1, Math.min(1, buffer[i]));
+        out[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      return out.buffer;
+    }
+
+    async function start(){
+      btnStart.disabled = true; btnStop.disabled = false;
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:16000});
+      mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
+      source = audioCtx.createMediaStreamSource(mediaStream);
+      const chunkSizeMs = parseInt(chunkMsEl.value,10) || 400;
+      const framesPerBuffer = Math.round(audioCtx.sampleRate * (chunkSizeMs/1000));
+      processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      let accumulate = new Float32Array(0);
+      processor.onaudioprocess = e => {
+        const input = e.inputBuffer.getChannelData(0);
+        // accumulate
+        const merged = new Float32Array(accumulate.length + input.length);
+        merged.set(accumulate,0); merged.set(input, accumulate.length);
+        accumulate = merged;
+        if(accumulate.length >= framesPerBuffer){
+          const toSend = accumulate.slice(0, framesPerBuffer);
+          accumulate = accumulate.slice(framesPerBuffer);
+          sendChunk(toSend);
+        }
+      };
+      source.connect(processor); processor.connect(audioCtx.destination);
+      log('Recording started');
+    }
+
+    function stop(){
+      btnStart.disabled = false; btnStop.disabled = true;
+      if(processor){ processor.disconnect(); processor.onaudioprocess = null; }
+      if(source){ source.disconnect(); }
+      if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); }
+      log('Recording stopped');
+    }
+
+    async function sendChunk(floatBuf){
+      try{
+        const ab = pcm16le(floatBuf);
+        const blob = new Blob([ab], {type:'application/octet-stream'});
+        const form = new FormData();
+        form.append('audio', blob, 'chunk.pcm');
+        form.append('language', languageEl.value || 'en');
+        const r = await fetch('/api/v1/stream/upload-chunk', {method:'POST', body: form});
+        const js = await r.json();
+        log(`Chunk -> status=${r.status} partial_transcript=${js.partial_transcript || ''}`);
+      }catch(err){
+        log('Send error: '+ err.message);
+      }
+    }
+
+    btnStart.onclick = start;
+    btnStop.onclick = stop;
+  </script>
+</body>
+</html>
