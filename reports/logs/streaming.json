@@ -1,0 +1,22 @@
+{
+  "generated_at": "2025-08-16T11:45:31.043Z",
+  "total_events": 3,
+  "partials": 2,
+  "finals": 2,
+  "tts": 1,
+  "events": [
+    {
+      "ts": 1755344652048,
+      "evt": "ws_open"
+    },
+    {
+      "ts": 1755344652050,
+      "evt": "ready"
+    },
+    {
+      "ts": 1755344655588,
+      "evt": "ingest_mode",
+      "mode": "pcm16le"
+    }
+  ]
+}

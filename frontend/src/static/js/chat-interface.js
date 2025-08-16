@@ -2182,9 +2182,26 @@ class BeautyAIChat {
             case 'tts_start':
                 this.showVoiceStatus('🔊 Synthesizing...'); break;
             case 'tts_audio':
-                this.appendStreamingMetric('tts_audio chars=' + ev.chars); break;
+                this.appendStreamingMetric('tts_audio chars=' + ev.chars);
+                // If assistant text not yet displayed (e.g., missed assistant_response), display now
+                if (ev.text) {
+                    if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                        this.addOverlayMessage('assistant', ev.text);
+                    } else {
+                        this.addMessage('assistant', ev.text);
+                    }
+                }
+                break;
             case 'tts_complete':
                 this.showVoiceStatus('✅ Response complete'); break;
+            case 'assistant_response':
+                // Display assistant textual reply separate from audio playback
+                if (this.voiceOverlay && !this.voiceOverlay.classList.contains('hidden')) {
+                    this.addOverlayMessage('assistant', ev.text || '(no content)');
+                } else {
+                    this.addMessage('assistant', ev.text || '(no content)');
+                }
+                break;
             case 'perf_cycle':
                 if (this.debugStreaming) this.appendStreamingMetric(`perf decode=${ev.decode_ms}ms latency=${ev.cycle_latency_ms}ms tokens=${ev.tokens}`);
                 break;

@@ -230,8 +230,11 @@ class StreamingVoiceClient {
       case 'tts_start':
         this.onEvent({ type: 'tts_start', utterance_index: ev.utterance_index });
         break;
+      case 'assistant_response':
+        this.onEvent({ type: 'assistant_response', utterance_index: ev.utterance_index, text: ev.text, chars: ev.chars });
+        break;
       case 'tts_audio':
-        this.onEvent({ type: 'tts_audio', chars: ev.chars });
+        this.onEvent({ type: 'tts_audio', chars: ev.chars, text: ev.text });
         if (this.autoplay) this._playBase64Wav(ev.audio);
         break;
       case 'tts_complete':
@@ -246,6 +249,12 @@ class StreamingVoiceClient {
         break;
       case 'ingest_summary':
         this.onEvent({ type: 'ingest_summary', summary: ev });
+        break;
+      case 'heartbeat':
+        this.onEvent({ type: 'heartbeat', stats: ev });
+        break;
+      case 'session_end':
+        this.onEvent({ type: 'session_end', stats: ev });
         break;
       case 'error':
         this.onEvent({ type: 'error', message: ev.message, stage: ev.stage });

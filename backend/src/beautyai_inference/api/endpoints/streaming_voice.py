@@ -78,12 +78,29 @@ class SessionState:
     conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
     llm_tts_task: Optional[asyncio.Task] = None  # background processing task for final transcript
     metrics: Optional[SessionMetrics] = None  # Phase 10 metrics aggregator
+    # Pending finals queue (utterance_index, text) to ensure no final_transcript is dropped
+    pending_finals: List[tuple[int, str]] = field(default_factory=list)
+    # Deduplication tracking for finals (avoid echo / duplicate triggering)
+    processed_utterance_indices: set[int] = field(default_factory=set)
+    last_final_text: Optional[str] = None
+    last_final_time: float = 0.0
+    # Debug / diagnostics
+    last_pipeline_start: Optional[float] = None
+    pipeline_active_for: Optional[int] = None  # utterance index currently in pipeline
+    emitted_assistant_for: set[int] = field(default_factory=set)
+    assistant_turns: int = 0
     # Hybrid ingest additions (Aug 16 2025)
     compressed_mode: Optional[str] = None  # e.g. 'webm-opus'
     ffmpeg_proc: Optional[asyncio.subprocess.Process] = None
     ffmpeg_reader_task: Optional[asyncio.Task] = None
     ffmpeg_writer_open: bool = False
     pending_pcm_fragment: bytearray = field(default_factory=bytearray)
+    heartbeat_task: Optional[asyncio.Task] = None
+    last_heartbeat_sent: float = 0.0
+    last_client_msg: float = field(default_factory=time.time)
+    silence_frame_count: int = 0
+    voiced_frame_count: int = 0
+    low_energy_mode: bool = True  # assume silent until energy detected
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -280,7 +297,12 @@ async def streaming_voice_endpoint(
     })
 
     if run_phase4:
-        fw_service = create_transcription_service()
+        try:
+            fw_service = create_transcription_service()
+        except Exception as e:
+            logger.exception("Failed to initialize transcription service, falling back to mock decode: %s", e)
+            await _send_json(websocket, {"type": "warning", "stage": "init", "message": f"transcription_init_failed: {e}"})
+            run_phase4 = False
         # Endpoint / decoder dynamic tuning via env
         decode_interval_ms = int(os.getenv("VOICE_STREAMING_DECODE_INTERVAL_MS", "480"))
         window_seconds = float(os.getenv("VOICE_STREAMING_WINDOW_SECONDS", "8.0"))
@@ -323,13 +345,23 @@ async def streaming_voice_endpoint(
                 voice_service_ref["voice"] = voice
             return {"chat": chat_service_ref["chat"], "voice": voice_service_ref["voice"]}
 
-        async def _process_final_transcript(utterance_index: int, text: str, lang: str, state: SessionState) -> None:
+    async def _process_final_transcript(utterance_index: int, text: str, lang: str, state: SessionState) -> None:
             """Handle LLM + TTS pipeline for a finalized user utterance.
 
             Emits sequence: tts_start -> tts_audio (base64) -> tts_complete
             Failure paths emit error event.
             """
             started_ts = time.time()
+            state.last_pipeline_start = started_ts
+            state.pipeline_active_for = utterance_index
+            debug_flag = os.getenv("VOICE_STREAMING_DEBUG_PIPELINE", "1") == "1"
+            if debug_flag:
+                await _send_json(state.websocket, {
+                    "type": "assistant_pipeline_start",
+                    "utterance_index": utterance_index,
+                    "chars": len(text),
+                    "timestamp": started_ts,
+                })
             await _send_json(state.websocket, {
                 "type": "tts_start",
                 "utterance_index": utterance_index,
@@ -360,13 +392,17 @@ async def streaming_voice_endpoint(
                 prev_history = list(state.conversation)  # pass a shallow copy of prior turns
 
                 # Generate LLM response (limit length for latency)
-                chat_result = chat_service.chat(
-                    message=text,
-                    conversation_history=prev_history,
-                    max_length=256,
-                    language=lang or "auto",
-                    temperature=0.3,
-                )
+                # Offload potentially blocking LLM generation to thread pool to avoid stalling event loop
+                loop = asyncio.get_running_loop()
+                def _run_chat():
+                    return chat_service.chat(
+                        message=text,
+                        conversation_history=prev_history,
+                        max_length=256,
+                        language=lang or "auto",
+                        temperature=0.3,
+                    )
+                chat_result = await loop.run_in_executor(None, _run_chat)
                 if not chat_result.get("success"):
                     # Provide a graceful fallback response instead of raising to keep audio pipeline alive
                     logger.warning("Chat generation failed for utterance %s: %s", utterance_index, chat_result.get('error'))
@@ -383,6 +419,19 @@ async def streaming_voice_endpoint(
                 state.conversation.append({"role": "user", "content": text})
                 if response_text:
                     state.conversation.append({"role": "assistant", "content": response_text})
+
+                # Emit assistant_response event early (before synthesis) so UI can display text immediately
+                await _send_json(state.websocket, {
+                    "type": "assistant_response",
+                    "utterance_index": utterance_index,
+                    "text": response_text,
+                    "chars": len(response_text),
+                    "timestamp": time.time(),
+                    "conversation_len": len(state.conversation),
+                })
+                state.emitted_assistant_for.add(utterance_index)
+                # Increment assistant turn counter early (text surfaced)
+                state.assistant_turns += 1
 
                 # Synthesize speech (use language heuristic)
                 from base64 import b64encode
@@ -406,6 +455,21 @@ async def streaming_voice_endpoint(
                     "utterance_index": utterance_index,
                     "processing_ms": int((time.time() - started_ts) * 1000),
                 })
+                # Emit a concise assistant_turn summary event AFTER audio completion for export stability
+                await _send_json(state.websocket, {
+                    "type": "assistant_turn",
+                    "utterance_index": utterance_index,
+                    "chars": len(response_text),
+                    "assistant_turns": state.assistant_turns,
+                    "timestamp": time.time(),
+                })
+                if debug_flag:
+                    await _send_json(state.websocket, {
+                        "type": "assistant_pipeline_done",
+                        "utterance_index": utterance_index,
+                        "total_ms": int((time.time() - started_ts) * 1000),
+                        "tts_ms": int((time.time() - started_ts) * 1000),
+                    })
             except asyncio.CancelledError:  # pragma: no cover - client closed during synthesis
                 logger.debug("TTS pipeline cancelled (client disconnect?) connection=%s", connection_id)
                 return
@@ -418,7 +482,15 @@ async def streaming_voice_endpoint(
                     "utterance_index": utterance_index,
                 })
             finally:
+                # Mark current task slot free then schedule next pending final if any
                 state.llm_tts_task = None
+                if state.pending_finals:
+                    next_utt, next_text = state.pending_finals.pop(0)
+                    state.llm_tts_task = asyncio.create_task(
+                        _process_final_transcript(next_utt, next_text, lang, state)
+                    )
+                else:
+                    state.pipeline_active_for = None
 
     async def decoder_task() -> None:
         """Incremental decoder task wrapper.
@@ -459,27 +531,64 @@ async def streaming_voice_endpoint(
                     if not final_text_candidate:
                         logger.debug("[streaming_voice] Ignoring empty final_transcript event (utterance_index=%s)", event.get("utterance_index"))
                         continue
+                    utterance_index = event.get("utterance_index", 0)
+                    # Deduplicate by utterance index
+                    if utterance_index in state.processed_utterance_indices:
+                        logger.debug("[streaming_voice] Skipping already processed utterance_index=%s", utterance_index)
+                        continue
+                    # Window-based textual dedupe (handles echo loops producing identical finals rapidly)
+                    dedupe_window = float(os.getenv("VOICE_STREAMING_DEDUPE_FINAL_WINDOW_SEC", "1.5"))
+                    if (state.last_final_text and final_text_candidate == state.last_final_text and (time.time() - state.last_final_time) < dedupe_window):
+                        logger.debug("[streaming_voice] Skipping duplicate final text within window: '%s'", final_text_candidate)
+                        continue
+                    state.processed_utterance_indices.add(utterance_index)
+                    state.last_final_text = final_text_candidate
+                    state.last_final_time = time.time()
                     await _send_json(state.websocket, event)
                     if state.metrics:
                         maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
-                    if state.llm_tts_task is None:
-                        final_text = final_text_candidate
-                        min_chars = int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
-                        if len(final_text) >= min_chars:
+                    final_text = final_text_candidate
+                    min_chars = int(os.getenv("VOICE_STREAMING_MIN_FINAL_CHARS", "3"))
+                    if len(final_text) < min_chars:
+                        logger.debug(
+                            "[streaming_voice] Final transcript below min chars (%d < %d) skipping LLM pipeline",
+                            len(final_text),
+                            min_chars,
+                        )
+                    else:
+                        if state.llm_tts_task is None:
                             state.llm_tts_task = asyncio.create_task(
                                 _process_final_transcript(
-                                    event.get("utterance_index", 0),
+                                    utterance_index,
                                     final_text,
                                     language,
                                     state,
                                 )
                             )
                         else:
-                            logger.debug(
-                                "[streaming_voice] Final transcript below min chars (%d < %d) skipping LLM pipeline",
-                                len(final_text),
-                                min_chars,
-                            )
+                            # Queue this final for later processing to avoid dropping
+                            state.pending_finals.append((utterance_index, final_text))
+                            await _send_json(state.websocket, {
+                                "type": "final_queued",
+                                "utterance_index": utterance_index,
+                                "queue_len": len(state.pending_finals),
+                                "timestamp": time.time(),
+                            })
+                # If pipeline started (or queued) but assistant_response not yet emitted after timeout window, schedule watchdog
+                if state.pipeline_active_for is not None and state.llm_tts_task is not None:
+                    async def _watchdog(active_utt: int, start_time: float):
+                        try:
+                            await asyncio.sleep(float(os.getenv("VOICE_STREAMING_PIPELINE_WATCHDOG_SEC", "12")))
+                            if state.pipeline_active_for == active_utt and active_utt not in state.emitted_assistant_for:
+                                await _send_json(state.websocket, {
+                                    "type": "assistant_pipeline_watchdog",
+                                    "utterance_index": active_utt,
+                                    "elapsed_ms": int((time.time() - start_time) * 1000),
+                                    "message": "No assistant_response yet (watchdog)"
+                                })
+                        except Exception:
+                            pass
+                    asyncio.create_task(_watchdog(state.pipeline_active_for, state.last_pipeline_start or time.time()))
                 elif etype == "perf_cycle":
                     if state.metrics:
                         state.metrics.update_perf_cycle(
@@ -515,10 +624,32 @@ async def streaming_voice_endpoint(
     # Schedule appropriate processing task based on phase selection
     if run_phase4:
         state.mock_task = asyncio.create_task(decoder_task())
+        await _send_json(websocket, {"type": "decoder_started", "timestamp": time.time(), "mode": "incremental"})
     else:
         state.mock_task = asyncio.create_task(_mock_decode_loop(state, language))
+        await _send_json(websocket, {"type": "decoder_started", "timestamp": time.time(), "mode": "mock"})
 
     try:
+        # Heartbeat / liveness task
+        async def _heartbeat_loop():
+            while True:
+                await asyncio.sleep(2.0)
+                if state.disconnected:
+                    break
+                hb_payload = {
+                    "type": "heartbeat",
+                    "ts": time.time(),
+                    "bytes_received": state.bytes_received,
+                    "pcm_frames": state.pcm_frames_received,
+                    "buffer_usage": (state.audio_session.pcm_buffer.usage_ratio() if state.audio_session else None),
+                    "voiced_frames": state.voiced_frame_count,
+                    "silence_frames": state.silence_frame_count,
+                    "low_energy_mode": state.low_energy_mode,
+                }
+                await _send_json(websocket, hb_payload)
+                state.last_heartbeat_sent = time.time()
+        state.heartbeat_task = asyncio.create_task(_heartbeat_loop())
+
         while True:
             msg = await websocket.receive()
             if msg["type"] == "websocket.disconnect":
@@ -531,12 +662,14 @@ async def streaming_voice_endpoint(
                             await _send_json(websocket, {"type": "pong", "ts": time.time()})
                         else:
                             await _send_json(websocket, {"type": "ack", "ts": time.time()})
+                        state.last_client_msg = time.time()
                     except json.JSONDecodeError:
                         await _send_json(websocket, {"type": "error", "message": "invalid_json"})
                 elif "bytes" in msg and msg["bytes"]:
                     payload = msg["bytes"]
                     state.bytes_received += len(payload)
                     state.touch()
+                    state.last_client_msg = time.time()
                     # Hybrid ingest logic: detect compressed container on first frame
                     if state.compressed_mode is None and state.pcm_frames_received == 0 and state.bytes_received < 32768:
                         # Basic signature checks
@@ -616,6 +749,23 @@ async def streaming_voice_endpoint(
                         if state.audio_session:
                             if len(payload) % 2 != 0:
                                 logger.debug("[%s] odd-length PCM payload=%d", connection_id, len(payload))
+                            # Simple energy gate (average absolute amplitude)
+                            try:
+                                # interpret payload as int16 little-endian
+                                import array
+                                arr = array.array('h')
+                                arr.frombytes(payload)
+                                if arr:
+                                    avg_abs = sum(abs(s) for s in arr) / len(arr)
+                                    # threshold ~ 220 (~0.0067 full scale) heuristically tuned
+                                    if avg_abs > 220:
+                                        state.voiced_frame_count += 1
+                                        if state.low_energy_mode and state.voiced_frame_count >= 3:
+                                            state.low_energy_mode = False
+                                    else:
+                                        state.silence_frame_count += 1
+                            except Exception:
+                                pass
                             await state.audio_session.ingest_pcm(payload)
                             state.pcm_frames_received += 1
                             if state.pcm_frames_received <= 3:  # log only first few for noise control
@@ -635,6 +785,17 @@ async def streaming_voice_endpoint(
         logger.error("❌ Streaming voice error %s: %s", connection_id, e)
     finally:
         state.disconnected = True
+        # Emit session_end early if still open
+        with contextlib.suppress(Exception):
+            await _send_json(websocket, {
+                "type": "session_end",
+                "timestamp": time.time(),
+                "bytes_received": state.bytes_received,
+                "pcm_frames": state.pcm_frames_received,
+                "voiced_frames": state.voiced_frame_count,
+                "silence_frames": state.silence_frame_count,
+                "low_energy_mode": state.low_energy_mode,
+            })
         if state.mock_task and not state.mock_task.done():
             state.mock_task.cancel()
             with contextlib.suppress(Exception):  # type: ignore[arg-type]
@@ -644,6 +805,11 @@ async def streaming_voice_endpoint(
             state.llm_tts_task.cancel()
             with contextlib.suppress(Exception):
                 await state.llm_tts_task
+        # Heartbeat task
+        if state.heartbeat_task and not state.heartbeat_task.done():
+            state.heartbeat_task.cancel()
+            with contextlib.suppress(Exception):
+                await state.heartbeat_task
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:
             await state.audio_session.pcm_buffer.close()
