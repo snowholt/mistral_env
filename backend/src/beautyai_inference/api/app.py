@@ -15,8 +15,7 @@ import os
 from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
-# Setup logging
-logging.basicConfig(level=logging.INFO)
+# Logging configured centrally in run_server via configure_logging.
 logger = logging.getLogger(__name__)
 
 # Define OpenAPI tags for better documentation organization
@@ -90,8 +89,11 @@ app = FastAPI(
     openapi_tags=tags_metadata
 )
 
-# CORS is handled by nginx, so we don't need to add it here to avoid conflicts
-# Removing CORS middleware to prevent duplicate headers with nginx
+from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelationMiddleware
+
+# Correlation / request ID injection
+app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(WebSocketCorrelationMiddleware)
 
 # Include routers with proper organization
 app.include_router(health_router)

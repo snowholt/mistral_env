@@ -41,6 +41,7 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
 )
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
 from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
+from beautyai_inference.logging.setup import session_id_ctx
 from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
 from beautyai_inference.services.voice.utils.text_cleaning import sanitize_tts_text
 
@@ -263,6 +264,8 @@ async def streaming_voice_endpoint(
     session_id = f"stream_{connection_id}"
 
     state = SessionState(connection_id=connection_id, session_id=session_id, websocket=websocket)
+    # Bind session id to logging context for structured correlation
+    session_ctx_token = session_id_ctx.set(session_id)
     state.requested_language = original_language
     state.metrics = SessionMetrics(session_id=session_id)
     # Phase 2: attach audio streaming session (ring buffer size ~40s)
@@ -896,6 +899,11 @@ async def streaming_voice_endpoint(
             with contextlib.suppress(Exception):
                 await asyncio.wait_for(state.ffmpeg_proc.wait(), timeout=2)
         session_registry.remove(connection_id)
+        # Reset session id context var
+        try:
+            session_id_ctx.reset(session_ctx_token)
+        except Exception:
+            pass
         logger.info("🧹 Cleaned streaming session %s (active=%d)", connection_id, session_registry.active_count())
         # Emit final metrics summary if still connected (best-effort; socket may already be closed)
         with contextlib.suppress(Exception):

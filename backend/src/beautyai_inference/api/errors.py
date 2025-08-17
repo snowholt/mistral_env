@@ -131,6 +131,16 @@ class SystemError(APIError):
         )
 
 
+class BeautyAIError(APIError):
+    """Generic BeautyAI framework error (placeholder)."""
+    pass
+
+
+class ModelError(APIError):
+    """Generic model-related error (placeholder)."""
+    pass
+
+
 def api_error_handler(func):
     """
     Decorator for API error handling.

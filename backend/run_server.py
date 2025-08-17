@@ -9,6 +9,15 @@ import os
 import sys
 import socket
 from pathlib import Path
+import logging
+
+try:
+    # Configure logging early (idempotent)
+    from beautyai_inference.logging.setup import configure_logging
+    configure_logging(service="api")
+except Exception as e:  # pragma: no cover
+    print(f"⚠️ Logging configuration failed, falling back to basic config: {e}")
+    logging.basicConfig(level=logging.INFO)
 
 # Add the project root to Python path
 project_root = Path(__file__).parent

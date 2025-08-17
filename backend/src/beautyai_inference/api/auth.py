@@ -397,6 +397,26 @@ def validate_jwt_token(token: str) -> Optional[AuthContext]:
     return None
 
 
+# === Temporary / placeholder auth utilities to satisfy middleware imports ===
+@dataclass
+class AuthConfig:
+    """Authentication configuration placeholder.
+
+    Extend later with JWT secrets, API key stores, etc.
+    """
+    development_mode: bool = True
+
+
+async def get_user_permissions(api_key: str) -> list:
+    """Return permissions for a given API key (placeholder)."""
+    return ["*"]
+
+
+async def get_user_roles(api_key: str) -> list:
+    """Return roles for a given API key (placeholder)."""
+    return ["admin"]
+
+
 def validate_api_key(api_key: str) -> Optional[AuthContext]:
     """
     Validate API key and extract authentication context.

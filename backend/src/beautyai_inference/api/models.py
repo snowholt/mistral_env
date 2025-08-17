@@ -54,6 +54,24 @@ class ErrorResponse(APIResponse):
     error_details: Optional[Dict[str, Any]] = None
 
 
+@dataclass
+class RequestMetadata:
+    """Lightweight request metadata container (placeholder).
+
+    Added to satisfy middleware imports; can be expanded with tracing fields.
+    """
+    request_id: str
+    method: str
+    path: str
+    query_params: Dict[str, Any]
+    client_ip: str
+    user_agent: str
+    content_type: Optional[str]
+    content_length: Optional[str]
+    timestamp: float
+    memory_usage_mb: float = 0.0
+
+
 # Model Management API Models
 @dataclass
 class ModelListRequest(APIRequest):

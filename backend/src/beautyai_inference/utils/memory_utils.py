@@ -167,3 +167,14 @@ def format_size(size_bytes: float) -> str:
 def clear_terminal_screen() -> None:
     """Clear the terminal screen."""
     print("\033c", end="")
+
+
+def get_memory_info() -> Dict[str, Any]:
+    """Return basic system memory usage (placeholder for legacy callers)."""
+    mem = psutil.virtual_memory()
+    return {
+        "total_mb": round(mem.total / (1024**2), 2),
+        "available_mb": round(mem.available / (1024**2), 2),
+        "used_mb": round(mem.used / (1024**2), 2),
+        "percent": mem.percent,
+    }
