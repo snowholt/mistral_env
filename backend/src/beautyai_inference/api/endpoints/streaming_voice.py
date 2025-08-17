@@ -102,6 +102,8 @@ class SessionState:
     silence_frame_count: int = 0
     voiced_frame_count: int = 0
     low_energy_mode: bool = True  # assume silent until energy detected
+    requested_language: Optional[str] = None  # original language param (may be 'auto')
+    mismatch_notified: bool = False  # whether we already emitted a language mismatch advisory
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -240,20 +242,28 @@ async def streaming_voice_endpoint(
         with contextlib.suppress(Exception):
             await websocket.close(code=1000, reason="streaming_disabled")
         return
-    if language not in ("ar", "en"):
+    # Accept 'auto' as a valid option (previously caused immediate close & silent failure on UI)
+    original_language = language
+    if language not in ("ar", "en", "auto"):
         await _send_json(websocket, {
             "type": "error",
             "stage": "init",
-            "message": f"Unsupported language '{language}' (allowed: ar,en)",
+            "message": f"Unsupported language '{language}' (allowed: ar,en,auto)",
         })
         with contextlib.suppress(Exception):
             await websocket.close(code=1000, reason="unsupported_language")
         return
+    # For now we do not have true automatic incremental language switching in the decoder loop yet.
+    # When 'auto' is requested we pick a default decode language (configurable) but surface metadata so
+    # the client can adjust UI. Later phases can integrate real detection & dynamic switching.
+    if language == "auto":
+        language = os.getenv("VOICE_STREAMING_AUTO_FALLBACK", "ar")
 
     connection_id = str(uuid.uuid4())
     session_id = f"stream_{connection_id}"
 
     state = SessionState(connection_id=connection_id, session_id=session_id, websocket=websocket)
+    state.requested_language = original_language
     state.metrics = SessionMetrics(session_id=session_id)
     # Phase 2: attach audio streaming session (ring buffer size ~40s)
     state.audio_session = StreamingSession(connection_id=connection_id, session_id=session_id, language=language)
@@ -286,6 +296,7 @@ async def streaming_voice_endpoint(
         "feature": "streaming_voice_phase4" if run_phase4 else "streaming_voice_phase2",
         "message": "Streaming voice ready (incremental decode)" if run_phase4 else "Streaming voice ready (mock decode + PCM buffer)",
         "language": language,
+        "requested_language": original_language,
         "pcm_sample_rate": state.audio_session.sample_rate if state.audio_session else 16000,
         "ring_buffer_seconds": 40.0,
         "decode_interval_ms": 480 if run_phase4 else None,
@@ -296,6 +307,15 @@ async def streaming_voice_endpoint(
             "mock_disabled": disable_mock,
         }
     })
+    if original_language == "auto":
+        await _send_json(websocket, {
+            "type": "info",
+            "stage": "init",
+            "message": f"Auto language mode active (effective decode language='{language}')",
+            "requested_language": original_language,
+            "effective_language": language,
+            "timestamp": time.time(),
+        })
 
     if run_phase4:
         try:
@@ -396,11 +416,13 @@ async def streaming_voice_endpoint(
                 # Offload potentially blocking LLM generation to thread pool to avoid stalling event loop
                 loop = asyncio.get_running_loop()
                 def _run_chat():
+                    # Always forward the originally requested language (state.requested_language)
+                    # so enforcement logic can act even if 'auto' was converted earlier.
                     return chat_service.chat_fast(
                         message=text,
                         conversation_history=prev_history,
                         max_length=192,
-                        language=lang or "auto",
+                        language=state.requested_language or lang or "auto",
                         temperature=0.3,
                     )
                 chat_result = await loop.run_in_executor(None, _run_chat)
@@ -431,14 +453,28 @@ async def streaming_voice_endpoint(
                     "chars": len(response_text),
                     "timestamp": time.time(),
                     "conversation_len": len(state.conversation),
+                    "requested_language": state.requested_language,
+                    "effective_language": chat_result.get("detected_language"),
                 })
+                try:
+                    maybe_log_structured(logger, "assistant_response", {
+                        "session_id": state.session_id,
+                        "utterance_index": utterance_index,
+                        "requested_language": state.requested_language,
+                        "effective_language": chat_result.get("detected_language"),
+                        "chars": len(response_text),
+                    })
+                except Exception:
+                    pass
                 state.emitted_assistant_for.add(utterance_index)
                 # Increment assistant turn counter early (text surfaced)
                 state.assistant_turns += 1
 
                 # Synthesize speech (use language heuristic)
                 from base64 import b64encode
-                tts_path = await voice_service.text_to_speech(response_text, language=lang or chat_result.get("detected_language", "ar"))
+                # Prefer enforced/explicit requested language for synthesis if available
+                synth_lang = state.requested_language if state.requested_language in ("ar","en") else chat_result.get("detected_language", lang or "ar")
+                tts_path = await voice_service.text_to_speech(response_text, language=synth_lang)
                 audio_bytes = tts_path.read_bytes()
                 audio_b64 = b64encode(audio_bytes).decode("utf-8")
 
@@ -517,7 +553,38 @@ async def streaming_voice_endpoint(
                 if etype == "partial_transcript":
                     if state.metrics and "decode_ms" in event:
                         state.metrics.inc_partial()
+                    # Annotate decode language for client debugging
+                    event.setdefault("decode_language", language)
                     await _send_json(state.websocket, event)
+                    # Heuristic language mismatch advisory (simple character class ratio)
+                    try:
+                        if not state.mismatch_notified and state.requested_language in ("en", "ar"):
+                            txt = event.get("text", "")
+                            if txt:
+                                arabic_chars = sum(1 for c in txt if '\u0600' <= c <= '\u06FF')
+                                ratio = arabic_chars / max(1, len(txt))
+                                if state.requested_language == "en" and ratio > 0.6:
+                                    await _send_json(state.websocket, {
+                                        "type": "language_mismatch_notice",
+                                        "requested": state.requested_language,
+                                        "observed_ratio_arabic": round(ratio,3),
+                                        "sample": txt[:64],
+                                        "message": "Observed dominant Arabic characters while English requested. Consider switching language parameter or enabling auto mode.",
+                                        "timestamp": time.time(),
+                                    })
+                                    state.mismatch_notified = True
+                                elif state.requested_language == "ar" and ratio < 0.2 and len(txt) > 8:
+                                    await _send_json(state.websocket, {
+                                        "type": "language_mismatch_notice",
+                                        "requested": state.requested_language,
+                                        "observed_ratio_arabic": round(ratio,3),
+                                        "sample": txt[:64],
+                                        "message": "Observed predominantly non-Arabic characters while Arabic requested.",
+                                        "timestamp": time.time(),
+                                    })
+                                    state.mismatch_notified = True
+                    except Exception:
+                        pass
                     # Emit metrics snapshot as a dedicated event (easier for tests)
                     await _send_json(state.websocket, {
                         "type": "metrics_snapshot",
@@ -547,6 +614,7 @@ async def streaming_voice_endpoint(
                     state.processed_utterance_indices.add(utterance_index)
                     state.last_final_text = final_text_candidate
                     state.last_final_time = time.time()
+                    event.setdefault("decode_language", language)
                     await _send_json(state.websocket, event)
                     if state.metrics:
                         maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())

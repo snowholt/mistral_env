@@ -282,6 +282,15 @@ async def incremental_decode_loop(
                         len(final_text.strip()) if final_text else 0,
                         final_event.utterance_index,
                     )
+                    # Emit explicit suppression event for client diagnostics
+                    yield {
+                        "type": "final_suppressed",
+                        "utterance_index": final_event.utterance_index,
+                        "reason": "empty_or_short",
+                        "chars": len(final_text.strip()) if final_text else 0,
+                        "min_required": min_final_chars,
+                        "timestamp": time.time(),
+                    }
                 # Always advance utterance index tracking to avoid re-trigger loops
                 state.last_final_utterance_index = final_event.utterance_index
                 # Record last_final_text only if non-empty to further suppress duplicates

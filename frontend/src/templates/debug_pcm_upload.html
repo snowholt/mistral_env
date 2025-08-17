@@ -9,14 +9,25 @@
 <body>
   <h1>Offline Audio File Streaming WebSocket Debug</h1>
   <div class="note-banner">
-    Provide an audio file (wav / pcm / most browser-decodable formats). The file will be decoded, downsampled to 16 kHz Int16, then streamed frame-by-frame to the <code>/api/v1/ws/streaming-voice</code> endpoint to simulate a live session. No microphone capture is used here.
+    Provide an audio file (wav / pcm / most browser-decodable formats). The file will be decoded, downsampled to 16 kHz Int16, then streamed frame-by-frame to the <code>/api/v1/ws/streaming-voice</code> endpoint to simulate a live session.<br>
+    New: Optional live microphone streaming (client-side downsample to 16 kHz Int16 via AudioWorklet) available in Streaming mode. Use responsibly; this is a debugging tool.
   </div>
 
   <section class="panel" id="configPanel">
     <h2>Configuration</h2>
     <div class="cfg-grid">
       <label>Audio File
-        <input type="file" id="audioFile" accept="audio/*,.pcm" />
+        <div class="file-input-wrapper">
+          <input type="file" id="audioFile" accept="audio/*,.pcm" />
+          <span class="file-label" id="fileLabel">Choose file…</span>
+          <button type="button" class="btn-outline" id="btnPickFile">Browse</button>
+        </div>
+      </label>
+      <label>Mode
+        <select id="wsMode">
+          <option value="streaming" selected>Streaming (incremental)</option>
+          <option value="simple">Simple Voice Chat</option>
+        </select>
       </label>
       <label>Language
         <select id="langSel">
@@ -35,7 +46,15 @@
         </select>
       </label>
       <label>WS Endpoint
-        <input id="wsUrl" placeholder="(auto)" />
+        <div class="ws-endpoint-select">
+          <select id="wsPreset">
+            <option value="auto" selected>(auto detect)</option>
+            <option value="local">Local Default</option>
+            <option value="prod">Production API</option>
+            <option value="custom">Custom…</option>
+          </select>
+          <input id="wsUrl" placeholder="(auto)" class="hidden" />
+        </div>
       </label>
       <label>Autoplay TTS
         <input type="checkbox" id="autoplayTTS" checked />
@@ -43,7 +62,9 @@
       <div class="status-box" id="wsStatus" data-state="disconnected">● Disconnected</div>
       <button id="btnConnect" class="primary">Connect</button>
       <button id="btnDisconnect" disabled>Disconnect</button>
-      <button id="btnStream" disabled>Stream File</button>
+  <button id="btnStream" disabled>Stream File</button>
+  <button id="btnMicStart" disabled>Start Mic</button>
+  <button id="btnMicStop" disabled>Stop Mic</button>
       <button id="btnAbort" disabled>Abort Stream</button>
       <button id="btnExport" disabled>Export Log</button>
       <button id="btnClear">Clear</button>
@@ -55,23 +76,21 @@
       <div><span>Partials:</span><code id="mPartials">0</code></div>
       <div><span>Finals:</span><code id="mFinals">0</code></div>
       <div><span>Responses:</span><code id="mResponses">0</code></div>
-      <div><span>First Partial (ms):</span><code id="mFirstPartial">-</code></div>
-      <div><span>First Final (ms):</span><code id="mFirstFinal">-</code></div>
-      <div><span>TTS Start (ms):</span><code id="mTTSStart">-</code></div>
-      <div><span>TTS Complete (ms):</span><code id="mTTSComplete">-</code></div>
+  <div><span>First Partial (ms)</span><code id="mFirstPartial">-</code></div>
+  <div><span>First Final (ms)</span><code id="mFirstFinal">-</code></div>
+  <div><span>Assistant Resp (ms)</span><code id="mFirstAssistant">-</code></div>
+  <div><span>TTS Start (ms)</span><code id="mTTSStart">-</code></div>
+  <div><span>TTS Complete (ms)</span><code id="mTTSComplete">-</code></div>
+  <div><span>Stream Duration (ms)</span><code id="mStreamDuration">-</code></div>
     </div>
   </section>
 
-  <section class="panel split">
-    <div>
+  <section class="panel conversation-panel">
+    <h2>Conversation</h2>
+    <div class="conversation" id="conversationBox" aria-live="polite"></div>
+    <div class="conversation-side">
       <h3>Partial Transcript</h3>
       <div id="partialBox" class="partial-box mono">&nbsp;</div>
-      <h3>Final Transcript</h3>
-      <textarea id="finalBox" class="mono" readonly></textarea>
-    </div>
-    <div>
-      <h3>Assistant Responses</h3>
-      <textarea id="assistantBox" class="mono" readonly></textarea>
       <h3>Received TTS (latest)</h3>
       <audio id="ttsAudio" controls></audio>
     </div>
@@ -97,22 +116,28 @@
     let streamOffset = 0;
     let frameTimer = null;
     let sessionStart = null;
-    let framesSent=0, bytesSent=0, partials=0, finals=0, responses=0;
-    let firstPartialAt=null, firstFinalAt=null, ttsStartAt=null, ttsCompleteAt=null;
+  let framesSent=0, bytesSent=0, partials=0, finals=0, responses=0;
+  let firstPartialAt=null, firstFinalAt=null, firstAssistantAt=null, ttsStartAt=null, ttsCompleteAt=null;
+  let streamStartAt=null; // set when a file or mic stream begins
 
     const E = id => document.getElementById(id);
     const els = {
-      wsStatus: E('wsStatus'), wsUrl: E('wsUrl'), lang: E('langSel'), frameMs: E('frameMs'), paceMode: E('paceMode'), autoplay: E('autoplayTTS'),
+      wsStatus: E('wsStatus'), wsUrl: E('wsUrl'), lang: E('langSel'), frameMs: E('frameMs'), paceMode: E('paceMode'), autoplay: E('autoplayTTS'), wsMode: E('wsMode'),
       file: E('audioFile'), btnConnect: E('btnConnect'), btnDisconnect: E('btnDisconnect'), btnStream: E('btnStream'), btnAbort: E('btnAbort'), btnExport: E('btnExport'), btnClear: E('btnClear'),
-      mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'),
-      partial: E('partialBox'), final: E('finalBox'), assistant: E('assistantBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames')
+  mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mFirstAssistant: E('mFirstAssistant'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'), mStreamDuration: E('mStreamDuration'),
+  partial: E('partialBox'), conversation: E('conversationBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames'), fileLabel: E('fileLabel'), btnPickFile: E('btnPickFile'), wsPreset: E('wsPreset'), btnMicStart: E('btnMicStart'), btnMicStop: E('btnMicStop')
     };
+    // Microphone capture state
+    let micActive=false, micWorkletNode=null, micStream=null, micAudioCtx=null;
 
     function autoUrl(){
       const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
       let host = window.BEAUTYAI_API_HOST || location.host; const hn = location.hostname;
       if (/\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)) host = 'api.gmai.sa';
-      return `${proto}//${host}/api/v1/ws/streaming-voice?language=${encodeURIComponent(els.lang.value)}`;
+      const lang = encodeURIComponent(els.lang.value);
+      const mode = els.wsMode.value;
+      if(mode==='simple') return `${proto}//${host}/api/v1/ws/simple-voice-chat?language=${lang}&voice_type=female`;
+      return `${proto}//${host}/api/v1/ws/streaming-voice?language=${lang}`;
     }
 
     function setStatus(state){
@@ -135,8 +160,9 @@
       framesSent=bytesSent=partials=finals=responses=0;
       firstPartialAt=firstFinalAt=ttsStartAt=ttsCompleteAt=null;
       [els.mFrames, els.mBytes, els.mPartials, els.mFinals, els.mResponses].forEach(el=>el.textContent='0');
-      [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mTTSStart, els.mTTSComplete].forEach(el=>el.textContent='-');
-      els.partial.textContent=''; els.final.value=''; els.assistant.value='';
+  [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=>el.textContent='-');
+  streamStartAt=null;
+  els.partial.textContent=''; els.conversation.innerHTML='';
     }
 
     // ==========================================
@@ -187,34 +213,88 @@
       els.wsUrl.value = url;
       ws = new WebSocket(url);
       ws.onopen = ()=>{ setStatus('connected'); log('ws_open'); toggleButtons(); };
-      ws.onclose = (e)=>{ setStatus('disconnected'); log('ws_close',{code:e.code}); toggleButtons(); abortStream(); };
+      ws.onclose = (e)=>{ setStatus('disconnected'); log('ws_close',{code:e.code}); toggleButtons(); abortStream(); stopMic(); };
       ws.onerror = (e)=>{ log('ws_error'); };
       ws.onmessage = (e)=>handleServerMessage(e.data);
       toggleButtons();
     }
-    function disconnect(){ if(ws){ try{ ws.close(); }catch{} } }
+    function disconnect(){ if(ws){ try{ ws.close(); }catch{} } stopMic(); }
 
     function handleServerMessage(data){
-      try { const msg = JSON.parse(data); const type = msg.type || msg.event; switch(type){
-        case 'partial_transcript':
-          partials++; if(!firstPartialAt) firstPartialAt=performance.now(); els.mPartials.textContent=partials; els.partial.textContent = msg.text || ''; els.mFirstPartial.textContent = delta(firstPartialAt); log('partial',{text:msg.text}); break;
-        case 'final_transcript':
-          finals++; if(!firstFinalAt) firstFinalAt=performance.now(); els.mFinals.textContent=finals; els.final.value += (els.final.value?'\n':'') + (msg.text||''); els.mFirstFinal.textContent = delta(firstFinalAt); log('final',{text:msg.text}); break;
-        case 'assistant_response':
-          responses++; els.mResponses.textContent=responses; els.assistant.value += (els.assistant.value?'\n':'') + (msg.text||''); log('assistant_response',{chars:msg.chars}); break;
-        case 'tts_start':
-          if(!ttsStartAt) ttsStartAt=performance.now(); els.mTTSStart.textContent = delta(ttsStartAt); log('tts_start'); break;
-        case 'tts_audio':
-          log('tts_audio',{chars:msg.chars}); if(els.autoplay.checked && msg.audio){ playBase64Wav(msg.audio); } break;
-        case 'tts_complete':
-          if(!ttsCompleteAt) ttsCompleteAt=performance.now(); els.mTTSComplete.textContent = delta(ttsCompleteAt); log('tts_complete',{processing_ms:msg.processing_ms}); break;
-        case 'heartbeat':
-          log('heartbeat', msg); break;
-        case 'error':
-          log('error',{message:msg.message}); break;
-        default:
-          log('server_event', msg);
-      }} catch { log('non_json'); }
+      try {
+        const msg = JSON.parse(data); const type = msg.type || msg.event;
+        switch(type){
+          case 'partial_transcript':
+            partials++; if(!firstPartialAt){ firstPartialAt=performance.now(); if(streamStartAt) els.mFirstPartial.textContent = (firstPartialAt - streamStartAt).toFixed(1); }
+            els.mPartials.textContent=partials; els.partial.textContent = msg.text || ''; log('partial',{text:msg.text}); break;
+          case 'final_transcript':
+            finals++; if(!firstFinalAt){ firstFinalAt=performance.now(); if(streamStartAt) els.mFirstFinal.textContent = (firstFinalAt - streamStartAt).toFixed(1); }
+            els.mFinals.textContent=finals; log('final',{text:msg.text});
+            appendConversation('user', msg.text || '');
+            break;
+          case 'final_suppressed':
+            log('final_suppressed', msg); break;
+          case 'language_mismatch_notice':
+            log('lang_mismatch', msg); break;
+          case 'assistant_response':
+            responses++; if(!firstAssistantAt){ firstAssistantAt=performance.now(); if(streamStartAt) els.mFirstAssistant.textContent = (firstAssistantAt - streamStartAt).toFixed(1); }
+            els.mResponses.textContent=responses; log('assistant_response',{chars:msg.chars}); appendConversation('assistant', msg.text || ''); break;
+          case 'tts_start':
+            if(!ttsStartAt){ ttsStartAt=performance.now(); if(streamStartAt) els.mTTSStart.textContent = (ttsStartAt - streamStartAt).toFixed(1); } log('tts_start'); break;
+          case 'tts_audio':
+            log('tts_audio',{chars:msg.chars}); if(els.autoplay.checked && msg.audio){ playBase64Wav(msg.audio); } break;
+          case 'tts_complete':
+            if(!ttsCompleteAt){ ttsCompleteAt=performance.now(); if(streamStartAt) els.mTTSComplete.textContent = (ttsCompleteAt - streamStartAt).toFixed(1); }
+            if(streamStartAt) els.mStreamDuration.textContent = (performance.now() - streamStartAt).toFixed(1);
+            log('tts_complete',{processing_ms:msg.processing_ms}); break;
+          case 'heartbeat':
+            log('heartbeat', msg); break;
+          case 'error':
+            log('error',{message:msg.message}); break;
+          default:
+            log('server_event', msg);
+        }
+      } catch { log('non_json'); }
+    }
+    function appendConversation(role, text){
+      if(!text) return;
+      const item = document.createElement('div');
+      item.className = 'conv-item ' + role;
+      const icon = document.createElement('div'); icon.className='icon'; icon.textContent = role==='user' ? '👤' : '🤖';
+      const body = document.createElement('div'); body.className='body'; body.textContent = text;
+      item.appendChild(icon); item.appendChild(body);
+      els.conversation.appendChild(item);
+      els.conversation.scrollTop = els.conversation.scrollHeight;
+    }
+
+    // File input modernization
+    els.btnPickFile.addEventListener('click', ()=> els.file.click());
+    els.file.addEventListener('change', ()=> {
+      const f = els.file.files && els.file.files[0];
+      els.fileLabel.textContent = f ? f.name : 'Choose file…';
+    });
+
+    // WS preset selection
+    els.wsPreset.addEventListener('change', ()=>{
+      const val = els.wsPreset.value;
+      const input = els.wsUrl;
+      if(val==='custom') { input.classList.remove('hidden'); input.focus(); }
+      else { input.classList.add('hidden'); }
+      updatePresetUrl();
+    });
+    // Update URL when mode changes (if preset not custom)
+  els.wsMode.addEventListener('change', ()=>{ log('mode_change',{mode:els.wsMode.value}); updatePresetUrl(); toggleButtons(); });
+
+    function updatePresetUrl(){
+      const val = els.wsPreset.value; const mode = els.wsMode.value; const input = els.wsUrl; const lang = encodeURIComponent(els.lang.value);
+      if(val==='custom') return; // user handles
+      if(val==='auto'){ input.value=''; return; }
+      let baseHost;
+      if(val==='local') baseHost = `${location.protocol==='https:'?'wss':'ws'}://localhost:8000`;
+      else if(val==='prod') baseHost = 'wss://api.gmai.sa';
+      else baseHost = `${location.protocol==='https:'?'wss':'ws'}://${location.host}`;
+      const path = mode==='simple'? `/api/v1/ws/simple-voice-chat?language=${lang}&voice_type=female` : `/api/v1/ws/streaming-voice?language=${lang}`;
+      input.value = baseHost + path;
     }
 
     function delta(ts){ return sessionStart? (ts - sessionStart).toFixed(1): '-'; }
@@ -229,18 +309,33 @@
     function streamFile(){
       if(!ws || ws.readyState!==WebSocket.OPEN){ alert('Connect first'); return; }
       if(!int16Audio){ alert('Decode / select a file first'); return; }
-      streamOffset = 0; framesSent=bytesSent=0; els.mFrames.textContent='0'; els.mBytes.textContent='0'; log('stream_start',{samples:int16Audio.length});
+      streamOffset = 0; framesSent=bytesSent=0; els.mFrames.textContent='0'; els.mBytes.textContent='0';
+      // reset per-stream timing metrics (but not session counters like partial count until overwritten)
+      firstPartialAt=firstFinalAt=firstAssistantAt=ttsStartAt=ttsCompleteAt=null; streamStartAt = performance.now();
+      [els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=> el.textContent='-');
+      log('stream_start',{samples:int16Audio.length});
       scheduleNextFrame(); toggleButtons();
     }
     function scheduleNextFrame(){
       if(!ws || ws.readyState!==WebSocket.OPEN) return;
       const frameMs = parseInt(els.frameMs.value,10) || 20;
       const samplesPerFrame = 16000 * frameMs / 1000; // 320 for 20ms
-      if(streamOffset >= int16Audio.length){ log('stream_complete'); toggleButtons(); return; }
+      if(streamOffset >= int16Audio.length){
+        frameTimer = null; // allow re-streaming without reconnect
+        log('stream_complete');
+        if(streamStartAt) els.mStreamDuration.textContent = (performance.now() - streamStartAt).toFixed(1);
+        toggleButtons();
+        return;
+      }
       const end = Math.min(int16Audio.length, streamOffset + samplesPerFrame);
       const frame = int16Audio.subarray(streamOffset, end);
-      try { ws.send(frame.buffer); } catch(e){ log('send_error'); return; }
-      framesSent++; bytesSent += frame.length*2; els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent; log('frame_sent',{samples:frame.length});
+      try {
+        if(frame.length > 4096){ // split large burst to avoid decode backlog
+          let pos=0; const SL=1024;
+            while(pos<frame.length){ const slice=frame.subarray(pos,pos+SL); ws.send(slice.buffer); framesSent++; bytesSent += slice.length*2; log('frame_sent',{samples:slice.length,split:true}); pos+=SL; }
+        } else { ws.send(frame.buffer); framesSent++; bytesSent += frame.length*2; log('frame_sent',{samples:frame.length}); }
+      } catch(e){ log('send_error'); return; }
+      els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent;
       streamOffset = end;
       if(els.paceMode.value === 'fast') {
         scheduleNextFrame();
@@ -270,14 +365,40 @@
       els.btnStream.disabled = !connected || !int16Audio || streaming;
       els.btnAbort.disabled = !streaming;
       els.btnExport.disabled = evLog.length===0;
+      if(els.btnMicStart){ els.btnMicStart.disabled = !connected || micActive || els.wsMode.value!=='streaming'; }
+      if(els.btnMicStop){ els.btnMicStop.disabled = !connected || !micActive; }
     }
+
+    // ==========================================
+    // Microphone (AudioWorklet) Live PCM Streaming (Streaming mode only)
+    // ==========================================
+  async function startMic(){
+      if(micActive) return; if(!ws || ws.readyState!==WebSocket.OPEN){ alert('Connect first'); return; }
+      if(els.wsMode.value !== 'streaming'){ alert('Mic only available in Streaming mode'); return; }
+      try {
+        micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:48000});
+        const workletSource = `class PCMDownsampler extends AudioWorkletProcessor {\n  constructor(){ super(); this.buf=[]; this.ratio = sampleRate / 16000; }\n  process(inputs){ const input=inputs[0]; if(!input||!input[0]) return true; const ch=input[0]; for(let i=0;i<ch.length;i+=this.ratio){ const v=ch[Math.floor(i)]||0; const c = Math.max(-1, Math.min(1,v)); const iv = c<0? c*0x8000 : c*0x7FFF; this.buf.push(iv); } while(this.buf.length>=320){ const frame=this.buf.splice(0,320); const ab=new ArrayBuffer(frame.length*2); const dv=new DataView(ab); for(let i=0;i<frame.length;i++){ dv.setInt16(i*2, frame[i], true);} this.port.postMessage(ab);} return true; } }\nregisterProcessor('pcm-downsampler', PCMDownsampler);`;
+        const blob = new Blob([workletSource], {type:'application/javascript'});
+        const url = URL.createObjectURL(blob);
+        await micAudioCtx.audioWorklet.addModule(url);
+        micStream = await navigator.mediaDevices.getUserMedia({audio:true});
+        const src = micAudioCtx.createMediaStreamSource(micStream);
+        micWorkletNode = new AudioWorkletNode(micAudioCtx,'pcm-downsampler');
+  micWorkletNode.port.onmessage = (e)=>{ if(ws && ws.readyState===WebSocket.OPEN){ if(!streamStartAt){ streamStartAt = performance.now(); [els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=> el.textContent='-'); log('mic_stream_start'); } ws.send(e.data); framesSent++; bytesSent += e.data.byteLength; els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent; } };
+        src.connect(micWorkletNode); // no need to connect to destination for silent capture
+        micActive=true; log('mic_start'); toggleButtons();
+      } catch(err){ log('mic_error',{message:err.message}); alert('Mic init failed: '+err.message); }
+    }
+    function stopMic(){ if(!micActive) return; try{ micWorkletNode && micWorkletNode.disconnect(); micStream && micStream.getTracks().forEach(t=>t.stop()); micAudioCtx && micAudioCtx.close(); }catch{} micActive=false; log('mic_stop'); toggleButtons(); }
 
     // ==========================================
     // Event Bindings
     // ==========================================
     els.btnConnect.onclick = connect;
     els.btnDisconnect.onclick = ()=>{ disconnect(); toggleButtons(); };
-    els.btnStream.onclick = streamFile;
+  els.btnStream.onclick = streamFile;
+  if(els.btnMicStart) els.btnMicStart.onclick = startMic;
+  if(els.btnMicStop) els.btnMicStop.onclick = stopMic;
     els.btnAbort.onclick = abortStream;
     els.btnExport.onclick = exportLog;
     els.btnClear.onclick = clearAll;

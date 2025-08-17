@@ -460,6 +460,50 @@ class ChatService(BaseService):
             if response and response.strip():
                 # Clean the response to remove any thinking content or unwanted text
                 cleaned_response = self._clean_response(response.strip(), response_language)
+
+                # ================= Strict Language Enforcement (Arabic) =================
+                # If the caller explicitly requested Arabic (not auto) but model produced
+                # predominantly non-Arabic characters, we attempt a second-pass translation
+                # generation OR fallback to a canned Arabic greeting to preserve UX
+                try:
+                    enforce = os.getenv("CHAT_STRICT_LANGUAGE_ENFORCEMENT", "1") == "1"
+                except Exception:
+                    enforce = True
+                if enforce and language == "ar":
+                    arabic_chars = sum(1 for c in cleaned_response if '\u0600' <= c <= '\u06FF')
+                    ratio_ar = arabic_chars / max(1, len(cleaned_response))
+                    if ratio_ar < 0.25:  # mismatch threshold
+                        logger.warning("[chat] Arabic requested but ratio_ar=%.3f < 0.25; attempting enforced translation", ratio_ar)
+                        try:
+                            # Build lightweight translation prompt (avoid full history to reduce latency)
+                            translation_prompt = (
+                                "System: أنت مترجم طبي محترف. ترجم النص التالي إلى العربية الفصحى الحديثة بدقة ووضوح وبدون أي تفسير إضافي.\n"
+                                f"User: {cleaned_response}\nAssistant:"
+                            )
+                            # Constrain tokens to original budget
+                            trans_params = {
+                                "max_new_tokens": min(max_length, int(len(cleaned_response) * 1.2 // 4) + 48),
+                                "temperature": 0.2,
+                                "top_p": 0.8,
+                                "do_sample": False,
+                            }
+                            translated = model.generate(translation_prompt, **trans_params) or ""
+                            if translated.strip():
+                                # Basic verification the result is Arabic heavy
+                                arabic_chars2 = sum(1 for c in translated if '\u0600' <= c <= '\u06FF')
+                                ratio_ar2 = arabic_chars2 / max(1, len(translated))
+                                if ratio_ar2 >= ratio_ar:  # accept if improvement
+                                    cleaned_response = self._clean_response(translated.strip(), "ar")
+                                    response_language = "ar"
+                                    logger.info("[chat] Enforced translation applied ratio_ar2=%.3f", ratio_ar2)
+                        except Exception as te:  # pragma: no cover - best effort
+                            logger.warning("[chat] translation enforcement failed: %s", te)
+                        # Final guard: if still not Arabic enough, override with Arabic fallback greeting
+                        if sum(1 for c in cleaned_response if '\u0600' <= c <= '\u06FF') / max(1, len(cleaned_response)) < 0.15:
+                            cleaned_response = "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
+                            response_language = "ar"
+                            logger.info("[chat] Applied Arabic fallback greeting after failed enforcement")
+
                 logger.info(f"Generated response (first 100 chars): {cleaned_response[:100]}")
                 return {
                     "success": True, 
