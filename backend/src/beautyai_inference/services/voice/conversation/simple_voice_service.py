@@ -525,18 +525,21 @@ class SimpleVoiceService:
                 optimized_message = f"Answer briefly in English: {text}"
             logger.info(f"Optimized message: {optimized_message[:100]}... (target_language: {target_language})")
             
-            # Use the real chat service with specified target language
-            # Use low-latency wrapper that enforces no thinking
-            result = self.chat_service.chat_fast(
+            # Use the real chat service directly (chat_fast removed) with low-latency parameters
+            result = self.chat_service.chat(
                 message=optimized_message,
+                conversation_history=None,  # simple one-off turns for voice
                 max_length=128,
                 language=target_language,
+                thinking_mode=False,
+                temperature=0.3,
+                top_p=0.95,
             )
             
             if result.get("success"):
                 raw_response = result.get("response", "")
                 # Clean thinking blocks from the response before TTS
-                # Already disable thinking in chat_fast, but perform defensive clean & emoji strip
+                # Defensive clean & emoji strip (thinking mode already disabled via parameter)
                 clean_response = sanitize_tts_text(raw_response)
                 logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
                 return clean_response

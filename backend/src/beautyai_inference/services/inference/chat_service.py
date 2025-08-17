@@ -36,40 +36,8 @@ class ChatService(BaseService):
         self._default_model_loaded = False
         self._default_model_name = None
 
-    def chat_fast(
-        self,
-        message: str,
-        conversation_history: Optional[List[Dict[str, str]]] = None,
-        max_length: int = 192,
-        language: str = "auto",
-        **generation_config,
-    ) -> Dict[str, Any]:
-        """Low-latency wrapper that forcibly disables thinking mode.
-
-        This is used by voice (simple + streaming) pipelines where any hidden
-        reasoning blocks (<think>...</think>) add latency and produce noisy
-        TTS output if leaked.
-
-        Guarantees:
-        - thinking_mode False
-        - enable_thinking flag stripped / overridden to False
-        - conservative max_length (default 192)
-        - stable low temperature defaults unless explicitly overridden
-        """
-        # Remove any external attempts to enable thinking
-        generation_config.pop("enable_thinking", None)
-        generation_config.pop("thinking_mode", None)
-        # Provide latency-oriented defaults if caller didn't override
-        generation_config.setdefault("temperature", 0.3)
-        generation_config.setdefault("top_p", 0.8)
-        return self.chat(
-            message=message,
-            conversation_history=conversation_history,
-            max_length=max_length,
-            language=language,
-            thinking_mode=False,
-            **generation_config,
-        )
+    # NOTE: chat_fast wrapper removed – callers should invoke chat(..., thinking_mode=False,
+    # temperature=0.3, top_p=0.95, max_length=<latency_budget>) directly. This avoids API duplication.
     
     def load_default_model_from_config(self) -> bool:
         """
@@ -461,48 +429,124 @@ class ChatService(BaseService):
                 # Clean the response to remove any thinking content or unwanted text
                 cleaned_response = self._clean_response(response.strip(), response_language)
 
-                # ================= Strict Language Enforcement (Arabic) =================
-                # If the caller explicitly requested Arabic (not auto) but model produced
-                # predominantly non-Arabic characters, we attempt a second-pass translation
-                # generation OR fallback to a canned Arabic greeting to preserve UX
+                # ================= Soft Arabic Language Guidance (Replaces Hard Override) =================
+                # Goal: Encourage Arabic output without destructively overwriting valid medical content
+                # even if it contains Latin medical terms. The previous implementation replaced responses
+                # with a canned greeting; this harms UX and masks underlying model output quality.
                 try:
                     enforce = os.getenv("CHAT_STRICT_LANGUAGE_ENFORCEMENT", "1") == "1"
                 except Exception:
                     enforce = True
+                # Soft mode toggle (default ON) – preserves original answer, only augments when needed
+                soft_mode = os.getenv("CHAT_AR_SOFT_MODE", "1") == "1"
                 if enforce and language == "ar":
-                    arabic_chars = sum(1 for c in cleaned_response if '\u0600' <= c <= '\u06FF')
-                    ratio_ar = arabic_chars / max(1, len(cleaned_response))
-                    if ratio_ar < 0.25:  # mismatch threshold
-                        logger.warning("[chat] Arabic requested but ratio_ar=%.3f < 0.25; attempting enforced translation", ratio_ar)
-                        try:
-                            # Build lightweight translation prompt (avoid full history to reduce latency)
-                            translation_prompt = (
-                                "System: أنت مترجم طبي محترف. ترجم النص التالي إلى العربية الفصحى الحديثة بدقة ووضوح وبدون أي تفسير إضافي.\n"
-                                f"User: {cleaned_response}\nAssistant:"
-                            )
-                            # Constrain tokens to original budget
-                            trans_params = {
-                                "max_new_tokens": min(max_length, int(len(cleaned_response) * 1.2 // 4) + 48),
-                                "temperature": 0.2,
-                                "top_p": 0.8,
-                                "do_sample": False,
-                            }
-                            translated = model.generate(translation_prompt, **trans_params) or ""
-                            if translated.strip():
-                                # Basic verification the result is Arabic heavy
-                                arabic_chars2 = sum(1 for c in translated if '\u0600' <= c <= '\u06FF')
-                                ratio_ar2 = arabic_chars2 / max(1, len(translated))
-                                if ratio_ar2 >= ratio_ar:  # accept if improvement
-                                    cleaned_response = self._clean_response(translated.strip(), "ar")
-                                    response_language = "ar"
-                                    logger.info("[chat] Enforced translation applied ratio_ar2=%.3f", ratio_ar2)
-                        except Exception as te:  # pragma: no cover - best effort
-                            logger.warning("[chat] translation enforcement failed: %s", te)
-                        # Final guard: if still not Arabic enough, override with Arabic fallback greeting
-                        if sum(1 for c in cleaned_response if '\u0600' <= c <= '\u06FF') / max(1, len(cleaned_response)) < 0.15:
-                            cleaned_response = "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
+                    # Extended Arabic Unicode ranges (match detector ranges)
+                    import re
+                    arabic_pattern = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
+                    latin_pattern = re.compile(r"[A-Za-z]")
+                    arabic_chars = len(arabic_pattern.findall(cleaned_response))
+                    latin_chars = len(latin_pattern.findall(cleaned_response))
+                    total_len = len(cleaned_response)
+                    ratio_ar = arabic_chars / max(1, total_len)
+                    # Environment-driven thresholds
+                    try:
+                        min_ratio = float(os.getenv("CHAT_AR_MIN_RATIO_DEFAULT", "0.10"))
+                    except ValueError:
+                        min_ratio = 0.10
+                    try:
+                        force_translate_ratio = float(os.getenv("CHAT_AR_FORCE_TRANSLATE_RATIO", "0.05"))
+                    except ValueError:
+                        force_translate_ratio = 0.05
+                    try:
+                        min_ar_chars = int(os.getenv("CHAT_AR_MIN_AR_CHARS", "8"))
+                    except ValueError:
+                        min_ar_chars = 8
+                    logger.info(
+                        "[chat][ar_enforce] original_len=%d arabic_chars=%d latin_chars=%d ratio_ar=%.3f min_ratio=%.3f min_ar_chars=%d soft_mode=%s",
+                        total_len, arabic_chars, latin_chars, ratio_ar, min_ratio, min_ar_chars, soft_mode,
+                    )
+                    # Detect overall language using language_detector for richer signal
+                    try:
+                        detected_out_lang, detected_conf = language_detector.detect_language(cleaned_response)
+                        logger.info(
+                            "[chat][ar_enforce] output_language_detected=%s conf=%.3f", detected_out_lang, detected_conf
+                        )
+                    except Exception as det_ex:  # pragma: no cover
+                        detected_out_lang, detected_conf = "und", 0.0
+                        logger.debug("[chat][ar_enforce] language detection failed: %s", det_ex)
+                    original_response_for_logging = cleaned_response  # preserve for diff logging later
+                    translated_applied = False
+                    guidance_appended = False
+                    # Decide whether to intervene
+                    intervene = (
+                        ratio_ar < min_ratio and arabic_chars < min_ar_chars and total_len > 40 and not (
+                            detected_out_lang == "ar" and detected_conf >= 0.5
+                        )
+                    )
+                    if soft_mode and intervene:
+                        logger.warning(
+                            "[chat][ar_enforce] Low Arabic presence (ratio=%.3f, arabic_chars=%d) – evaluating soft guidance",
+                            ratio_ar, arabic_chars,
+                        )
+                        # Attempt lightweight translation ONLY if extremely low Arabic & some Latin letters
+                        if ratio_ar < force_translate_ratio and latin_chars >= 5:
+                            try:
+                                translation_prompt = (
+                                    "System: أنت مترجم طبي مختص في الطب التجميلي. ترجم النص التالي إلى العربية الفصحى الحديثة بدقة وبدون شرح إضافي.\n"
+                                    f"User: {cleaned_response}\nAssistant:"
+                                )
+                                trans_params = {
+                                    "max_new_tokens": min(max_length, int(len(cleaned_response) * 1.2 // 4) + 48),
+                                    "temperature": 0.2,
+                                    "top_p": 0.85,
+                                    "do_sample": False,
+                                }
+                                translated = model.generate(translation_prompt, **trans_params) or ""
+                                if translated.strip():
+                                    translated_clean = self._clean_response(translated.strip(), "ar")
+                                    arabic_chars2 = len(arabic_pattern.findall(translated_clean))
+                                    ratio_ar2 = arabic_chars2 / max(1, len(translated_clean))
+                                    if ratio_ar2 > ratio_ar and (ratio_ar2 >= min_ratio or arabic_chars2 >= min_ar_chars):
+                                        cleaned_response = translated_clean
+                                        translated_applied = True
+                                        response_language = "ar"
+                                        logger.info(
+                                            "[chat][ar_enforce] translation improved Arabic ratio %.3f -> %.3f (arabic_chars2=%d)",
+                                            ratio_ar, ratio_ar2, arabic_chars2,
+                                        )
+                                    else:
+                                        logger.info(
+                                            "[chat][ar_enforce] translation did not sufficiently improve ratio (%.3f -> %.3f); keeping original",
+                                            ratio_ar, ratio_ar2,
+                                        )
+                            except Exception as te:  # pragma: no cover
+                                logger.warning("[chat][ar_enforce] translation attempt failed: %s", te)
+                        # If still not acceptable, append guidance line (non-destructive)
+                        new_arabic_chars = len(arabic_pattern.findall(cleaned_response))
+                        new_ratio_ar = new_arabic_chars / max(1, len(cleaned_response))
+                        if not translated_applied and (new_ratio_ar < min_ratio and new_arabic_chars < min_ar_chars):
+                            guidance_line = "\n\nملاحظة: يُرجى المتابعة والإجابة باللغة العربية الفصحى قدر الإمكان مع استخدام المصطلحات الطبية عند الحاجة."  # noqa: E501
+                            cleaned_response = cleaned_response.rstrip() + guidance_line
+                            guidance_appended = True
                             response_language = "ar"
-                            logger.info("[chat] Applied Arabic fallback greeting after failed enforcement")
+                            logger.info("[chat][ar_enforce] appended Arabic guidance line (non-destructive)")
+                    elif not soft_mode and intervene:
+                        # Legacy strict mode fallback (kept for backward compat if soft disabled)
+                        logger.warning(
+                            "[chat][ar_enforce][legacy] Applying strict fallback due to low Arabic ratio=%.3f chars=%d",
+                            ratio_ar, arabic_chars,
+                        )
+                        cleaned_response = "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
+                        response_language = "ar"
+                    # Log diff if modified
+                    if soft_mode:
+                        if original_response_for_logging != cleaned_response:
+                            logger.debug(
+                                "[chat][ar_enforce] modified_response original_first100=%r final_first100=%r translated=%s guidance_appended=%s",
+                                original_response_for_logging[:100], cleaned_response[:100], translated_applied, guidance_appended,
+                            )
+                        else:
+                            logger.debug("[chat][ar_enforce] response left unchanged (ratio_ar=%.3f)", ratio_ar)
 
                 logger.info(f"Generated response (first 100 chars): {cleaned_response[:100]}")
                 return {
@@ -599,12 +643,7 @@ class ChatService(BaseService):
             logger.warning("Response was empty after cleaning, using fallback")
             if language == "ar":
                 return "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
-            elif language == "es":
-                return "¡Hola! ¿Cómo puedo ayudarte con tratamientos estéticos hoy?"
-            elif language == "fr":
-                return "Bonjour! Comment puis-je vous aider avec les traitements esthétiques aujourd'hui?"
-            elif language == "de":
-                return "Hallo! Wie kann ich Ihnen heute bei ästhetischen Behandlungen helfen?"
+            
             else:  # English default
                 return "Hello! How can I help you with aesthetic treatments today?"
         

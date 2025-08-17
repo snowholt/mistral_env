@@ -421,12 +421,14 @@ async def streaming_voice_endpoint(
                 def _run_chat():
                     # Always forward the originally requested language (state.requested_language)
                     # so enforcement logic can act even if 'auto' was converted earlier.
-                    return chat_service.chat_fast(
+                    return chat_service.chat(
                         message=text,
                         conversation_history=prev_history,
                         max_length=192,
                         language=state.requested_language or lang or "auto",
+                        thinking_mode=False,
                         temperature=0.3,
+                        top_p=0.95,
                     )
                 chat_result = await loop.run_in_executor(None, _run_chat)
                 if not chat_result.get("success"):
