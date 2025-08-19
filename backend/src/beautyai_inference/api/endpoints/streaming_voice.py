@@ -44,6 +44,7 @@ from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, 
 from beautyai_inference.logging.setup import session_id_ctx
 from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
 from beautyai_inference.services.voice.utils.text_cleaning import sanitize_tts_text
+from beautyai_inference.utils import create_realtime_decoder, WebMDecodingError
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +94,9 @@ class SessionState:
     assistant_turns: int = 0
     # Hybrid ingest additions (Aug 16 2025)
     compressed_mode: Optional[str] = None  # e.g. 'webm-opus'
-    ffmpeg_proc: Optional[asyncio.subprocess.Process] = None
-    ffmpeg_reader_task: Optional[asyncio.Task] = None
-    ffmpeg_writer_open: bool = False
-    pending_pcm_fragment: bytearray = field(default_factory=bytearray)
+    webm_decoder: Optional[Any] = None  # WebMDecoder instance for compressed audio
+    decoder_task: Optional[asyncio.Task] = None  # Background decoding task
+    webm_chunk_queue: Optional[asyncio.Queue] = None  # Queue for WebM chunks
     heartbeat_task: Optional[asyncio.Task] = None
     last_heartbeat_sent: float = 0.0
     last_client_msg: float = field(default_factory=time.time)
@@ -766,20 +766,38 @@ async def streaming_voice_endpoint(
                                 await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"Compressed {state.compressed_mode} not allowed (set VOICE_STREAMING_ALLOW_WEBM=1)"})
                                 await websocket.close(code=1003, reason="compressed_not_allowed")
                                 break
-                            # Spawn ffmpeg decoder process
+                            # Initialize WebM decoder using utility
                             try:
-                                # Map mode to ffmpeg demux format parameters
-                                demux_hint = []  # ffmpeg usually auto-detects
-                                cmd = [
-                                    "ffmpeg", "-hide_banner", "-loglevel", "error",
-                                    "-i", "pipe:0",
-                                    "-f", "s16le", "-ac", "1", "-ar", "16000", "pipe:1"
-                                ]
-                                state.ffmpeg_proc = await asyncio.create_subprocess_exec(
-                                    *cmd, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE
-                                )
-                                state.ffmpeg_writer_open = True
+                                state.webm_decoder = create_realtime_decoder()
+                                state.webm_chunk_queue = asyncio.Queue()
+                                
+                                # Start WebM decoding task
+                                async def _webm_decoder_task():
+                                    try:
+                                        async def chunk_generator():
+                                            while True:
+                                                chunk = await state.webm_chunk_queue.get()
+                                                if chunk is None:  # Sentinel to stop
+                                                    break
+                                                yield chunk
+                                                
+                                        # Process WebM chunks and emit PCM
+                                        async for pcm_chunk in state.webm_decoder.stream_realtime_pcm(chunk_generator()):
+                                            if state.audio_session:
+                                                await state.audio_session.ingest_pcm(pcm_chunk)
+                                                state.pcm_frames_received += 1
+                                                if state.pcm_frames_received <= 3:
+                                                    logger.debug("[%s] (dec) ingested PCM frame bytes=%d buf_usage=%.3f", 
+                                                                connection_id, len(pcm_chunk), state.audio_session.pcm_buffer.usage_ratio())
+                                    except WebMDecodingError as e:
+                                        logger.warning("[%s] WebM decoding error: %s", connection_id, e)
+                                        await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"webm_decode_error: {e}"})
+                                    except Exception as e:
+                                        logger.exception("[%s] WebM decoder task failed: %s", connection_id, e)
+                                
+                                state.decoder_task = asyncio.create_task(_webm_decoder_task())
                                 await _send_json(websocket, {"type": "info", "stage": "ingest", "message": f"Activated {state.compressed_mode} decoder"})
+                                
                                 # Emit ingest_mode event so frontend can display mode early
                                 await _send_json(websocket, {
                                     "type": "ingest_mode",
@@ -788,45 +806,19 @@ async def streaming_voice_endpoint(
                                     "bytes_received": state.bytes_received,
                                     "frame_hint_bytes": 640,
                                 })
-
-                                async def _reader():
-                                    assert state.ffmpeg_proc and state.ffmpeg_proc.stdout
-                                    CHUNK = 640  # 20 ms @16k mono int16
-                                    buf = bytearray()
-                                    try:
-                                        while True:
-                                            data = await state.ffmpeg_proc.stdout.read(4096)
-                                            if not data:
-                                                break
-                                            buf.extend(data)
-                                            while len(buf) >= CHUNK:
-                                                frame = bytes(buf[:CHUNK])
-                                                del buf[:CHUNK]
-                                                if state.audio_session:
-                                                    await state.audio_session.ingest_pcm(frame)
-                                                    state.pcm_frames_received += 1
-                                                    if state.pcm_frames_received <= 3:
-                                                        logger.debug("[%s] (dec) ingested PCM frame bytes=%d buf_usage=%.3f", connection_id, len(frame), state.audio_session.pcm_buffer.usage_ratio())
-                                    except Exception as e:
-                                        logger.warning("ffmpeg reader error %s: %s", connection_id, e)
-                                state.ffmpeg_reader_task = asyncio.create_task(_reader())
-                            except FileNotFoundError:
-                                await _send_json(websocket, {"type": "error", "stage": "ingest", "message": "ffmpeg not installed on server"})
-                                state.compressed_mode = None
+                                
                             except Exception as e:
-                                logger.exception("Failed to start ffmpeg decoder: %s", e)
+                                logger.exception("Failed to start WebM decoder: %s", e)
                                 await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"decoder_start_failed: {e}"})
                                 state.compressed_mode = None
 
                     if state.compressed_mode:
-                        # Feed compressed payload into ffmpeg stdin
-                        if state.ffmpeg_proc and state.ffmpeg_proc.stdin and state.ffmpeg_writer_open:
+                        # Feed compressed payload into WebM decoder queue
+                        if state.webm_chunk_queue:
                             try:
-                                state.ffmpeg_proc.stdin.write(payload)
-                                await state.ffmpeg_proc.stdin.drain()
+                                await state.webm_chunk_queue.put(payload)
                             except Exception as e:
-                                logger.warning("ffmpeg stdin write failed %s: %s", connection_id, e)
-                                state.ffmpeg_writer_open = False
+                                logger.warning("[%s] WebM chunk queue error: %s", connection_id, e)
                     else:
                         # Raw PCM path (default)
                         if state.audio_session:
@@ -896,17 +888,22 @@ async def streaming_voice_endpoint(
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:
             await state.audio_session.pcm_buffer.close()
-        # Tear down decoder if active
-        if state.ffmpeg_proc:
-            with contextlib.suppress(Exception):
-                if state.ffmpeg_proc.stdin and state.ffmpeg_writer_open:
-                    state.ffmpeg_proc.stdin.close()
-            if state.ffmpeg_reader_task and not state.ffmpeg_reader_task.done():
-                state.ffmpeg_reader_task.cancel()
+        # Tear down WebM decoder if active
+        if state.webm_decoder:
+            # Stop chunk queue by sending sentinel
+            if state.webm_chunk_queue:
                 with contextlib.suppress(Exception):
-                    await state.ffmpeg_reader_task
+                    await state.webm_chunk_queue.put(None)
+            
+            # Cancel decoder task
+            if state.decoder_task and not state.decoder_task.done():
+                state.decoder_task.cancel()
+                with contextlib.suppress(Exception):
+                    await state.decoder_task
+            
+            # Cleanup decoder resources
             with contextlib.suppress(Exception):
-                await asyncio.wait_for(state.ffmpeg_proc.wait(), timeout=2)
+                state.webm_decoder.cleanup()
         session_registry.remove(connection_id)
         # Reset session id context var
         try:

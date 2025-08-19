@@ -33,6 +33,7 @@ from starlette.websockets import WebSocketState
 
 from ...services.voice.conversation.simple_voice_service import SimpleVoiceService
 from ...services.voice.vad_service import RealTimeVADService, VADConfig, get_vad_service, initialize_vad_service
+from ...utils import create_batch_decoder, WebMDecodingError
 
 logger = logging.getLogger(__name__)
 
@@ -130,20 +131,38 @@ class SimpleVoiceWebSocketManager:
         try:
             if os.environ.get("BEAUTYAI_DEBUG_VOICE") != "1":
                 return None
+            
+            # Use WebMDecoder utility for conversion
+            decoder = create_batch_decoder()
             wav_path = webm_path.with_suffix(".wav")
-            cmd = f"ffmpeg -y -i {shlex.quote(str(webm_path))} -ar 16000 -ac 1 {shlex.quote(str(wav_path))}"
-            subprocess.run(cmd, shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            
+            # Convert WebM to PCM using utility
+            pcm_data = asyncio.run(decoder.decode_file_to_numpy(webm_path, normalize=False))
+            
+            # Convert numpy array back to WAV for debugging
+            import wave
+            with wave.open(str(wav_path), 'wb') as wav_file:
+                wav_file.setnchannels(1)  # Mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(16000)  # 16kHz
+                wav_file.writeframes((pcm_data * 32767).astype('int16').tobytes())
+            
             if wav_path.exists():
-                probe_cmd = [
-                    "ffprobe", "-v", "error", "-select_streams", "a:0",
-                    "-show_entries", "stream=codec_name,sample_rate,channels",
-                    "-of", "json", str(wav_path)
-                ]
-                proc = subprocess.run(probe_cmd, capture_output=True, text=True)
-                if proc.returncode == 0:
-                    logger.info(f"🔍 Segment probe ({webm_path.name}): {proc.stdout.strip()}")
-                else:
-                    logger.warning(f"⚠️ ffprobe failed on {wav_path.name}: {proc.stderr.strip()}")
+                # Use ffprobe for metadata (if available)
+                try:
+                    probe_cmd = [
+                        "ffprobe", "-v", "error", "-select_streams", "a:0",
+                        "-show_entries", "stream=codec_name,sample_rate,channels",
+                        "-of", "json", str(wav_path)
+                    ]
+                    proc = subprocess.run(probe_cmd, capture_output=True, text=True)
+                    if proc.returncode == 0:
+                        logger.info(f"🔍 Segment probe ({webm_path.name}): {proc.stdout.strip()}")
+                    else:
+                        logger.warning(f"⚠️ ffprobe failed on {wav_path.name}: {proc.stderr.strip()}")
+                except FileNotFoundError:
+                    logger.info(f"🔍 Segment converted to WAV: {wav_path.name} (ffprobe not available)")
+                
                 return wav_path
         except Exception as e:
             logger.warning(f"⚠️ WAV conversion/probe failed for {webm_path.name}: {e}")
@@ -624,51 +643,47 @@ class SimpleVoiceWebSocketManager:
             # SILENCE / ENERGY CHECK (Prevent repeated unclear guidance)
             # ------------------------------------------------------------
             def _compute_rms_and_dbfs(webm_bytes: bytes) -> tuple[float, float]:  # type: ignore
-                """Compute RMS and dBFS of a WebM audio buffer via ffmpeg conversion.
+                """Compute RMS and dBFS of a WebM audio buffer using WebMDecoder utility.
                 Returns (rms, dbfs). On failure returns (0.0, -100.0).
                 """
                 try:
-                    import tempfile, subprocess, math, wave, contextlib, os
+                    import tempfile, math
+                    
+                    # Use WebMDecoder utility instead of FFmpeg subprocess
+                    decoder = create_batch_decoder()
+                    
+                    # Create temporary WebM file
                     with tempfile.NamedTemporaryFile(suffix=".webm", delete=False) as src_f:
                         src_f.write(webm_bytes)
                         src_path = src_f.name
-                    wav_path = src_path + ".wav"
-                    cmd = [
-                        "ffmpeg", "-y", "-i", src_path,
-                        "-ac", "1", "-ar", "16000", wav_path
-                    ]
-                    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=15)
-                    if not os.path.exists(wav_path):
-                        return 0.0, -100.0
-                    import numpy as np
-                    with contextlib.closing(wave.open(wav_path, 'rb')) as wf:
-                        frames = wf.readframes(wf.getnframes())
-                        if wf.getsampwidth() == 2:
-                            import array
-                            arr = array.array('h')
-                            arr.frombytes(frames)
-                            data = np.array(arr, dtype=np.float32) / 32768.0
-                        else:
+                    
+                    try:
+                        # Decode WebM to numpy array
+                        data = asyncio.run(decoder.decode_file_to_numpy(Path(src_path), normalize=True))
+                        
+                        if data.size == 0:
                             return 0.0, -100.0
-                    if data.size == 0:
-                        return 0.0, -100.0
-                    rms = float(np.sqrt(np.mean(np.square(data))))
-                    if rms <= 0:
-                        dbfs = -100.0
-                    else:
-                        dbfs = 20 * math.log10(rms)
-                    return rms, dbfs
+                        
+                        # Compute RMS and dBFS
+                        import numpy as np
+                        rms = float(np.sqrt(np.mean(np.square(data))))
+                        if rms <= 0:
+                            dbfs = -100.0
+                        else:
+                            dbfs = 20 * math.log10(rms)
+                        
+                        return rms, dbfs
+                        
+                    finally:
+                        # Cleanup temporary file
+                        try:
+                            os.unlink(src_path)
+                        except Exception:
+                            pass
+                            
                 except Exception as e:  # pragma: no cover
                     logger.debug(f"RMS computation failed: {e}")
                     return 0.0, -100.0
-                finally:
-                    try:
-                        if 'src_path' in locals() and os.path.exists(src_path):
-                            os.unlink(src_path)
-                        if 'wav_path' in locals() and os.path.exists(wav_path):
-                            os.unlink(wav_path)
-                    except Exception:
-                        pass
 
             # Only attempt energy check for webm (streaming) format and if sizable data
             if len(concatenated_audio) > 500:  # avoid tiny segments
