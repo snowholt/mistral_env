@@ -26,7 +26,7 @@ state.llm_tts_task = asyncio.create_task(
         final_text_with_no_think,
         language,
         state,
-    )
+    ) 
 )
 ```
 
