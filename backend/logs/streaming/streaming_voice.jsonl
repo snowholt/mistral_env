@@ -1,1 +1,10 @@
 2025-08-19 01:06:10,538 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: bd39ccec-d67a-4459-b40f-adc1643146b1 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 02:08:44,553 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 4ce95061-e86e-4f2d-b30a-b2d617c4d9ec (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 02:16:47,334 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: a6dbf6d4-5f1e-4aa0-95ab-8c4e9756b5ae (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 02:18:52,852 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 342c6477-03db-48d7-9c2c-d170e8a1691d (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 02:35:01,037 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: c6680c45-1795-4f1e-850a-e7e704e437d5 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 02:44:49,284 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: ab3f350b-babd-4d17-85a1-e50e643039e7 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 11:28:44,879 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 69d14374-00f6-4fa3-b98f-ea4230fcb864 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 11:31:09,788 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 101831c0-9cdf-48f0-8beb-818f083597ec (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 11:34:21,696 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 29b64ba0-62e7-4888-85f5-6b4194514f9f (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 11:38:50,649 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: b3644ec4-2ed7-4f3d-bd17-5f084a1ac15c (lang=ar) phase4_env=1 force_real=1 disable_mock=1

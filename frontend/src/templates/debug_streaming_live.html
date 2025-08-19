@@ -2,124 +2,615 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Debug: Streaming Live</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>BeautyAI Voice Streaming Debug Console</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_streaming.css') }}">
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
 </head>
 <body>
-  <h1>Live Streaming Debug</h1>
-  <p>WebSocket streaming test: capture microphone, send PCM frames, view partial + final ASR and TTS events.</p>
-  <div>
-  <label>WS URL: <input id="wsUrl" size="60" value="ws://localhost:8000/ws/simple-voice" /></label>
-    <label>Lang: <input id="language" value="en" size="4" /></label>
-    <label>Chunk ms: <input id="chunkMs" type="number" value="320" style="width:70px" /></label>
-  </div>
-  <div>
-    <button id="btn-connect">Connect</button>
-    <button id="btn-disconnect" disabled>Disconnect</button>
-    <button id="btn-clear">Clear Log</button>
-  </div>
-  <div class="col">
-    <div style="flex:1">
-      <h3>Events</h3>
-      <div id="log" class="log"></div>
+  <div class="container">
+    <header class="header">
+      <h1><i class="fas fa-microphone-alt"></i> BeautyAI Voice Streaming Debug Console</h1>
+      <p class="subtitle">Real-time WebSocket voice streaming with comprehensive debugging tools</p>
+    </header>
+
+    <!-- Control Panel -->
+    <section class="control-panel">
+      <div class="card">
+        <h3><i class="fas fa-cogs"></i> Connection Settings</h3>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="wsUrl">WebSocket URL:</label>
+            <select id="wsUrlSelect">
+              <option value="wss://api.gmai.sa/api/v1/ws/streaming-voice">Streaming Voice (Production)</option>
+              <option value="wss://api.gmai.sa/ws/simple-voice">Simple Voice (Production)</option>
+              <option value="ws://localhost:8000/api/v1/ws/streaming-voice">Streaming Voice (Local)</option>
+              <option value="ws://localhost:8000/ws/simple-voice">Simple Voice (Local)</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="language">Language:</label>
+            <select id="language">
+              <option value="en">English</option>
+              <option value="ar">Arabic</option>
+              <option value="auto">Auto-detect</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="chunkMs">Chunk Size (ms):</label>
+            <input id="chunkMs" type="number" value="320" min="100" max="1000" step="20">
+          </div>
+        </div>
+        
+        <div class="button-group">
+          <button id="btn-connect" class="btn btn-primary">
+            <i class="fas fa-plug"></i> Connect
+          </button>
+          <button id="btn-disconnect" class="btn btn-danger" disabled>
+            <i class="fas fa-times"></i> Disconnect
+          </button>
+          <button id="btn-clear" class="btn btn-secondary">
+            <i class="fas fa-trash"></i> Clear All
+          </button>
+          <button id="btn-export" class="btn btn-info">
+            <i class="fas fa-download"></i> Export Logs
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- Status Dashboard -->
+    <section class="status-dashboard">
+      <div class="status-grid">
+        <div class="status-card">
+          <i class="fas fa-wifi status-icon" id="connection-icon"></i>
+          <div class="status-info">
+            <h4>Connection</h4>
+            <span id="connection-status" class="status-disconnected">Disconnected</span>
+          </div>
+        </div>
+        
+        <div class="status-card">
+          <i class="fas fa-microphone status-icon" id="mic-icon"></i>
+          <div class="status-info">
+            <h4>Microphone</h4>
+            <span id="mic-status" class="status-inactive">Inactive</span>
+          </div>
+        </div>
+        
+        <div class="status-card">
+          <i class="fas fa-clock status-icon"></i>
+          <div class="status-info">
+            <h4>Latency</h4>
+            <span id="latency-display">-- ms</span>
+          </div>
+        </div>
+        
+        <div class="status-card">
+          <i class="fas fa-exchange-alt status-icon"></i>
+          <div class="status-info">
+            <h4>Data Rate</h4>
+            <span id="data-rate">-- KB/s</span>
+          </div>
+        </div>
+      </div>
+      
+      <!-- Audio Level Meter -->
+      <div class="audio-meter-container">
+        <label>Audio Level:</label>
+        <div class="audio-meter">
+          <div class="audio-level-bar" id="audio-level-bar"></div>
+          <div class="audio-meter-marks">
+            <span>-60</span><span>-40</span><span>-20</span><span>0 dB</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Main Content -->
+    <div class="main-content">
+      <!-- Conversation Panel -->
+      <section class="conversation-panel">
+        <div class="card">
+          <h3><i class="fas fa-comments"></i> Live Conversation</h3>
+          <div id="conversation-container" class="conversation-container">
+            <!-- Conversation messages will be added here dynamically -->
+          </div>
+          <div class="conversation-stats">
+            <span>Turns: <span id="turn-count">0</span></span>
+            <span>Avg Response Time: <span id="avg-response-time">-- ms</span></span>
+          </div>
+        </div>
+      </section>
+
+      <!-- Technical Logs -->
+      <section class="logs-panel">
+        <div class="card">
+          <h3><i class="fas fa-terminal"></i> Technical Events</h3>
+          <div class="tabs">
+            <button class="tab-btn active" data-tab="events">Events</button>
+            <button class="tab-btn" data-tab="metrics">Metrics</button>
+            <button class="tab-btn" data-tab="transcription">Transcription</button>
+            <button class="tab-btn" data-tab="assistant">Assistant</button>
+          </div>
+          
+          <div id="events-tab" class="tab-content active">
+            <div id="log" class="log"></div>
+          </div>
+          
+          <div id="metrics-tab" class="tab-content">
+            <div class="metrics-grid">
+              <div class="metric-item">
+                <label>Total Messages:</label>
+                <span id="total-messages">0</span>
+              </div>
+              <div class="metric-item">
+                <label>Audio Chunks Sent:</label>
+                <span id="audio-chunks-sent">0</span>
+              </div>
+              <div class="metric-item">
+                <label>Transcription Events:</label>
+                <span id="transcription-events">0</span>
+              </div>
+              <div class="metric-item">
+                <label>TTS Events:</label>
+                <span id="tts-events">0</span>
+              </div>
+              <div class="metric-item">
+                <label>Connection Uptime:</label>
+                <span id="connection-uptime">--</span>
+              </div>
+              <div class="metric-item">
+                <label>Last Activity:</label>
+                <span id="last-activity">Never</span>
+              </div>
+            </div>
+          </div>
+          
+          <div id="transcription-tab" class="tab-content">
+            <textarea id="transcript" readonly placeholder="Transcribed text will appear here..."></textarea>
+          </div>
+          
+          <div id="assistant-tab" class="tab-content">
+            <textarea id="assistant" readonly placeholder="Assistant responses will appear here..."></textarea>
+          </div>
+        </div>
+      </section>
     </div>
-    <div style="flex:1">
-      <h3>Transcription</h3>
-      <textarea id="transcript" readonly></textarea>
-      <h3>Assistant</h3>
-      <textarea id="assistant" readonly></textarea>
-    </div>
   </div>
+
   <script>
+    // Global state
+    let ws, audioCtx, source, processor, mediaStream, analyser;
+    let currentPartial = '';
+    let connectionStart = null;
+    let metrics = {
+      totalMessages: 0,
+      audioChunksSent: 0,
+      transcriptionEvents: 0,
+      ttsEvents: 0,
+      responseTimes: [],
+      lastActivity: null
+    };
+    let logEntries = [];
+    let conversationTurns = [];
+    let currentUtteranceStart = null;
+
+    // DOM elements
     const logEl = document.getElementById('log');
     const transcriptEl = document.getElementById('transcript');
     const assistantEl = document.getElementById('assistant');
-    const wsUrlEl = document.getElementById('wsUrl');
+    const wsUrlSelectEl = document.getElementById('wsUrlSelect');
     const languageEl = document.getElementById('language');
     const chunkMsEl = document.getElementById('chunkMs');
     const btnConnect = document.getElementById('btn-connect');
     const btnDisconnect = document.getElementById('btn-disconnect');
     const btnClear = document.getElementById('btn-clear');
+    const btnExport = document.getElementById('btn-export');
+    const conversationContainer = document.getElementById('conversation-container');
+    const audioLevelBar = document.getElementById('audio-level-bar');
 
-    let ws, audioCtx, source, processor, mediaStream;
-    let currentPartial='';
+    // Initialize tabs
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const tabName = btn.dataset.tab;
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+        btn.classList.add('active');
+        document.getElementById(`${tabName}-tab`).classList.add('active');
+      });
+    });
 
-    function log(msg){
-      const ts = new Date().toISOString().split('T')[1].replace('Z','');
-      logEl.textContent += `[${ts}] ${msg}\n`;
-      logEl.scrollTop = logEl.scrollHeight;
+    function updateStatus(element, status, className) {
+      element.textContent = status;
+      element.className = `status-${className}`;
     }
 
-    btnClear.onclick = () => { logEl.textContent=''; transcriptEl.value=''; assistantEl.value=''; };
+    function updateConnectionStatus(status) {
+      const statusEl = document.getElementById('connection-status');
+      const iconEl = document.getElementById('connection-icon');
+      
+      switch(status) {
+        case 'connected':
+          updateStatus(statusEl, 'Connected', 'connected');
+          iconEl.className = 'fas fa-wifi status-icon status-connected';
+          break;
+        case 'connecting':
+          updateStatus(statusEl, 'Connecting...', 'connecting');
+          iconEl.className = 'fas fa-spinner fa-spin status-icon status-connecting';
+          break;
+        case 'disconnected':
+          updateStatus(statusEl, 'Disconnected', 'disconnected');
+          iconEl.className = 'fas fa-wifi-slash status-icon status-disconnected';
+          break;
+      }
+    }
 
-  // Using shared AudioUtils (loaded at bottom) for PCM conversion.
+    function updateMicStatus(status) {
+      const statusEl = document.getElementById('mic-status');
+      const iconEl = document.getElementById('mic-icon');
+      
+      switch(status) {
+        case 'active':
+          updateStatus(statusEl, 'Active', 'connected');
+          iconEl.className = 'fas fa-microphone status-icon status-connected';
+          break;
+        case 'inactive':
+          updateStatus(statusEl, 'Inactive', 'inactive');
+          iconEl.className = 'fas fa-microphone-slash status-icon status-inactive';
+          break;
+      }
+    }
 
-    function connect(){
-      ws = new WebSocket(wsUrlEl.value);
+    function log(msg, type = 'info') {
+      const timestamp = new Date().toISOString();
+      const timeStr = timestamp.split('T')[1].replace('Z', '');
+      const entry = { timestamp, message: msg, type };
+      logEntries.push(entry);
+      
+      const logLine = `[${timeStr}] ${msg}\n`;
+      logEl.textContent += logLine;
+      logEl.scrollTop = logEl.scrollHeight;
+      
+      metrics.lastActivity = timestamp;
+      updateMetrics();
+    }
+
+    function addConversationMessage(type, text, timestamp = new Date()) {
+      const messageEl = document.createElement('div');
+      messageEl.className = `conversation-message ${type}`;
+      
+      const emoji = type === 'user' ? '👤' : '🤖';
+      const timeStr = timestamp.toLocaleTimeString();
+      
+      messageEl.innerHTML = `
+        <div class="message-header">
+          <span class="message-emoji">${emoji}</span>
+          <span class="message-time">${timeStr}</span>
+        </div>
+        <div class="message-text">${text}</div>
+      `;
+      
+      conversationContainer.appendChild(messageEl);
+      conversationContainer.scrollTop = conversationContainer.scrollHeight;
+      
+      if (type === 'user') {
+        currentUtteranceStart = Date.now();
+      } else if (type === 'assistant' && currentUtteranceStart) {
+        const responseTime = Date.now() - currentUtteranceStart;
+        metrics.responseTimes.push(responseTime);
+        updateResponseTimeMetrics();
+      }
+      
+      // Update turn count
+      if (type === 'assistant') {
+        conversationTurns.push({ user: text, timestamp });
+        document.getElementById('turn-count').textContent = conversationTurns.length;
+      }
+    }
+
+    function updateResponseTimeMetrics() {
+      if (metrics.responseTimes.length > 0) {
+        const avg = metrics.responseTimes.reduce((a, b) => a + b, 0) / metrics.responseTimes.length;
+        document.getElementById('avg-response-time').textContent = `${Math.round(avg)} ms`;
+        
+        const latest = metrics.responseTimes[metrics.responseTimes.length - 1];
+        document.getElementById('latency-display').textContent = `${latest} ms`;
+      }
+    }
+
+    function updateMetrics() {
+      document.getElementById('total-messages').textContent = metrics.totalMessages;
+      document.getElementById('audio-chunks-sent').textContent = metrics.audioChunksSent;
+      document.getElementById('transcription-events').textContent = metrics.transcriptionEvents;
+      document.getElementById('tts-events').textContent = metrics.ttsEvents;
+      document.getElementById('last-activity').textContent = 
+        metrics.lastActivity ? new Date(metrics.lastActivity).toLocaleTimeString() : 'Never';
+      
+      if (connectionStart) {
+        const uptime = Math.floor((Date.now() - connectionStart) / 1000);
+        const minutes = Math.floor(uptime / 60);
+        const seconds = uptime % 60;
+        document.getElementById('connection-uptime').textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+      }
+    }
+
+    function updateAudioLevel(level) {
+      // Convert to dB scale (-60 to 0)
+      const db = 20 * Math.log10(level + 0.00001); // Add small value to avoid log(0)
+      const normalizedLevel = Math.max(0, (db + 60) / 60); // Normalize to 0-1
+      
+      audioLevelBar.style.width = `${normalizedLevel * 100}%`;
+      
+      // Color coding based on level
+      if (normalizedLevel > 0.8) {
+        audioLevelBar.className = 'audio-level-bar level-high';
+      } else if (normalizedLevel > 0.4) {
+        audioLevelBar.className = 'audio-level-bar level-medium';
+      } else {
+        audioLevelBar.className = 'audio-level-bar level-low';
+      }
+    }
+
+    function connect() {
+      updateConnectionStatus('connecting');
+      const wsUrl = wsUrlSelectEl.value;
+      
+      ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
-      ws.onopen = () => { log('WS open'); startCapture(); btnConnect.disabled=true; btnDisconnect.disabled=false; };
-      ws.onclose = () => { log('WS closed'); stopCapture(); btnConnect.disabled=false; btnDisconnect.disabled=true; };
-      ws.onerror = e => log('WS error');
+      
+      ws.onopen = () => {
+        log('WebSocket connection established', 'success');
+        updateConnectionStatus('connected');
+        connectionStart = Date.now();
+        startCapture();
+        btnConnect.disabled = true;
+        btnDisconnect.disabled = false;
+      };
+      
+      ws.onclose = () => {
+        log('WebSocket connection closed', 'warning');
+        updateConnectionStatus('disconnected');
+        stopCapture();
+        btnConnect.disabled = false;
+        btnDisconnect.disabled = true;
+        connectionStart = null;
+      };
+      
+      ws.onerror = e => {
+        log('WebSocket error occurred', 'error');
+        updateConnectionStatus('disconnected');
+      };
+      
       ws.onmessage = e => handleMessage(e.data);
     }
 
-    function disconnect(){ if(ws){ ws.close(); } }
+    function disconnect() {
+      if (ws) {
+        ws.close();
+      }
+    }
 
-    function handleMessage(data){
+    function handleMessage(data) {
       try {
         const msg = JSON.parse(data);
-        if(msg.event === 'partial_transcript'){
+        metrics.totalMessages++;
+        
+        log(`RX: ${msg.event || msg.type}`, 'receive');
+        
+        if (msg.event === 'partial_transcript' || msg.type === 'partial_transcript') {
           currentPartial = msg.text;
-          transcriptEl.value = transcriptEl.value.split('\n').filter(l=>!l.startsWith('[PARTIAL]')).join('\n');
-          if(currentPartial){ transcriptEl.value += `\n[PARTIAL] ${currentPartial}`; }
-        } else if(msg.event === 'final_transcript'){
-          transcriptEl.value += `\n${msg.text}`;
-          currentPartial='';
-        } else if(msg.event === 'assistant_text'){
-          assistantEl.value += `\n${msg.text}`;
-        } else if(msg.event === 'tts_chunk'){
-          // could optionally play audio chunk
-        }
-        log(`RX: ${msg.event}`);
-      }catch(err){ log('Non-JSON message'); }
-    }
-
-    async function startCapture(){
-      audioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:16000});
-      mediaStream = await navigator.mediaDevices.getUserMedia({audio:true});
-      source = audioCtx.createMediaStreamSource(mediaStream);
-      processor = audioCtx.createScriptProcessor(4096,1,1);
-      const chunkSizeMs = parseInt(chunkMsEl.value,10) || 320;
-      const framesPerChunk = Math.round(audioCtx.sampleRate * (chunkSizeMs/1000));
-      let acc = new Float32Array(0);
-      processor.onaudioprocess = e => {
-        const input = e.inputBuffer.getChannelData(0);
-        const merged = new Float32Array(acc.length + input.length);
-        merged.set(acc,0); merged.set(input, acc.length);
-        acc = merged;
-        if(acc.length >= framesPerChunk){
-          const slice = acc.slice(0, framesPerChunk);
-            acc = acc.slice(framesPerChunk);
-          if(ws && ws.readyState === WebSocket.OPEN){
-            const int16 = AudioUtils.floatToInt16(slice);
-            ws.send(int16.buffer);
+          metrics.transcriptionEvents++;
+          
+          // Update transcription view
+          const lines = transcriptEl.value.split('\n').filter(l => !l.startsWith('[PARTIAL]'));
+          transcriptEl.value = lines.join('\n');
+          if (currentPartial) {
+            transcriptEl.value += `\n[PARTIAL] ${currentPartial}`;
           }
+          
+        } else if (msg.event === 'final_transcript' || msg.type === 'final_transcript') {
+          const finalText = msg.text;
+          transcriptEl.value += `\n${finalText}`;
+          addConversationMessage('user', finalText);
+          metrics.transcriptionEvents++;
+          currentPartial = '';
+          
+        } else if (msg.event === 'assistant_text' || msg.type === 'assistant_text') {
+          const assistantText = msg.text;
+          assistantEl.value += `\n${assistantText}`;
+          addConversationMessage('assistant', assistantText);
+          
+        } else if (msg.event === 'tts_chunk' || msg.type === 'tts_chunk') {
+          metrics.ttsEvents++;
+          // Could optionally play audio chunk here
+          
+        } else if (msg.type === 'tts_start') {
+          log('TTS synthesis started', 'info');
+          
+        } else if (msg.type === 'tts_complete') {
+          log('TTS synthesis completed', 'success');
         }
+        
+        updateMetrics();
+        
+      } catch (err) {
+        log('Received non-JSON message', 'warning');
+      }
+    }
+
+    async function startCapture() {
+      try {
+        updateMicStatus('active');
+        
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        mediaStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: { 
+            sampleRate: 16000,
+            channelCount: 1,
+            echoCancellation: true,
+            noiseSuppression: true
+          } 
+        });
+        
+        source = audioCtx.createMediaStreamSource(mediaStream);
+        analyser = audioCtx.createAnalyser();
+        analyser.fftSize = 2048;
+        
+        processor = audioCtx.createScriptProcessor(4096, 1, 1);
+        
+        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 320;
+        const framesPerChunk = Math.round(audioCtx.sampleRate * (chunkSizeMs / 1000));
+        let acc = new Float32Array(0);
+        
+        // Audio level monitoring
+        const dataArray = new Uint8Array(analyser.frequencyBinCount);
+        
+        processor.onaudioprocess = e => {
+          const input = e.inputBuffer.getChannelData(0);
+          
+          // Calculate audio level for visualization
+          let sum = 0;
+          for (let i = 0; i < input.length; i++) {
+            sum += input[i] * input[i];
+          }
+          const rms = Math.sqrt(sum / input.length);
+          updateAudioLevel(rms);
+          
+          // Accumulate audio for sending
+          const merged = new Float32Array(acc.length + input.length);
+          merged.set(acc, 0);
+          merged.set(input, acc.length);
+          acc = merged;
+          
+          if (acc.length >= framesPerChunk) {
+            const slice = acc.slice(0, framesPerChunk);
+            acc = acc.slice(framesPerChunk);
+            
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              const int16 = AudioUtils.floatToInt16(slice);
+              ws.send(int16.buffer);
+              metrics.audioChunksSent++;
+              
+              // Update data rate
+              const dataRate = (int16.buffer.byteLength * 1000 / chunkSizeMs / 1024).toFixed(1);
+              document.getElementById('data-rate').textContent = `${dataRate} KB/s`;
+            }
+          }
+        };
+        
+        source.connect(analyser);
+        source.connect(processor);
+        processor.connect(audioCtx.destination);
+        
+        log('Audio capture started successfully', 'success');
+        
+      } catch (error) {
+        log(`Failed to start audio capture: ${error.message}`, 'error');
+        updateMicStatus('inactive');
+      }
+    }
+
+    function stopCapture() {
+      updateMicStatus('inactive');
+      
+      if (processor) {
+        processor.disconnect();
+        processor.onaudioprocess = null;
+      }
+      if (source) {
+        source.disconnect();
+      }
+      if (analyser) {
+        analyser.disconnect();
+      }
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(t => t.stop());
+      }
+      if (audioCtx) {
+        audioCtx.close();
+      }
+      
+      // Reset audio level bar
+      audioLevelBar.style.width = '0%';
+      document.getElementById('data-rate').textContent = '-- KB/s';
+      
+      log('Audio capture stopped', 'info');
+    }
+
+    function clearAll() {
+      logEl.textContent = '';
+      transcriptEl.value = '';
+      assistantEl.value = '';
+      conversationContainer.innerHTML = '';
+      
+      // Reset metrics
+      metrics = {
+        totalMessages: 0,
+        audioChunksSent: 0,
+        transcriptionEvents: 0,
+        ttsEvents: 0,
+        responseTimes: [],
+        lastActivity: null
       };
-      source.connect(processor); processor.connect(audioCtx.destination);
-      log('Capture started');
+      
+      logEntries = [];
+      conversationTurns = [];
+      currentUtteranceStart = null;
+      
+      document.getElementById('turn-count').textContent = '0';
+      document.getElementById('avg-response-time').textContent = '-- ms';
+      document.getElementById('latency-display').textContent = '-- ms';
+      
+      updateMetrics();
+      log('All data cleared', 'info');
     }
 
-    function stopCapture(){
-      if(processor){ processor.disconnect(); processor.onaudioprocess=null; }
-      if(source){ source.disconnect(); }
-      if(mediaStream){ mediaStream.getTracks().forEach(t=>t.stop()); }
-      if(audioCtx){ audioCtx.close(); }
-      log('Capture stopped');
+    function exportLogs() {
+      const exportData = {
+        timestamp: new Date().toISOString(),
+        connectionInfo: {
+          url: wsUrlSelectEl.value,
+          language: languageEl.value,
+          chunkMs: chunkMsEl.value
+        },
+        metrics: metrics,
+        logEntries: logEntries,
+        conversationTurns: conversationTurns,
+        transcription: transcriptEl.value,
+        assistantResponses: assistantEl.value
+      };
+      
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { 
+        type: 'application/json' 
+      });
+      
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `voice-streaming-debug-${new Date().toISOString().slice(0, 19).replace(/:/g, '-')}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      
+      log('Debug data exported successfully', 'success');
     }
 
+    // Update metrics every second
+    setInterval(updateMetrics, 1000);
+
+    // Event listeners
     btnConnect.onclick = connect;
     btnDisconnect.onclick = disconnect;
+    btnClear.onclick = clearAll;
+    btnExport.onclick = exportLogs;
+
+    // Initialize
+    updateConnectionStatus('disconnected');
+    updateMicStatus('inactive');
+    
+    log('Debug console initialized', 'info');
   </script>
   <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
 </body>

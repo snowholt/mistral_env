@@ -49,11 +49,11 @@
   },
 
   "voice_settings": {
-    "arabic": {
+    "ar": {
       "male": "ar-SA-HamedNeural",
       "female": "ar-SA-ZariyahNeural"
     },
-    "english": {
+    "en": {
       "male": "en-US-AriaNeural", 
       "female": "en-US-JennyNeural"
     }
