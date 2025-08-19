@@ -77,8 +77,8 @@ class SimpleVoiceService:
         self.voice_mappings = self._setup_voice_mappings_from_registry()
         
         # Default settings from voice registry
-        self.default_arabic_voice = self.voice_config.get_voice_id("arabic", "female")
-        self.default_english_voice = self.voice_config.get_voice_id("english", "female")
+        self.default_arabic_voice = self.voice_config.get_voice_id("ar", "female")
+        self.default_english_voice = self.voice_config.get_voice_id("en", "female")
         self.speech_rate = "+0%"
         self.speech_pitch = "+0Hz"
         
@@ -99,15 +99,18 @@ class SimpleVoiceService:
                 
                 for gender in voice_types:
                     voice_id = self.voice_config.get_voice_id(language, gender)
-                    # Create mapping key
-                    lang_code = "ar" if language == "arabic" else "en"
+                    # Create mapping key - language is already "ar" or "en"
+                    lang_code = language  # language is already in correct format ("ar" or "en")
                     mapping_key = f"{lang_code}_{gender}"
+                    
+                    # Get proper display name for language
+                    display_lang = "Arabic" if lang_code == "ar" else "English"
                     
                     mappings[mapping_key] = VoiceMapping(
                         language=f"{lang_code}-SA" if lang_code == "ar" else "en-US",
                         gender=gender,
                         voice_id=voice_id,
-                        display_name=f"{language.title()} {gender.title()}"
+                        display_name=f"{display_lang} {gender.title()}"
                     )
             
             self.logger.info(f"Loaded {len(mappings)} voice mappings from voice registry")
