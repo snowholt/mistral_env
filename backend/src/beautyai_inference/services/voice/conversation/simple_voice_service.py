@@ -153,8 +153,8 @@ class SimpleVoiceService:
             
             # Pre-load transcription service with voice registry model
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.transformers_whisper_service import TransformersWhisperService
-                self.transcription_service = TransformersWhisperService()
+                from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
+                self.transcription_service = create_transcription_service()
             
             # Use voice registry default STT model
             model_loaded = self.transcription_service.load_whisper_model()  # Uses voice registry default
@@ -434,8 +434,8 @@ class SimpleVoiceService:
         try:
             # Initialize transcription service if needed (fallback for non-pre-loaded case)
             if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.transformers_whisper_service import TransformersWhisperService
-                self.transcription_service = TransformersWhisperService()
+                from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
+                self.transcription_service = create_transcription_service()
                 
                 # Use voice registry model
                 model_loaded = self.transcription_service.load_whisper_model()

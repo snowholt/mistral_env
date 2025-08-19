@@ -1,14 +1,43 @@
 {
-  "description": "Voice models configuration for BeautyAI voice-to-voice conversation",
+  "description": "Voice models configuration for BeautyAI voice-to-voice conversation - Specialized Whisper Engines",
   
   "models": {
-    "whisper-turbo-arabic": {
-      "model_id": "openai/whisper-large-v3-turbo",
-      "engine_type": "transformers",
+    "whisper-large-v3": {
+      "model_id": "openai/whisper-large-v3",
+      "engine_type": "whisper_large_v3",
       "type": "speech_to_text",
-      "description": "Whisper Large-v3-Turbo for Arabic/English speech recognition with GPU acceleration",
-      "supported_languages": ["ar", "en"],
+      "description": "Highest accuracy Whisper model with full feature set (1.55B params)",
+      "supported_languages": ["ar", "en", "auto"],
       "gpu_enabled": true,
+      "performance_profile": "accuracy_focused",
+      "documentation": {
+        "hugging_face": "https://huggingface.co/openai/whisper-large-v3",
+        "github_release": "https://github.com/openai/whisper/discussions/1762",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "1.55B parameters (3.1GB download)",
+        "speed": "High accuracy, moderate speed",
+        "architecture": "32 decoder layers, 128 Mel bins",
+        "optimization": "Flash Attention 2, SDPA, chunked long-form",
+        "performance": "10-20% error reduction vs large-v2, state-of-the-art accuracy"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 8,
+        "recommended_vram_gb": 12,
+        "supports_flash_attention": true,
+        "supports_torch_compile": true
+      }
+    },
+    
+    "whisper-large-v3-turbo": {
+      "model_id": "openai/whisper-large-v3-turbo",
+      "engine_type": "whisper_large_v3_turbo",
+      "type": "speech_to_text",
+      "description": "Speed-optimized Whisper model (809M params, 4x faster than large-v3)",
+      "supported_languages": ["ar", "en", "auto"],
+      "gpu_enabled": true,
+      "performance_profile": "speed_focused",
       "documentation": {
         "hugging_face": "https://huggingface.co/openai/whisper-large-v3-turbo",
         "github_release": "https://github.com/openai/whisper/discussions/2363",
@@ -17,9 +46,51 @@
       "model_info": {
         "size": "809MB parameters (1.5GB download)",
         "speed": "4x faster than large-v3, up to 4.5x with torch.compile",
-        "architecture": "4 decoder layers (down from 32 in large models)",
-        "optimization": "Fine-tuned on transcription data, supports GPU acceleration",
-        "performance": "Similar to large-v2 accuracy with much better speed"
+        "architecture": "4 decoder layers (pruned from 32), optimized decoder",
+        "optimization": "torch.compile, static cache, SDPA",
+        "performance": "Matches large-v2 accuracy with superior speed"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 4,
+        "recommended_vram_gb": 6,
+        "supports_flash_attention": false,
+        "supports_torch_compile": true
+      }
+    },
+
+    "whisper-arabic-turbo": {
+      "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
+      "engine_type": "whisper_arabic_turbo",
+      "type": "speech_to_text",
+      "description": "Arabic-specialized Whisper Turbo (809M params, 31.14% WER on Common Voice Arabic)",
+      "supported_languages": ["ar"],
+      "gpu_enabled": true,
+      "performance_profile": "arabic_specialized",
+      "documentation": {
+        "hugging_face": "https://huggingface.co/mboushaba/whisper-large-v3-turbo-arabic",
+        "base_model": "https://huggingface.co/openai/whisper-large-v3-turbo",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "809MB parameters (1.5GB download)",
+        "speed": "4x faster than large-v3, Arabic-optimized",
+        "architecture": "4 decoder layers, fine-tuned on Arabic Common Voice",
+        "optimization": "Arabic-specific fine-tuning, torch.compile compatible",
+        "performance": "31.14% WER on Common Voice Arabic, dialect-aware"
+      },
+      "training_details": {
+        "dataset": "common_voice_11_0",
+        "wer": 31.1455,
+        "wer_ortho": 51.0187,
+        "loss": 0.4623,
+        "training_steps": 100,
+        "learning_rate": "1e-05"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 4,
+        "recommended_vram_gb": 6,
+        "supports_flash_attention": false,
+        "supports_torch_compile": true
       }
     },
     
@@ -44,7 +115,7 @@
   },
 
   "default_models": {
-    "stt": "whisper-turbo-arabic",
+    "stt": "whisper-large-v3-turbo",
     "tts": "edge-tts"
   },
 

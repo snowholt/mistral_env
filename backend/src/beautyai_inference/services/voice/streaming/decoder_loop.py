@@ -1,7 +1,7 @@
 """Incremental Decoder Loop (Phase 4)
 
 Implements a periodic decode over the tail of the PCM ring buffer using
-the existing FasterWhisperTranscriptionService. This is a *windowed* decode
+the modern Whisper engine factory system. This is a *windowed* decode
 approach (re-decode last N seconds) rather than true stateful streaming,
 which is acceptable for Whisper-style models and keeps complexity low.
 
@@ -103,44 +103,15 @@ async def incremental_decode_loop(
     except Exception:
         pass
 
-    # Ensure whisper model loaded (with transparent fallback if Faster-Whisper fails)
+    # Ensure whisper model loaded (new engines handle their own fallbacks internally)
     if not fw_service.is_model_loaded():
         loaded = fw_service.load_whisper_model()
         if not loaded:
-            # Attempt fallback ONLY if original service was Faster-Whisper implementation
-            try:
-                from ..transcription.faster_whisper_service import FasterWhisperTranscriptionService  # type: ignore
-                from ..transcription.transformers_whisper_service import TransformersWhisperService  # type: ignore
-            except Exception:  # pragma: no cover - import safety
-                FasterWhisperTranscriptionService = object  # type: ignore
-                TransformersWhisperService = None  # type: ignore
-
-            if 'FasterWhisperTranscriptionService' in locals() and isinstance(fw_service, FasterWhisperTranscriptionService):  # type: ignore[arg-type]
-                logger.warning(
-                    "Primary Faster-Whisper load failed for session %s – attempting fallback to Transformers backend",
-                    session.session_id,
-                )
-                try:
-                    fallback_service = TransformersWhisperService() if TransformersWhisperService else None  # type: ignore
-                    if fallback_service and fallback_service.load_whisper_model():
-                        fw_service = fallback_service  # swap reference used below
-                        logger.info("Fallback Transformers Whisper model loaded successfully for session %s", session.session_id)
-                    else:
-                        logger.error(
-                            "Fallback Transformers Whisper model also failed to load for session %s – aborting decode loop",
-                            session.session_id,
-                        )
-                        return
-                except Exception as e:  # pragma: no cover
-                    logger.exception(
-                        "Exception during fallback model load for session %s: %s", session.session_id, e
-                    )
-                    return
-            else:
-                logger.error(
-                    "Failed to load transcription model (non-fallback path) for streaming session %s", session.session_id
-                )
-                return
+            logger.error(
+                "Failed to load transcription model for streaming session %s – aborting decode loop",
+                session.session_id,
+            )
+            return
 
     interval = config.decode_interval_ms / 1000.0
     logger.debug("Starting incremental decode loop (interval=%.3fs window=%.1fs)", interval, config.window_seconds)

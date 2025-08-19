@@ -17,13 +17,11 @@ web service integration.
 from .base.base_service import BaseService
 
 # Import voice services (streamlined)
-from .voice.transcription.faster_whisper_service import FasterWhisperTranscriptionService
 from .voice.conversation.simple_voice_service import SimpleVoiceService
 
 __all__ = [
     "BaseService",
     # Streamlined voice services
-    "FasterWhisperTranscriptionService",
     "SimpleVoiceService"
 ]
 

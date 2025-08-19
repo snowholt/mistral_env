@@ -1,53 +1,142 @@
-"""Transcription Service Factory
+"""Transcription Service Factory - Updated for Specialized Whisper Engines
 
-Chooses appropriate transcription backend (Faster-Whisper or Transformers)
-based on voice registry configuration. This centralizes selection logic so
-the rest of the codebase can remain agnostic to the underlying engine.
+Chooses appropriate specialized Whisper engine based on voice registry configuration.
+Supports three optimized engines:
+- WhisperLargeV3Engine: Maximum accuracy (1.55B params)
+- WhisperLargeV3TurboEngine: Speed optimized (809M params) 
+- WhisperArabicTurboEngine: Arabic specialized (809M params, fine-tuned)
+
+This centralizes engine selection logic so the rest of the codebase can remain
+agnostic to the underlying engine implementation.
 """
 from __future__ import annotations
 
 import logging
 from typing import Protocol
+import os
 
 from ....config.voice_config_loader import get_voice_config
-import os
-from .faster_whisper_service import FasterWhisperTranscriptionService
-from .transformers_whisper_service import TransformersWhisperService
+from .whisper_large_v3_engine import WhisperLargeV3Engine
+from .whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine  
+from .whisper_arabic_turbo_engine import WhisperArabicTurboEngine
 
 logger = logging.getLogger(__name__)
 
 
-class TranscriptionServiceProtocol(Protocol):  # structural typing only
+class TranscriptionServiceProtocol(Protocol):
+    """Protocol defining the interface for all transcription engines."""
     def load_whisper_model(self, model_name: str | None = None) -> bool: ...
     def transcribe_audio_bytes(self, audio_bytes: bytes, audio_format: str | None = None, language: str = "ar") -> str | None: ...  # noqa: E501
     def is_model_loaded(self) -> bool: ...
     def get_model_info(self) -> dict: ...
+    def cleanup(self) -> None: ...
 
 
 def create_transcription_service() -> TranscriptionServiceProtocol:
-    """Instantiate the correct transcription backend per registry.
-
-    Priority rules:
-      1. engine_type == 'faster-whisper' → FasterWhisperTranscriptionService
-      2. engine_type == 'transformers' (default) → TransformersWhisperService
-      3. Fallback → TransformersWhisperService
     """
-    vc = get_voice_config()
-    stt_cfg = vc.get_stt_model_config()
-    engine = (stt_cfg.engine_type or '').lower()
-    force_transformers = os.getenv("FORCE_TRANSFORMERS_STT") == "1"
-    if force_transformers:
-        logger.warning("FORCE_TRANSFORMERS_STT=1 set – overriding engine_type '%s' -> transformers", engine)
-        engine = "transformers"
-    logger.debug("Transcription factory resolved engine_type='%s' force=%s", engine, force_transformers)
-    if engine in ("faster-whisper", "faster_whisper"):
-        logger.info("Transcription factory selecting Faster-Whisper backend (engine_type=%s)", engine)
-        return FasterWhisperTranscriptionService()
-    if engine == "transformers":
-        logger.info("Transcription factory selecting Transformers backend (engine_type=%s)", engine)
-        return TransformersWhisperService()
-    logger.warning("Unknown engine_type '%s' – falling back to Transformers backend", engine)
-    return TransformersWhisperService()
+    Instantiate the correct specialized Whisper engine based on registry configuration.
+
+    Engine Selection Rules:
+      1. engine_type == 'whisper_large_v3' → WhisperLargeV3Engine (max accuracy)
+      2. engine_type == 'whisper_large_v3_turbo' → WhisperLargeV3TurboEngine (speed optimized)
+      3. engine_type == 'whisper_arabic_turbo' → WhisperArabicTurboEngine (Arabic specialized)
+      4. Legacy support: 'transformers' → WhisperLargeV3TurboEngine
+      5. Legacy support: 'faster-whisper' → WhisperLargeV3TurboEngine  
+      6. Fallback → WhisperLargeV3TurboEngine (default)
+      
+    Environment Variables:
+      - FORCE_ARABIC_ENGINE=1: Force Arabic engine regardless of config
+      - FORCE_ACCURACY_ENGINE=1: Force Large v3 engine for maximum accuracy
+    """
+    try:
+        vc = get_voice_config()
+        stt_cfg = vc.get_stt_model_config()
+        engine_type = (stt_cfg.engine_type or '').lower()
+        
+        # Check environment overrides
+        force_arabic = os.getenv("FORCE_ARABIC_ENGINE") == "1"
+        force_accuracy = os.getenv("FORCE_ACCURACY_ENGINE") == "1"
+        
+        if force_arabic:
+            logger.warning("FORCE_ARABIC_ENGINE=1 set – using Arabic Turbo engine")
+            return WhisperArabicTurboEngine()
+            
+        if force_accuracy:
+            logger.warning("FORCE_ACCURACY_ENGINE=1 set – using Large v3 engine for maximum accuracy")
+            return WhisperLargeV3Engine()
+        
+        # Engine selection based on registry configuration
+        engine_map = {
+            "whisper_large_v3": WhisperLargeV3Engine,
+            "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
+            "whisper_arabic_turbo": WhisperArabicTurboEngine,
+            # Legacy support
+            "transformers": WhisperLargeV3TurboEngine,
+            "faster-whisper": WhisperLargeV3TurboEngine,
+            "faster_whisper": WhisperLargeV3TurboEngine
+        }
+        
+        engine_class = engine_map.get(engine_type)
+        
+        if engine_class:
+            logger.info(f"Transcription factory selecting {engine_class.__name__} (engine_type='{engine_type}')")
+            return engine_class()
+        else:
+            logger.warning(f"Unknown engine_type '{engine_type}' – falling back to WhisperLargeV3TurboEngine")
+            return WhisperLargeV3TurboEngine()
+            
+    except Exception as e:
+        logger.error(f"Error in transcription factory: {e}")
+        logger.info("Falling back to WhisperLargeV3TurboEngine due to configuration error")
+        return WhisperLargeV3TurboEngine()
 
 
-__all__ = ["create_transcription_service", "TranscriptionServiceProtocol"]
+def get_available_engines() -> dict[str, str]:
+    """
+    Get a mapping of available engines and their descriptions.
+    
+    Returns:
+        Dictionary mapping engine types to descriptions
+    """
+    return {
+        "whisper_large_v3": "Maximum accuracy (1.55B params, 32 layers)",
+        "whisper_large_v3_turbo": "Speed optimized (809M params, 4 layers, 4x faster)",
+        "whisper_arabic_turbo": "Arabic specialized (809M params, 31% WER Arabic)",
+    }
+
+
+def validate_engine_availability() -> dict[str, bool]:
+    """
+    Check which engines can be instantiated successfully.
+    
+    Returns:
+        Dictionary mapping engine types to availability status
+    """
+    engines = {
+        "whisper_large_v3": WhisperLargeV3Engine,
+        "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
+        "whisper_arabic_turbo": WhisperArabicTurboEngine
+    }
+    
+    availability = {}
+    
+    for engine_type, engine_class in engines.items():
+        try:
+            # Try to instantiate (but don't load model)
+            engine = engine_class()
+            availability[engine_type] = True
+            # Clean up
+            del engine
+        except Exception as e:
+            logger.warning(f"Engine {engine_type} not available: {e}")
+            availability[engine_type] = False
+    
+    return availability
+
+
+__all__ = [
+    "create_transcription_service", 
+    "TranscriptionServiceProtocol",
+    "get_available_engines",
+    "validate_engine_availability"
+]
