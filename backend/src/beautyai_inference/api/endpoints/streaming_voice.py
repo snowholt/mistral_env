@@ -374,6 +374,9 @@ async def streaming_voice_endpoint(
 
             Emits sequence: tts_start -> tts_audio (base64) -> tts_complete
             Failure paths emit error event.
+            
+            Note: The `text` parameter should already include '/no_think' suffix
+            for voice conversations to disable thinking mode and improve response speed.
             """
             started_ts = time.time()
             state.last_pipeline_start = started_ts
@@ -632,18 +635,22 @@ async def streaming_voice_endpoint(
                             min_chars,
                         )
                     else:
+                        # Add /no_think to disable thinking mode for voice conversations (consistent with simple voice service)
+                        final_text_with_no_think = final_text.strip() + " /no_think" if final_text.strip() else "unclear audio /no_think"
+                        
                         if state.llm_tts_task is None:
                             state.llm_tts_task = asyncio.create_task(
                                 _process_final_transcript(
                                     utterance_index,
-                                    final_text,
+                                    final_text_with_no_think,
                                     language,
                                     state,
                                 )
                             )
                         else:
-                            # Queue this final for later processing to avoid dropping
-                            state.pending_finals.append((utterance_index, final_text))
+                            # Queue this final for later processing to avoid dropping (also add /no_think)
+                            final_text_with_no_think = final_text.strip() + " /no_think" if final_text.strip() else "unclear audio /no_think"
+                            state.pending_finals.append((utterance_index, final_text_with_no_think))
                             await _send_json(state.websocket, {
                                 "type": "final_queued",
                                 "utterance_index": utterance_index,

@@ -1,3 +1,1 @@
-2025-08-17 01:16:38,419 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: f6f638f6-fd15-4877-9eb8-ee023e09ae02 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
-2025-08-17 02:28:25,967 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: f03bc479-d68e-4af7-a279-ac346a42544d (lang=ar) phase4_env=1 force_real=1 disable_mock=1
-2025-08-17 03:07:15,697 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: 5c750b69-1b64-4bc0-8ae8-8e020ea4059c (lang=ar) phase4_env=1 force_real=1 disable_mock=1
+2025-08-19 01:06:10,538 | INFO | beautyai_inference.api.endpoints.streaming_voice | 🌐 Streaming voice connection established: bd39ccec-d67a-4459-b40f-adc1643146b1 (lang=ar) phase4_env=1 force_real=1 disable_mock=1
