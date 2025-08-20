@@ -19,6 +19,20 @@ except Exception as e:  # pragma: no cover
     print(f"⚠️ Logging configuration failed, falling back to basic config: {e}")
     logging.basicConfig(level=logging.INFO)
 
+# Fix PyTorch compilation limits to prevent Whisper failures
+try:
+    import torch._dynamo
+    # Increase recompilation and cache limits to prevent transcription failures
+    torch._dynamo.config.cache_size_limit = 64
+    torch._dynamo.config.recompile_limit = 64
+    print(f"✅ PyTorch compilation limits increased: cache={torch._dynamo.config.cache_size_limit}, recompile={torch._dynamo.config.recompile_limit}")
+except Exception as e:
+    print(f"⚠️ Failed to configure PyTorch compilation limits: {e}")
+
+# Set environment variables for better compilation behavior
+os.environ.setdefault("TORCH_COMPILE_MODE", "default")
+os.environ.setdefault("TORCH_LOGS", "")  # Set to "recompiles" for debugging
+
 # Add the project root to Python path
 project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))

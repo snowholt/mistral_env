@@ -357,15 +357,28 @@ async def streaming_voice_endpoint(
                 from beautyai_inference.services.inference.chat_service import ChatService
                 chat = ChatService()
                 # Attempt to load default model for fast responses
-                with contextlib.suppress(Exception):
-                    chat.load_default_model_from_config()
+                try:
+                    success = chat.load_default_model_from_config()
+                    if success:
+                        logger.info("✅ Chat service initialized successfully")
+                    else:
+                        logger.warning("⚠️ Chat service initialized but default model loading failed")
+                except Exception as e:
+                    logger.error(f"❌ Chat service initialization failed: {e}")
+                    # Don't suppress - we need to know about this
+                    raise
                 chat_service_ref["chat"] = chat
             if "voice" not in voice_service_ref:
                 from beautyai_inference.services.voice.conversation.simple_voice_service import SimpleVoiceService
                 voice = SimpleVoiceService()
                 # Initialize Edge TTS etc.
-                with contextlib.suppress(Exception):
+                try:
                     await voice.initialize()
+                    logger.info("✅ Voice service initialized successfully")
+                except Exception as e:
+                    logger.error(f"❌ Voice service initialization failed: {e}")
+                    # Don't suppress - we need to know about this
+                    raise
                 voice_service_ref["voice"] = voice
             return {"chat": chat_service_ref["chat"], "voice": voice_service_ref["voice"]}
 
@@ -406,9 +419,19 @@ async def streaming_voice_endpoint(
                         "disabled": True,
                     })
                     return
-                services = await _ensure_services()
-                chat_service = services["chat"]
-                voice_service = services["voice"]
+                try:
+                    services = await _ensure_services()
+                    chat_service = services["chat"]
+                    voice_service = services["voice"]
+                except Exception as e:
+                    logger.error(f"❌ Service initialization failed in LLM pipeline: {e}")
+                    await _send_json(state.websocket, {
+                        "type": "error",
+                        "stage": "service_init",
+                        "message": f"Failed to initialize services: {str(e)}",
+                        "utterance_index": utterance_index,
+                    })
+                    return
 
                 # NOTE: Do NOT append the current user message before calling chat().
                 # chat_service.chat expects 'message' to be the *new* user turn and
@@ -424,19 +447,36 @@ async def streaming_voice_endpoint(
                 def _run_chat():
                     # Always forward the originally requested language (state.requested_language)
                     # so enforcement logic can act even if 'auto' was converted earlier.
-                    return chat_service.chat(
-                        message=text,
-                        conversation_history=prev_history,
-                        max_length=192,
-                        language=state.requested_language or lang or "auto",
-                        thinking_mode=False,
-                        temperature=0.3,
-                        top_p=0.95,
-                    )
-                chat_result = await loop.run_in_executor(None, _run_chat)
+                    try:
+                        return chat_service.chat(
+                            message=text,
+                            conversation_history=prev_history,
+                            max_length=192,
+                            language=state.requested_language or lang or "auto",
+                            thinking_mode=False,
+                            temperature=0.3,
+                            top_p=0.95,
+                        )
+                    except Exception as e:
+                        logger.error(f"❌ Chat service failed during generation: {e}")
+                        return {"success": False, "error": f"Chat generation failed: {str(e)}"}
+                
+                try:
+                    chat_result = await loop.run_in_executor(None, _run_chat)
+                except Exception as e:
+                    logger.error(f"❌ Chat execution failed in executor: {e}")
+                    chat_result = {"success": False, "error": f"Chat execution failed: {str(e)}"}
+                
                 if not chat_result.get("success"):
                     # Provide a graceful fallback response instead of raising to keep audio pipeline alive
-                    logger.warning("Chat generation failed for utterance %s: %s", utterance_index, chat_result.get('error'))
+                    error_msg = chat_result.get('error', 'Unknown error')
+                    logger.warning("Chat generation failed for utterance %s: %s", utterance_index, error_msg)
+                    await _send_json(state.websocket, {
+                        "type": "error",
+                        "stage": "llm_generation",
+                        "message": error_msg,
+                        "utterance_index": utterance_index,
+                    })
                     response_text = (
                         "Hello! I'm here but couldn't generate a full answer just now. Please continue speaking or ask another question."
                         if (lang or "en").startswith("en") else

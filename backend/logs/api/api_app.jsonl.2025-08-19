@@ -54,7 +54,12 @@
 {"timestamp": "2025-08-19T21:42:49.414748Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
 {"timestamp": "2025-08-19T22:02:01.761658Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
 {"timestamp": "2025-08-19T22:02:17.128655Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
-{"timestamp": "2025-08-20T19:13:56.583588Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
-{"timestamp": "2025-08-20T19:26:17.881564Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
-{"timestamp": "2025-08-20T19:40:31.005222Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
-{"timestamp": "2025-08-20T22:32:06.512297Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:08:15.181954Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:11:08.063724Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:11:53.283264Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:19:28.833423Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:23:48.305004Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:25:09.951554Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:31:25.193324Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:37:37.072630Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
+{"timestamp": "2025-08-19T22:44:21.986315Z", "levelname": "INFO", "name": "beautyai", "request_id": "-", "session_id": "-", "message": "Logging configured (service=api, json=1)"}
