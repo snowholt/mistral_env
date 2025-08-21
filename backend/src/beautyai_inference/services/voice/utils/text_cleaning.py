@@ -58,5 +58,5 @@ def strip_emojis(text: str) -> str:
     return no_emoji.strip()
 
 def sanitize_tts_text(text: str) -> str:
-    """Full sanitization pipeline for TTS: thinking removal then emoji stripping."""
-    return strip_emojis(remove_thinking_blocks(text))
+    """Sanitization pipeline for TTS: only remove thinking blocks."""
+    return remove_thinking_blocks(text)

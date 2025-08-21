@@ -67,13 +67,8 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
     
     def _check_torch_compile_support(self) -> bool:
         """Check if torch.compile is available and recommended."""
-        try:
-            # torch.compile is available in PyTorch 2.0+
-            if hasattr(torch, 'compile') and self.device.startswith("cuda"):
-                return True
-            return False
-        except Exception:
-            return False
+        # Disable torch.compile for faster startup and better stability
+        return False
     
     def _load_model_implementation(self, model_id: str) -> bool:
         """
@@ -282,7 +277,7 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
     
     def _clean_transcription_output(self, text: str) -> str:
         """
-        Clean common Whisper artifacts from transcription output.
+        Minimal cleaning of transcription output - only remove excessive whitespace.
         
         Args:
             text: Raw transcription text
@@ -293,23 +288,7 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
         if not text:
             return ""
         
-        # Remove common Whisper artifacts (same as base implementation)
-        artifacts = [
-            "unclear audio",
-            "inaudible", 
-            "music playing",
-            "[music]",
-            "[applause]",
-            "[laughter]"
-        ]
-        
-        text_lower = text.lower()
-        for artifact in artifacts:
-            if text_lower.startswith(artifact):
-                logger.warning(f"Removing Whisper artifact: '{artifact}'")
-                return ""
-        
-        # Remove excessive whitespace
+        # Only remove excessive whitespace
         text = " ".join(text.split())
         
         return text

@@ -238,7 +238,7 @@ class WhisperArabicTurboEngine(BaseWhisperEngine):
     
     def _clean_arabic_transcription(self, text: str) -> str:
         """
-        Clean Arabic-specific transcription artifacts.
+        Minimal cleaning of Arabic transcription output - only remove excessive whitespace.
         
         Args:
             text: Raw transcription text
@@ -249,24 +249,10 @@ class WhisperArabicTurboEngine(BaseWhisperEngine):
         if not text:
             return ""
         
-        # Remove common Whisper artifacts (Arabic and English)
-        artifacts = [
-            "unclear audio",
-            "inaudible",
-            "music playing", 
-            "[music]",
-            "[applause]",
-            "[laughter]",
-            "موسيقى",  # Arabic for "music"
-            "غير واضح",  # Arabic for "unclear"
-            "غير مسموع"  # Arabic for "inaudible"
-        ]
+        # Only remove excessive whitespace
+        text = " ".join(text.split())
         
-        text_lower = text.lower()
-        for artifact in artifacts:
-            if text_lower.startswith(artifact.lower()):
-                logger.warning(f"Removing Arabic transcription artifact: '{artifact}'")
-                return ""
+        return text
         
         # Arabic-specific cleaning
         text = self._clean_arabic_text(text)

@@ -206,7 +206,7 @@ class WhisperLargeV3Engine(BaseWhisperEngine):
     
     def _clean_transcription_output(self, text: str) -> str:
         """
-        Clean common Whisper artifacts from transcription output.
+        Minimal cleaning of transcription output - only remove excessive whitespace.
         
         Args:
             text: Raw transcription text
@@ -217,24 +217,10 @@ class WhisperLargeV3Engine(BaseWhisperEngine):
         if not text:
             return ""
         
-        # Remove common Whisper artifacts
-        artifacts = [
-            "unclear audio",
-            "inaudible",
-            "music playing",
-            "[music]",
-            "[applause]",
-            "[laughter]"
-        ]
-        
-        text_lower = text.lower()
-        for artifact in artifacts:
-            if text_lower.startswith(artifact):
-                logger.warning(f"Removing Whisper artifact: '{artifact}'")
-                return ""
-        
-        # Remove excessive whitespace
+        # Only remove excessive whitespace
         text = " ".join(text.split())
+        
+        return text
         
         return text
     

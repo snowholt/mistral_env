@@ -400,14 +400,39 @@ class ChatService(BaseService):
 
             # Primary generation attempt with safety budgeting
             try:
+                logger.info(f"🤖 Calling model.generate with prompt (length: {len(prompt)}): '{prompt[:200]}...'")
+                logger.info(f"🔧 Generation params: {generation_params}")
+                
+                # Write debug to file for persistence
+                with open("/tmp/llm_debug.log", "a") as f:
+                    f.write(f"[{__import__('datetime').datetime.now()}] CALLING model.generate\n")
+                    f.write(f"Prompt length: {len(prompt)}\n")
+                    f.write(f"Prompt preview: {prompt[:200]}...\n")
+                    f.write(f"Generation params: {generation_params}\n")
+                    f.flush()
+                
                 response = model.generate(prompt, **generation_params)
+                
+                logger.info(f"🎯 LLM returned response (type: {type(response)}, length: {len(response) if response else 'None'}): '{response[:200] if response else 'None'}...'")
+                
+                # Write response debug to file
+                with open("/tmp/llm_debug.log", "a") as f:
+                    f.write(f"[{__import__('datetime').datetime.now()}] RESPONSE RECEIVED\n")
+                    f.write(f"Response type: {type(response)}\n")
+                    f.write(f"Response length: {len(response) if response else 'None'}\n")
+                    f.write(f"Response content: {response[:200] if response else 'None'}...\n")
+                    f.write("-" * 50 + "\n")
+                    f.flush()
+                    
             except ValueError as ve:
                 ve_text = str(ve).lower()
                 if "exceed context window" in ve_text or "exceeds context window" in ve_text or "context window" in ve_text:
                     logger.warning("[chat] Context window exceeded on first attempt (err=%s); retrying minimal prompt", ve)
                     _minimal_rebuild()
                     try:
+                        logger.info(f"🔄 Retry - calling model.generate with trimmed prompt (length: {len(prompt)}): '{prompt[:200]}...'")
                         response = model.generate(prompt, **generation_params)
+                        logger.info(f"🔄 Retry - LLM returned response (type: {type(response)}, length: {len(response) if response else 'None'}): '{response[:200] if response else 'None'}...'")
                     except Exception as ve2:  # second failure – return fallback response gracefully
                         logger.error("[chat] Retry after trimming failed: %s", ve2)
                         fallback = self._clean_response("", response_language)
@@ -577,70 +602,64 @@ class ChatService(BaseService):
         Returns:
             str: Cleaned response
         """
+        # Store original response for debugging
+        raw_response = response
+        logger.info(f"Raw LLM response (length: {len(raw_response)}): '{raw_response[:200]}...'")
+        
         # Remove any thinking tags or content
         import re
         
-        # Remove thinking blocks
+        # Remove thinking blocks (only explicit think tags)
         response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL | re.IGNORECASE)
-        response = re.sub(r'<thinking>.*?</thinking>', '', response, flags=re.DOTALL | re.IGNORECASE)
-        response = re.sub(r'</?think>', '', response, flags=re.IGNORECASE)
-        response = re.sub(r'</?thinking>', '', response, flags=re.IGNORECASE)
+
+        # Clean up whitespace
+        response = re.sub(r'\n\s*\n', '\n', response)
+        response = response.strip()
+        logger.info(f"After think tag removal (length: {len(response)}): '{response[:100]}...'")
         
-        # Remove common thinking patterns in English
+        # Minimal filtering - only remove obvious non-content
+        # Remove common thinking patterns only if they start the line
         thinking_patterns = [
-            r"Let me think.*?(?=\n|$)",
-            r"I need to think.*?(?=\n|$)",
-            r"First, let me.*?(?=\n|$)",
-            r"Okay, the user is asking.*?(?=\n|$)",
-            r"Alright, the user.*?(?=\n|$)",
-            r"The user.*?(?=\n|$)",
-            r"From what I remember.*?(?=\n|$)",
-            r".*?is asking about.*?(?=\n|$)",
-            r"Since I.*?(?=\n|$)",
-            r"I should.*?(?=\n|$)",
-            r"Looking at.*?(?=\n|$)",
-            r"Based on.*?(?=\n|$)",
-            r"Given that.*?(?=\n|$)"
+            r"^Let me think.*",
+            r"^I need to think.*",
+            r"^The user is asking.*",
+            r"^دعني أفكر.*",
+            r"^المستخدم يسأل.*"
         ]
         
         for pattern in thinking_patterns:
             response = re.sub(pattern, '', response, flags=re.IGNORECASE | re.MULTILINE)
         
-        # Remove Arabic thinking patterns
-        arabic_thinking_patterns = [
-            r"دعني أفكر.*?(?=\n|$)",
-            r"أحتاج إلى التفكير.*?(?=\n|$)",
-            r"المستخدم يسأل.*?(?=\n|$)",
-            r"بناءً على.*?(?=\n|$)"
-        ]
-        
-        for pattern in arabic_thinking_patterns:
-            response = re.sub(pattern, '', response, flags=re.MULTILINE)
-        
-        # Clean up whitespace
+        # Clean up whitespace again
         response = re.sub(r'\n\s*\n', '\n', response)
         response = response.strip()
+        logger.info(f"After minimal pattern filtering (length: {len(response)}): '{response[:100]}...'")
         
         # Extract the actual response part (look for direct medical advice)
         lines = response.split('\n')
         cleaned_lines = []
         for line in lines:
             line = line.strip()
-            # Skip meta-commentary and keep actual medical responses
-            if any(skip_phrase in line.lower() for skip_phrase in [
-                "the user", "i need to", "let me", "okay,", "alright,", "since i", "looking at",
-                "based on", "given that", "from what", "i should", "المستخدم", "دعني", "أحتاج"
-            ]):
-                continue
+            # Only skip obvious system/meta lines, keep everything else
             if line and not line.startswith(('User:', 'Assistant:', 'System:')):
                 cleaned_lines.append(line)
+            # DEBUG: Log what we're filtering out
+            elif line:
+                logger.info(f"FILTERING OUT LINE: '{line}'")
         
         if cleaned_lines:
             response = '\n'.join(cleaned_lines)
+        else:
+            # No lines passed filtering - this might be the issue
+            logger.warning(f"NO LINES PASSED FILTERING! Original lines: {lines}")
+            # Temporarily keep original response to see what's happening
+            response = raw_response
+        
+        logger.info(f"After line filtering (length: {len(response)}): '{response[:100]}...'")
         
         # If response is empty or too short, provide a default in the correct language
-        if not response or len(response.strip()) < 10:
-            logger.warning("Response was empty after cleaning, using fallback")
+        if not response or len(response.strip()) < 3:  # Reduced threshold from 10 to 3
+            logger.warning(f"Response was empty after cleaning, using fallback. Original response length: {len(raw_response) if 'raw_response' in locals() else 'unknown'}, Final length: {len(response)}")
             if language == "ar":
                 return "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
             
