@@ -44,6 +44,7 @@ class InferenceAPIAdapter(APIServiceAdapter):
                              max_tokens: Optional[int] = None, 
                              temperature: float = 0.7,
                              stream: bool = False,
+                             disable_content_filter: bool = False,
                              **kwargs) -> Union[Dict[str, Any], Iterator[Dict[str, Any]]]:
         """
         Generate chat completion.
@@ -54,6 +55,7 @@ class InferenceAPIAdapter(APIServiceAdapter):
             max_tokens: Maximum tokens to generate
             temperature: Sampling temperature
             stream: Whether to stream the response
+            disable_content_filter: Whether to bypass content filtering
             **kwargs: Additional generation parameters
             
         Returns:
@@ -62,16 +64,17 @@ class InferenceAPIAdapter(APIServiceAdapter):
         start_time = time.time()
         
         try:
-            # Configure services with default config
-            self.chat_service.configure({})
+            # No need to configure chat service - it's already initialized
             
             if stream:
                 return self._stream_chat_completion(
-                    model_name, messages, max_tokens, temperature, **kwargs
+                    model_name, messages, max_tokens, temperature, 
+                    disable_content_filter, **kwargs
                 )
             else:
                 return self._complete_chat_completion(
-                    model_name, messages, max_tokens, temperature, **kwargs
+                    model_name, messages, max_tokens, temperature, 
+                    disable_content_filter, **kwargs
                 )
                 
         except Exception as e:
@@ -80,62 +83,74 @@ class InferenceAPIAdapter(APIServiceAdapter):
     
     def _complete_chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
                                        max_tokens: Optional[int], temperature: float, 
+                                       disable_content_filter: bool = False,
                                        **kwargs) -> Dict[str, Any]:
         """Generate non-streaming chat completion."""
-        logger.info(f"Getting model for: {model_name}")
+        logger.info(f"Starting chat completion for model: {model_name}")
         
-        # Get the loaded model using shared model manager
-        model = self.model_manager.get_loaded_model(model_name)
+        # Extract the user message from the messages list
+        user_message = ""
+        conversation_history = []
         
-        if model is None:
-            logger.error(f"Model '{model_name}' is not loaded")
-            raise InferenceError(f"Model '{model_name}' is not loaded")
+        for msg in messages:
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+            elif msg.get("role") == "assistant":
+                conversation_history.append(msg)
         
-        logger.info(f"Found model: {type(model)}")
+        if not user_message:
+            user_message = "Hello"  # Fallback message
         
-        # Prepare generation parameters with proper parameter mapping
-        generation_params = {
+        # Get model configuration from registry
+        from ...config.config_manager import AppConfig
+        from ...services.model.registry_service import ModelRegistryService
+        from pathlib import Path
+        
+        # Load app config with model registry
+        config_dir = Path(__file__).parent.parent.parent / "config"
+        model_registry_path = config_dir / "model_registry.json"
+        app_config = AppConfig()
+        app_config.models_file = str(model_registry_path)
+        app_config.load_model_registry()
+        
+        # Get model config using registry service
+        registry_service = ModelRegistryService()
+        model_config = registry_service.get_model(app_config, model_name)
+        if not model_config:
+            raise InferenceError(f"Model '{model_name}' not found in registry")
+        
+        # Prepare generation parameters
+        generation_config = {
             'temperature': temperature,
             **kwargs
         }
         
-        # Map max_tokens to max_new_tokens for compatibility with our engines
+        # Map max_tokens to max_new_tokens for compatibility
         if max_tokens:
-            generation_params['max_new_tokens'] = max_tokens
-            # Keep max_tokens for engines that expect it
-            generation_params['max_tokens'] = max_tokens
+            generation_config['max_new_tokens'] = max_tokens
         
-        logger.info(f"Chat generation params: {generation_params}")
+        logger.info(f"Chat generation params: {generation_config}")
         
         try:
-            logger.info("Starting model.chat() call...")
-            # Generate response using the model's chat method (this is sync, not async)
-            response_text = model.chat(messages, **generation_params)
-            logger.info(f"Model.chat() completed. Response length: {len(response_text)} characters")
+            # Use the ChatService to handle the chat completion
+            response, detected_language, updated_history, session_id = self.chat_service.chat(
+                message=user_message,
+                model_name=model_name,
+                model_config=model_config,
+                generation_config=generation_config,
+                conversation_history=conversation_history,
+                disable_content_filter=disable_content_filter
+            )
+            logger.info(f"ChatService.chat() completed. Response length: {len(response)} characters")
             
-            # DEBUG: Check if model has thinking content stored
-            thinking_content = None
-            final_content = response_text
+            response_text = response
             
-            # Check if the model engine has stored thinking/final content after generation
-            if hasattr(model, '_last_generation_stats') and model._last_generation_stats:
-                stats = model._last_generation_stats
-                thinking_content = stats.get('thinking_content')
-                final_content = stats.get('final_content', response_text)
-                logger.info(f"🧠 DEBUG: Found thinking content: {thinking_content is not None}")
-                logger.info(f"📝 DEBUG: Final content: {final_content[:100]}...")
-                
-                # Use final content as the response if available
-                if final_content != response_text:
-                    logger.info("🔄 Using parsed final content instead of raw response")
-                    response_text = final_content
-                    
         except Exception as e:
             logger.error(f"Error during chat generation: {e}")
             raise InferenceError(f"Chat generation failed: {e}")
         
         if not response_text:
-            logger.warning("Model returned empty response")
+            logger.warning("ChatService returned empty response")
             response_text = "I apologize, but I couldn't generate a response. Please try again."
         
         # Count tokens (rough estimation)
@@ -164,37 +179,68 @@ class InferenceAPIAdapter(APIServiceAdapter):
     
     def _stream_chat_completion(self, model_name: str, messages: List[Dict[str, str]], 
                                max_tokens: Optional[int], temperature: float, 
+                               disable_content_filter: bool = False,
                                **kwargs) -> Iterator[Dict[str, Any]]:
         """Generate streaming chat completion."""
         # For now, fall back to non-streaming and yield as a single chunk
         # TODO: Implement proper streaming support
         
-        # Get the loaded model using shared model manager
-        model = self.model_manager.get_loaded_model(model_name)
+        # Extract the user message from the messages list
+        user_message = ""
+        conversation_history = []
         
-        if model is None:
-            raise InferenceError(f"Model '{model_name}' is not loaded")
+        for msg in messages:
+            if msg.get("role") == "user":
+                user_message = msg.get("content", "")
+            elif msg.get("role") == "assistant":
+                conversation_history.append(msg)
         
-        # Prepare generation parameters with proper parameter mapping
-        generation_params = {
+        if not user_message:
+            user_message = "Hello"  # Fallback message
+        
+        # Get model configuration from registry
+        from ...config.config_manager import AppConfig
+        from ...services.model.registry_service import ModelRegistryService
+        from pathlib import Path
+        
+        # Load app config with model registry
+        config_dir = Path(__file__).parent.parent.parent / "config"
+        model_registry_path = config_dir / "model_registry.json"
+        app_config = AppConfig()
+        app_config.models_file = str(model_registry_path)
+        app_config.load_model_registry()
+        
+        # Get model config using registry service
+        registry_service = ModelRegistryService()
+        model_config = registry_service.get_model(app_config, model_name)
+        if not model_config:
+            raise InferenceError(f"Model '{model_name}' not found in registry")
+        
+        # Prepare generation parameters
+        generation_config = {
             'temperature': temperature,
             **kwargs
         }
         
-        # Map max_tokens to max_new_tokens for compatibility with our engines
+        # Map max_tokens to max_new_tokens for compatibility
         if max_tokens:
-            generation_params['max_new_tokens'] = max_tokens
-            # Keep max_tokens for engines that expect it
-            generation_params['max_tokens'] = max_tokens
+            generation_config['max_new_tokens'] = max_tokens
         
-        # Generate response using the model's chat method
-        response_text = model.chat(messages, **generation_params)
+        # Generate response using the ChatService
+        response, detected_language, updated_history, session_id = self.chat_service.chat(
+            message=user_message,
+            model_name=model_name,
+            model_config=model_config,
+            generation_config=generation_config,
+            conversation_history=conversation_history,
+            disable_content_filter=disable_content_filter
+        )
         
         # Yield the response as a single chunk
         yield {
             "choices": [{
                 "delta": {
-                    "content": response_text
+                    "content": response
                 },
                 "index": 0,
                 "finish_reason": "stop"

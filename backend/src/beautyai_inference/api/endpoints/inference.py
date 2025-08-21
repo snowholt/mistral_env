@@ -21,6 +21,7 @@ from ..models import (
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
 from ...services.inference import ChatService, SessionService
+from ...services.shared import get_shared_content_filter
 from ...config.config_manager import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -103,11 +104,9 @@ async def chat_completion(
         # Import the inference adapter
         from ..adapters.inference_adapter import InferenceAPIAdapter
         
-        # Create adapter instance with required service dependencies
+        # Create adapter instance with chat service dependency
         inference_adapter = InferenceAPIAdapter(
-            chat_service=chat_service,
-            test_service=test_service, 
-            benchmark_service=benchmark_service
+            chat_service=chat_service
         )
         
         # Process message and thinking mode
@@ -132,11 +131,12 @@ async def chat_completion(
             logger.info("Content filtering disabled")
         else:
             logger.info(f"Applying content filter with strictness: {filter_config['strictness_level']}")
-            # Set the content filter strictness level
-            content_filter_service.set_strictness_level(filter_config["strictness_level"])
+            # Get the shared content filter service
+            content_filter = get_shared_content_filter()
+            content_filter.set_strictness_level(filter_config["strictness_level"])
             
             try:
-                filter_result = content_filter_service.filter_content(processed_message, language='ar')
+                filter_result = content_filter.filter_content(processed_message, language='ar')
                 logger.info(f"Content filter result: allowed={filter_result.is_allowed}")
                 if not filter_result.is_allowed:
                     return ChatResponse(
@@ -265,6 +265,7 @@ async def chat_completion(
             'model_name': request.model_name,
             'messages': messages,
             'stream': request.stream,
+            'disable_content_filter': content_filter_bypassed,
         })
         
         # Use get() to avoid conflicts and set defaults
@@ -395,11 +396,9 @@ async def run_model_test(
         # Import the inference adapter
         from ..adapters.inference_adapter import InferenceAPIAdapter
         
-        # Create adapter instance with required service dependencies
+        # Create adapter instance with chat service dependency
         inference_adapter = InferenceAPIAdapter(
-            chat_service=chat_service,
-            test_service=test_service, 
-            benchmark_service=benchmark_service
+            chat_service=chat_service
         )
         
         # Extract generation parameters from generation_config
@@ -457,9 +456,7 @@ async def run_benchmark(
         
         # Create adapter instance with required service dependencies
         inference_adapter = InferenceAPIAdapter(
-            chat_service=chat_service,
-            test_service=test_service, 
-            benchmark_service=benchmark_service
+            chat_service=chat_service
         )
         
         # Extract configuration parameters

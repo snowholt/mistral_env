@@ -54,7 +54,8 @@ class ChatService:
         generation_config: Dict[str, Any],
         conversation_history: Optional[List[Dict[str, str]]] = None,
         response_language: Optional[str] = None,
-        session_id: Optional[str] = None
+        session_id: Optional[str] = None,
+        disable_content_filter: bool = False
     ) -> Tuple[str, str, List[Dict[str, str]], str]:
         """
         Process a chat message and generate a response.
@@ -67,34 +68,43 @@ class ChatService:
             conversation_history: Previous conversation history
             response_language: Preferred response language
             session_id: Optional session ID for session management
+            disable_content_filter: Whether to bypass content filtering
             
         Returns:
             Tuple of (response, detected_language, updated_history, session_id)
         """
         try:
-            # Ensure model is loaded
+            # Detect language BEFORE attempting model load so fallback matches user language
+            if response_language is None or response_language == "auto":
+                try:
+                    detected_lang, _ = detect_language(message)
+                    response_language = detected_lang
+                except Exception:
+                    # Safe fallback to English if detection fails
+                    response_language = "en"
+                logger.info(f"🌍 Detected language (pre-load): {response_language}")
+            else:
+                logger.info(f"🌍 Using provided language: {response_language}")
+
+            # Ensure model is loaded (after language detection so fallback uses detected language)
             model = self._ensure_model_loaded(model_name, model_config)
             if model is None:
-                error_msg = "Failed to load model"
-                return self._get_fallback_response(response_language), "ar", [], ""
+                logger.error("Failed to load model; returning language-specific fallback response")
+                return self._get_fallback_response(response_language), response_language or "ar", [], session_id or ""
             
-            # Detect language if not specified
-            if response_language is None:
-                response_language = detect_language(message)
-                logger.info(f"🌍 Detected language: {response_language}")
+            # Content filtering (if not disabled)
+            if not disable_content_filter:
+                filter_result = self.content_filter.filter_content(message, response_language)
+                if not filter_result.is_allowed:
+                    logger.warning(f"Content filtered: {filter_result.filter_reason}")
+                    return (
+                        filter_result.suggested_response or self._get_fallback_response(response_language),
+                        response_language,
+                        conversation_history or [],
+                        session_id or ""
+                    )
             else:
-                logger.info(f"🌍 Using specified language: {response_language}")
-            
-            # Content filtering
-            filter_result = self.content_filter.filter_content(message, response_language)
-            if not filter_result.is_allowed:
-                logger.warning(f"Content filtered: {filter_result.filter_reason}")
-                return (
-                    filter_result.suggested_response or self._get_fallback_response(response_language),
-                    response_language,
-                    conversation_history or [],
-                    session_id or ""
-                )
+                logger.info("Content filtering disabled - bypassing filter check")
             
             # Create or update session
             if session_id:
@@ -255,16 +265,20 @@ class ChatService:
     def _ensure_model_loaded(self, model_name: str, model_config: ModelConfig):
         """Ensure the specified model is loaded."""
         try:
-            return self.model_manager.load_model(model_name, model_config)
+            # Correct usage: ModelManager.load_model expects only ModelConfig
+            return self.model_manager.load_model(model_config)
         except Exception as e:
             logger.error(f"Failed to load model {model_name}: {e}")
             return None
     
     def _get_fallback_response(self, language: Optional[str] = None) -> str:
         """Get fallback response for the specified language."""
+        # Prefer detected / requested language; fall back to English, then Arabic
         if language and language in self.fallback_messages:
             return self.fallback_messages[language]
-        return self.fallback_messages['ar']  # Default to Arabic
+        if 'en' in self.fallback_messages:
+            return self.fallback_messages['en']
+        return self.fallback_messages.get('ar', 'Hello! How can I help you today?')
     
     def _clean_response(self, response: str) -> str:
         """

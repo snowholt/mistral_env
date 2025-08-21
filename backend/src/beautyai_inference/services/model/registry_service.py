@@ -224,3 +224,19 @@ class RegistryService(BaseService):
         """
         self.app_config = registry_config
         return len(self.app_config.model_registry.models)
+
+# ---------------------------------------------------------------------------
+# Backward Compatibility
+# ---------------------------------------------------------------------------
+# Some legacy components/imports still reference `ModelRegistryService`. To avoid
+# breaking those without refactoring all import sites immediately, we provide an
+# alias subclass that inherits the complete behavior of `RegistryService`.
+# This keeps existing code functional while signaling the preferred modern name.
+
+class ModelRegistryService(RegistryService):  # pragma: no cover - thin alias
+    """Backward-compatible alias for legacy imports expecting ModelRegistryService.
+
+    Prefer importing and using `RegistryService` going forward. This alias can be
+    removed after all references are migrated.
+    """
+    pass
