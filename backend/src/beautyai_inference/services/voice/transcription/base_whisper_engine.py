@@ -109,38 +109,44 @@ class BaseWhisperEngine(ABC):
         try:
             start_time = time.time()
             
-            # Check if this engine is being managed by ModelManager (singleton mode)
-            if hasattr(self, '_managed_by_model_manager') and self._managed_by_model_manager:
-                logger.info(f"✅ {self._get_engine_name()} already managed by ModelManager")
-                return True
+            # CRITICAL DEBUG: Check if this engine is being managed by ModelManager FIRST
+            managed_flag = getattr(self, '_managed_by_model_manager', False)
+            logger.info(f"🔍 DEBUG: {self._get_engine_name()} managed flag = {managed_flag}")
+            
+            if managed_flag:
+                logger.info(f"✅ {self._get_engine_name()} is managed by ModelManager - proceeding with direct loading")
+                # Skip ModelManager checks and proceed directly to model loading
+                # This prevents circular dependency: ModelManager -> load_whisper_model -> ModelManager
+                pass  # Continue to direct loading section
+            else:
+                logger.info(f"🔍 {self._get_engine_name()} is NOT managed - checking ModelManager for existing models")
+                # Only check ModelManager if this engine is NOT already managed
+                try:
+                    from ....core.model_manager import ModelManager
+                    model_manager = ModelManager()
+                    
+                    # Check if there's already a persistent Whisper model loaded
+                    persistent_engine = model_manager.get_streaming_whisper(model_name)
+                    
+                    if persistent_engine is not None and persistent_engine != self:
+                        # Found existing persistent model - share its loaded model
+                        if hasattr(persistent_engine, 'model') and persistent_engine.model is not None:
+                            logger.info(f"🔗 Sharing model from persistent Whisper engine")
+                            self.model = persistent_engine.model
+                            self.processor = persistent_engine.processor
+                            self.loaded_model_name = persistent_engine.loaded_model_name
+                            self.model_id = persistent_engine.model_id
+                            self.load_time = time.time() - start_time
+                            logger.info(f"✅ {self._get_engine_name()} sharing persistent model in {self.load_time:.2f}s")
+                            return True
+                    
+                except Exception as e:
+                    logger.debug(f"ModelManager check failed: {e}, proceeding with direct loading")
             
             # Check if we already have a loaded model
             if self.model is not None:
                 logger.info(f"✅ {self._get_engine_name()} model already loaded")
                 return True
-            
-            # Try to get existing model from ModelManager first
-            try:
-                from ....core.model_manager import ModelManager
-                model_manager = ModelManager()
-                
-                # Check if there's already a persistent Whisper model loaded
-                persistent_engine = model_manager.get_streaming_whisper(model_name)
-                
-                if persistent_engine is not None and persistent_engine != self:
-                    # Found existing persistent model - share its loaded model
-                    if hasattr(persistent_engine, 'model') and persistent_engine.model is not None:
-                        logger.info(f"🔗 Sharing model from persistent Whisper engine")
-                        self.model = persistent_engine.model
-                        self.processor = persistent_engine.processor
-                        self.loaded_model_name = persistent_engine.loaded_model_name
-                        self.model_id = persistent_engine.model_id
-                        self.load_time = time.time() - start_time
-                        logger.info(f"✅ {self._get_engine_name()} sharing persistent model in {self.load_time:.2f}s")
-                        return True
-                
-            except Exception as e:
-                logger.debug(f"ModelManager check failed: {e}, proceeding with direct loading")
             
             # Proceed with direct model loading (original behavior)
             logger.info(f"🔄 Loading {self._get_engine_name()} directly")

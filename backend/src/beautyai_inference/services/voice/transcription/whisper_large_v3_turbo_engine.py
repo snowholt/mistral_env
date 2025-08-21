@@ -110,24 +110,19 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
             # Load processor
             self.processor = AutoProcessor.from_pretrained(model_id)
             
-            # Create optimized pipeline
+            # FIXED: Create simplified pipeline to avoid parameter conflicts
             self.pipe = pipeline(
                 "automatic-speech-recognition",
                 model=self.model,
                 tokenizer=self.processor.tokenizer,
                 feature_extractor=self.processor.feature_extractor,
                 torch_dtype=self.torch_dtype,
-                device=self.device,
-                batch_size=16 if self.device.startswith("cuda") else 4,
-                model_kwargs={
-                    "use_safetensors": self.use_safetensors,
-                    "low_cpu_mem_usage": self.low_cpu_mem_usage
-                }
+                device=self.device
             )
             
-            # Perform warmup if torch.compile is enabled
-            if self.supports_torch_compile:
-                self._warmup_model()
+            # Skip torch.compile for now to avoid compatibility issues
+            logger.info("Skipping torch.compile to ensure compatibility")
+            self.supports_torch_compile = False
             
             logger.info("✅ Whisper Large v3 Turbo model loaded successfully")
             return True
@@ -211,34 +206,38 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 "sampling_rate": 16000
             }
             
-            # Configure generation parameters for maximum speed
-            generate_kwargs = self._get_speed_optimized_parameters(language)
+            # FIXED: Use generate_kwargs for language specification to avoid translation
+            kwargs = {}
             
-            # Perform transcription with SDPA kernel for torch.compile compatibility
-            if self.supports_torch_compile:
-                with sdpa_kernel(SDPBackend.MATH):
-                    result = self.pipe(audio_input, generate_kwargs=generate_kwargs)
+            # Add language specification via generate_kwargs (prevents auto-detection and translation)
+            if language and language != "auto":
+                generate_kwargs = {}
+                if language == "ar":
+                    generate_kwargs["language"] = "arabic"
+                elif language == "en":
+                    generate_kwargs["language"] = "english"
+                else:
+                    generate_kwargs["language"] = language
+                
+                kwargs["generate_kwargs"] = generate_kwargs
+                logger.debug(f"Transcribing with specified language: {generate_kwargs['language']}")
             else:
-                result = self.pipe(audio_input, generate_kwargs=generate_kwargs)
+                logger.debug(f"Transcribing with auto language detection")
+            
+            # Perform transcription with proper parameter structure
+            result = self.pipe(audio_input, **kwargs)
             
             # Extract and clean transcription
             transcribed_text = result.get("text", "").strip() if result else ""
             transcribed_text = self._clean_transcription_output(transcribed_text)
             
+            logger.debug(f"Transcription result: '{transcribed_text[:100]}...'")
             return transcribed_text
             
         except Exception as e:
             logger.error(f"Whisper Large v3 Turbo transcription failed: {e}")
-            # Attempt minimal fallback
-            try:
-                logger.info("Attempting minimal fallback transcription...")
-                audio_input = {"array": audio_array, "sampling_rate": 16000}
-                result = self.pipe(audio_input, generate_kwargs={"num_beams": 1, "temperature": 0.0})
-                transcribed_text = result.get("text", "").strip() if result else ""
-                return self._clean_transcription_output(transcribed_text)
-            except Exception as fallback_e:
-                logger.error(f"Fallback transcription also failed: {fallback_e}")
-                return ""
+            # Return empty string instead of attempting fallback to avoid more errors
+            return ""
     
     def _get_speed_optimized_parameters(self, language: str) -> Dict[str, Any]:
         """

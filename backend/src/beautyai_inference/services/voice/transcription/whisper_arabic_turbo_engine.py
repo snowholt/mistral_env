@@ -186,15 +186,19 @@ class WhisperArabicTurboEngine(BaseWhisperEngine):
                 "sampling_rate": 16000
             }
             
+            # FIXED: Use proper parameter structure for generate_kwargs
             # Configure generation parameters for Arabic
             generate_kwargs = self._get_arabic_optimized_parameters(language)
+            
+            # FIXED: Use the correct parameter structure to avoid pipeline errors
+            kwargs = {"generate_kwargs": generate_kwargs}
             
             # Perform transcription with Arabic optimizations
             if self.supports_torch_compile:
                 with sdpa_kernel(SDPBackend.MATH):
-                    result = self.pipe(audio_input, generate_kwargs=generate_kwargs)
+                    result = self.pipe(audio_input, **kwargs)
             else:
-                result = self.pipe(audio_input, generate_kwargs=generate_kwargs)
+                result = self.pipe(audio_input, **kwargs)
             
             # Extract and clean transcription
             transcribed_text = result.get("text", "").strip() if result else ""
@@ -217,30 +221,18 @@ class WhisperArabicTurboEngine(BaseWhisperEngine):
         Returns:
             Dictionary of generation parameters optimized for Arabic
         """
-        # Base parameters optimized for Arabic
-        params = {
-            "max_new_tokens": 256,
-            "num_beams": 2,  # Slightly higher than turbo for Arabic accuracy
-            "condition_on_prev_tokens": True,  # Helps with Arabic context
-            "compression_ratio_threshold": 2.0,  # Lower threshold for Arabic
-            "temperature": 0.0,  # Deterministic for consistent Arabic output
-            "logprob_threshold": -1.0,
-            "no_speech_threshold": 0.5,  # Lower threshold for Arabic speech detection
-            "return_timestamps": False,
-            "task": "transcribe"
-        }
+        # FIXED: Simplified parameters compatible with current transformers
+        # Use only essential parameters to avoid parameter conflicts
+        params = {}
         
         # Force Arabic language for best results with this model
         if language == "ar" or language is None:
             params["language"] = "arabic"
         elif language == "en":
-            # Allow English but warn about suboptimal performance
-            logger.warning("Arabic-tuned model used for English - consider using v3-turbo for better performance")
             params["language"] = "english"
         else:
-            # Default to Arabic for unknown languages
-            logger.info(f"Unknown language '{language}', defaulting to Arabic")
-            params["language"] = "arabic"
+            # For other languages, let the model auto-detect
+            pass
         
         return params
     

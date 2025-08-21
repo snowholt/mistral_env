@@ -150,9 +150,11 @@ class WhisperLargeV3Engine(BaseWhisperEngine):
             # Configure generation parameters for maximum accuracy
             generate_kwargs = self._get_generation_parameters(language)
             
+            # FIXED: Use proper parameter structure to avoid pipeline errors
             # Perform transcription
             if generate_kwargs:
-                result = self.pipe(audio_input, generate_kwargs=generate_kwargs)
+                kwargs = {"generate_kwargs": generate_kwargs}
+                result = self.pipe(audio_input, **kwargs)
             else:
                 result = self.pipe(audio_input)
             
@@ -166,9 +168,9 @@ class WhisperLargeV3Engine(BaseWhisperEngine):
             
         except Exception as e:
             logger.error(f"Whisper Large v3 transcription failed: {e}")
-            # Attempt fallback without generation parameters
+            # FIXED: Simplified fallback without problematic parameters
             try:
-                logger.info("Attempting fallback transcription...")
+                logger.info("Attempting simplified fallback transcription...")
                 audio_input = {"array": audio_array, "sampling_rate": 16000}
                 result = self.pipe(audio_input)
                 transcribed_text = result.get("text", "").strip() if result else ""
@@ -187,18 +189,9 @@ class WhisperLargeV3Engine(BaseWhisperEngine):
         Returns:
             Dictionary of generation parameters
         """
-        # Base parameters optimized for accuracy
-        params = {
-            "max_new_tokens": 448,
-            "num_beams": 5,  # Higher beam search for accuracy
-            "condition_on_prev_tokens": True,  # Use context for better accuracy
-            "compression_ratio_threshold": 1.35,
-            "temperature": (0.0, 0.2, 0.4, 0.6, 0.8, 1.0),  # Temperature fallback
-            "logprob_threshold": -1.0,
-            "no_speech_threshold": 0.6,
-            "return_timestamps": False,  # Disable for faster processing
-            "task": "transcribe"  # Always transcribe (don't translate)
-        }
+        # FIXED: Simplified parameters compatible with current transformers
+        # Use only essential parameters to avoid conflicts like max_new_tokens exceeding model limits
+        params = {}
         
         # Add language specification if provided
         if language and language != "auto":

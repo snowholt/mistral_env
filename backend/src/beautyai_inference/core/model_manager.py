@@ -751,16 +751,17 @@ class ModelManager:
                     logger.error(f"❌ Failed to create Whisper engine for {model_name}")
                     return None
                 
-                # Load the model
-                success = whisper_engine.load_whisper_model(model_name)
+                # Mark engine as managed BEFORE loading to prevent circular calls
+                if hasattr(whisper_engine, 'set_managed_by_model_manager'):
+                    whisper_engine.set_managed_by_model_manager(True)
+                
+                # FIXED: Load model directly using internal method to avoid circular dependency
+                logger.info(f"🔄 UNIQUE_DEBUG_2024: Loading Whisper model directly (bypassing circular call)")
+                success = self._load_whisper_model_direct(whisper_engine, model_name)
                 if not success:
                     logger.error(f"❌ Failed to load Whisper model: {model_name}")
                     whisper_engine.cleanup()
                     return None
-                
-                # Mark engine as managed to prevent redundant loading
-                if hasattr(whisper_engine, 'set_managed_by_model_manager'):
-                    whisper_engine.set_managed_by_model_manager(True)
                 
                 # Register the loaded model
                 self._loaded_models[internal_model_name] = whisper_engine
@@ -801,6 +802,65 @@ class ModelManager:
         except Exception as e:
             logger.error(f"Failed to create Whisper engine: {e}")
             return None
+    
+    def _load_whisper_model_direct(self, whisper_engine: Any, model_name: str) -> bool:
+        """
+        Load Whisper model directly without ModelManager checks to prevent circular calls.
+        
+        Args:
+            whisper_engine: The Whisper engine instance
+            model_name: Model name to load
+            
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        try:
+            import time
+            from ..config.voice_config_loader import get_voice_config
+            
+            logger.info(f"🔄 Direct loading Whisper model: {model_name}")
+            start_time = time.time()
+            
+            # Get voice configuration
+            voice_config = get_voice_config()
+            
+            # Determine model ID
+            if model_name is None:
+                stt_config = voice_config.get_stt_model_config()
+                actual_model_id = stt_config.model_id
+                model_name = voice_config._config["default_models"]["stt"]
+            else:
+                model_config = voice_config._config["models"].get(model_name)
+                if not model_config:
+                    logger.error(f"Model '{model_name}' not found in voice registry")
+                    return False
+                actual_model_id = model_config["model_id"]
+            
+            logger.info(f"Loading engine with model ID: {actual_model_id}")
+            
+            # Call the engine's internal loading method directly
+            if hasattr(whisper_engine, '_load_model_implementation'):
+                success = whisper_engine._load_model_implementation(actual_model_id)
+            else:
+                logger.error(f"Engine {type(whisper_engine).__name__} missing _load_model_implementation method")
+                return False
+            
+            if success:
+                # Set metadata
+                whisper_engine.loaded_model_name = model_name
+                whisper_engine.model_id = actual_model_id
+                whisper_engine.load_time = time.time() - start_time
+                logger.info(f"✅ Direct model loading completed in {whisper_engine.load_time:.2f}s")
+                return True
+            else:
+                logger.error(f"❌ Direct model loading failed")
+                return False
+            
+        except Exception as e:
+            logger.error(f"❌ Direct model loading failed: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
     
     def unload_whisper_model(self, model_name: Optional[str] = None) -> bool:
         """
