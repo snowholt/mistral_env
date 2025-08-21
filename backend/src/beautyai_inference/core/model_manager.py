@@ -698,3 +698,237 @@ class ModelManager:
                 
             logger.info(f"Enabled auto-unload timer for model '{model_name}'")
             return True
+
+    # ================= Whisper Model Management Methods =================
+    
+    def get_streaming_whisper(self, model_name: Optional[str] = None, language: str = "auto") -> Optional[Any]:
+        """
+        Get a persistent Whisper model instance for streaming voice services.
+        
+        This method provides centralized Whisper model management for all voice services,
+        ensuring a single model instance is shared across transcription services.
+        
+        Args:
+            model_name: Optional specific Whisper model name from voice registry
+            language: Target language for optimization (affects engine selection)
+            
+        Returns:
+            Whisper engine instance or None if loading fails
+        """
+        from ..config.whisper_model_config import WhisperModelConfig, WhisperEngineSpec
+        from ..config.voice_config_loader import get_voice_config
+        
+        try:
+            voice_config = get_voice_config()
+            
+            # Determine the best Whisper model to use
+            if model_name is None:
+                # Auto-select based on language and voice registry default
+                stt_config = voice_config.get_stt_model_config()
+                model_name = voice_config._config["default_models"]["stt"]
+                logger.info(f"Auto-selected Whisper model from voice registry: {model_name}")
+            
+            # Create internal model name for tracking (prefix with 'whisper:')
+            internal_model_name = f"whisper:{model_name}"
+            
+            with self._lock:
+                # Check if already loaded
+                if internal_model_name in self._loaded_models:
+                    logger.info(f"♻️ Reusing existing Whisper model: {model_name}")
+                    # Update last used timestamp and reset timer
+                    self._model_last_used[internal_model_name] = time.time()
+                    self._start_model_timer(internal_model_name)
+                    return self._loaded_models[internal_model_name]
+                
+                logger.info(f"🎤 Loading persistent Whisper model: {model_name}")
+                
+                # Create Whisper model configuration
+                whisper_config = WhisperModelConfig.from_voice_registry(voice_config, model_name)
+                
+                # Create and load the Whisper engine
+                whisper_engine = self._create_whisper_engine(whisper_config)
+                if whisper_engine is None:
+                    logger.error(f"❌ Failed to create Whisper engine for {model_name}")
+                    return None
+                
+                # Load the model
+                success = whisper_engine.load_whisper_model(model_name)
+                if not success:
+                    logger.error(f"❌ Failed to load Whisper model: {model_name}")
+                    whisper_engine.cleanup()
+                    return None
+                
+                # Mark engine as managed to prevent redundant loading
+                if hasattr(whisper_engine, 'set_managed_by_model_manager'):
+                    whisper_engine.set_managed_by_model_manager(True)
+                
+                # Register the loaded model
+                self._loaded_models[internal_model_name] = whisper_engine
+                self._model_last_used[internal_model_name] = time.time()
+                
+                # Start auto-unload timer (longer timeout for Whisper models)
+                self._start_model_timer(internal_model_name)
+                
+                # Update persistence state
+                self._save_persistence_state()
+                
+                logger.info(f"✅ Persistent Whisper model loaded: {model_name} ({whisper_config.model_id})")
+                return whisper_engine
+                
+        except Exception as e:
+            logger.error(f"❌ Error loading persistent Whisper model: {e}")
+            return None
+    
+    def _create_whisper_engine(self, whisper_config: Any):
+        """Create a Whisper engine instance based on configuration."""
+        try:
+            engine_type = whisper_config.engine_type.lower()
+            
+            if engine_type == "whisper_large_v3_turbo":
+                from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
+                return WhisperLargeV3TurboEngine()
+            elif engine_type == "whisper_large_v3":
+                from ..services.voice.transcription.whisper_large_v3_engine import WhisperLargeV3Engine
+                return WhisperLargeV3Engine()
+            elif engine_type == "whisper_arabic_turbo":
+                from ..services.voice.transcription.whisper_arabic_turbo_engine import WhisperArabicTurboEngine
+                return WhisperArabicTurboEngine()
+            else:
+                logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
+                from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
+                return WhisperLargeV3TurboEngine()
+                
+        except Exception as e:
+            logger.error(f"Failed to create Whisper engine: {e}")
+            return None
+    
+    def unload_whisper_model(self, model_name: Optional[str] = None) -> bool:
+        """
+        Unload a specific Whisper model or the default one.
+        
+        Args:
+            model_name: Optional model name, uses voice registry default if None
+            
+        Returns:
+            True if unloaded successfully, False otherwise
+        """
+        try:
+            if model_name is None:
+                from ..config.voice_config_loader import get_voice_config
+                voice_config = get_voice_config()
+                model_name = voice_config._config["default_models"]["stt"]
+            
+            internal_model_name = f"whisper:{model_name}"
+            
+            with self._lock:
+                if internal_model_name in self._loaded_models:
+                    logger.info(f"🗑️ Unloading Whisper model: {model_name}")
+                    
+                    # Get the engine instance and call cleanup
+                    engine = self._loaded_models[internal_model_name]
+                    if hasattr(engine, 'cleanup'):
+                        engine.cleanup()
+                    
+                    # Remove from memory and persistence
+                    del self._loaded_models[internal_model_name]
+                    self._stop_model_timer(internal_model_name)
+                    if internal_model_name in self._model_last_used:
+                        del self._model_last_used[internal_model_name]
+                    
+                    self._remove_from_persistence(internal_model_name)
+                    
+                    # Force garbage collection
+                    import gc
+                    gc.collect()
+                    clear_gpu_memory()
+                    
+                    logger.info(f"✅ Whisper model unloaded: {model_name}")
+                    return True
+                else:
+                    logger.warning(f"Whisper model '{model_name}' not loaded")
+                    return False
+                    
+        except Exception as e:
+            logger.error(f"Error unloading Whisper model: {e}")
+            return False
+    
+    def is_whisper_model_loaded(self, model_name: Optional[str] = None) -> bool:
+        """
+        Check if a Whisper model is loaded and functional.
+        
+        Args:
+            model_name: Optional model name, uses voice registry default if None
+            
+        Returns:
+            True if model is loaded and functional, False otherwise
+        """
+        try:
+            if model_name is None:
+                from ..config.voice_config_loader import get_voice_config
+                voice_config = get_voice_config()
+                model_name = voice_config._config["default_models"]["stt"]
+            
+            internal_model_name = f"whisper:{model_name}"
+            
+            with self._lock:
+                if internal_model_name not in self._loaded_models:
+                    return False
+                
+                # Verify the model is actually functional
+                engine = self._loaded_models[internal_model_name]
+                if hasattr(engine, 'is_model_loaded'):
+                    return engine.is_model_loaded()
+                else:
+                    # Fallback check - assume loaded if in registry
+                    return hasattr(engine, 'model') and engine.model is not None
+                    
+        except Exception as e:
+            logger.error(f"Error checking Whisper model status: {e}")
+            return False
+    
+    def get_whisper_model_info(self, model_name: Optional[str] = None) -> Optional[Dict[str, Any]]:
+        """
+        Get information about a loaded Whisper model.
+        
+        Args:
+            model_name: Optional model name, uses voice registry default if None
+            
+        Returns:
+            Model information dictionary or None if not loaded
+        """
+        try:
+            if model_name is None:
+                from ..config.voice_config_loader import get_voice_config
+                voice_config = get_voice_config()
+                model_name = voice_config._config["default_models"]["stt"]
+            
+            internal_model_name = f"whisper:{model_name}"
+            
+            with self._lock:
+                if internal_model_name in self._loaded_models:
+                    engine = self._loaded_models[internal_model_name]
+                    base_info = {
+                        'model_name': model_name,
+                        'internal_name': internal_model_name,
+                        'model_type': 'whisper',
+                        'loaded': True,
+                        'last_used': self._model_last_used.get(internal_model_name),
+                    }
+                    
+                    # Get engine-specific info if available
+                    if hasattr(engine, 'get_model_info'):
+                        engine_info = engine.get_model_info()
+                        base_info.update(engine_info)
+                    
+                    # Get timer info
+                    timer_info = self._get_model_timer_info_unsafe(internal_model_name)
+                    if timer_info:
+                        base_info['timer_info'] = timer_info
+                    
+                    return base_info
+                else:
+                    return None
+                    
+        except Exception as e:
+            logger.error(f"Error getting Whisper model info: {e}")
+            return None

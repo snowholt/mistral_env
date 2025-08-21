@@ -73,6 +73,9 @@ class SimpleVoiceService:
         self.transcription_service = None
         self.chat_service = None
         
+        # UPDATED: Reference to persistent Whisper engine from ModelManager
+        self.persistent_whisper_engine = None
+        
         # Voice mappings from voice registry
         self.voice_mappings = self._setup_voice_mappings_from_registry()
         
@@ -154,18 +157,21 @@ class SimpleVoiceService:
         try:
             self.logger.info("Pre-loading voice processing models...")
             
-            # Pre-load transcription service with voice registry model
-            if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
-                self.transcription_service = create_transcription_service()
+            # UPDATED: Use ModelManager for persistent Whisper model loading
+            from ....core.model_manager import ModelManager
+            model_manager = ModelManager()
             
-            # Use voice registry default STT model
-            model_loaded = self.transcription_service.load_whisper_model()  # Uses voice registry default
-            if not model_loaded:
-                self.logger.warning("Failed to load voice registry STT model, will load on demand")
-            else:
+            # Get persistent Whisper model from ModelManager
+            whisper_engine = model_manager.get_streaming_whisper()  # Uses voice registry default
+            if whisper_engine:
                 stt_config = self.voice_config.get_stt_model_config()
-                self.logger.info(f"✅ Voice registry STT model pre-loaded: {stt_config.model_id}")
+                self.logger.info(f"✅ Persistent Whisper model loaded: {stt_config.model_id}")
+                
+                # Store reference to the persistent engine
+                self.persistent_whisper_engine = whisper_engine
+            else:
+                self.logger.warning("Failed to load persistent Whisper model, will use factory fallback")
+                self.persistent_whisper_engine = None
             
             # Pre-load chat service with fastest model for 24/7 service
             if self.chat_service is None:
@@ -424,7 +430,9 @@ class SimpleVoiceService:
     
     async def _transcribe_audio(self, audio_data: bytes, audio_format: str = "wav", language: Optional[str] = None) -> str:
         """
-        Transcribes audio data using Whisper transcription service.
+        Transcribes audio data using persistent Whisper model from ModelManager.
+        
+        UPDATED: Now uses persistent Whisper engine from ModelManager for better performance.
         
         Args:
             audio_data: Raw audio data in bytes format
@@ -435,23 +443,36 @@ class SimpleVoiceService:
             Transcribed text from the audio with /no_think suffix added
         """
         try:
-            # Initialize transcription service if needed (fallback for non-pre-loaded case)
-            if self.transcription_service is None:
-                from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
-                self.transcription_service = create_transcription_service()
-                
-                # Use voice registry model
-                model_loaded = self.transcription_service.load_whisper_model()
-                if not model_loaded:
-                    logger.warning("Failed to load voice registry STT model")
-                    return "Sorry, I couldn't understand the audio."
+            # UPDATED: Use persistent Whisper engine if available
+            whisper_engine = self.persistent_whisper_engine
             
-            # Use the transcription service with the correct audio format and language
-            result = self.transcription_service.transcribe_audio_bytes(
-                audio_data, 
-                audio_format=audio_format,  # Use the actual format instead of config
-                language=language  # Use the specified language instead of hardcoded "ar"
-            )
+            # Fallback to transcription factory if persistent engine not available
+            if whisper_engine is None:
+                logger.warning("Persistent Whisper engine not available, using factory fallback")
+                if self.transcription_service is None:
+                    from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
+                    self.transcription_service = create_transcription_service()
+                    
+                    # Use voice registry model
+                    model_loaded = self.transcription_service.load_whisper_model()
+                    if not model_loaded:
+                        logger.warning("Failed to load voice registry STT model")
+                        return "Sorry, I couldn't understand the audio."
+                
+                # Use factory-created transcription service
+                result = self.transcription_service.transcribe_audio_bytes(
+                    audio_data, 
+                    audio_format=audio_format,
+                    language=language
+                )
+            else:
+                # Use persistent Whisper engine directly
+                logger.debug("Using persistent Whisper engine for transcription")
+                result = whisper_engine.transcribe_audio_bytes(
+                    audio_data, 
+                    audio_format=audio_format,
+                    language=language
+                )
             
             # Add /no_think to disable thinking mode for voice conversations
             if result and result.strip():

@@ -322,7 +322,17 @@ async def streaming_voice_endpoint(
 
     if run_phase4:
         try:
-            fw_service = create_transcription_service()
+            # UPDATED: Use ModelManager for persistent Whisper model
+            from beautyai_inference.core.model_manager import ModelManager
+            model_manager = ModelManager()
+            fw_service = model_manager.get_streaming_whisper()
+            
+            if fw_service is None:
+                logger.warning("Failed to get persistent Whisper model, falling back to factory")
+                fw_service = create_transcription_service()
+            else:
+                logger.info("✅ Using persistent Whisper model from ModelManager")
+                
         except Exception as e:
             logger.exception("Failed to initialize transcription service, falling back to mock decode: %s", e)
             await _send_json(websocket, {"type": "warning", "stage": "init", "message": f"transcription_init_failed: {e}"})

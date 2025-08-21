@@ -97,6 +97,9 @@ class BaseWhisperEngine(ABC):
         """
         Load a Whisper model for transcription.
         
+        UPDATED: Now singleton-aware - checks ModelManager for existing instances
+        before loading new models to improve performance and reduce memory usage.
+        
         Args:
             model_name: Registry name of the model to load (optional, uses voice registry default)
             
@@ -105,6 +108,42 @@ class BaseWhisperEngine(ABC):
         """
         try:
             start_time = time.time()
+            
+            # Check if this engine is being managed by ModelManager (singleton mode)
+            if hasattr(self, '_managed_by_model_manager') and self._managed_by_model_manager:
+                logger.info(f"✅ {self._get_engine_name()} already managed by ModelManager")
+                return True
+            
+            # Check if we already have a loaded model
+            if self.model is not None:
+                logger.info(f"✅ {self._get_engine_name()} model already loaded")
+                return True
+            
+            # Try to get existing model from ModelManager first
+            try:
+                from ....core.model_manager import ModelManager
+                model_manager = ModelManager()
+                
+                # Check if there's already a persistent Whisper model loaded
+                persistent_engine = model_manager.get_streaming_whisper(model_name)
+                
+                if persistent_engine is not None and persistent_engine != self:
+                    # Found existing persistent model - share its loaded model
+                    if hasattr(persistent_engine, 'model') and persistent_engine.model is not None:
+                        logger.info(f"🔗 Sharing model from persistent Whisper engine")
+                        self.model = persistent_engine.model
+                        self.processor = persistent_engine.processor
+                        self.loaded_model_name = persistent_engine.loaded_model_name
+                        self.model_id = persistent_engine.model_id
+                        self.load_time = time.time() - start_time
+                        logger.info(f"✅ {self._get_engine_name()} sharing persistent model in {self.load_time:.2f}s")
+                        return True
+                
+            except Exception as e:
+                logger.debug(f"ModelManager check failed: {e}, proceeding with direct loading")
+            
+            # Proceed with direct model loading (original behavior)
+            logger.info(f"🔄 Loading {self._get_engine_name()} directly")
             
             # Get model configuration from voice registry
             from ....config.voice_config_loader import get_voice_config
@@ -399,6 +438,7 @@ class BaseWhisperEngine(ABC):
             "torch_dtype": str(self.torch_dtype),
             "load_time": self.load_time,
             "last_inference_time": self.last_inference_time,
+            "managed_by_model_manager": getattr(self, '_managed_by_model_manager', False)
         }
         
         # Add GPU memory info if available
@@ -409,6 +449,17 @@ class BaseWhisperEngine(ABC):
             })
         
         return info
+    
+    def set_managed_by_model_manager(self, managed: bool = True) -> None:
+        """
+        Mark this engine as managed by ModelManager to prevent redundant loading.
+        
+        Args:
+            managed: True if managed by ModelManager, False otherwise
+        """
+        self._managed_by_model_manager = managed
+        if managed:
+            logger.debug(f"{self._get_engine_name()} marked as managed by ModelManager")
     
     def cleanup(self):
         """Clean up model and free memory resources."""

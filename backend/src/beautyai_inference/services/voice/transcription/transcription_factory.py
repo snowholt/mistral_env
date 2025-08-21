@@ -35,20 +35,45 @@ class TranscriptionServiceProtocol(Protocol):
 def create_transcription_service() -> TranscriptionServiceProtocol:
     """
     Instantiate the correct specialized Whisper engine based on registry configuration.
+    
+    UPDATED: Now uses ModelManager for persistent Whisper model loading to improve
+    performance and reduce memory usage across all voice services.
 
     Engine Selection Rules:
-      1. engine_type == 'whisper_large_v3' → WhisperLargeV3Engine (max accuracy)
-      2. engine_type == 'whisper_large_v3_turbo' → WhisperLargeV3TurboEngine (speed optimized)
-      3. engine_type == 'whisper_arabic_turbo' → WhisperArabicTurboEngine (Arabic specialized)
-      4. Legacy support: 'transformers' → WhisperLargeV3TurboEngine
-      5. Legacy support: 'faster-whisper' → WhisperLargeV3TurboEngine  
-      6. Fallback → WhisperLargeV3TurboEngine (default)
+      1. Check ModelManager for existing persistent Whisper instance
+      2. If not found, create new instance via ModelManager
+      3. Fallback to direct instantiation only if ModelManager fails
       
     Environment Variables:
       - FORCE_ARABIC_ENGINE=1: Force Arabic engine regardless of config
       - FORCE_ACCURACY_ENGINE=1: Force Large v3 engine for maximum accuracy
+      - DISABLE_PERSISTENT_WHISPER=1: Disable ModelManager integration (fallback to old behavior)
     """
     try:
+        # Check if persistent Whisper loading is disabled
+        disable_persistent = os.getenv("DISABLE_PERSISTENT_WHISPER") == "1"
+        
+        if not disable_persistent:
+            # Try to get persistent Whisper model from ModelManager
+            try:
+                from ....core.model_manager import ModelManager
+                model_manager = ModelManager()
+                
+                # Get persistent Whisper instance
+                whisper_engine = model_manager.get_streaming_whisper()
+                
+                if whisper_engine is not None:
+                    logger.info("✅ Using persistent Whisper model from ModelManager")
+                    return whisper_engine
+                else:
+                    logger.warning("⚠️ Failed to get persistent Whisper model, falling back to direct instantiation")
+                    
+            except Exception as e:
+                logger.warning(f"⚠️ ModelManager integration failed: {e}, falling back to direct instantiation")
+        
+        # Fallback to direct instantiation (original behavior)
+        logger.info("🔄 Creating direct Whisper engine instance (non-persistent)")
+        
         vc = get_voice_config()
         stt_cfg = vc.get_stt_model_config()
         engine_type = (stt_cfg.engine_type or '').lower()
