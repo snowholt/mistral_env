@@ -125,17 +125,17 @@ class LlamaCppEngine(ModelInterface):
         
         # Add only essential parameters that are known to work
         if has_cuda and n_gpu_layers != 0:  # -1 means all layers, > 0 means specific number
-            # Add minimal GPU-specific parameters for compatibility
+            # Use full configuration values for ULTRA speed optimization
             model_params.update({
-                "n_batch": min(n_batch, 512),  # Use smaller batch size for compatibility
-                "n_threads": min(n_threads, 16),  # Limit threads
+                "n_batch": n_batch,  # Use config value for maximum speed
+                "n_threads": n_threads,  # Use config value for optimal threading
             })
-            logger.info(f"Using GPU parameters: n_gpu_layers={n_gpu_layers}, n_batch={min(n_batch, 512)}")
+            logger.info(f"Using OPTIMIZED GPU parameters: n_gpu_layers={n_gpu_layers}, n_batch={n_batch}, n_threads={n_threads}")
         else:
-            # CPU-only parameters
+            # CPU-only parameters - still use config values
             model_params.update({
-                "n_batch": 512,
-                "n_threads": min(n_threads, 8),
+                "n_batch": n_batch,
+                "n_threads": n_threads,
             })
         
         def _attempt_load(params: dict, label: str) -> bool:

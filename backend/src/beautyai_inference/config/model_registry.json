@@ -82,20 +82,20 @@
       "model_filename": "Qwen3-14B-Q4_K_S.gguf",
       "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
       "tokenizer_model_id": "Qwen/Qwen3-14B",
-      "max_new_tokens": 256,
+      "max_new_tokens": 200,
       "name": "qwen3-unsloth-q4ks",
-      "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine",
+      "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine - ULTRA SPEED OPTIMIZED",
       "model_architecture": "causal_lm",
       "n_gpu_layers": -1,
-      "n_ctx": 4096,
-      "n_batch": 8192,
-      "n_threads": 24,
+      "n_ctx": 512,
+      "n_batch": 32768,
+      "n_threads": 4,
       "custom_generation_params": {
-        "temperature": 0.1,
-        "top_p": 0.8,
-        "do_sample": true,
-        "repetition_penalty": 1.05,
-        "top_k": 10
+        "temperature": 0.0,
+        "top_p": 0.95,
+        "do_sample": false,
+        "repetition_penalty": 1.0,
+        "top_k": 1
       }
     },
 
