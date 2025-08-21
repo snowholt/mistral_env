@@ -12,8 +12,7 @@ from .base_adapter import APIServiceAdapter
 from ..models import APIRequest, APIResponse
 from ..errors import ModelNotFoundError, ValidationError, InferenceError
 from ...services.inference.chat_service import ChatService
-from ...services.inference.test_service import TestService
-from ...services.inference.benchmark_service import BenchmarkService
+from ...services.shared import get_shared_model_manager
 
 logger = logging.getLogger(__name__)
 
@@ -24,17 +23,13 @@ class InferenceAPIAdapter(APIServiceAdapter):
     
     Provides API-compatible interface for:
     - Chat completions (streaming and non-streaming)
-    - Model testing and validation
-    - Performance benchmarking
+    - Model validation
     """
     
-    def __init__(self, chat_service: ChatService, 
-                 test_service: TestService,
-                 benchmark_service: BenchmarkService):
-        """Initialize inference API adapter with required services."""
+    def __init__(self, chat_service: ChatService):
+        """Initialize inference API adapter with chat service."""
         self.chat_service = chat_service
-        self.test_service = test_service
-        self.benchmark_service = benchmark_service
+        self.model_manager = get_shared_model_manager()
         super().__init__(self.chat_service)  # Use chat as primary service
     
     def get_supported_operations(self) -> Dict[str, str]:
@@ -42,8 +37,6 @@ class InferenceAPIAdapter(APIServiceAdapter):
         return {
             "chat_completion": "Generate chat completion",
             "chat_completion_stream": "Generate streaming chat completion",
-            "test_model": "Test model with predefined prompts",
-            "benchmark_model": "Run performance benchmarks",
             "validate_input": "Validate inference input parameters"
         }
     
@@ -89,12 +82,10 @@ class InferenceAPIAdapter(APIServiceAdapter):
                                        max_tokens: Optional[int], temperature: float, 
                                        **kwargs) -> Dict[str, Any]:
         """Generate non-streaming chat completion."""
-        from ...core.model_manager import ModelManager
+        logger.info(f"Getting model for: {model_name}")
         
-        logger.info(f"Getting model manager for: {model_name}")
-        # Get the loaded model
-        model_manager = ModelManager()
-        model = model_manager.get_loaded_model(model_name)
+        # Get the loaded model using shared model manager
+        model = self.model_manager.get_loaded_model(model_name)
         
         if model is None:
             logger.error(f"Model '{model_name}' is not loaded")
@@ -177,11 +168,9 @@ class InferenceAPIAdapter(APIServiceAdapter):
         """Generate streaming chat completion."""
         # For now, fall back to non-streaming and yield as a single chunk
         # TODO: Implement proper streaming support
-        from ...core.model_manager import ModelManager
         
-        # Get the loaded model
-        model_manager = ModelManager()
-        model = model_manager.get_loaded_model(model_name)
+        # Get the loaded model using shared model manager
+        model = self.model_manager.get_loaded_model(model_name)
         
         if model is None:
             raise InferenceError(f"Model '{model_name}' is not loaded")
@@ -228,83 +217,6 @@ class InferenceAPIAdapter(APIServiceAdapter):
                 prompt_parts.append(f"Assistant: {content}")
         
         return "\n".join(prompt_parts)
-    
-    async def test_model(self, model_name: str, test_type: str = "basic",
-                        custom_prompts: Optional[List[str]] = None) -> Dict[str, Any]:
-        """
-        Test model with predefined or custom prompts.
-        
-        Args:
-            model_name: Name of the model to test
-            test_type: Type of test to run (basic, advanced, custom)
-            custom_prompts: Custom prompts for testing
-            
-        Returns:
-            Dictionary with test results
-        """
-        try:
-            # Configure services
-            self.test_service.configure({})
-            
-            # Run the test
-            result = await self.test_service.test_model(
-                model_name=model_name,
-                test_type=test_type,
-                custom_prompts=custom_prompts
-            )
-            
-            return {
-                "model_name": model_name,
-                "test_type": test_type,
-                "results": result.get("test_results", []),
-                "summary": result.get("summary", {}),
-                "passed": result.get("passed", False),
-                "timestamp": int(time.time())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to test model '{model_name}': {e}")
-            raise InferenceError(f"Model testing failed: {e}")
-    
-    async def benchmark_model(self, model_name: str, benchmark_type: str = "latency",
-                             num_requests: int = 10, concurrent: bool = False) -> Dict[str, Any]:
-        """
-        Run performance benchmarks on a model.
-        
-        Args:
-            model_name: Name of the model to benchmark
-            benchmark_type: Type of benchmark (latency, throughput, memory)
-            num_requests: Number of requests to run
-            concurrent: Whether to run requests concurrently
-            
-        Returns:
-            Dictionary with benchmark results
-        """
-        try:
-            # Configure services
-            self.benchmark_service.configure({})
-            
-            # Run the benchmark
-            result = await self.benchmark_service.run_benchmark(
-                model_name=model_name,
-                benchmark_type=benchmark_type,
-                num_requests=num_requests,
-                concurrent=concurrent
-            )
-            
-            return {
-                "model_name": model_name,
-                "benchmark_type": benchmark_type,
-                "num_requests": num_requests,
-                "concurrent": concurrent,
-                "metrics": result.get("metrics", {}),
-                "statistics": result.get("statistics", {}),
-                "timestamp": int(time.time())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to benchmark model '{model_name}': {e}")
-            raise InferenceError(f"Model benchmarking failed: {e}")
     
     def validate_input(self, input_data: Dict[str, Any]) -> Dict[str, Any]:
         """

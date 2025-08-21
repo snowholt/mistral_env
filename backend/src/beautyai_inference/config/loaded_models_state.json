@@ -1,10 +1,10 @@
 {
-  "timestamp": 1755776281.3132746,
+  "timestamp": 1755781261.8731115,
   "loaded_models": {
-    "whisper:whisper-large-v3-turbo": {
-      "model_id": "openai/whisper-large-v3-turbo",
-      "engine": "unknown",
-      "loaded_at": 1755776281.313277,
+    "qwen3-unsloth-q4ks": {
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "engine": "llama.cpp",
+      "loaded_at": 1755781261.8731134,
       "status": "loaded"
     }
   }

@@ -2,7 +2,7 @@
 Inference operation API endpoints.
 
 Provides REST API endpoints for inference operations including:
-- Interactive chat sessions
+-         adapter = InferenceAPIAdapter(chat_service=chat_service)   adapter = InferenceAPIAdapter(chat_service=chat_service)   adapter = InferenceAPIAdapter(chat_service=chat_service)active chat sessions
 - Single model testing
 - Performance benchmarking  
 - Session management
@@ -20,7 +20,7 @@ from ..models import (
 )
 from ..auth import AuthContext, get_auth_context, require_permissions
 from ..errors import ModelNotFoundError, ModelLoadError, ValidationError
-from ...services.inference import ChatService, TestService, BenchmarkService, SessionService, ContentFilterService
+from ...services.inference import ChatService, SessionService
 from ...config.config_manager import AppConfig
 
 logger = logging.getLogger(__name__)
@@ -28,11 +28,8 @@ logger = logging.getLogger(__name__)
 inference_router = APIRouter(prefix="/inference", tags=["inference"])
 
 # Initialize services  
-test_service = TestService()
 chat_service = ChatService() 
 session_service = SessionService()
-content_filter_service = ContentFilterService()
-benchmark_service = BenchmarkService()
 
 
 @inference_router.post("/chat", response_model=ChatResponse)

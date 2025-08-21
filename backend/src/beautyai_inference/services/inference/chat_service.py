@@ -1,59 +1,231 @@
 """
-Chat service for interactive model conversations.
+Refactored Chat Service
 
-This service handles interactive chat functionality including:
-- Starting new chat sessions
-- Managing conversation history
-- Handling special chat commands
-- Real-time parameter adjustment
-- Streaming response support
+This service provides a streamlined chat interface using shared components
+for model management, content filtering, prompt building, and session management.
 """
 import logging
-import os
-import sys
 import time
-from typing import Dict, Any, Optional, Generator, List
-from uuid import uuid4
+import os
+from typing import Dict, List, Any, Optional, Tuple
+from pathlib import Path
 
-from ..base.base_service import BaseService
-from ...config.config_manager import AppConfig, ModelConfig
-from ...core.model_manager import ModelManager
-from ...utils.memory_utils import clear_terminal_screen
-from ...utils.language_detection import language_detector, suggest_response_language
-from .content_filter_service import ContentFilterService
+# Core imports
+from ...config.config_manager import ModelConfig
+from ...utils.language_detection import detect_language
+from ..shared import (
+    get_shared_model_manager,
+    get_shared_content_filter,
+    get_shared_prompt_builder,
+    get_shared_session_manager
+)
 
 logger = logging.getLogger(__name__)
 
 
-class ChatService(BaseService):
-    """Service for interactive chat functionality."""
+class ChatService:
+    """
+    Streamlined chat service using shared components.
     
-    def __init__(self, content_filter_strictness: str = "disabled"):  # TEMPORARILY DISABLE
-        super().__init__()
-        self.model_manager = ModelManager()
-        self.content_filter = ContentFilterService(strictness_level=content_filter_strictness)
-        self.active_sessions: Dict[str, Dict[str, Any]] = {}
-        self._default_model_loaded = False
-        self._default_model_name = None
-
-    # NOTE: chat_fast wrapper removed – callers should invoke chat(..., thinking_mode=False,
-    # temperature=0.3, top_p=0.95, max_length=<latency_budget>) directly. This avoids API duplication.
+    This service coordinates between the model manager, content filter,
+    prompt builder, and session manager to provide chat functionality.
+    """
+    
+    def __init__(self):
+        self.model_manager = get_shared_model_manager()
+        self.content_filter = get_shared_content_filter()
+        self.prompt_builder = get_shared_prompt_builder()
+        self.session_manager = get_shared_session_manager()
+        
+        # Default fallback messages for different languages
+        self.fallback_messages = {
+            'ar': "مرحباً! أنا طبيب متخصص في الطب التجميلي. كيف يمكنني مساعدتك اليوم؟",
+            'en': "Hello! I'm a doctor specialized in aesthetic medicine. How can I help you today?",
+            'es': "¡Hola! Soy médico especializado en medicina estética. ¿Cómo puedo ayudarte hoy?",
+            'fr': "Bonjour! Je suis médecin spécialisé en médecine esthétique. Comment puis-je vous aider aujourd'hui?",
+            'de': "Hallo! Ich bin Arzt für ästhetische Medizin. Wie kann ich Ihnen heute helfen?"
+        }
+    
+    def chat(
+        self,
+        message: str,
+        model_name: str,
+        model_config: ModelConfig,
+        generation_config: Dict[str, Any],
+        conversation_history: Optional[List[Dict[str, str]]] = None,
+        response_language: Optional[str] = None,
+        session_id: Optional[str] = None
+    ) -> Tuple[str, str, List[Dict[str, str]], str]:
+        """
+        Process a chat message and generate a response.
+        
+        Args:
+            message: User's message
+            model_name: Model identifier
+            model_config: Model configuration
+            generation_config: Generation parameters
+            conversation_history: Previous conversation history
+            response_language: Preferred response language
+            session_id: Optional session ID for session management
+            
+        Returns:
+            Tuple of (response, detected_language, updated_history, session_id)
+        """
+        try:
+            # Ensure model is loaded
+            model = self._ensure_model_loaded(model_name, model_config)
+            if model is None:
+                error_msg = "Failed to load model"
+                return self._get_fallback_response(response_language), "ar", [], ""
+            
+            # Detect language if not specified
+            if response_language is None:
+                response_language = detect_language(message)
+                logger.info(f"🌍 Detected language: {response_language}")
+            else:
+                logger.info(f"🌍 Using specified language: {response_language}")
+            
+            # Content filtering
+            filter_result = self.content_filter.filter_content(message, response_language)
+            if not filter_result.is_allowed:
+                logger.warning(f"Content filtered: {filter_result.filter_reason}")
+                return (
+                    filter_result.suggested_response or self._get_fallback_response(response_language),
+                    response_language,
+                    conversation_history or [],
+                    session_id or ""
+                )
+            
+            # Create or update session
+            if session_id:
+                session = self.session_manager.get_session(session_id)
+                if session:
+                    conversation_history = session.history
+                else:
+                    # Session not found, create new one
+                    session_id = self.session_manager.create_session(
+                        model_name=model_name,
+                        language=response_language,
+                        config=generation_config
+                    )
+            else:
+                session_id = self.session_manager.create_session(
+                    model_name=model_name,
+                    language=response_language,
+                    config=generation_config
+                )
+            
+            # Build prompt
+            prompt, trimmed_history = self.prompt_builder.build_prompt(
+                message=message,
+                language=response_language,
+                conversation_history=conversation_history,
+                generation_config=generation_config
+            )
+            
+            # Log debug information
+            self._log_debug_info(message, response_language, prompt, generation_config)
+            
+            # Generate response
+            start_time = time.time()
+            
+            try:
+                response = model.generate(prompt, **generation_config)
+                generation_time = time.time() - start_time
+                
+                # Clean the response
+                response = self._clean_response(response)
+                
+                # Validate response is not empty after cleaning
+                if not response or response.strip() == "":
+                    logger.warning("Empty response after cleaning, using fallback")
+                    response = self._get_fallback_response(response_language)
+                
+                # Update conversation history
+                updated_history = trimmed_history[:]
+                updated_history.append({"role": "user", "content": message})
+                updated_history.append({"role": "assistant", "content": response})
+                
+                # Update session
+                self.session_manager.update_session_history(session_id, updated_history)
+                
+                # Log performance metrics
+                tokens_generated = len(response.split())
+                logger.info(f"Generated ~{tokens_generated} tokens in {generation_time:.2f}s, "
+                           f"{tokens_generated/generation_time:.1f} tokens/sec")
+                
+                return response, response_language, updated_history, session_id
+                
+            except Exception as generation_error:
+                logger.error(f"Generation error: {generation_error}")
+                # Return fallback response
+                response = self._get_fallback_response(response_language)
+                updated_history = (conversation_history or [])[:]
+                updated_history.append({"role": "user", "content": message})
+                updated_history.append({"role": "assistant", "content": response})
+                
+                return response, response_language, updated_history, session_id or ""
+                
+        except Exception as e:
+            logger.error(f"Chat error: {e}")
+            return self._get_fallback_response(response_language), "ar", [], ""
+    
+    def start_interactive_chat(
+        self,
+        model_name: str,
+        model_config: ModelConfig,
+        generation_config: Dict[str, Any]
+    ) -> int:
+        """
+        Start an interactive chat session.
+        
+        Args:
+            model_name: Model identifier
+            model_config: Model configuration
+            generation_config: Generation parameters
+            
+        Returns:
+            int: Exit code (0 for success, non-zero for failure)
+        """
+        try:
+            # Ensure model is loaded
+            model = self._ensure_model_loaded(model_name, model_config)
+            if model is None:
+                return 1
+            
+            # Create session
+            session_id = self.session_manager.create_session(
+                model_name=model_name,
+                language="ar",  # Default language
+                config=generation_config
+            )
+            
+            # Interactive chat loop
+            self._run_interactive_loop(session_id, model_name, model_config, generation_config)
+            
+            # Cleanup session
+            self.session_manager.delete_session(session_id)
+            return 0
+            
+        except Exception as e:
+            logger.error(f"Interactive chat error: {e}")
+            return 1
     
     def load_default_model_from_config(self) -> bool:
         """
-        Load the fastest model (qwen3-unsloth-q4ks) for persistent 24/7 service.
-        This ensures the model stays loaded on GPU for instant responses.
+        Load the fastest model for persistent service.
         
         Returns:
             bool: True if successful, False otherwise
         """
         try:
             from pathlib import Path
+            from ...config.app_config import AppConfig
             
-            # Use the fastest model for real-time voice conversation
+            # Use the fastest model for real-time conversation
             model_name = "qwen3-unsloth-q4ks"
             
-            # Get model configuration using absolute path
+            # Get model configuration
             app_config = AppConfig()
             config_dir = Path(__file__).parent.parent.parent / "config"
             models_file = config_dir / "model_registry.json"
@@ -64,1062 +236,214 @@ class ChatService(BaseService):
             if not model_config:
                 logger.error(f"Model configuration for '{model_name}' not found in registry")
                 return False
-            if not model_config:
-                logger.error(f"Model configuration for '{model_name}' not found in registry")
-                return False
             
-            logger.info(f"Loading fastest model for 24/7 service: {model_name} ({model_config.model_id})")
+            logger.info(f"Loading fastest model for service: {model_name} ({model_config.model_id})")
             
-            # Load the model and keep it persistent on GPU
-            model = self._ensure_model_loaded(model_name, model_config)
-            if model is not None:
-                self._default_model_loaded = True
-                self._default_model_name = model_name
-                logger.info(f"✅ Fastest model loaded successfully and ready on GPU: {model_name}")
+            # Load using shared model manager
+            model = self.model_manager.load_model(model_config)
+            if model:
+                logger.info(f"✅ Successfully loaded default model: {model_name}")
                 return True
             else:
-                logger.error(f"Failed to load fastest model: {model_name}")
+                logger.error(f"❌ Failed to load default model: {model_name}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Failed to load default model from registry: {e}")
+            logger.error(f"Error loading default model: {e}")
             return False
     
-    def load_model(self, model_name: str) -> bool:
-        """
-        Load a model for chat inference.
-        
-        Args:
-            model_name: Name of the model to load
-            
-        Returns:
-            bool: True if successful, False otherwise
-        """
+    def _ensure_model_loaded(self, model_name: str, model_config: ModelConfig):
+        """Ensure the specified model is loaded."""
         try:
-            # Get model configuration using absolute path
-            from pathlib import Path
-            app_config = AppConfig()
-            
-            # Use absolute path to avoid working directory issues
-            config_dir = Path(__file__).parent.parent.parent / "config"
-            models_file = config_dir / "model_registry.json"
-            app_config.models_file = str(models_file)
-            
-            app_config.load_model_registry()
-            
-            model_config = app_config.model_registry.get_model(model_name)
-            if not model_config:
-                logger.error(f"Model configuration for '{model_name}' not found.")
-                return False
-            
-            # Load the model using the model manager
-            model = self._ensure_model_loaded(model_name, model_config)
-            return model is not None
-            
+            return self.model_manager.load_model(model_name, model_config)
         except Exception as e:
-            logger.error(f"Failed to load chat model '{model_name}': {e}")
-            return False
+            logger.error(f"Failed to load model {model_name}: {e}")
+            return None
     
-    def chat(self, message: str, conversation_history: Optional[List[Dict[str, str]]] = None, 
-             max_length: int = 256, language: str = "auto", thinking_mode: bool = False,
-             **generation_config) -> Dict[str, Any]:
-        """
-        Single chat inference for API/service integration with automatic language detection.
-        
-        Args:
-            message: User message
-            conversation_history: Previous conversation messages
-            max_length: Maximum response length
-            language: Response language ("auto" for automatic detection, or specific code)
-            thinking_mode: Enable thinking mode
-            **generation_config: Additional generation parameters
-            
-        Returns:
-            Dict with success status and response
-        """
-        try:
-            # Try to use the persistent default model first
-            if self._default_model_loaded and self._default_model_name:
-                model_name = self._default_model_name
-                model = self.model_manager.get_loaded_model(model_name)
-                logger.info(f"Using persistent default model: {model_name}")
-            else:
-                # Fallback to any loaded model
-                loaded_models = list(self.model_manager._loaded_models.keys())
-                if not loaded_models:
-                    # Try to load default model if none are loaded
-                    if self.load_default_model_from_config():
-                        model_name = self._default_model_name
-                        model = self.model_manager.get_loaded_model(model_name)
-                    else:
-                        return {"success": False, "error": "No model loaded and failed to load default", "response": None}
-                else:
-                    model_name = loaded_models[0]
-                    model = self.model_manager.get_loaded_model(model_name)
-            
-            if not model:
-                return {"success": False, "error": f"Model {model_name} not available", "response": None}
-            
-            # 🔍 Automatic Language Detection
-            if language == "auto":
-                detected_language = suggest_response_language(message, conversation_history)
-                logger.info(f"🌍 Auto-detected language: {detected_language} for message: '{message[:50]}...'")
-                response_language = detected_language
-            else:
-                response_language = language
-                logger.info(f"🌍 Using specified language: {response_language}")
-            
-            # Build prompt with system message for language and behavior
-            prompt_parts = []
-            
-            # Add system prompt based on detected/specified language
-            if response_language == "ar":
-                system_prompt = """أنت طبيب متخصص في الطب التجميلي والعلاجات غير الجراحية. يجب عليك الإجابة باللغة العربية فقط. 
-قدم معلومات طبية دقيقة ومفيدة حول العلاجات التجميلية مثل البوتوكس والفيلر. 
-اجعل إجاباتك واضحة ومختصرة ومناسبة للمرضى العرب.
-مهم جداً: أجب باللغة العربية فقط ولا تستخدم أي لغة أخرى."""
-                prompt_parts.append(f"System: {system_prompt}")
-                
-                # Add extra Arabic instruction as user message to reinforce
-                prompt_parts.append("User: من فضلك أجب باللغة العربية فقط")
-                prompt_parts.append("Assistant: سأجيب باللغة العربية.")
-            elif response_language == "es":
-                system_prompt = "Eres un médico especializado en medicina estética y tratamientos no quirúrgicos. Debes responder solo en español. Proporciona información médica precisa y útil sobre tratamientos estéticos como botox y rellenos. Haz que tus respuestas sean claras, concisas y apropiadas para pacientes hispanohablantes."
-                prompt_parts.append(f"System: {system_prompt}")
-            elif response_language == "fr":
-                system_prompt = "Vous êtes un médecin spécialisé en médecine esthétique et en traitements non chirurgicaux. Vous devez répondre uniquement en français. Fournissez des informations médicales précises et utiles sur les traitements esthétiques comme le botox et les fillers. Rendez vos réponses claires, concises et appropriées pour les patients francophones."
-                prompt_parts.append(f"System: {system_prompt}")
-            elif response_language == "de":
-                system_prompt = "Sie sind ein Arzt, der sich auf ästhetische Medizin und nicht-chirurgische Behandlungen spezialisiert hat. Sie müssen nur auf Deutsch antworten. Stellen Sie präzise und nützliche medizinische Informationen über ästhetische Behandlungen wie Botox und Filler zur Verfügung. Machen Sie Ihre Antworten klar, prägnant und angemessen für deutschsprachige Patienten."
-                prompt_parts.append(f"System: {system_prompt}")
-            else:  # Default to English
-                system_prompt = "You are a doctor specialized in aesthetic medicine and non-surgical treatments. You must respond only in English. Provide accurate and useful medical information about aesthetic treatments like botox and fillers. Make your responses clear, concise, and appropriate for English-speaking patients."
-                prompt_parts.append(f"System: {system_prompt}")
-            
-            # Add conversation history (will be pruned if exceeds context window)
-            full_history: List[Dict[str, str]] = conversation_history[:] if conversation_history else []
-
-            # ================= Context / history management ==============================
-            # We apply three layers of control:
-            # 1. Hard cap on number of turns (user+assistant pairs) via CHAT_MAX_HISTORY_TURNS
-            # 2. Token estimation based trimming (conservative over-estimation) BEFORE generation
-            # 3. Retry logic: if backend still throws context window error, aggressively shrink to last turn
-
-            # 1. Hard cap on turns
-            max_turns = int(os.getenv("CHAT_MAX_HISTORY_TURNS", "6"))  # number of (user,assistant) pairs to retain
-            if max_turns > 0 and full_history:
-                # Count from end keeping most recent pairs; treat any lone user at end as a partial turn
-                kept: List[Dict[str, str]] = []
-                user_count = 0
-                assistant_count = 0
-                turns = 0
-                for msg in reversed(full_history):
-                    kept.append(msg)
-                    if msg.get("role") == "assistant":
-                        assistant_count += 1
-                    elif msg.get("role") == "user":
-                        user_count += 1
-                    # A completed turn counted when we have both a user and assistant in kept slice
-                    if user_count > 0 and assistant_count > 0:
-                        turns += 1
-                        user_count = 0
-                        assistant_count = 0
-                    if turns >= max_turns:
-                        break
-                # Reverse back to chronological order
-                trimmed_history = list(reversed(kept))
-                if len(trimmed_history) < len(full_history):
-                    logger.debug(
-                        "[chat] History turn cap applied (max_turns=%d) trimmed=%d->%d", 
-                        max_turns, len(full_history), len(trimmed_history)
-                    )
-                    full_history = trimmed_history
-
-            # 2. Token estimation based trimming
-            context_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
-            safety_margin = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))  # more conservative headroom
-
-            # Heuristic token estimator: roughly 1 token ~ 4 characters (fallback if spaces minimal)
-            def est_tokens_text(txt: str) -> int:
-                if not txt:
-                    return 0
-                # Blend word-based and char-based estimates, take max for safety
-                word_est = len(txt.split())
-                char_est = max(1, len(txt) // 4)
-                return max(word_est, char_est)
-
-            def build_hist_parts(hist: List[Dict[str, str]]) -> List[str]:
-                tmp: List[str] = []
-                for m in hist:
-                    role = m.get("role")
-                    content = m.get("content", "")
-                    if role == "user":
-                        tmp.append(f"User: {content}")
-                    elif role == "assistant":
-                        tmp.append(f"Assistant: {content}")
-                return tmp
-
-            def total_estimate(hist: List[Dict[str, str]]) -> int:
-                parts = [prompt_parts[0]]  # system
-                parts.extend(build_hist_parts(hist))
-                parts.append(f"User: {message}")
-                # Add assistant prefix placeholder
-                parts.append("Assistant:")
-                return sum(est_tokens_text(p) for p in parts)
-
-            trimmed_by_tokens = False
-            if full_history:
-                while True:
-                    est = total_estimate(full_history)
-                    if est + max_length >= context_limit - safety_margin and len(full_history) > 1:
-                        # Remove oldest non-system
-                        removed_idx = None
-                        for idx, h in enumerate(full_history):
-                            if h.get("role") != "system":
-                                removed_idx = idx
-                                break
-                        if removed_idx is not None:
-                            full_history.pop(removed_idx)
-                            trimmed_by_tokens = True
-                            continue
-                    break
-            if trimmed_by_tokens:
-                logger.info(
-                    "[chat] History trimmed by token estimate to fit context (limit=%d, safety=%d). Remaining=%d", 
-                    context_limit, safety_margin, len(full_history)
-                )
-
-            # Now append (possibly trimmed) history to prompt_parts
-            if full_history:
-                for msg in full_history:
-                    if msg.get("role") == "user":
-                        prompt_parts.append(f"User: {msg.get('content', '')}")
-                    elif msg.get("role") == "assistant":
-                        prompt_parts.append(f"Assistant: {msg.get('content', '')}")
-            
-            prompt_parts.append(f"User: {message}")
-            prompt_parts.append("Assistant:")
-            
-            prompt = "\n".join(prompt_parts)
-
-            # Final safety: if our conservative estimate still breaches context limit, shrink history aggressively
-            try:
-                context_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
-            except Exception:
-                context_limit = 4096
-            safety_margin = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))
-            # Reuse estimator
-            def _quick_est(txt: str) -> int:
-                return max(len(txt)//4, len(txt.split()))
-            est_tokens = _quick_est(prompt)
-            if est_tokens >= (context_limit - safety_margin):
-                # Keep only system + last assistant (if any) + current user
-                preserved_hist: List[Dict[str,str]] = []
-                if full_history:
-                    # take last assistant if exists
-                    for m in reversed(full_history):
-                        if m.get("role") == "assistant":
-                            preserved_hist.insert(0, m)
-                            break
-                # rebuild prompt
-                prompt_parts = [prompt_parts[0]]  # system
-                for m in preserved_hist:
-                    prompt_parts.append(f"Assistant: {m.get('content','')}")
-                prompt_parts.append(f"User: {message}")
-                prompt_parts.append("Assistant:")
-                prompt = "\n".join(prompt_parts)
-                est_tokens = _quick_est(prompt)
-                if est_tokens >= (context_limit - safety_margin):
-                    # As last resort, shorten max_new_tokens and proceed; log warning
-                    logger.warning(
-                        "[chat] Prompt estimate %d still near/over limit (%d); forcing minimal generation window",
-                        est_tokens, context_limit
-                    )
-                    generation_config["max_new_tokens"] = min(int(generation_config.get("max_new_tokens", max_length)), 96)
-            
-            # Generate response with optimized parameters for language consistency
-            generation_params = {
-                "max_new_tokens": max_length,
-                "temperature": generation_config.get("temperature", 0.3),  # Lower temperature for more consistent language
-                "top_p": generation_config.get("top_p", 0.8),
-                "do_sample": generation_config.get("do_sample", True),
-                "repetition_penalty": generation_config.get("repetition_penalty", 1.1),
-                **{k: v for k, v in generation_config.items() if k not in ["max_new_tokens", "temperature", "top_p", "do_sample", "repetition_penalty"]}
-            }
-            
-            logger.info(f"Generating response for language: {response_language}")
-            logger.debug(f"Full prompt: {prompt}")
-            
-            def _apply_budget(prompt_text: str, params: Dict[str, Any]) -> Dict[str, Any]:
-                """Adjust max_new_tokens to fit within context window using conservative estimate.
-
-                We use the same heuristic estimator; if still risky we clamp tokens to a small window.
-                """
-                try:
-                    ctx_limit = int(generation_config.get("context_window", os.getenv("CHAT_CONTEXT_WINDOW", "4096")))
-                except Exception:
-                    ctx_limit = 4096
-                safety = int(os.getenv("CHAT_CONTEXT_SAFETY_MARGIN", "160"))
-                # Estimate existing prompt tokens
-                est_prompt_tokens = max(len(prompt_text)//4, len(prompt_text.split()))
-                # Allowed budget for new tokens (keep a small guard band)
-                avail = max(32, ctx_limit - safety - est_prompt_tokens)
-                original = params.get("max_new_tokens", max_length)
-                if avail < original:
-                    logger.info(
-                        "[chat] Reducing max_new_tokens %d -> %d (est_prompt=%d ctx=%d safety=%d)",
-                        original, avail, est_prompt_tokens, ctx_limit, safety,
-                    )
-                    params = dict(params)
-                    params["max_new_tokens"] = avail
-                # Absolute upper bound guard
-                if params.get("max_new_tokens", 0) > 512:
-                    params["max_new_tokens"] = 512
-                return params
-
-            generation_params = _apply_budget(prompt, generation_params)
-
-            def _minimal_rebuild() -> None:
-                """Rebuild prompt to minimal form: system + (last assistant) + user."""
-                nonlocal prompt, generation_params, full_history, prompt_parts
-                minimal_hist: List[Dict[str, str]] = []
-                for m in reversed(full_history):
-                    if m.get("role") == "assistant":
-                        minimal_hist.insert(0, m)
-                        break
-                full_history = minimal_hist
-                base_system = prompt_parts[0]
-                prompt_parts = [base_system]
-                for msg in full_history:
-                    if msg.get("role") == "assistant":
-                        prompt_parts.append(f"Assistant: {msg.get('content','')}")
-                prompt_parts.append(f"User: {message}")
-                prompt_parts.append("Assistant:")
-                prompt = "\n".join(prompt_parts)
-                generation_params = _apply_budget(prompt, generation_params)
-
-            # Primary generation attempt with safety budgeting
-            try:
-                logger.info(f"🤖 Calling model.generate with prompt (length: {len(prompt)}): '{prompt[:200]}...'")
-                logger.info(f"🔧 Generation params: {generation_params}")
-                
-                # Write debug to file for persistence
-                with open("/tmp/llm_debug.log", "a") as f:
-                    f.write(f"[{__import__('datetime').datetime.now()}] CALLING model.generate\n")
-                    f.write(f"Prompt length: {len(prompt)}\n")
-                    f.write(f"Prompt preview: {prompt[:200]}...\n")
-                    f.write(f"Generation params: {generation_params}\n")
-                    f.flush()
-                
-                response = model.generate(prompt, **generation_params)
-                
-                logger.info(f"🎯 LLM returned response (type: {type(response)}, length: {len(response) if response else 'None'}): '{response[:200] if response else 'None'}...'")
-                
-                # Write response debug to file
-                with open("/tmp/llm_debug.log", "a") as f:
-                    f.write(f"[{__import__('datetime').datetime.now()}] RESPONSE RECEIVED\n")
-                    f.write(f"Response type: {type(response)}\n")
-                    f.write(f"Response length: {len(response) if response else 'None'}\n")
-                    f.write(f"Response content: {response[:200] if response else 'None'}...\n")
-                    f.write("-" * 50 + "\n")
-                    f.flush()
-                    
-            except ValueError as ve:
-                ve_text = str(ve).lower()
-                if "exceed context window" in ve_text or "exceeds context window" in ve_text or "context window" in ve_text:
-                    logger.warning("[chat] Context window exceeded on first attempt (err=%s); retrying minimal prompt", ve)
-                    _minimal_rebuild()
-                    try:
-                        logger.info(f"🔄 Retry - calling model.generate with trimmed prompt (length: {len(prompt)}): '{prompt[:200]}...'")
-                        response = model.generate(prompt, **generation_params)
-                        logger.info(f"🔄 Retry - LLM returned response (type: {type(response)}, length: {len(response) if response else 'None'}): '{response[:200] if response else 'None'}...'")
-                    except Exception as ve2:  # second failure – return fallback response gracefully
-                        logger.error("[chat] Retry after trimming failed: %s", ve2)
-                        fallback = self._clean_response("", response_language)
-                        return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.2}
-                else:
-                    # Unrelated ValueError, propagate to outer handler
-                    raise
-            except Exception as gen_ex:
-                # Any other exception (backend error). Provide graceful fallback without raising.
-                logger.error("[chat] Generation backend exception: %s", gen_ex)
-                fallback = self._clean_response("", response_language)
-                return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.2}
-
-            # Defensive: sometimes backends return None/empty early
-            if response is None:
-                response = ""
-            
-            if response and response.strip():
-                # Clean the response to remove any thinking content or unwanted text
-                cleaned_response = self._clean_response(response.strip(), response_language)
-
-                # ================= Soft Arabic Language Guidance (Replaces Hard Override) =================
-                # Goal: Encourage Arabic output without destructively overwriting valid medical content
-                # even if it contains Latin medical terms. The previous implementation replaced responses
-                # with a canned greeting; this harms UX and masks underlying model output quality.
-                try:
-                    enforce = os.getenv("CHAT_STRICT_LANGUAGE_ENFORCEMENT", "1") == "1"
-                except Exception:
-                    enforce = True
-                # Soft mode toggle (default ON) – preserves original answer, only augments when needed
-                soft_mode = os.getenv("CHAT_AR_SOFT_MODE", "1") == "1"
-                if enforce and language == "ar":
-                    # Extended Arabic Unicode ranges (match detector ranges)
-                    import re
-                    arabic_pattern = re.compile(r"[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF\uFB50-\uFDFF\uFE70-\uFEFF]")
-                    latin_pattern = re.compile(r"[A-Za-z]")
-                    arabic_chars = len(arabic_pattern.findall(cleaned_response))
-                    latin_chars = len(latin_pattern.findall(cleaned_response))
-                    total_len = len(cleaned_response)
-                    ratio_ar = arabic_chars / max(1, total_len)
-                    # Environment-driven thresholds
-                    try:
-                        min_ratio = float(os.getenv("CHAT_AR_MIN_RATIO_DEFAULT", "0.10"))
-                    except ValueError:
-                        min_ratio = 0.10
-                    try:
-                        force_translate_ratio = float(os.getenv("CHAT_AR_FORCE_TRANSLATE_RATIO", "0.05"))
-                    except ValueError:
-                        force_translate_ratio = 0.05
-                    try:
-                        min_ar_chars = int(os.getenv("CHAT_AR_MIN_AR_CHARS", "8"))
-                    except ValueError:
-                        min_ar_chars = 8
-                    logger.info(
-                        "[chat][ar_enforce] original_len=%d arabic_chars=%d latin_chars=%d ratio_ar=%.3f min_ratio=%.3f min_ar_chars=%d soft_mode=%s",
-                        total_len, arabic_chars, latin_chars, ratio_ar, min_ratio, min_ar_chars, soft_mode,
-                    )
-                    # Detect overall language using language_detector for richer signal
-                    try:
-                        detected_out_lang, detected_conf = language_detector.detect_language(cleaned_response)
-                        logger.info(
-                            "[chat][ar_enforce] output_language_detected=%s conf=%.3f", detected_out_lang, detected_conf
-                        )
-                    except Exception as det_ex:  # pragma: no cover
-                        detected_out_lang, detected_conf = "und", 0.0
-                        logger.debug("[chat][ar_enforce] language detection failed: %s", det_ex)
-                    original_response_for_logging = cleaned_response  # preserve for diff logging later
-                    translated_applied = False
-                    guidance_appended = False
-                    # Decide whether to intervene
-                    intervene = (
-                        ratio_ar < min_ratio and arabic_chars < min_ar_chars and total_len > 40 and not (
-                            detected_out_lang == "ar" and detected_conf >= 0.5
-                        )
-                    )
-                    if soft_mode and intervene:
-                        logger.warning(
-                            "[chat][ar_enforce] Low Arabic presence (ratio=%.3f, arabic_chars=%d) – evaluating soft guidance",
-                            ratio_ar, arabic_chars,
-                        )
-                        # Attempt lightweight translation ONLY if extremely low Arabic & some Latin letters
-                        if ratio_ar < force_translate_ratio and latin_chars >= 5:
-                            try:
-                                translation_prompt = (
-                                    "System: أنت مترجم طبي مختص في الطب التجميلي. ترجم النص التالي إلى العربية الفصحى الحديثة بدقة وبدون شرح إضافي.\n"
-                                    f"User: {cleaned_response}\nAssistant:"
-                                )
-                                trans_params = {
-                                    "max_new_tokens": min(max_length, int(len(cleaned_response) * 1.2 // 4) + 48),
-                                    "temperature": 0.2,
-                                    "top_p": 0.85,
-                                    "do_sample": False,
-                                }
-                                translated = model.generate(translation_prompt, **trans_params) or ""
-                                if translated.strip():
-                                    translated_clean = self._clean_response(translated.strip(), "ar")
-                                    arabic_chars2 = len(arabic_pattern.findall(translated_clean))
-                                    ratio_ar2 = arabic_chars2 / max(1, len(translated_clean))
-                                    if ratio_ar2 > ratio_ar and (ratio_ar2 >= min_ratio or arabic_chars2 >= min_ar_chars):
-                                        cleaned_response = translated_clean
-                                        translated_applied = True
-                                        response_language = "ar"
-                                        logger.info(
-                                            "[chat][ar_enforce] translation improved Arabic ratio %.3f -> %.3f (arabic_chars2=%d)",
-                                            ratio_ar, ratio_ar2, arabic_chars2,
-                                        )
-                                    else:
-                                        logger.info(
-                                            "[chat][ar_enforce] translation did not sufficiently improve ratio (%.3f -> %.3f); keeping original",
-                                            ratio_ar, ratio_ar2,
-                                        )
-                            except Exception as te:  # pragma: no cover
-                                logger.warning("[chat][ar_enforce] translation attempt failed: %s", te)
-                        # If still not acceptable, append guidance line (non-destructive)
-                        new_arabic_chars = len(arabic_pattern.findall(cleaned_response))
-                        new_ratio_ar = new_arabic_chars / max(1, len(cleaned_response))
-                        if not translated_applied and (new_ratio_ar < min_ratio and new_arabic_chars < min_ar_chars):
-                            guidance_line = "\n\nملاحظة: يُرجى المتابعة والإجابة باللغة العربية الفصحى قدر الإمكان مع استخدام المصطلحات الطبية عند الحاجة."  # noqa: E501
-                            cleaned_response = cleaned_response.rstrip() + guidance_line
-                            guidance_appended = True
-                            response_language = "ar"
-                            logger.info("[chat][ar_enforce] appended Arabic guidance line (non-destructive)")
-                    elif not soft_mode and intervene:
-                        # Legacy strict mode fallback (kept for backward compat if soft disabled)
-                        logger.warning(
-                            "[chat][ar_enforce][legacy] Applying strict fallback due to low Arabic ratio=%.3f chars=%d",
-                            ratio_ar, arabic_chars,
-                        )
-                        cleaned_response = "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
-                        response_language = "ar"
-                    # Log diff if modified
-                    if soft_mode:
-                        if original_response_for_logging != cleaned_response:
-                            logger.debug(
-                                "[chat][ar_enforce] modified_response original_first100=%r final_first100=%r translated=%s guidance_appended=%s",
-                                original_response_for_logging[:100], cleaned_response[:100], translated_applied, guidance_appended,
-                            )
-                        else:
-                            logger.debug("[chat][ar_enforce] response left unchanged (ratio_ar=%.3f)", ratio_ar)
-
-                logger.info(f"Generated response (first 100 chars): {cleaned_response[:100]}")
-                return {
-                    "success": True, 
-                    "response": cleaned_response,
-                    "detected_language": response_language,
-                    "language_confidence": 1.0 if language != "auto" else 0.8  # Add confidence score
-                }
-            else:
-                # Provide a language-specific fallback to avoid hard failure upstream
-                fallback = self._clean_response("", response_language)
-                return {"success": True, "response": fallback, "detected_language": response_language, "language_confidence": 0.3}
-                
-        except Exception as e:
-            import traceback
-            logger.error(f"Chat inference error: {e}")
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-            return {"success": False, "error": str(e), "response": None}
+    def _get_fallback_response(self, language: Optional[str] = None) -> str:
+        """Get fallback response for the specified language."""
+        if language and language in self.fallback_messages:
+            return self.fallback_messages[language]
+        return self.fallback_messages['ar']  # Default to Arabic
     
-    def _clean_response(self, response: str, language: str = "ar") -> str:
+    def _clean_response(self, response: str) -> str:
         """
-        Clean the model response to ensure proper language and remove unwanted content.
+        Clean the model response to remove unwanted content.
         
         Args:
             response: Raw model response
-            language: Target language
             
         Returns:
             str: Cleaned response
         """
-        # Store original response for debugging
-        raw_response = response
-        logger.info(f"Raw LLM response (length: {len(raw_response)}): '{raw_response[:200]}...'")
-        
-        # Remove any thinking tags or content
         import re
         
-        # Remove thinking blocks (only explicit think tags)
+        # Remove thinking blocks
         response = re.sub(r'<think>.*?</think>', '', response, flags=re.DOTALL | re.IGNORECASE)
-
+        
         # Clean up whitespace
         response = re.sub(r'\n\s*\n', '\n', response)
         response = response.strip()
-        logger.info(f"After think tag removal (length: {len(response)}): '{response[:100]}...'")
-        
-        # Minimal filtering - only remove obvious non-content
-        # Remove common thinking patterns only if they start the line
-        thinking_patterns = [
-            r"^Let me think.*",
-            r"^I need to think.*",
-            r"^The user is asking.*",
-            r"^دعني أفكر.*",
-            r"^المستخدم يسأل.*"
-        ]
-        
-        for pattern in thinking_patterns:
-            response = re.sub(pattern, '', response, flags=re.IGNORECASE | re.MULTILINE)
-        
-        # Clean up whitespace again
-        response = re.sub(r'\n\s*\n', '\n', response)
-        response = response.strip()
-        logger.info(f"After minimal pattern filtering (length: {len(response)}): '{response[:100]}...'")
-        
-        # Extract the actual response part (look for direct medical advice)
-        lines = response.split('\n')
-        cleaned_lines = []
-        for line in lines:
-            line = line.strip()
-            # Only skip obvious system/meta lines, keep everything else
-            if line and not line.startswith(('User:', 'Assistant:', 'System:')):
-                cleaned_lines.append(line)
-            # DEBUG: Log what we're filtering out
-            elif line:
-                logger.info(f"FILTERING OUT LINE: '{line}'")
-        
-        if cleaned_lines:
-            response = '\n'.join(cleaned_lines)
-        else:
-            # No lines passed filtering - this might be the issue
-            logger.warning(f"NO LINES PASSED FILTERING! Original lines: {lines}")
-            # Temporarily keep original response to see what's happening
-            response = raw_response
-        
-        logger.info(f"After line filtering (length: {len(response)}): '{response[:100]}...'")
-        
-        # If response is empty or too short, provide a default in the correct language
-        if not response or len(response.strip()) < 3:  # Reduced threshold from 10 to 3
-            logger.warning(f"Response was empty after cleaning, using fallback. Original response length: {len(raw_response) if 'raw_response' in locals() else 'unknown'}, Final length: {len(response)}")
-            if language == "ar":
-                return "أهلاً وسهلاً! كيف يمكنني مساعدتك في المجال التجميلي اليوم؟"
-            
-            else:  # English default
-                return "Hello! How can I help you with aesthetic treatments today?"
         
         return response
     
-    def start_chat(self, model_name: str, model_config: ModelConfig, 
-                   generation_config: Dict[str, Any]) -> int:
-        """
-        Start interactive chat with a model.
-        
-        Args:
-            model_name: Name of the model to use
-            model_config: Model configuration
-            generation_config: Generation parameters
-            
-        Returns:
-            int: Exit code (0 for success, non-zero for failure)
-        """
-        try:
-            # Ensure the model is loaded
-            model = self._ensure_model_loaded(model_name, model_config)
-            if model is None:
-                return 1
-                
-            # Create a new session ID
-            session_id = f"chat_{model_name}_{int(time.time())}"
-            
-            # Set up the interactive chat loop
-            clear_terminal_screen()
-            print(f"\n🤖 BeautyAI Chat - Model: {model_name} ({model_config.model_id})")
-            print("=" * 60)
-            print("Type 'exit', 'quit', or press Ctrl+C to end the chat")
-            print("Type 'clear' to start a new conversation")
-            print("Type 'system <message>' to set a system message")
-            print("Type '/help' to see additional commands")
-            print("=" * 60)
-            
-            chat_history = []
-            system_message = None
-            
-            # Store session information
-            self.active_sessions[session_id] = {
-                "model_name": model_name,
-                "history": chat_history,
-                "system_message": system_message,
-                "start_time": time.time(),
-                "config": generation_config
-            }
-            
-            try:
-                while True:
-                    try:
-                        # Get user input
-                        user_input = input("\n👤 You: ")
-                    except EOFError:
-                        print("\n✅ Chat ended (EOF detected).")
-                        break
-                    except KeyboardInterrupt:
-                        print("\n✅ Chat ended (interrupted).")
-                        break
-                    
-                    # Handle special commands
-                    if user_input.lower() in ["exit", "quit"]:
-                        print("\n✅ Chat ended.")
-                        break
-                        
-                    elif user_input.lower() == "clear":
-                        chat_history = []
-                        system_message = None
-                        self.active_sessions[session_id]["history"] = chat_history
-                        self.active_sessions[session_id]["system_message"] = system_message
-                        clear_terminal_screen()
-                        print("Conversation history cleared.")
-                        continue
-                        
-                    elif user_input.strip() == "":
-                        continue
-                        
-                    elif user_input.lower() == "/help":
-                        self._show_chat_help()
-                        continue
-                        
-                    elif user_input.lower() == "/params":
-                        self._show_generation_params(generation_config)
-                        continue
-                        
-                    elif user_input.lower().startswith("/temp "):
-                        try:
-                            new_temp = float(user_input[6:])
-                            if 0.0 <= new_temp <= 2.0:
-                                generation_config["temperature"] = new_temp
-                                self.active_sessions[session_id]["config"] = generation_config
-                                print(f"Temperature set to: {new_temp}")
-                            else:
-                                print("Temperature must be between 0.0 and 2.0")
-                        except ValueError:
-                            print("Invalid temperature value. Must be a number between 0.0 and 2.0")
-                        continue
-                        
-                    elif user_input.lower().startswith("/tokens "):
-                        try:
-                            new_tokens = int(user_input[8:])
-                            if new_tokens > 0:
-                                generation_config["max_new_tokens"] = new_tokens
-                                self.active_sessions[session_id]["config"] = generation_config
-                                print(f"Max tokens set to: {new_tokens}")
-                            else:
-                                print("Max tokens must be a positive integer")
-                        except ValueError:
-                            print("Invalid token value. Must be a positive integer")
-                        continue
-                        
-                    elif user_input.lower().startswith("system "):
-                        system_message = user_input[7:]  # Remove "system " prefix
-                        print(f"System message set: {system_message}")
-                        self.active_sessions[session_id]["system_message"] = system_message
-                        
-                        # Update conversation with system message
-                        if chat_history and chat_history[0]["role"] == "system":
-                            chat_history[0] = {"role": "system", "content": system_message}
-                        else:
-                            chat_history.insert(0, {"role": "system", "content": system_message})
-                        continue
-                    
-                    # Content filtering check
-                    filter_result = self.content_filter.filter_content(user_input, language='ar')
-                    if not filter_result.is_allowed:
-                        print(f"\n🚫 {filter_result.suggested_response}")
-                        if filter_result.filter_reason:
-                            logger.info(f"Blocked user input due to: {filter_result.filter_reason}")
-                        continue
-                    
-                    # Add user message to conversation
-                    chat_history.append({"role": "user", "content": user_input})
-                    
-                    # Stream response if available
-                    print("\n🤖 Model: ", end="")
-                    sys.stdout.flush()
-                    
-                    response = ""
-                    streaming = hasattr(model, "chat_stream")
-                    
-                    start_time = time.time()
-                    
-                    if streaming:
-                        for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
-                            # Ensure token is a string
-                            token_str = str(token) if not isinstance(token, str) else token
-                            print(token_str, end="")
-                            sys.stdout.flush()
-                            response += token_str
-                    else:
-                        response = model.chat(chat_history, **generation_config)
-                        # Ensure response is a string
-                        if not isinstance(response, str):
-                            response = str(response)
-                        print(response)
-                    
-                    end_time = time.time()
-                    generation_time = end_time - start_time
-                    
-                    # Add to chat history - ensure response is a string
-                    if not isinstance(response, str):
-                        response = str(response)
-                    chat_history.append({"role": "assistant", "content": response})
-                    
-                    # Update session history
-                    self.active_sessions[session_id]["history"] = chat_history
-                    
-                    # Print some stats
-                    tokens_generated = len(response.split())
-                    print(f"\n[Generated ~{tokens_generated} tokens in {generation_time:.2f}s, "
-                          f"{tokens_generated/generation_time:.1f} tokens/sec]")
-                    
-            except KeyboardInterrupt:
-                print("\n\n✅ Chat ended.")
-            
-            # Clean up session when done
-            self._cleanup_session(session_id)
-            return 0
-            
-        except Exception as e:
-            import traceback
-            logger.error(f"Full traceback for chat error: {traceback.format_exc()}")
-            return self._handle_error(e, f"Failed to start chat with model {model_name}")
+    def _log_debug_info(self, message: str, language: str, prompt: str, config: Dict[str, Any]):
+        """Log debug information about the chat request."""
+        if logger.isEnabledFor(logging.DEBUG):
+            logger.debug(f"💬 Message: {message[:100]}...")
+            logger.debug(f"🌍 Language: {language}")
+            logger.debug(f"📝 Prompt length: {len(prompt)} chars")
+            logger.debug(f"⚙️ Config: {config}")
     
-    def load_session_chat(self, model_name: str, model_config: ModelConfig, 
-                         generation_config: Dict[str, Any], chat_history: list,
-                         system_message: Optional[str] = None) -> int:
-        """
-        Continue a chat session from loaded history.
+    def _run_interactive_loop(
+        self,
+        session_id: str,
+        model_name: str,
+        model_config: ModelConfig,
+        generation_config: Dict[str, Any]
+    ):
+        """Run the interactive chat loop."""
+        # Clear screen and show header
+        self._clear_terminal_screen()
+        print(f"\n🤖 BeautyAI Chat - Model: {model_name} ({model_config.model_id})")
+        print("=" * 60)
+        print("Type 'exit', 'quit', or press Ctrl+C to end the chat")
+        print("Type 'clear' to start a new conversation")
+        print("Type 'system <message>' to set a system message")
+        print("Type '/help' to see additional commands")
+        print("=" * 60)
         
-        Args:
-            model_name: Name of the model to use
-            model_config: Model configuration
-            generation_config: Generation parameters
-            chat_history: Previous conversation history
-            system_message: Optional system message
-            
-        Returns:
-            int: Exit code (0 for success, non-zero for failure)
-        """
         try:
-            # Ensure the model is loaded
-            model = self._ensure_model_loaded(model_name, model_config)
-            if model is None:
-                return 1
-                
-            # Create a new session ID
-            session_id = f"chat_{model_name}_{int(time.time())}"
-            
-            # Store session information
-            self.active_sessions[session_id] = {
-                "model_name": model_name,
-                "history": chat_history,
-                "system_message": system_message,
-                "start_time": time.time(),
-                "config": generation_config
-            }
-            
-            # Set up the interactive chat loop
-            clear_terminal_screen()
-            print(f"\n🤖 BeautyAI Chat - Model: {model_name} ({model_config.model_id})")
-            print(f"Loaded session with {len(chat_history)} messages")
-            print("=" * 60)
-            print("Type 'exit', 'quit', or press Ctrl+C to end the chat")
-            print("Type 'clear' to start a new conversation")
-            print("Type 'system <message>' to set a system message")
-            print("Type '/help' to see additional commands")
-            print("=" * 60)
-            
-            # Display last few messages for context
-            num_context_messages = min(4, len(chat_history))
-            if num_context_messages > 0:
-                print("\n=== Previous Messages ===")
-                for msg in chat_history[-num_context_messages:]:
-                    role_icon = "👤" if msg["role"] == "user" else "🤖"
-                    print(f"\n{role_icon} {msg['role'].capitalize()}: {msg['content']}")
-                print("\n" + "=" * 60)
-            
-            try:
-                while True:
-                    # Get user input
+            while True:
+                try:
                     user_input = input("\n👤 You: ")
-                    
-                    # Handle special commands (same as start_chat)
-                    if user_input.lower() in ["exit", "quit"]:
-                        print("\n✅ Chat ended.")
-                        break
-                        
-                    elif user_input.lower() == "clear":
-                        chat_history = []
-                        system_message = None
-                        self.active_sessions[session_id]["history"] = chat_history
-                        self.active_sessions[session_id]["system_message"] = system_message
-                        clear_terminal_screen()
-                        print("Conversation history cleared.")
-                        continue
-                        
-                    elif user_input.strip() == "":
-                        continue
-                        
-                    elif user_input.lower() == "/help":
-                        self._show_chat_help()
-                        continue
-                        
-                    elif user_input.lower() == "/params":
-                        self._show_generation_params(generation_config)
-                        continue
-                        
-                    elif user_input.lower().startswith("/temp "):
-                        try:
-                            new_temp = float(user_input[6:])
-                            if 0.0 <= new_temp <= 2.0:
-                                generation_config["temperature"] = new_temp
-                                self.active_sessions[session_id]["config"] = generation_config
-                                print(f"Temperature set to: {new_temp}")
-                            else:
-                                print("Temperature must be between 0.0 and 2.0")
-                        except ValueError:
-                            print("Invalid temperature value. Must be a number between 0.0 and 2.0")
-                        continue
-                        
-                    elif user_input.lower().startswith("/tokens "):
-                        try:
-                            new_tokens = int(user_input[8:])
-                            if new_tokens > 0:
-                                generation_config["max_new_tokens"] = new_tokens
-                                self.active_sessions[session_id]["config"] = generation_config
-                                print(f"Max tokens set to: {new_tokens}")
-                            else:
-                                print("Max tokens must be a positive integer")
-                        except ValueError:
-                            print("Invalid token value. Must be a positive integer")
-                        continue
-                        
-                    elif user_input.lower().startswith("system "):
-                        system_message = user_input[7:]  # Remove "system " prefix
-                        print(f"System message set: {system_message}")
-                        self.active_sessions[session_id]["system_message"] = system_message
-                        
-                        # Update conversation with system message
-                        if chat_history and chat_history[0]["role"] == "system":
-                            chat_history[0] = {"role": "system", "content": system_message}
-                        else:
-                            chat_history.insert(0, {"role": "system", "content": system_message})
-                        continue
-                    
-                    # Content filtering check
-                    filter_result = self.content_filter.filter_content(user_input, language='ar')
-                    if not filter_result.is_allowed:
-                        print(f"\n🚫 {filter_result.suggested_response}")
-                        if filter_result.filter_reason:
-                            logger.info(f"Blocked user input due to: {filter_result.filter_reason}")
-                        continue
-                    
-                    # Continue with normal message processing, identical to start_chat
-                    chat_history.append({"role": "user", "content": user_input})
-                    
-                    print("\n🤖 Model: ", end="")
-                    sys.stdout.flush()
-                    
-                    response = ""
-                    streaming = hasattr(model, "chat_stream")
-                    
-                    start_time = time.time()
-                    
-                    if streaming:
-                        for token in model.chat_stream(chat_history, callback=lambda x: None, **generation_config):
-                            # Ensure token is a string
-                            token_str = str(token) if not isinstance(token, str) else token
-                            print(token_str, end="")
-                            sys.stdout.flush()
-                            response += token_str
-                    else:
-                        response = model.chat(chat_history, **generation_config)
-                        # Ensure response is a string
-                        if not isinstance(response, str):
-                            response = str(response)
-                        print(response)
-                    
-                    end_time = time.time()
-                    generation_time = end_time - start_time
-                    
-                    # Add to chat history - ensure response is a string
-                    if not isinstance(response, str):
-                        response = str(response)
-                    chat_history.append({"role": "assistant", "content": response})
-                    
-                    # Update session history
-                    self.active_sessions[session_id]["history"] = chat_history
-                    
-                    # Print some stats
-                    tokens_generated = len(response.split())
-                    print(f"\n[Generated ~{tokens_generated} tokens in {generation_time:.2f}s, "
-                          f"{tokens_generated/generation_time:.1f} tokens/sec]")
-                    
-            except KeyboardInterrupt:
-                print("\n\n✅ Chat ended.")
-            
-            # Clean up session when done
-            self._cleanup_session(session_id)
-            return 0
-            
-        except Exception as e:
-            return self._handle_error(e, f"Failed to continue chat session")
+                except (EOFError, KeyboardInterrupt):
+                    print("\n✅ Chat ended.")
+                    break
+                
+                # Handle special commands
+                if user_input.lower() in ["exit", "quit"]:
+                    print("\n✅ Chat ended.")
+                    break
+                elif user_input.lower() == "clear":
+                    self.session_manager.clear_session_history(session_id)
+                    self._clear_terminal_screen()
+                    print("Conversation history cleared.")
+                    continue
+                elif user_input.strip() == "":
+                    continue
+                elif user_input.lower() == "/help":
+                    self._show_chat_help()
+                    continue
+                elif user_input.lower() == "/params":
+                    self._show_generation_params(generation_config)
+                    continue
+                elif user_input.lower().startswith("/temp "):
+                    self._handle_temperature_command(user_input, generation_config, session_id)
+                    continue
+                elif user_input.lower().startswith("/tokens "):
+                    self._handle_tokens_command(user_input, generation_config, session_id)
+                    continue
+                elif user_input.lower().startswith("system "):
+                    system_message = user_input[7:]
+                    self.session_manager.update_session_system_message(session_id, system_message)
+                    print(f"System message set: {system_message}")
+                    continue
+                
+                # Process chat message
+                session = self.session_manager.get_session(session_id)
+                conversation_history = session.history if session else []
+                
+                response, language, updated_history, _ = self.chat(
+                    message=user_input,
+                    model_name=model_name,
+                    model_config=model_config,
+                    generation_config=generation_config,
+                    conversation_history=conversation_history,
+                    session_id=session_id
+                )
+                
+                print(f"\n🤖 Assistant: {response}")
+                
+        except KeyboardInterrupt:
+            print("\n\n✅ Chat ended.")
     
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Get information about a specific session.
-        
-        Args:
-            session_id: The ID of the session to retrieve.
-            
-        Returns:
-            Dict containing session information or None if not found.
-        """
-        return self.active_sessions.get(session_id)
-    
-    def list_active_sessions(self) -> list:
-        """
-        List all active sessions.
-        
-        Returns:
-            List of dictionaries with session information.
-        """
-        return [
-            {
-                "session_id": sid,
-                "model": info["model_name"],
-                "duration": time.time() - info["start_time"],
-                "messages": len(info["history"])
-            }
-            for sid, info in self.active_sessions.items()
-        ]
-    
-    def _ensure_model_loaded(self, model_name: str, model_config: ModelConfig):
-        """
-        Ensure the model is loaded and return it.
-        
-        Args:
-            model_name: Name of the model
-            model_config: Model configuration
-            
-        Returns:
-            The loaded model
-        """
-        if not self.model_manager.is_model_loaded(model_name):
-            print(f"Loading model '{model_name}'...")
-            self.model_manager.load_model(model_config)
-            print(f"Model loaded successfully.")
-        else:
-            print(f"Using already loaded model '{model_name}'.")
-            
-        return self.model_manager.get_loaded_model(model_name)
+    def _clear_terminal_screen(self):
+        """Clear the terminal screen."""
+        os.system('cls' if os.name == 'nt' else 'clear')
     
     def _show_chat_help(self):
-        """Display help message for chat commands."""
-        help_text = """
-Available Commands:
-------------------
-exit, quit      - End the chat session
-clear           - Clear conversation history
-system <msg>    - Set a system message
-/help           - Show this help message
-/params         - Show current generation parameters
-/temp <value>   - Set temperature (0.0-2.0)
-/tokens <value> - Set max tokens for response
-"""
-        print(help_text)
+        """Show chat help information."""
+        print("\n📚 Chat Commands:")
+        print("  exit, quit     - End the chat")
+        print("  clear          - Clear conversation history")
+        print("  system <msg>   - Set system message")
+        print("  /help          - Show this help")
+        print("  /params        - Show current generation parameters")
+        print("  /temp <value>  - Set temperature (0.0-2.0)")
+        print("  /tokens <num>  - Set max tokens")
     
     def _show_generation_params(self, config: Dict[str, Any]):
-        """Display current generation parameters."""
-        print("\nCurrent Generation Parameters:")
-        print("-" * 30)
-        for param, value in config.items():
-            print(f"{param}: {value}")
-        print()
+        """Show current generation parameters."""
+        print("\n⚙️ Current Generation Parameters:")
+        for key, value in config.items():
+            print(f"  {key}: {value}")
     
-    def _cleanup_session(self, session_id: str) -> None:
-        """
-        Clean up a session.
-        
-        Args:
-            session_id: ID of the session to clean up
-        """
-        if session_id in self.active_sessions:
-            # Save session history if needed
-            # (future feature: could save to disk or database)
-            del self.active_sessions[session_id]
+    def _handle_temperature_command(self, command: str, config: Dict[str, Any], session_id: str):
+        """Handle temperature setting command."""
+        try:
+            new_temp = float(command[6:])
+            if 0.0 <= new_temp <= 2.0:
+                config["temperature"] = new_temp
+                self.session_manager.update_session_config(session_id, config)
+                print(f"Temperature set to: {new_temp}")
+            else:
+                print("Temperature must be between 0.0 and 2.0")
+        except ValueError:
+            print("Invalid temperature value. Must be a number between 0.0 and 2.0")
     
-    def set_content_filter_strictness(self, strictness: str) -> None:
-        """
-        Set content filter strictness level.
-        
-        Args:
-            strictness: One of "strict", "balanced", "relaxed", "disabled"
-        """
-        self.content_filter.set_strictness_level(strictness)
-        logger.info(f"Content filter strictness set to: {strictness}")
+    def _handle_tokens_command(self, command: str, config: Dict[str, Any], session_id: str):
+        """Handle max tokens setting command."""
+        try:
+            new_tokens = int(command[8:])
+            if new_tokens > 0:
+                config["max_new_tokens"] = new_tokens
+                self.session_manager.update_session_config(session_id, config)
+                print(f"Max tokens set to: {new_tokens}")
+            else:
+                print("Max tokens must be a positive integer")
+        except ValueError:
+            print("Invalid token value. Must be a positive integer")
+    
+    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+        """Get information about a session."""
+        session = self.session_manager.get_session(session_id)
+        if session:
+            return {
+                "session_id": session.session_id,
+                "model_name": session.model_name,
+                "language": session.language,
+                "message_count": len(session.history),
+                "duration": session.get_duration(),
+                "has_system_message": session.system_message is not None
+            }
+        return None
+    
+    def list_active_sessions(self) -> List[Dict[str, Any]]:
+        """List all active chat sessions."""
+        return self.session_manager.list_sessions()
+    
+    def cleanup_session(self, session_id: str) -> bool:
+        """Clean up a specific session."""
+        return self.session_manager.delete_session(session_id)
+    
+    def get_service_stats(self) -> Dict[str, Any]:
+        """Get service statistics."""
+        return {
+            "session_stats": self.session_manager.get_session_stats(),
+            "filter_stats": self.content_filter.get_filter_stats(),
+            "model_stats": {
+                "loaded_models": len(self.model_manager.list_loaded_models()),
+                "loaded_model_names": self.model_manager.list_loaded_models()
+            }
+        }
