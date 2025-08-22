@@ -54,3 +54,6 @@ beautyai_inference/config/loaded_models_state.json
 copilot_resources/plans
 voice_tests/
 test_temp_venv.py
+backend/logs/api/api_app.jsonl
+backend/logs/streaming/streaming_voice.jsonl
+backend/src/beautyai_inference/config/loaded_models_state.json

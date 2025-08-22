@@ -193,6 +193,9 @@
     let ws, audioCtx, source, processor, mediaStream, analyser;
     let currentPartial = '';
     let connectionStart = null;
+    let currentAudioLevel = 0; // Track current audio level
+    let audioLevelHistory = []; // Track audio level history for smarter thresholding
+    let lastSignificantAudio = 0; // Timestamp of last significant audio
     let metrics = {
       totalMessages: 0,
       audioChunksSent: 0,
@@ -363,7 +366,15 @@
 
     function connect() {
       updateConnectionStatus('connecting');
-      const wsUrl = wsUrlSelectEl.value;
+      const baseUrl = wsUrlSelectEl.value;
+      const selectedLanguage = languageEl.value;
+      
+      // Add language parameter to WebSocket URL
+      const urlObj = new URL(baseUrl);
+      urlObj.searchParams.set('language', selectedLanguage);
+      const wsUrl = urlObj.toString();
+      
+      log(`Connecting with language: ${selectedLanguage}`, 'info');
       
       ws = new WebSocket(wsUrl);
       ws.binaryType = 'arraybuffer';
@@ -405,7 +416,8 @@
         const msg = JSON.parse(data);
         metrics.totalMessages++;
         
-        log(`RX: ${msg.event || msg.type}`, 'receive');
+        const eventType = msg.event || msg.type || 'unknown';
+        log(`RX: ${eventType} ${msg.text ? `- "${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}"` : ''}`, 'receive');
         
         if (msg.event === 'partial_transcript' || msg.type === 'partial_transcript') {
           currentPartial = msg.text;
@@ -425,20 +437,41 @@
           metrics.transcriptionEvents++;
           currentPartial = '';
           
-        } else if (msg.event === 'assistant_text' || msg.type === 'assistant_text') {
+          // Log that we expect an assistant response soon
+          log(`🎯 Final transcript received - expecting assistant response...`, 'info');
+          
+        } else if (msg.event === 'assistant_text' || msg.type === 'assistant_text' || 
+                   msg.event === 'assistant_response' || msg.type === 'assistant_response') {
           const assistantText = msg.text;
           assistantEl.value += `\n${assistantText}`;
           addConversationMessage('assistant', assistantText);
           
-        } else if (msg.event === 'tts_chunk' || msg.type === 'tts_chunk') {
+          log(`✅ Assistant response received!`, 'success');
+          
+        } else if (msg.type === 'assistant_pipeline_start') {
+          log(`🚀 Assistant pipeline started for utterance ${msg.utterance_index || 'unknown'}`, 'info');
+          
+        } else if (msg.event === 'tts_chunk' || msg.type === 'tts_chunk' || 
+                   msg.event === 'tts_audio' || msg.type === 'tts_audio') {
           metrics.ttsEvents++;
+          log(`🔊 TTS audio received (${msg.encoding || 'unknown'} format)`, 'info');
           // Could optionally play audio chunk here
           
         } else if (msg.type === 'tts_start') {
-          log('TTS synthesis started', 'info');
+          log('🎵 TTS synthesis started', 'info');
           
         } else if (msg.type === 'tts_complete') {
-          log('TTS synthesis completed', 'success');
+          log('✅ TTS synthesis completed', 'success');
+          
+        } else if (msg.type === 'error') {
+          log(`❌ Backend error: ${msg.message} (stage: ${msg.stage || 'unknown'})`, 'error');
+          
+        } else if (msg.type === 'ready') {
+          log('✅ Backend ready to receive audio', 'success');
+          
+        } else {
+          // Log unknown message types for debugging
+          log(`❓ Unknown message type: ${eventType}`, 'warning');
         }
         
         updateMetrics();
@@ -484,18 +517,43 @@
           const { type, data, level, sampleRate, samples } = event.data;
           
           if (type === 'audioLevel') {
-            // Update audio level visualization
+            // Update audio level visualization and tracking
+            currentAudioLevel = level;
             updateAudioLevel(level);
             
+            // Track audio level history for smarter thresholding
+            audioLevelHistory.push(level);
+            if (audioLevelHistory.length > 100) { // Keep last 100 samples (about 2 seconds)
+              audioLevelHistory.shift();
+            }
+            
           } else if (type === 'audioChunk') {
-            // Send audio chunk to WebSocket
+            // Send audio chunk to WebSocket with intelligent thresholding
+            // This prevents sending silent/garbage audio that confuses Whisper
+            const minAudioThreshold = 0.001; // Base minimum RMS level
+            const now = Date.now();
+            
+            // Calculate dynamic threshold based on recent audio levels
+            const avgLevel = audioLevelHistory.length > 0 ? 
+              audioLevelHistory.reduce((a, b) => a + b, 0) / audioLevelHistory.length : 0;
+            const dynamicThreshold = Math.max(minAudioThreshold, avgLevel * 0.1);
+            
             if (ws && ws.readyState === WebSocket.OPEN) {
-              ws.send(data.buffer);
-              metrics.audioChunksSent++;
-              
-              // Calculate and display data rate
-              const dataRate = (data.buffer.byteLength * 1000 / chunkSizeMs / 1024).toFixed(1);
-              document.getElementById('data-rate').textContent = `${dataRate} KB/s`;
+              if (currentAudioLevel > dynamicThreshold) {
+                ws.send(data.buffer);
+                metrics.audioChunksSent++;
+                lastSignificantAudio = now;
+                
+                // Calculate and display data rate
+                const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20;
+                const dataRate = (data.buffer.byteLength * 1000 / chunkSizeMs / 1024).toFixed(1);
+                document.getElementById('data-rate').textContent = `${dataRate} KB/s`;
+              } else {
+                // Log when we're filtering out low-level audio (throttled)
+                if (metrics.audioChunksSent % 200 === 0 && now - lastSignificantAudio > 1000) { 
+                  log(`🔇 Filtering quiet audio (RMS: ${currentAudioLevel.toFixed(6)}, threshold: ${dynamicThreshold.toFixed(6)})`, 'debug');
+                }
+              }
             }
           }
         };
