@@ -1,0 +1,315 @@
+{
+  "model_name": "qwen3-unsloth-q4ks",
+  "total_tests": 5,
+  "successful_tests": 5,
+  "exact_matches": 1,
+  "match_rate_pct": 20.0,
+  "results": [
+    {
+      "test_case": {
+        "name": "Simple Greeting",
+        "message": "Hello",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 50,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting.\nI should introduce myself clearly, mentioning my specialization in non-surgical treatments. Maybe mention Botox",
+      "direct_response": "<think>\nOkay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting. Maybe \"Hello! How can I assist you today?\" That's welcoming and opens the door for them",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 50,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 607.3758602142334,
+          "generation_time_ms": 607.2080135345459,
+          "tokens_generated": 38,
+          "tokens_per_second": 62.581519270147226,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 672.2922325134277,
+          "tokens_generated": 40,
+          "tokens_per_second": 59.49793566773223
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 252,
+        "direct_length": 228,
+        "length_diff": 24,
+        "length_diff_pct": 9.523809523809524,
+        "char_similarity": 58.333333333333336,
+        "api_response": "<think>\nOkay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting.\nI should introduce myself clearly, mentioning my specialization in non-surgical treatments. Maybe mention Botox",
+        "direct_response": "<think>\nOkay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting. Maybe \"Hello! How can I assist you today?\" That's welcoming and opens the door for them",
+        "api_normalized": "<think> Okay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting. I should introduce myself clearly, mentioning my specialization in non-surgical treatments. Maybe mention Botox",
+        "direct_normalized": "<think> Okay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting. Maybe \"Hello! How can I assist you today?\" That's welcoming and opens the door for them"
+      },
+      "timestamp": 1755790481.9687052
+    },
+    {
+      "test_case": {
+        "name": "Medical Question - Botox",
+        "message": "What is botox?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles.\nWait, they might not know what botulinum toxin is. I need to clarify that it's a neurotoxin but used in small amounts safely. Maybe mention the brand name Botox as a common product.\nAlso, important to note the areas it's used, like forehead lines, crow's feet, and frown lines. Should I include how it works? Yes, by blocking nerve signals to muscles, causing them to relax.\nNeed to mention that it's temporary, lasts 3-6 months. Maybe add that it's FDA approved for these uses. Also, possible side effects like bruising or temporary drooping, but they're rare.\nMake sure the answer is clear and concise, avoiding medical jargon. Keep it patient-friendly. Check if there's anything else",
+      "direct_response": "<think>\nOkay, the user is asking, \"What is botox?\" I need to explain Botox clearly and concisely. Let me start by defining it. Botox is a neurotoxin derived from Clostridium botulinum. But I should mention it's used medically, not just the toxin itself.\nNext, I should explain its uses. It's commonly used for cosmetic purposes like reducing wrinkles, but also for medical conditions like muscle spasms or excessive sweating. I need to mention the active ingredient, botulinum toxin type A, and how it works by blocking nerve signals to muscles, causing them to relax.\nI should note that it's injected and temporary, lasting a few months. Also, it's important to mention that it's FDA-approved for these uses. Maybe add a note about consulting a qualified professional for safety and effectiveness. Avoid any jargon, keep it simple for the patient. Make sure not to include any other treatments like fillers unless",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2386.2807750701904,
+          "generation_time_ms": 2386.150598526001,
+          "tokens_generated": 146,
+          "tokens_per_second": 61.18641467566578,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 2305.1230907440186,
+          "tokens_generated": 150,
+          "tokens_per_second": 65.07244693453003
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 865,
+        "direct_length": 914,
+        "length_diff": 49,
+        "length_diff_pct": 5.361050328227571,
+        "char_similarity": 9.518599562363239,
+        "api_response": "<think>\nOkay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles.\nWait, they might not know what botulinum toxin is. I need to clarify that it's a neurotoxin but used in small amounts safely. Maybe mention the brand name Botox as a common product.\nAlso, important to note the areas it's used, like forehead lines, crow's feet, and frown lines. Should I include how it works? Yes, by blocking nerve signals to muscles, causing them to relax.\nNeed to mention that it's temporary, lasts 3-6 months. Maybe add that it's FDA approved for these uses. Also, possible side effects like bruising or temporary drooping, but they're rare.\nMake sure the answer is clear and concise, avoiding medical jargon. Keep it patient-friendly. Check if there's anything else",
+        "direct_response": "<think>\nOkay, the user is asking, \"What is botox?\" I need to explain Botox clearly and concisely. Let me start by defining it. Botox is a neurotoxin derived from Clostridium botulinum. But I should mention it's used medically, not just the toxin itself.\nNext, I should explain its uses. It's commonly used for cosmetic purposes like reducing wrinkles, but also for medical conditions like muscle spasms or excessive sweating. I need to mention the active ingredient, botulinum toxin type A, and how it works by blocking nerve signals to muscles, causing them to relax.\nI should note that it's injected and temporary, lasting a few months. Also, it's important to mention that it's FDA-approved for these uses. Maybe add a note about consulting a qualified professional for safety and effectiveness. Avoid any jargon, keep it simple for the patient. Make sure not to include any other treatments like fillers unless",
+        "api_normalized": "<think> Okay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles. Wait, they might not know what botulinum toxin is. I need to clarify that it's a neurotoxin but used in small amounts safely. Maybe mention the brand name Botox as a common product. Also, important to note the areas it's used, like forehead lines, crow's feet, and frown lines. Should I include how it works? Yes, by blocking nerve signals to muscles, causing them to relax. Need to mention that it's temporary, lasts 3-6 months. Maybe add that it's FDA approved for these uses. Also, possible side effects like bruising or temporary drooping, but they're rare. Make sure the answer is clear and concise, avoiding medical jargon. Keep it patient-friendly. Check if there's anything else",
+        "direct_normalized": "<think> Okay, the user is asking, \"What is botox?\" I need to explain Botox clearly and concisely. Let me start by defining it. Botox is a neurotoxin derived from Clostridium botulinum. But I should mention it's used medically, not just the toxin itself. Next, I should explain its uses. It's commonly used for cosmetic purposes like reducing wrinkles, but also for medical conditions like muscle spasms or excessive sweating. I need to mention the active ingredient, botulinum toxin type A, and how it works by blocking nerve signals to muscles, causing them to relax. I should note that it's injected and temporary, lasting a few months. Also, it's important to mention that it's FDA-approved for these uses. Maybe add a note about consulting a qualified professional for safety and effectiveness. Avoid any jargon, keep it simple for the patient. Make sure not to include any other treatments like fillers unless"
+      },
+      "timestamp": 1755790486.6624458
+    },
+    {
+      "test_case": {
+        "name": "Simple Math",
+        "message": "What is 2 + 2?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 30,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to",
+      "direct_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which is a simple math problem. But since I'm supposed to act",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 30,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 359.09581184387207,
+          "generation_time_ms": 358.950138092041,
+          "tokens_generated": 22,
+          "tokens_per_second": 61.28984966251446,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 348.9806652069092,
+          "tokens_generated": 22,
+          "tokens_per_second": 63.04074177564047
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 111,
+        "direct_length": 107,
+        "length_diff": 4,
+        "length_diff_pct": 3.6036036036036037,
+        "char_similarity": 46.846846846846844,
+        "api_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to",
+        "direct_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which is a simple math problem. But since I'm supposed to act",
+        "api_normalized": "<think> Okay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to",
+        "direct_normalized": "<think> Okay, the user asked \"What is 2 + 2?\" which is a simple math problem. But since I'm supposed to act"
+      },
+      "timestamp": 1755790487.3725338
+    },
+    {
+      "test_case": {
+        "name": "Short Definition",
+        "message": "Define artificial intelligence in one sentence.",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 100,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+      "direct_response": "<think>\nOkay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 100,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 1187.420129776001,
+          "generation_time_ms": 1187.218189239502,
+          "tokens_generated": 83,
+          "tokens_per_second": 69.9113278016465,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 1148.5509872436523,
+          "tokens_generated": 83,
+          "tokens_per_second": 72.26496770438322
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": true,
+        "api_length": 476,
+        "direct_length": 476,
+        "length_diff": 0,
+        "length_diff_pct": 0.0,
+        "char_similarity": 100.0,
+        "api_response": "<think>\nOkay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+        "direct_response": "<think>\nOkay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+        "api_normalized": "<think> Okay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+        "direct_normalized": "<think> Okay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need"
+      },
+      "timestamp": 1755790489.7107103
+    },
+    {
+      "test_case": {
+        "name": "Medical Safety",
+        "message": "Is laser hair removal safe?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 150,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used.\nI need to highlight the importance of a qualified professional. Maybe explain that different skin types and hair colors respond better, so a consultation is key. Also, mention possible side effects like redness or irritation, which are usually temporary.\nDon't forget to note that it's not suitable for everyone, especially those with very light hair or certain medical conditions. Emphasize the need for proper aftercare and following the practitioner's advice. Keep it clear and concise without using too much jargon. Make sure to reassure them about safety but also set realistic",
+      "direct_response": "<think>\nOkay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used. But I need to highlight that safety depends on the technician's expertise and the right equipment.\nI should note that different skin types and hair colors respond differently. Maybe mention that darker hair and lighter skin tend to work best. Also, there's a risk of side effects like redness or irritation, which are usually temporary. But more serious issues like burns or changes in pigmentation can happen if not done correctly.\nIt's important to advise consulting a qualified professional, especially one with experience in the specific laser type. Also, mention that a patch test",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 150,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 1783.1463813781738,
+          "generation_time_ms": 1782.9279899597168,
+          "tokens_generated": 124,
+          "tokens_per_second": 69.54851833516935,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 1724.794626235962,
+          "tokens_generated": 127,
+          "tokens_per_second": 73.63195482418303
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 777,
+        "direct_length": 780,
+        "length_diff": 3,
+        "length_diff_pct": 0.38461538461538464,
+        "char_similarity": 31.666666666666664,
+        "api_response": "<think>\nOkay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used.\nI need to highlight the importance of a qualified professional. Maybe explain that different skin types and hair colors respond better, so a consultation is key. Also, mention possible side effects like redness or irritation, which are usually temporary.\nDon't forget to note that it's not suitable for everyone, especially those with very light hair or certain medical conditions. Emphasize the need for proper aftercare and following the practitioner's advice. Keep it clear and concise without using too much jargon. Make sure to reassure them about safety but also set realistic",
+        "direct_response": "<think>\nOkay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used. But I need to highlight that safety depends on the technician's expertise and the right equipment.\nI should note that different skin types and hair colors respond differently. Maybe mention that darker hair and lighter skin tend to work best. Also, there's a risk of side effects like redness or irritation, which are usually temporary. But more serious issues like burns or changes in pigmentation can happen if not done correctly.\nIt's important to advise consulting a qualified professional, especially one with experience in the specific laser type. Also, mention that a patch test",
+        "api_normalized": "<think> Okay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used. I need to highlight the importance of a qualified professional. Maybe explain that different skin types and hair colors respond better, so a consultation is key. Also, mention possible side effects like redness or irritation, which are usually temporary. Don't forget to note that it's not suitable for everyone, especially those with very light hair or certain medical conditions. Emphasize the need for proper aftercare and following the practitioner's advice. Keep it clear and concise without using too much jargon. Make sure to reassure them about safety but also set realistic",
+        "direct_normalized": "<think> Okay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used. But I need to highlight that safety depends on the technician's expertise and the right equipment. I should note that different skin types and hair colors respond differently. Maybe mention that darker hair and lighter skin tend to work best. Also, there's a risk of side effects like redness or irritation, which are usually temporary. But more serious issues like burns or changes in pigmentation can happen if not done correctly. It's important to advise consulting a qualified professional, especially one with experience in the specific laser type. Also, mention that a patch test"
+      },
+      "timestamp": 1755790493.220989
+    }
+  ],
+  "timestamp": 1755790493.2209942
+}

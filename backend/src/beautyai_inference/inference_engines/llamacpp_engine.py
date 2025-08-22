@@ -338,8 +338,21 @@ class LlamaCppEngine(ModelInterface):
         if not self.model:
             self.load_model()
         
+        # **NEW: Handle enable_thinking parameter**
+        enable_thinking = kwargs.get('enable_thinking', True)  # Default to True for backward compatibility
+        if enable_thinking is None:
+            enable_thinking = True
+        
+        # **NEW: Modify prompt based on thinking mode**
+        if not enable_thinking:
+            # For no-thinking mode, explicitly instruct the model
+            modified_prompt = f"{prompt}\n\nPlease respond directly without showing your thinking process or reasoning steps."
+        else:
+            # For thinking mode, allow normal behavior
+            modified_prompt = prompt
+        
         # Format prompt
-        formatted_prompt = self._format_prompt(prompt)
+        formatted_prompt = self._format_prompt(modified_prompt)
         
         # Optimized generation parameters for MAXIMUM speed on RTX 4090
         
@@ -443,7 +456,14 @@ class LlamaCppEngine(ModelInterface):
         
         # Extract response text
         if response and 'choices' in response and len(response['choices']) > 0:
-            return response['choices'][0]['text'].strip()
+            response_text = response['choices'][0]['text'].strip()
+            
+            # **NEW: Post-process response based on thinking mode**
+            if not enable_thinking:
+                # Remove thinking blocks if thinking mode is disabled
+                response_text = self._clean_thinking_blocks(response_text)
+            
+            return response_text
         else:
             return ""
     
@@ -650,3 +670,16 @@ class LlamaCppEngine(ModelInterface):
     def get_memory_stats(self) -> Dict[str, float]:
         """Get memory usage statistics."""
         return get_gpu_memory_stats()
+    
+    def _clean_thinking_blocks(self, text: str) -> str:
+        """Remove thinking blocks from text when thinking mode is disabled."""
+        import re
+        
+        # Remove <think>...</think> blocks (case insensitive, multiline)
+        cleaned_text = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL | re.IGNORECASE)
+        
+        # Clean up excessive whitespace
+        cleaned_text = re.sub(r'\n\s*\n', '\n', cleaned_text)
+        cleaned_text = cleaned_text.strip()
+        
+        return cleaned_text

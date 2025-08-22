@@ -29,6 +29,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Dict, Optional, Any, List
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
@@ -105,6 +106,10 @@ class SessionState:
     low_energy_mode: bool = True  # assume silent until energy detected
     requested_language: Optional[str] = None  # original language param (may be 'auto')
     mismatch_notified: bool = False  # whether we already emitted a language mismatch advisory
+    # Dedupe tracking additions (Aug 21 2025)
+    emitted_pipeline_for: set[int] = field(default_factory=set)  # assistant_pipeline_start sent for these utterances
+    last_endpoint_sig: Optional[str] = None
+    last_endpoint_time: float = 0.0
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -365,6 +370,7 @@ async def streaming_voice_endpoint(
             """Lazily initialize ChatService & SimpleVoiceService once (cached)."""
             if "chat" not in chat_service_ref:
                 from beautyai_inference.services.inference.chat_service import ChatService
+                from beautyai_inference.config.config_manager import AppConfig
                 chat = ChatService()
                 # Attempt to load default model for fast responses
                 try:
@@ -373,6 +379,20 @@ async def streaming_voice_endpoint(
                         logger.info("✅ Chat service initialized successfully")
                     else:
                         logger.warning("⚠️ Chat service initialized but default model loading failed")
+                    # Load registry to capture model_config for required chat() signature
+                    try:
+                        config_dir = Path(__file__).parent.parent.parent / "config"
+                        app_config = AppConfig()
+                        app_config.models_file = str(config_dir / "model_registry.json")
+                        app_config.load_model_registry()
+                        default_name = "qwen3-unsloth-q4ks"
+                        model_cfg = app_config.model_registry.get_model(default_name)
+                        if model_cfg is None:
+                            logger.error("❌ Default model '%s' not found in registry", default_name)
+                        chat_service_ref["model_name"] = default_name
+                        chat_service_ref["model_config"] = model_cfg
+                    except Exception as reg_e:  # pragma: no cover - defensive
+                        logger.error("Failed loading model registry for chat service: %s", reg_e)
                 except Exception as e:
                     logger.error(f"❌ Chat service initialization failed: {e}")
                     # Don't suppress - we need to know about this
@@ -406,12 +426,15 @@ async def streaming_voice_endpoint(
             state.pipeline_active_for = utterance_index
             debug_flag = os.getenv("VOICE_STREAMING_DEBUG_PIPELINE", "1") == "1"
             if debug_flag:
-                await _send_json(state.websocket, {
-                    "type": "assistant_pipeline_start",
-                    "utterance_index": utterance_index,
-                    "chars": len(text),
-                    "timestamp": started_ts,
-                })
+                # Dedupe assistant_pipeline_start per utterance
+                if utterance_index not in state.emitted_pipeline_for:
+                    await _send_json(state.websocket, {
+                        "type": "assistant_pipeline_start",
+                        "utterance_index": utterance_index,
+                        "chars": len(text),
+                        "timestamp": started_ts,
+                    })
+                    state.emitted_pipeline_for.add(utterance_index)
             await _send_json(state.websocket, {
                 "type": "tts_start",
                 "utterance_index": utterance_index,
@@ -458,15 +481,31 @@ async def streaming_voice_endpoint(
                     # Always forward the originally requested language (state.requested_language)
                     # so enforcement logic can act even if 'auto' was converted earlier.
                     try:
-                        return chat_service.chat(
+                        model_name = chat_service_ref.get("model_name", "qwen3-unsloth-q4ks")
+                        model_config = chat_service_ref.get("model_config")
+                        if model_config is None:
+                            raise RuntimeError("Model config not loaded for chat service")
+                        generation_config = {
+                            "temperature": 0.3,
+                            "top_p": 0.95,
+                            "max_new_tokens": 192,
+                            "enable_thinking": False,  # Disable thinking mode for voice conversations
+                        }
+                        response, detected_language, updated_history, _session = chat_service.chat(
                             message=text,
+                            model_name=model_name,
+                            model_config=model_config,
+                            generation_config=generation_config,
                             conversation_history=prev_history,
-                            max_length=192,
-                            language=state.requested_language or lang or "auto",
-                            thinking_mode=False,
-                            temperature=0.3,
-                            top_p=0.95,
+                            response_language=state.requested_language or lang or "auto",
+                            disable_content_filter=True,
                         )
+                        return {
+                            "success": True,
+                            "response": response,
+                            "detected_language": detected_language,
+                            "updated_history": updated_history,
+                        }
                     except Exception as e:
                         logger.error(f"❌ Chat service failed during generation: {e}")
                         return {"success": False, "error": f"Chat generation failed: {str(e)}"}
@@ -651,7 +690,16 @@ async def streaming_voice_endpoint(
                 elif etype == "endpoint_event":
                     if state.metrics:
                         state.metrics.update_endpoint(event.get("end_silence_gap_ms"))
-                    await _send_json(state.websocket, {"type": "endpoint", **event})
+                    # Dedupe endpoint events with identical signature in tight window
+                    sig = f"{event.get('utterance_index')}:{event.get('end_silence_gap_ms')}"
+                    now_ts = time.time()
+                    dedupe_window = float(os.getenv("VOICE_STREAMING_ENDPOINT_DEDUPE_SEC", "0.75"))
+                    if sig == state.last_endpoint_sig and (now_ts - state.last_endpoint_time) < dedupe_window:
+                        logger.debug("[streaming_voice] Skipping duplicate endpoint event sig=%s", sig)
+                    else:
+                        state.last_endpoint_sig = sig
+                        state.last_endpoint_time = now_ts
+                        await _send_json(state.websocket, {"type": "endpoint", **event})
                 elif etype == "final_transcript":
                     if state.metrics:
                         state.metrics.inc_final()

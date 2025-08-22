@@ -1,0 +1,180 @@
+{
+  "model_name": "qwen3-unsloth-q4ks",
+  "total_tests": 5,
+  "successful_tests": 0,
+  "exact_matches": 0,
+  "match_rate_pct": 0.0,
+  "results": [
+    {
+      "test_case": {
+        "name": "Simple Greeting",
+        "message": "Hello",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 50,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "",
+      "direct_response": "<think>\nOkay, the user said \"Hello\". I need to respond as a doctor specialized in aesthetic medicine. Let me start with a friendly greeting. Maybe \"Hello! How can I assist you today?\" That's welcoming and opens the door for them",
+      "api_stats": {},
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 674.7229099273682,
+          "tokens_generated": 40,
+          "tokens_per_second": 59.28359540111936
+        }
+      },
+      "api_success": false,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "error": true,
+        "api_success": false,
+        "direct_success": true
+      },
+      "timestamp": 1755789754.3254669
+    },
+    {
+      "test_case": {
+        "name": "Medical Question - Botox",
+        "message": "What is botox?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "",
+      "direct_response": "<think>\nOkay, the user is asking, \"What is botox?\" I need to explain Botox clearly and concisely. Let me start by defining it. Botox is a neurotoxin derived from Clostridium botulinum. But I should mention it's used medically, not just the toxin itself.\nNext, I should explain its uses. It's commonly used for cosmetic purposes like reducing wrinkles, but also for medical conditions like muscle spasms or excessive sweating. I need to mention the active ingredient, botulinum toxin type A, and how it works by blocking nerve signals to muscles, causing them to relax.\nI should note that it's injected and temporary, lasting a few months. Also, it's important to mention that it's FDA-approved for these uses. Maybe add a note about consulting a qualified professional for safety and effectiveness. Avoid any jargon, keep it simple for the patient. Make sure not to include any other treatments like fillers unless",
+      "api_stats": {},
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 2304.7611713409424,
+          "tokens_generated": 150,
+          "tokens_per_second": 65.08266533869447
+        }
+      },
+      "api_success": false,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "error": true,
+        "api_success": false,
+        "direct_success": true
+      },
+      "timestamp": 1755789756.6317465
+    },
+    {
+      "test_case": {
+        "name": "Simple Math",
+        "message": "What is 2 + 2?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 30,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "",
+      "direct_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which is a simple math problem. But since I'm supposed to act",
+      "api_stats": {},
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 347.55802154541016,
+          "tokens_generated": 22,
+          "tokens_per_second": 63.29878361655248
+        }
+      },
+      "api_success": false,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "error": true,
+        "api_success": false,
+        "direct_success": true
+      },
+      "timestamp": 1755789756.9807632
+    },
+    {
+      "test_case": {
+        "name": "Short Definition",
+        "message": "Define artificial intelligence in one sentence.",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 100,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "",
+      "direct_response": "<think>\nOkay, the user asked me to define artificial intelligence in one sentence. But wait, I'm a doctor specialized in aesthetic medicine. This question isn't related to my field at all. The user might have made a mistake or is testing me. My instructions say to respond only in English and provide accurate medical info about treatments like Botox and fillers. Since the query is about AI, which is outside my expertise, I should clarify that I can't help with that. I need",
+      "api_stats": {},
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 1147.247314453125,
+          "tokens_generated": 83,
+          "tokens_per_second": 72.34708589365042
+        }
+      },
+      "api_success": false,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "error": true,
+        "api_success": false,
+        "direct_success": true
+      },
+      "timestamp": 1755789758.129315
+    },
+    {
+      "test_case": {
+        "name": "Medical Safety",
+        "message": "Is laser hair removal safe?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 150,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "",
+      "direct_response": "<think>\nOkay, the user is asking if laser hair removal is safe. Let me start by confirming that it's generally safe when done properly. I should mention that it's FDA-approved and commonly used. But I need to highlight that safety depends on the technician's expertise and the right equipment.\nI should note that different skin types and hair colors respond differently. Maybe mention that darker hair and lighter skin tend to work best. Also, there's a risk of side effects like redness or irritation, which are usually temporary. But more serious issues like burns or changes in pigmentation can happen if not done correctly.\nIt's important to advise consulting a qualified professional, especially one with experience in the specific laser type. Also, mention that a patch test",
+      "api_stats": {},
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 1725.8520126342773,
+          "tokens_generated": 127,
+          "tokens_per_second": 73.58684236555824
+        }
+      },
+      "api_success": false,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "error": true,
+        "api_success": false,
+        "direct_success": true
+      },
+      "timestamp": 1755789759.8564715
+    }
+  ],
+  "timestamp": 1755789759.8564768
+}

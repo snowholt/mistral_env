@@ -230,7 +230,7 @@ class ChatService:
         """
         try:
             from pathlib import Path
-            from ...config.app_config import AppConfig
+            from ...config.config_manager import AppConfig
             
             # Use the fastest model for real-time conversation
             model_name = "qwen3-unsloth-q4ks"

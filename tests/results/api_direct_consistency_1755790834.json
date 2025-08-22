@@ -1,0 +1,315 @@
+{
+  "model_name": "qwen3-unsloth-q4ks",
+  "total_tests": 5,
+  "successful_tests": 5,
+  "exact_matches": 0,
+  "match_rate_pct": 0.0,
+  "results": [
+    {
+      "test_case": {
+        "name": "Simple Greeting",
+        "message": "/no_think Hello",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "Hello! I'm Dr. [Your Name], a specialist in aesthetic medicine with expertise in non-surgical treatments such as Botox, dermal fillers, and other cosmetic procedures. How can I assist you today? Whether you have questions about treatments, recovery, or safety, feel free to ask!",
+      "direct_response": "Hello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments?\n</think>\nHello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments?",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2204.221248626709,
+          "generation_time_ms": 2204.049825668335,
+          "tokens_generated": 43,
+          "tokens_per_second": 19.509540800404135,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 2549.3228435516357,
+          "tokens_generated": 71,
+          "tokens_per_second": 27.850533007065142
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 278,
+        "direct_length": 467,
+        "length_diff": 189,
+        "length_diff_pct": 40.471092077087796,
+        "char_similarity": 5.353319057815846,
+        "api_response": "Hello! I'm Dr. [Your Name], a specialist in aesthetic medicine with expertise in non-surgical treatments such as Botox, dermal fillers, and other cosmetic procedures. How can I assist you today? Whether you have questions about treatments, recovery, or safety, feel free to ask!",
+        "direct_response": "Hello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments?\n</think>\nHello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments?",
+        "api_normalized": "Hello! I'm Dr. [Your Name], a specialist in aesthetic medicine with expertise in non-surgical treatments such as Botox, dermal fillers, and other cosmetic procedures. How can I assist you today? Whether you have questions about treatments, recovery, or safety, feel free to ask!",
+        "direct_normalized": "Hello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments? Hello! Welcome to my virtual clinic. I'm Dr. Aesthetic, a specialist in non-surgical aesthetic treatments. How can I assist you today? Are you interested in learning about procedures like Botox, fillers, or other cosmetic treatments?"
+      },
+      "timestamp": 1755790821.9105222
+    },
+    {
+      "test_case": {
+        "name": "Medical Question - Botox",
+        "message": "/no_think What is botox?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles.\nWait, I need to be precise. Botox is a brand name, so maybe clarify that it's a trade name for botulinum toxin type A. Also, note that it's FDA-approved for cosmetic use. \nI should explain how it works: it blocks nerve signals to muscles, causing them to relax. That reduces the appearance of dynamic wrinkles like crow's feet or frown lines. \nDon't forget to mention the procedure is quick, done in a clinic with minimal downtime. Also, results last around 3-6 months. \nSafety is important too. Mention that it's safe when administered by a qualified professional, but there are potential side effects like temporary bruising or drooping eyelids. \nMaybe add that it's commonly used on the face but can",
+      "direct_response": ".",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2382.1983337402344,
+          "generation_time_ms": 2382.0438385009766,
+          "tokens_generated": 150,
+          "tokens_per_second": 62.97113326612629,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 31.520605087280273,
+          "tokens_generated": 1,
+          "tokens_per_second": 31.725279296860226
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 869,
+        "direct_length": 1,
+        "length_diff": 868,
+        "length_diff_pct": 99.88492520138091,
+        "char_similarity": 0.0,
+        "api_response": "<think>\nOkay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles.\nWait, I need to be precise. Botox is a brand name, so maybe clarify that it's a trade name for botulinum toxin type A. Also, note that it's FDA-approved for cosmetic use. \nI should explain how it works: it blocks nerve signals to muscles, causing them to relax. That reduces the appearance of dynamic wrinkles like crow's feet or frown lines. \nDon't forget to mention the procedure is quick, done in a clinic with minimal downtime. Also, results last around 3-6 months. \nSafety is important too. Mention that it's safe when administered by a qualified professional, but there are potential side effects like temporary bruising or drooping eyelids. \nMaybe add that it's commonly used on the face but can",
+        "direct_response": ".",
+        "api_normalized": "Okay, the user is asking what Botox is. Let me start by explaining it's a type of botulinum toxin. I should mention it's used in aesthetic medicine for reducing wrinkles. Wait, I need to be precise. Botox is a brand name, so maybe clarify that it's a trade name for botulinum toxin type A. Also, note that it's FDA-approved for cosmetic use. I should explain how it works: it blocks nerve signals to muscles, causing them to relax. That reduces the appearance of dynamic wrinkles like crow's feet or frown lines. Don't forget to mention the procedure is quick, done in a clinic with minimal downtime. Also, results last around 3-6 months. Safety is important too. Mention that it's safe when administered by a qualified professional, but there are potential side effects like temporary bruising or drooping eyelids. Maybe add that it's commonly used on the face but can",
+        "direct_normalized": "."
+      },
+      "timestamp": 1755790824.3264656
+    },
+    {
+      "test_case": {
+        "name": "Simple Math",
+        "message": "/no_think What is 2 + 2?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to act as a doctor specialized in aesthetic medicine, I need to make sure if there's any context I'm missing here. Maybe they're testing if I can recognize when a question is outside my expertise.\nAs per the instructions, I should respond only in English and provide accurate medical info about treatments like Botox and fillers. However, this question isn't related to that. The user might be checking if I'll stay on topic or if I'll address the math question. \nSince the system message says to respond as a doctor but only provide info on aesthetic treatments, I should acknowledge the math question but redirect to my area of expertise. Maybe say something like, \"That's a math problem, but I'm here to discuss aesthetic treatments. How can I assist you with that?\" That way, I'm polite and stay within my role without",
+      "direct_response": "2 + 2 equals 4.",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2385.7779502868652,
+          "generation_time_ms": 2385.624408721924,
+          "tokens_generated": 163,
+          "tokens_per_second": 68.3259273354458,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 155.63464164733887,
+          "tokens_generated": 5,
+          "tokens_per_second": 32.12652367799822
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 922,
+        "direct_length": 15,
+        "length_diff": 907,
+        "length_diff_pct": 98.37310195227765,
+        "char_similarity": 0.21691973969631237,
+        "api_response": "<think>\nOkay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to act as a doctor specialized in aesthetic medicine, I need to make sure if there's any context I'm missing here. Maybe they're testing if I can recognize when a question is outside my expertise.\nAs per the instructions, I should respond only in English and provide accurate medical info about treatments like Botox and fillers. However, this question isn't related to that. The user might be checking if I'll stay on topic or if I'll address the math question. \nSince the system message says to respond as a doctor but only provide info on aesthetic treatments, I should acknowledge the math question but redirect to my area of expertise. Maybe say something like, \"That's a math problem, but I'm here to discuss aesthetic treatments. How can I assist you with that?\" That way, I'm polite and stay within my role without",
+        "direct_response": "2 + 2 equals 4.",
+        "api_normalized": "Okay, the user asked \"What is 2 + 2?\" which seems like a simple math problem. But since I'm supposed to act as a doctor specialized in aesthetic medicine, I need to make sure if there's any context I'm missing here. Maybe they're testing if I can recognize when a question is outside my expertise. As per the instructions, I should respond only in English and provide accurate medical info about treatments like Botox and fillers. However, this question isn't related to that. The user might be checking if I'll stay on topic or if I'll address the math question. Since the system message says to respond as a doctor but only provide info on aesthetic treatments, I should acknowledge the math question but redirect to my area of expertise. Maybe say something like, \"That's a math problem, but I'm here to discuss aesthetic treatments. How can I assist you with that?\" That way, I'm polite and stay within my role without",
+        "direct_normalized": "2 + 2 equals 4."
+      },
+      "timestamp": 1755790826.8703253
+    },
+    {
+      "test_case": {
+        "name": "Short Definition",
+        "message": "/no_think Define artificial intelligence in one sentence.",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "I cannot provide a definition of artificial intelligence, as my expertise lies in aesthetic medicine and non-surgical treatments. However, I\u2019d be happy to help with questions about Botox, fillers, or other cosmetic procedures!",
+      "direct_response": "Artificial intelligence is a branch of computer science that enables machines to perform tasks that typically require human intelligence, such as learning, reasoning, and problem-solving.",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2331.413745880127,
+          "generation_time_ms": 2331.310510635376,
+          "tokens_generated": 33,
+          "tokens_per_second": 14.155128563721943,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 428.1036853790283,
+          "tokens_generated": 25,
+          "tokens_per_second": 58.397067938964035
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 226,
+        "direct_length": 187,
+        "length_diff": 39,
+        "length_diff_pct": 17.25663716814159,
+        "char_similarity": 5.752212389380531,
+        "api_response": "I cannot provide a definition of artificial intelligence, as my expertise lies in aesthetic medicine and non-surgical treatments. However, I\u2019d be happy to help with questions about Botox, fillers, or other cosmetic procedures!",
+        "direct_response": "Artificial intelligence is a branch of computer science that enables machines to perform tasks that typically require human intelligence, such as learning, reasoning, and problem-solving.",
+        "api_normalized": "I cannot provide a definition of artificial intelligence, as my expertise lies in aesthetic medicine and non-surgical treatments. However, I\u2019d be happy to help with questions about Botox, fillers, or other cosmetic procedures!",
+        "direct_normalized": "Artificial intelligence is a branch of computer science that enables machines to perform tasks that typically require human intelligence, such as learning, reasoning, and problem-solving."
+      },
+      "timestamp": 1755790829.6318855
+    },
+    {
+      "test_case": {
+        "name": "Medical Safety",
+        "message": "/no_think Is laser hair removal safe?",
+        "settings": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "disable_content_filter": true,
+          "enable_thinking": false
+        }
+      },
+      "model_name": "qwen3-unsloth-q4ks",
+      "api_response": "Laser hair removal is",
+      "direct_response": "Yes, laser hair removal is generally safe when performed by a trained and experienced professional using appropriate equipment. It is a widely accepted and effective method for long-term hair reduction.\nHowever, safety depends on several factors:\n1. **Skin and Hair Type**: Laser hair removal works best on individuals with light skin and dark hair. People with darker skin tones may be at a higher risk of complications like hyperpigmentation or burns if the laser settings are not properly adjusted.\n2. **Equipment and Technique**: Using FDA-approved devices and proper laser settings is crucial to minimize risks.\n3. **Professional Expertise**: It's important to choose a qualified practitioner who has experience with laser treatments.\n4. **Preparation and Aftercare**: Following pre- and post-treatment instructions (like avoiding sun exposure, shaving before the session, and applying cooling creams) helps reduce side effects such as redness, irritation, or blistering.\nCommon side effects are usually mild and temporary, including redness,",
+      "api_stats": {
+        "model_info": {},
+        "generation_config_used": {
+          "temperature": 0.0,
+          "top_p": 0.95,
+          "top_k": 20,
+          "repetition_penalty": 1.05,
+          "max_new_tokens": 200,
+          "do_sample": false,
+          "enable_thinking": false
+        },
+        "content_filter_config": {
+          "strictness_level": "disabled"
+        },
+        "performance": {
+          "total_time_ms": 2378.293991088867,
+          "generation_time_ms": 2378.2060146331787,
+          "tokens_generated": 4,
+          "tokens_per_second": 1.6819400738993469,
+          "thinking_tokens": 0
+        }
+      },
+      "direct_stats": {
+        "performance": {
+          "generation_time_ms": 2307.2867393493652,
+          "tokens_generated": 152,
+          "tokens_per_second": 65.87824452320247
+        }
+      },
+      "api_success": true,
+      "direct_success": true,
+      "comparison": {
+        "exact_match": false,
+        "api_length": 21,
+        "direct_length": 1047,
+        "length_diff": 1026,
+        "length_diff_pct": 97.99426934097421,
+        "char_similarity": 0.28653295128939826,
+        "api_response": "Laser hair removal is",
+        "direct_response": "Yes, laser hair removal is generally safe when performed by a trained and experienced professional using appropriate equipment. It is a widely accepted and effective method for long-term hair reduction.\nHowever, safety depends on several factors:\n1. **Skin and Hair Type**: Laser hair removal works best on individuals with light skin and dark hair. People with darker skin tones may be at a higher risk of complications like hyperpigmentation or burns if the laser settings are not properly adjusted.\n2. **Equipment and Technique**: Using FDA-approved devices and proper laser settings is crucial to minimize risks.\n3. **Professional Expertise**: It's important to choose a qualified practitioner who has experience with laser treatments.\n4. **Preparation and Aftercare**: Following pre- and post-treatment instructions (like avoiding sun exposure, shaving before the session, and applying cooling creams) helps reduce side effects such as redness, irritation, or blistering.\nCommon side effects are usually mild and temporary, including redness,",
+        "api_normalized": "Laser hair removal is",
+        "direct_normalized": "Yes, laser hair removal is generally safe when performed by a trained and experienced professional using appropriate equipment. It is a widely accepted and effective method for long-term hair reduction. However, safety depends on several factors: 1. **Skin and Hair Type**: Laser hair removal works best on individuals with light skin and dark hair. People with darker skin tones may be at a higher risk of complications like hyperpigmentation or burns if the laser settings are not properly adjusted. 2. **Equipment and Technique**: Using FDA-approved devices and proper laser settings is crucial to minimize risks. 3. **Professional Expertise**: It's important to choose a qualified practitioner who has experience with laser treatments. 4. **Preparation and Aftercare**: Following pre- and post-treatment instructions (like avoiding sun exposure, shaving before the session, and applying cooling creams) helps reduce side effects such as redness, irritation, or blistering. Common side effects are usually mild and temporary, including redness,"
+      },
+      "timestamp": 1755790834.319317
+    }
+  ],
+  "timestamp": 1755790834.3193214
+}

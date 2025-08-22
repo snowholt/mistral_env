@@ -3,33 +3,47 @@
   "wav_duration_s": 2.371,
   "ready": {
     "type": "ready",
-    "session_id": "stream_f977ea83-c44e-4305-9f06-ea89ba8e5242",
-    "connection_id": "f977ea83-c44e-4305-9f06-ea89ba8e5242",
-    "timestamp": 1755130971.7530258,
+    "session_id": "stream_7b2234ab-dd89-4307-8b74-8103bd218e7b",
+    "connection_id": "7b2234ab-dd89-4307-8b74-8103bd218e7b",
+    "timestamp": 1755795239.6160743,
     "feature": "streaming_voice_phase4",
     "message": "Streaming voice ready (incremental decode)",
     "language": "ar",
+    "requested_language": "ar",
     "pcm_sample_rate": 16000,
     "ring_buffer_seconds": 40.0,
     "decode_interval_ms": 480,
     "window_seconds": 8.0,
     "metrics": {
       "phase9_instrumented": true
+    },
+    "flags": {
+      "forced_real": true,
+      "mock_disabled": true
     }
   },
-  "num_partials": 0,
-  "num_finals": 0,
-  "tts_audio_events": 0,
-  "tts_complete_events": 0,
-  "errors": [],
+  "num_partials": 9,
+  "num_finals": 1,
+  "tts_audio_events": 1,
+  "tts_complete_events": 1,
+  "errors": [
+    {
+      "type": "error",
+      "stage": "llm_generation",
+      "message": "Chat generation failed: ChatService.chat() got an unexpected keyword argument 'max_length'",
+      "utterance_index": 0
+    }
+  ],
   "timing_ms": {
-    "elapsed_total": 5515,
-    "first_partial": null,
-    "first_final": null,
-    "tts_start": null,
-    "tts_audio": null,
-    "tts_complete": null
+    "elapsed_total": 5511,
+    "first_partial": 281,
+    "first_final": 2725,
+    "tts_start": 2725,
+    "tts_audio": 4964,
+    "tts_complete": 4964
   },
-  "final_texts": [],
+  "final_texts": [
+    "كيف يعمل إزالة الشعر بالليزر؟"
+  ],
   "phase": "streaming_voice_phase4"
 }

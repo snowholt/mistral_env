@@ -1,26 +1,26 @@
 {
-  "created": "2025-08-21T03:44:46.740Z",
+  "created": "2025-08-22T02:40:31.705Z",
   "events": [
     {
-      "t": 1661.1999999955297,
+      "t": 1971.800000011921,
       "type": "ready"
     },
     {
-      "t": 10265.10000000149,
+      "t": 451937.700000003,
       "type": "file_decoded",
-      "samples": 85935,
+      "samples": 32815,
       "src_rate": 48000
     },
     {
-      "t": 12702.79999999702,
+      "t": 559365.900000006,
       "type": "ws_open"
     },
     {
-      "t": 12705.29999999702,
+      "t": 559373.5,
       "type": "ready",
-      "session_id": "stream_ed1cd496-f27d-4935-8615-dd15f94b2aaa",
-      "connection_id": "ed1cd496-f27d-4935-8615-dd15f94b2aaa",
-      "timestamp": 1755735043.889011,
+      "session_id": "stream_f607e211-988d-4f94-b0be-25177b58efe2",
+      "connection_id": "f607e211-988d-4f94-b0be-25177b58efe2",
+      "timestamp": 1755830345.9384692,
       "feature": "streaming_voice_phase4",
       "message": "Streaming voice ready (incremental decode)",
       "language": "ar",
@@ -38,2768 +38,311 @@
       }
     },
     {
-      "t": 14051.79999999702,
-      "type": "stream_start",
-      "samples": 85935
-    },
-    {
-      "t": 14054.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14074.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14095.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14116.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14137.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14157.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14178.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14200.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14221.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14241.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14262.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14283.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14304.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14325,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14345.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14367.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14387.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14408.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14428.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14449.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14469.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14490.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14511.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14531.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14552.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14572.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14593.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14613.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14634.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14654.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14675.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14696.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14716.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14737.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14757.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14778.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14798.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14818.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14839.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14859.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14880.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14901,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14921.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14942.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14962.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 14983,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15003.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15023.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15044.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15064.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15084.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15105.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15125.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15146.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15166.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15186.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15207.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15227.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15247.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15268.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15288.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15308.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15329.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15349.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15369.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15389.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15409.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15430,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15450.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15470.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15490.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15510.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15530.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15550.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15571.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15591.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15611.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15631.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15652,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15672.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15692.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15713.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15733.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15753.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15774.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15794.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15814.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15835,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15855.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15875.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15896.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15916.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15936.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15956.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15976.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 15996.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16017.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16037.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16057.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16077.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16098.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16118.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16139.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16159.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16179.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16200.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16220.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16240.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16261.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16281.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16302,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16322.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16343.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16363.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16384.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16404.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16425.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16446.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16466.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16487.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16508.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16528.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16549.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16569.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16590.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16611.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16631.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16652.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16672.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16693.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16713.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16734.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16755,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16775.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16796.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16816.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16837.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16857.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16878.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16899.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16919.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16940.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16961,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 16981.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17002.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17022.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17043.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17063.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17084.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17104.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17125.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17146,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17166.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17187.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17207.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17228.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17249,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17269.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17290.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17310.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17331.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17352,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17372.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17393.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17413.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17434.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17454.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17475.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17496,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17516.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17537.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17557.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17578.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17598.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17619.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17640,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17660.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17681.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17701.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17722.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17743.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17763.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17784.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17804.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17825.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17846,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17866.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17887.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17907.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17928.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17948.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17969.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 17989.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18010.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18031.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18051.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18072.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18092.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18113.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18134,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18154.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18175.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18195.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18216.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18236.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18257.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18278.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18298.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18319.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18340,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18360.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18381.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18401.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18422.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18442.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18463.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18483.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18504.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18525,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18545.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18566.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18586.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18607.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18627.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18648.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18669,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18689.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18710.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18730.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18751.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18771.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18792.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18813,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18833.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18854.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18874.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18895.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18916.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18936.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18957.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18977.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 18998.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19019,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19039.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19060.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19080.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19101.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19122,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19142.60000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19163.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19183.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19204.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19224.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19245.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19266,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19286.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19307.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19327.69999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19348.19999999553,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19368.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19389.39999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19409.89999999851,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19430.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19451.10000000149,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19471.79999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19492.29999999702,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19513,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19533.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 19554,
-      "type": "frame_sent",
-      "samples": 175
-    },
-    {
-      "t": 19574.39999999851,
-      "type": "stream_complete"
-    },
-    {
-      "t": 2890313.799999997,
-      "type": "ws_close",
-      "code": 1006
-    },
-    {
-      "t": 12407964.799999997,
-      "type": "ws_open"
-    },
-    {
-      "t": 12407968.799999997,
-      "type": "ready",
-      "session_id": "stream_88c130ed-fec9-4e17-a47f-934a273021db",
-      "connection_id": "88c130ed-fec9-4e17-a47f-934a273021db",
-      "timestamp": 1755747439.1520867,
-      "feature": "streaming_voice_phase4",
-      "message": "Streaming voice ready (incremental decode)",
-      "language": "ar",
-      "requested_language": "ar",
-      "pcm_sample_rate": 16000,
-      "ring_buffer_seconds": 40,
-      "decode_interval_ms": 480,
-      "window_seconds": 8,
-      "metrics": {
-        "phase9_instrumented": true
-      },
-      "flags": {
-        "forced_real": true,
-        "mock_disabled": true
-      }
-    },
-    {
-      "t": 12409854.100000001,
-      "type": "stream_start",
-      "samples": 85935
-    },
-    {
-      "t": 12409856.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409877.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409897.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409918.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409939.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409959.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12409980.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410001.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410022.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410043,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410063.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410084.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410104.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410125.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410145.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410166.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410186.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410207.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410228,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410248.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410269.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410289.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410310.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410330.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410351.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410371.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410392.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410412.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410433,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410453.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410474.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410494.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410515.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410535.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410556.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410576.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410597.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410617.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410638,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410658.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410679.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410699.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410720.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410740.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410760.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410780.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410801.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410821.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410841.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410862.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410882.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410903.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410923.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410944.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410964.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12410984.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411005.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411025.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411045.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411066.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411086.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411107,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411127.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411147.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411167.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411187.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411207.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411227.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411248,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411268.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411288.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411308.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411328.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411348.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411369.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411389.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411409.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411429.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411450,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411470.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411490.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411510.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411531.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411551.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411571.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411592.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411612.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411632.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411653.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411673.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411693.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411713.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411733.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411754,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411774.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411794.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411814.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411834.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411854.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411875.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411895.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12411898.699999996,
+      "t": 562965.1000000089,
       "type": "decoder_started",
-      "timestamp": 1755747443.0871935,
+      "timestamp": 1755830349.5395436,
       "mode": "incremental"
     },
     {
-      "t": 12411903.600000001,
+      "t": 564967.700000003,
+      "type": "heartbeat",
+      "ts": 1755830351.5416646,
+      "bytes_received": 0,
+      "pcm_frames": 0,
+      "buffer_usage": 0,
+      "voiced_frames": 0,
+      "silence_frames": 0,
+      "low_energy_mode": true
+    },
+    {
+      "t": 566965.400000006,
+      "type": "heartbeat",
+      "ts": 1755830353.5425742,
+      "bytes_received": 0,
+      "pcm_frames": 0,
+      "buffer_usage": 0,
+      "voiced_frames": 0,
+      "silence_frames": 0,
+      "low_energy_mode": true
+    },
+    {
+      "t": 567891.700000003,
+      "type": "stream_start",
+      "samples": 32815
+    },
+    {
+      "t": 567895.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 567916.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 567937.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 567958.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 567979.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568001.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568022.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568043.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568064.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568085.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568106.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568127.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568147.900000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568169.900000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568190.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568211.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568231.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568251.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568272.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568293,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568313.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568334.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568355.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568376,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568396.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 568414.1000000089,
       "type": "ingest_mode",
       "mode": "pcm16le",
-      "timestamp": 1755747443.0910642,
-      "bytes_received": 171870,
-      "frame_size_bytes": 171870
+      "timestamp": 1755830354.9875302,
+      "bytes_received": 65630,
+      "frame_size_bytes": 65630
     },
     {
-      "t": 12411915.799999997,
+      "t": 568419.700000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12411936.100000001,
+      "t": 568440.5,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12411956.5,
+      "t": 568461.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12411976.899999999,
+      "t": 568482.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12411997.299999997,
+      "t": 568503.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412017.699999996,
+      "t": 568524,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412038,
+      "t": 568545.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412058.299999997,
+      "t": 568565.900000006,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412078.699999996,
+      "t": 568586.3000000119,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412099,
+      "t": 568606.6000000089,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412119.299999997,
+      "t": 568627,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412139.899999999,
+      "t": 568647.400000006,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412161.100000001,
+      "t": 568668.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412181.799999997,
+      "t": 568688.900000006,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412202.299999997,
+      "t": 568710,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412222.899999999,
+      "t": 568730.900000006,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412243.299999997,
+      "t": 568751.700000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412263.799999997,
+      "t": 568772.400000006,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412284.399999999,
+      "t": 568793.200000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412305,
+      "t": 568814.1000000089,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412325.299999997,
+      "t": 568834.8000000119,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412345.600000001,
+      "t": 568855.5,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412365.699999996,
+      "t": 568876.700000003,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412385.899999999,
+      "t": 568897.6000000089,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412406.100000001,
+      "t": 568918.6000000089,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412426.100000001,
+      "t": 568939.5,
       "type": "frame_sent",
       "samples": 320
     },
     {
-      "t": 12412446.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412466.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412486.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412506.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412526.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412547.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412567.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412587.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412607.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412627.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412648.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412668.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412688.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412708.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412728.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412749,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412769.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412789.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412809.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412829.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412849.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412870.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412890.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412910.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412931.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412951.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412972.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12412992.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413013.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413033.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413053.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413074.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413094.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413114.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413135,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413155.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413175.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413195.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413216,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413236.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413256.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413277.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413297.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413317.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413338.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413358.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413379,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413399.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413419.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413439.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413460.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413480.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413500.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413520.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413541,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413561.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413581.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413602.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413622.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413643.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413663.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413684.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413704.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413724.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413745.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413765.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413785.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413805.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413826.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413846.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413866.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413887.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413907.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413928,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413948.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413968.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12413989,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414009.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414029.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414050.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414070.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414090.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414111,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414131.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414151.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414172.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414192.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414213.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414234,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414254.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414275.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414295.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414316.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414337,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414357.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414378,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414398.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414419.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414439.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414460.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414480.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414501.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414522,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414542.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414563.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414583.899999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414604.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414625,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414645.5,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414666.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414686.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414707.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414727.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414748.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414769,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414789.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414810.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414830.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414851.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414872,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414892.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414913.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414933.799999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414954.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414975.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12414995.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415016.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415036.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415057.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415078,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415098.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415119.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415139.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415160.399999999,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415181.100000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415201.699999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415222.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415243.299999997,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415264,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415284.600000001,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415305.199999996,
-      "type": "frame_sent",
-      "samples": 320
-    },
-    {
-      "t": 12415325.799999997,
-      "type": "frame_sent",
-      "samples": 175
-    },
-    {
-      "t": 12415346.100000001,
-      "type": "stream_complete"
-    },
-    {
-      "t": 12422848,
+      "t": 568946.400000006,
       "type": "partial",
-      "text": "ما هي الفائدة الرئيسية لعلاج الضوء النبدي المكثف؟"
+      "text": "ما هو استخدام البوتكس؟"
     },
     {
-      "t": 12422860.199999996,
+      "t": 568954.5,
       "type": "metrics_snapshot",
-      "session_id": "stream_88c130ed-fec9-4e17-a47f-934a273021db",
-      "uptime_s": 14.89,
+      "session_id": "stream_f607e211-988d-4f94-b0be-25177b58efe2",
+      "uptime_s": 9.56,
       "decode_ms": {
         "count": 0,
         "mean": null,
@@ -2831,32 +374,108 @@
       }
     },
     {
-      "t": 12422862.699999996,
+      "t": 568958,
       "type": "perf_cycle",
-      "timestamp": 1755747454.0366807,
-      "decode_ms": 10708,
-      "cycle_latency_ms": 10708,
+      "timestamp": 1755830355.5025072,
+      "decode_ms": 419,
+      "cycle_latency_ms": 419,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12429605.199999996,
-      "type": "final",
-      "text": "ما هي الفائدة الرئيسية لعلاج الضوء النبدي المكثف؟"
+      "t": 568963.700000003,
+      "type": "frame_sent",
+      "samples": 320
     },
     {
-      "t": 12429618,
+      "t": 568984.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569005.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569008.700000003,
       "type": "perf_cycle",
-      "timestamp": 1755747460.793484,
-      "decode_ms": 6756,
-      "cycle_latency_ms": 6756,
+      "timestamp": 1755830355.5699806,
+      "decode_ms": 67,
+      "cycle_latency_ms": 67,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12429813,
+      "t": 569017.700000003,
+      "type": "heartbeat",
+      "ts": 1755830355.5706766,
+      "bytes_received": 65630,
+      "pcm_frames": 1,
+      "buffer_usage": 0.0512734375,
+      "voiced_frames": 1,
+      "silence_frames": 0,
+      "low_energy_mode": true
+    },
+    {
+      "t": 569030.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569051.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569072.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569093,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569114,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569135,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569155.900000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569176.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569197.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569218.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569239.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569257.5,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 0,
@@ -2865,42 +484,145 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747461.0014796
+      "timestamp": 1755830355.8334017
     },
     {
-      "t": 12429818,
+      "t": 569260.700000003,
       "type": "perf_cycle",
-      "timestamp": 1755747461.0015807,
-      "decode_ms": 207,
-      "cycle_latency_ms": 208,
+      "timestamp": 1755830355.8335176,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12429822.399999999,
-      "type": "assistant_pipeline_start",
-      "utterance_index": 0,
-      "chars": 59,
-      "timestamp": 1755747461.0016503
+      "t": 569264,
+      "type": "frame_sent",
+      "samples": 320
     },
     {
-      "t": 12429832.199999996,
-      "type": "tts_start"
+      "t": 569285,
+      "type": "frame_sent",
+      "samples": 320
     },
     {
-      "t": 12429837.399999999,
-      "type": "heartbeat",
-      "ts": 1755747461.015307,
-      "bytes_received": 12374640,
-      "pcm_frames": 72,
-      "buffer_usage": 1,
-      "voiced_frames": 72,
-      "silence_frames": 0,
-      "low_energy_mode": false
+      "t": 569306.1000000089,
+      "type": "frame_sent",
+      "samples": 320
     },
     {
-      "t": 12430308.899999999,
+      "t": 569326.900000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569347.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569368.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569389.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569410,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569430.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569451.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569471.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569492.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569500.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830356.0751812,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 569515.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569536,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569556.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569577.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569598.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569619.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569640.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569660.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569681.700000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569702.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569723.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569741.5,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 0,
@@ -2909,10 +631,91 @@
       "silence_ms": 720,
       "utterance_ms": 1200,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747461.4966078
+      "timestamp": 1755830356.3166192
     },
     {
-      "t": 12430555,
+      "t": 569749,
+      "type": "final",
+      "text": "ما هو استخدام البوتكس؟"
+    },
+    {
+      "t": 569754.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830356.3167853,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 569758.3000000119,
+      "type": "assistant_pipeline_start",
+      "utterance_index": 0,
+      "chars": 32,
+      "timestamp": 1755830356.3168316
+    },
+    {
+      "t": 569762.400000006,
+      "type": "tts_start"
+    },
+    {
+      "t": 569766.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569788.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569809.1000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569830.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569851.200000003,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569872.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569893,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569913.8000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569934.5,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569955,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569975.3000000119,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 569983.200000003,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 1,
@@ -2921,10 +724,34 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747461.7441986
+      "timestamp": 1755830356.5574753
     },
     {
-      "t": 12431034,
+      "t": 569995.6000000089,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 570015.900000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 570036.400000006,
+      "type": "frame_sent",
+      "samples": 320
+    },
+    {
+      "t": 570057.1000000089,
+      "type": "frame_sent",
+      "samples": 175
+    },
+    {
+      "t": 570077.400000006,
+      "type": "stream_complete"
+    },
+    {
+      "t": 570461.5,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 1,
@@ -2933,10 +760,10 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747462.2249029
+      "timestamp": 1755830357.038836
     },
     {
-      "t": 12431279,
+      "t": 570705.700000003,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 2,
@@ -2945,50 +772,45 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747462.4683752
+      "timestamp": 1755830357.2800403
     },
     {
-      "t": 12431795,
-      "type": "endpoint_event",
-      "event": "final",
-      "utterance_index": 2,
-      "reason": "silence+stable",
-      "voiced_ms": 120,
-      "silence_ms": 720,
-      "utterance_ms": 720,
-      "end_silence_gap_ms": 720,
-      "timestamp": 1755747462.9835293
-    },
-    {
-      "t": 12432000.699999996,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 3,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747463.1900277
-    },
-    {
-      "t": 12432007.600000001,
-      "type": "assistant_response",
-      "chars": 58
-    },
-    {
-      "t": 12432018.199999996,
+      "t": 570995.700000003,
       "type": "heartbeat",
-      "ts": 1755747463.2012203,
-      "bytes_received": 19936920,
-      "pcm_frames": 116,
+      "ts": 1755830357.5711708,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
       "buffer_usage": 1,
-      "voiced_frames": 116,
+      "voiced_frames": 103,
       "silence_frames": 0,
       "low_energy_mode": false
     },
     {
-      "t": 12432482.799999997,
+      "t": 571249.200000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 2,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830357.8239703
+    },
+    {
+      "t": 571480,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 3,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830358.0557463
+    },
+    {
+      "t": 571959.5,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 3,
@@ -2997,10 +819,10 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747463.6721034
+      "timestamp": 1755830358.534594
     },
     {
-      "t": 12432721,
+      "t": 572205,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 4,
@@ -3009,10 +831,15 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747463.9117322
+      "timestamp": 1755830358.7805703
     },
     {
-      "t": 12433204.100000001,
+      "t": 572533.8000000119,
+      "type": "assistant_response",
+      "chars": 265
+    },
+    {
+      "t": 572637.8000000119,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 4,
@@ -3021,10 +848,10 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747464.393493
+      "timestamp": 1755830359.2125642
     },
     {
-      "t": 12433446.899999999,
+      "t": 572873.6000000089,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 5,
@@ -3033,208 +860,129 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747464.6349645
+      "timestamp": 1755830359.4471717
     },
     {
-      "t": 12434417.899999999,
+      "t": 572995,
+      "type": "heartbeat",
+      "ts": 1755830359.571939,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 573354,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 5,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830359.9290702
+    },
+    {
+      "t": 573594.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 6,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830360.1704583
+    },
+    {
+      "t": 574075.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 6,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830360.6525536
+    },
+    {
+      "t": 574322,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 7,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830360.8971264
+    },
+    {
+      "t": 574803.200000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 7,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830361.3788424
+    },
+    {
+      "t": 575051.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 8,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830361.6249182
+    },
+    {
+      "t": 575063.200000003,
+      "type": "heartbeat",
+      "ts": 1755830361.6252596,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 576420.1000000089,
       "type": "tts_audio",
-      "chars": 58
+      "chars": 265
     },
     {
-      "t": 12434443.199999996,
+      "t": 576494,
       "type": "tts_complete",
-      "processing_ms": 3942
+      "processing_ms": 5636
     },
     {
-      "t": 12434447.799999997,
+      "t": 576500.700000003,
       "type": "assistant_turn",
       "utterance_index": 0,
-      "chars": 58,
+      "chars": 265,
       "assistant_turns": 1,
-      "timestamp": 1755747464.9444897
+      "timestamp": 1755830361.953154
     },
     {
-      "t": 12434452.100000001,
+      "t": 576507.1000000089,
       "type": "assistant_pipeline_done",
       "utterance_index": 0,
-      "total_ms": 3942,
-      "tts_ms": 3942
+      "total_ms": 5636,
+      "tts_ms": 5636
     },
     {
-      "t": 12434456.899999999,
-      "type": "endpoint_event",
-      "event": "final",
-      "utterance_index": 5,
-      "reason": "silence+stable",
-      "voiced_ms": 120,
-      "silence_ms": 720,
-      "utterance_ms": 720,
-      "end_silence_gap_ms": 720,
-      "timestamp": 1755747465.1507814
-    },
-    {
-      "t": 12434461.600000001,
-      "type": "perf_cycle",
-      "timestamp": 1755747465.1508765,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12434466.299999997,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 6,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747465.3916495
-    },
-    {
-      "t": 12434470.899999999,
-      "type": "perf_cycle",
-      "timestamp": 1755747465.3917503,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12434475.699999996,
-      "type": "heartbeat",
-      "ts": 1755747465.391821,
-      "bytes_received": 19936920,
-      "pcm_frames": 116,
-      "buffer_usage": 1,
-      "voiced_frames": 116,
-      "silence_frames": 0,
-      "low_energy_mode": false
-    },
-    {
-      "t": 12434487.299999997,
-      "type": "perf_cycle",
-      "timestamp": 1755747465.6333182,
-      "decode_ms": 205,
-      "cycle_latency_ms": 206,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12434681.100000001,
-      "type": "endpoint_event",
-      "event": "final",
-      "utterance_index": 6,
-      "reason": "silence+stable",
-      "voiced_ms": 120,
-      "silence_ms": 720,
-      "utterance_ms": 720,
-      "end_silence_gap_ms": 720,
-      "timestamp": 1755747465.8727357
-    },
-    {
-      "t": 12434690.100000001,
-      "type": "perf_cycle",
-      "timestamp": 1755747465.8728402,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12434924.5,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 7,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747466.1136847
-    },
-    {
-      "t": 12434934.699999996,
-      "type": "perf_cycle",
-      "timestamp": 1755747466.1137779,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12435163.600000001,
-      "type": "perf_cycle",
-      "timestamp": 1755747466.3551905,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12435406.699999996,
-      "type": "endpoint_event",
-      "event": "final",
-      "utterance_index": 7,
-      "reason": "silence+stable",
-      "voiced_ms": 120,
-      "silence_ms": 720,
-      "utterance_ms": 720,
-      "end_silence_gap_ms": 720,
-      "timestamp": 1755747466.5955267
-    },
-    {
-      "t": 12435416.799999997,
-      "type": "perf_cycle",
-      "timestamp": 1755747466.5956311,
-      "decode_ms": 204,
-      "cycle_latency_ms": 204,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12435648.899999999,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 8,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747466.8382308
-    },
-    {
-      "t": 12435659.199999996,
-      "type": "perf_cycle",
-      "timestamp": 1755747466.8383274,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12435890.799999997,
-      "type": "perf_cycle",
-      "timestamp": 1755747467.0788507,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12436130.600000001,
+      "t": 576513.6000000089,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 8,
@@ -3243,20 +991,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747467.3197665
+      "timestamp": 1755830362.101793
     },
     {
-      "t": 12436137.600000001,
+      "t": 576520,
       "type": "perf_cycle",
-      "timestamp": 1755747467.3198783,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830362.1019123,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12436372.600000001,
+      "t": 576526.6000000089,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 9,
@@ -3265,41 +1013,30 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747467.5605776
+      "timestamp": 1755830362.342614
     },
     {
-      "t": 12436383.5,
+      "t": 576533.200000003,
       "type": "perf_cycle",
-      "timestamp": 1755747467.5606773,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830362.342716,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12436390.600000001,
-      "type": "heartbeat",
-      "ts": 1755747467.5607467,
-      "bytes_received": 19936920,
-      "pcm_frames": 116,
-      "buffer_usage": 1,
-      "voiced_frames": 116,
-      "silence_frames": 0,
-      "low_energy_mode": false
-    },
-    {
-      "t": 12436612.699999996,
+      "t": 576539.900000006,
       "type": "perf_cycle",
-      "timestamp": 1755747467.8015232,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830362.5833826,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12436852.5,
+      "t": 576546.8000000119,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 9,
@@ -3308,20 +1045,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747468.042115
+      "timestamp": 1755830362.824317
     },
     {
-      "t": 12436865.299999997,
+      "t": 576554.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747468.042221,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830362.8244312,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12437093.600000001,
+      "t": 576572.6000000089,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 10,
@@ -3330,30 +1067,30 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747468.2830815
+      "timestamp": 1755830363.0648863
     },
     {
-      "t": 12437105.199999996,
+      "t": 576580.6000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747468.2831764,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830363.064996,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12437334.600000001,
+      "t": 576733.200000003,
       "type": "perf_cycle",
-      "timestamp": 1755747468.5239356,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830363.3055952,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12437576.699999996,
+      "t": 576973.700000003,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 10,
@@ -3362,20 +1099,31 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747468.7650228
+      "timestamp": 1755830363.5473301
     },
     {
-      "t": 12437588.199999996,
+      "t": 576987.200000003,
       "type": "perf_cycle",
-      "timestamp": 1755747468.7651355,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830363.5474434,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12437816.899999999,
+      "t": 577051.6000000089,
+      "type": "heartbeat",
+      "ts": 1755830363.625897,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 577211.1000000089,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 11,
@@ -3384,30 +1132,30 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747469.0057013
+      "timestamp": 1755830363.7876227
     },
     {
-      "t": 12437828.799999997,
+      "t": 577226,
       "type": "perf_cycle",
-      "timestamp": 1755747469.0058024,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830363.78772,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12438058.699999996,
+      "t": 577457.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747469.2470045,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830364.0282924,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12438298.699999996,
+      "t": 577693.6000000089,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 11,
@@ -3416,20 +1164,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747469.4878552
+      "timestamp": 1755830364.2688255
     },
     {
-      "t": 12438310.699999996,
+      "t": 577702.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747469.4879625,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830364.2689385,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12438540.899999999,
+      "t": 577932.700000003,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 12,
@@ -3438,41 +1186,30 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747469.7288702
+      "timestamp": 1755830364.509471
     },
     {
-      "t": 12438553,
+      "t": 577947.5,
       "type": "perf_cycle",
-      "timestamp": 1755747469.728976,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830364.5095704,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12438561.100000001,
-      "type": "heartbeat",
-      "ts": 1755747469.7290454,
-      "bytes_received": 19936920,
-      "pcm_frames": 116,
-      "buffer_usage": 1,
-      "voiced_frames": 116,
-      "silence_frames": 0,
-      "low_energy_mode": false
-    },
-    {
-      "t": 12438780.600000001,
+      "t": 578175.700000003,
       "type": "perf_cycle",
-      "timestamp": 1755747469.9698257,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830364.7502537,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12439022.5,
+      "t": 578417.700000003,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 12,
@@ -3481,20 +1218,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747470.2116508
+      "timestamp": 1755830364.9906952
     },
     {
-      "t": 12439036.600000001,
+      "t": 578433.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747470.2117612,
-      "decode_ms": 205,
-      "cycle_latency_ms": 206,
+      "timestamp": 1755830364.9908087,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12439262.799999997,
+      "t": 578657.700000003,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 13,
@@ -3503,30 +1240,30 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747470.4517727
+      "timestamp": 1755830365.2314644
     },
     {
-      "t": 12439276.199999996,
+      "t": 578670.5,
       "type": "perf_cycle",
-      "timestamp": 1755747470.4518752,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830365.2315679,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12439505,
+      "t": 578897.6000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747470.692922,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830365.471968,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12439745.100000001,
+      "t": 579137.400000006,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 13,
@@ -3535,117 +1272,117 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747470.9338434
+      "timestamp": 1755830365.712852
     },
     {
-      "t": 12439759.199999996,
+      "t": 579159.900000006,
       "type": "perf_cycle",
-      "timestamp": 1755747470.9339535,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830365.7129698,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12439986.899999999,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 14,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747471.1762521
-    },
-    {
-      "t": 12440003,
-      "type": "perf_cycle",
-      "timestamp": 1755747471.1763484,
-      "decode_ms": 206,
-      "cycle_latency_ms": 206,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12440226.199999996,
-      "type": "perf_cycle",
-      "timestamp": 1755747471.4164793,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12440468.699999996,
-      "type": "endpoint_event",
-      "event": "final",
-      "utterance_index": 14,
-      "reason": "silence+stable",
-      "voiced_ms": 120,
-      "silence_ms": 720,
-      "utterance_ms": 720,
-      "end_silence_gap_ms": 720,
-      "timestamp": 1755747471.6570282
-    },
-    {
-      "t": 12440479,
-      "type": "perf_cycle",
-      "timestamp": 1755747471.6571472,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12440708.799999997,
-      "type": "endpoint_event",
-      "event": "start",
-      "utterance_index": 15,
-      "reason": null,
-      "voiced_ms": null,
-      "silence_ms": null,
-      "utterance_ms": null,
-      "end_silence_gap_ms": null,
-      "timestamp": 1755747471.8984222
-    },
-    {
-      "t": 12440725.100000001,
-      "type": "perf_cycle",
-      "timestamp": 1755747471.8985274,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
-    },
-    {
-      "t": 12440734.799999997,
+      "t": 579191.1000000089,
       "type": "heartbeat",
-      "ts": 1755747471.898602,
-      "bytes_received": 19936920,
-      "pcm_frames": 116,
+      "ts": 1755830365.7130406,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
       "buffer_usage": 1,
-      "voiced_frames": 116,
+      "voiced_frames": 103,
       "silence_frames": 0,
       "low_energy_mode": false
     },
     {
-      "t": 12440948.799999997,
-      "type": "perf_cycle",
-      "timestamp": 1755747472.137789,
-      "decode_ms": 204,
-      "cycle_latency_ms": 204,
-      "window_seconds": 6,
-      "interval_ms": 240,
-      "tokens": 8
+      "t": 579377.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 14,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830365.9533145
     },
     {
-      "t": 12441190.699999996,
+      "t": 579387.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830365.9534142,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 579619.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830366.1945658,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 579858.1000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 14,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830366.4353664
+    },
+    {
+      "t": 579876.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830366.435484,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 580100.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 15,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830366.6763034
+    },
+    {
+      "t": 580122.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830366.676409,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 580343.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830366.9172733,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 580585.900000006,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 15,
@@ -3654,20 +1391,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747472.3804862
+      "timestamp": 1755830367.1583006
     },
     {
-      "t": 12441206,
+      "t": 580606.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747472.3806,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830367.158422,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12441432.100000001,
+      "t": 580825.8000000119,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 16,
@@ -3676,30 +1413,41 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747472.62182
+      "timestamp": 1755830367.3993273
     },
     {
-      "t": 12441456.600000001,
+      "t": 580844.5,
       "type": "perf_cycle",
-      "timestamp": 1755747472.6219234,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830367.3994381,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12441673.199999996,
+      "t": 581065.6000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747472.863064,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830367.6398563,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12441915.100000001,
+      "t": 581137.3000000119,
+      "type": "heartbeat",
+      "ts": 1755830367.7142546,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 581305.700000003,
       "type": "endpoint_event",
       "event": "final",
       "utterance_index": 16,
@@ -3708,20 +1456,20 @@
       "silence_ms": 720,
       "utterance_ms": 720,
       "end_silence_gap_ms": 720,
-      "timestamp": 1755747473.1039174
+      "timestamp": 1755830367.8810785
     },
     {
-      "t": 12441931.899999999,
+      "t": 581326.1000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747473.1040282,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830367.8812034,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12442158,
+      "t": 581545.3000000119,
       "type": "endpoint_event",
       "event": "start",
       "utterance_index": 17,
@@ -3730,30 +1478,1869 @@
       "silence_ms": null,
       "utterance_ms": null,
       "end_silence_gap_ms": null,
-      "timestamp": 1755747473.3452132
+      "timestamp": 1755830368.1223223
     },
     {
-      "t": 12442176.699999996,
+      "t": 581570.200000003,
       "type": "perf_cycle",
-      "timestamp": 1755747473.3453233,
-      "decode_ms": 205,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830368.122432,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12442396.799999997,
+      "t": 581787.6000000089,
       "type": "perf_cycle",
-      "timestamp": 1755747473.585909,
-      "decode_ms": 204,
-      "cycle_latency_ms": 205,
+      "timestamp": 1755830368.3625543,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
       "window_seconds": 6,
       "interval_ms": 240,
-      "tokens": 8
+      "tokens": 4
     },
     {
-      "t": 12445134.100000001,
+      "t": 582025.700000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 17,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830368.6033676
+    },
+    {
+      "t": 582046.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830368.6034806,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 582269.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 18,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830368.8445046
+    },
+    {
+      "t": 582292.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830368.8446157,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 582511.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830369.0855618,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 582751.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 18,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830369.326544
+    },
+    {
+      "t": 582774.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830369.3266633,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 582993.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 19,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830369.5676327
+    },
+    {
+      "t": 583017.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830369.5677516,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 583141.700000003,
+      "type": "heartbeat",
+      "ts": 1755830369.7154884,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 583233.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830369.8076668,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 583473.700000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 19,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830370.0487094
+    },
+    {
+      "t": 583497.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830370.0488327,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 583714.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 20,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830370.289679
+    },
+    {
+      "t": 583731.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830370.2898028,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 583958.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830370.5307748,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 584201.200000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 20,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830370.7718995
+    },
+    {
+      "t": 584225,
+      "type": "perf_cycle",
+      "timestamp": 1755830370.7720258,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 584435.400000006,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 21,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830371.012633
+    },
+    {
+      "t": 584458.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830371.0127485,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 584678.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830371.253676,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 584921.5,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 21,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830371.4949312
+    },
+    {
+      "t": 584946.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830371.4950507,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 585161.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 22,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830371.7358053
+    },
+    {
+      "t": 585187.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830371.7359078,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 585203.400000006,
+      "type": "heartbeat",
+      "ts": 1755830371.735987,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 585401.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830371.9764545,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 585641.1000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 22,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830372.2177444
+    },
+    {
+      "t": 585668.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830372.2178586,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 585881.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 23,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830372.4585254
+    },
+    {
+      "t": 585909.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830372.4586394,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 586125.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830372.699605,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 586365.700000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 23,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830372.9406352
+    },
+    {
+      "t": 586394.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830372.9407592,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 586605.200000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 24,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830373.1818342
+    },
+    {
+      "t": 586633.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830373.1819475,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 586845.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830373.4227104,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 587086.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 24,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830373.663672
+    },
+    {
+      "t": 587115.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830373.6637945,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 587160.400000006,
+      "type": "heartbeat",
+      "ts": 1755830373.7372694,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 587329.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 25,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830373.9042168
+    },
+    {
+      "t": 587357.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830373.9043374,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 587569.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830374.1446822,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 587813.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 25,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830374.3877053
+    },
+    {
+      "t": 587843.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830374.3878324,
+      "decode_ms": 90,
+      "cycle_latency_ms": 91,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 588053.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 26,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830374.6277354
+    },
+    {
+      "t": 588083.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830374.6278543,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 588293.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830374.8687205,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 588535.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 26,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830375.1097302
+    },
+    {
+      "t": 588565.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830375.1098495,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 588775.5,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 27,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830375.350107
+    },
+    {
+      "t": 588797.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830375.350217,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 589015.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830375.5908475,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 589161.1000000089,
+      "type": "heartbeat",
+      "ts": 1755830375.7385426,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 589256.1000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 27,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830375.831851
+    },
+    {
+      "t": 589279.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830375.8319764,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 589501.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 28,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830376.0728016
+    },
+    {
+      "t": 589539.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830376.072923,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 589737.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830376.3133183,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 589979.900000006,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 28,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830376.5539508
+    },
+    {
+      "t": 590011.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830376.5540776,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 590217.900000006,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 29,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830376.795288
+    },
+    {
+      "t": 590247.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830376.7954159,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 590463.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830377.040473,
+      "decode_ms": 93,
+      "cycle_latency_ms": 94,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 590701.1000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 29,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830377.2778735
+    },
+    {
+      "t": 590737.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830377.2780023,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 590947.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 30,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830377.5218503
+    },
+    {
+      "t": 590982.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830377.521984,
+      "decode_ms": 93,
+      "cycle_latency_ms": 94,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 591182.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830377.7586873,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 591214.700000003,
+      "type": "heartbeat",
+      "ts": 1755830377.7588418,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 591425.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 30,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830377.999661
+    },
+    {
+      "t": 591458.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830377.999793,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 591669.3000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 31,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830378.2403808
+    },
+    {
+      "t": 591702,
+      "type": "perf_cycle",
+      "timestamp": 1755830378.240503,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 591912.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830378.4821954,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 592145.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 31,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830378.7221222
+    },
+    {
+      "t": 592179.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830378.7222521,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 592386.5,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 32,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830378.962703
+    },
+    {
+      "t": 592420.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830378.9628232,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 592629.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830379.2034554,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 592869.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 32,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830379.4447155
+    },
+    {
+      "t": 592907,
+      "type": "perf_cycle",
+      "timestamp": 1755830379.4448442,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 593111.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 33,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830379.6857817
+    },
+    {
+      "t": 593145.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830379.6859052,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 593183.5,
+      "type": "heartbeat",
+      "ts": 1755830379.759119,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 593351.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830379.9266872,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 593591.3000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 33,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830380.1685584
+    },
+    {
+      "t": 593626.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830380.1686864,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 593836.1000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 34,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830380.4090025
+    },
+    {
+      "t": 593871.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830380.4091203,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 594075.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830380.649895,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 594319.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 34,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830380.8905072
+    },
+    {
+      "t": 594359.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830380.8906374,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 594554.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 35,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830381.1313686
+    },
+    {
+      "t": 594592.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830381.1314886,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 594796,
+      "type": "perf_cycle",
+      "timestamp": 1755830381.3720136,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 595037.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 35,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830381.6129644
+    },
+    {
+      "t": 595073.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830381.613094,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 595185.6000000089,
+      "type": "heartbeat",
+      "ts": 1755830381.7599626,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 595277.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 36,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830381.8531263
+    },
+    {
+      "t": 595317.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830381.853251,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 595519.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830382.0936947,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 595759.700000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 36,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830382.3345308
+    },
+    {
+      "t": 595797.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830382.3346581,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 596001.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 37,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830382.5757728
+    },
+    {
+      "t": 596039,
+      "type": "perf_cycle",
+      "timestamp": 1755830382.5758812,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 596242.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830382.8166394,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 596481.700000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 37,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830383.057472
+    },
+    {
+      "t": 596520.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830383.0575964,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 596722.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 38,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830383.2984724
+    },
+    {
+      "t": 596760.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830383.298586,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 596963.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830383.5391352,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 597205.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 38,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830383.7801034
+    },
+    {
+      "t": 597244.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830383.7802293,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 597272.200000003,
+      "type": "heartbeat",
+      "ts": 1755830383.7803044,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 597447.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 39,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830384.0211442
+    },
+    {
+      "t": 597486.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830384.0212655,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 597691.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830384.2622752,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 597929.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 39,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830384.5042918
+    },
+    {
+      "t": 597967.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830384.5044127,
+      "decode_ms": 90,
+      "cycle_latency_ms": 91,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 598171.6000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 40,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830384.744164
+    },
+    {
+      "t": 598210.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830384.7443008,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 598409.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830384.9848258,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 598648.5,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 40,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830385.2256286
+    },
+    {
+      "t": 598688.3000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830385.2257752,
+      "decode_ms": 89,
+      "cycle_latency_ms": 89,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 598891.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 41,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830385.4669504
+    },
+    {
+      "t": 598931.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830385.4670727,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 599133.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830385.7082713,
+      "decode_ms": 89,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 599205.200000003,
+      "type": "heartbeat",
+      "ts": 1755830385.7815733,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 599379.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 41,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830385.9545176
+    },
+    {
+      "t": 599427.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830385.9546368,
+      "decode_ms": 94,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 599621.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 42,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830386.1940062
+    },
+    {
+      "t": 599663.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830386.1941288,
+      "decode_ms": 93,
+      "cycle_latency_ms": 93,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 599863.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830386.4365401,
+      "decode_ms": 94,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 600097.3000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 42,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830386.6730309
+    },
+    {
+      "t": 600138.6000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830386.673166,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 600339.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 43,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830386.9137487
+    },
+    {
+      "t": 600381.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830386.9138646,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 600585.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830387.1588607,
+      "decode_ms": 94,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 600822.8000000119,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 43,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830387.3993294
+    },
+    {
+      "t": 600866.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830387.399452,
+      "decode_ms": 94,
+      "cycle_latency_ms": 94,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 601063.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 44,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830387.6396756
+    },
+    {
+      "t": 601111.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830387.6397853,
+      "decode_ms": 94,
+      "cycle_latency_ms": 94,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 601207.8000000119,
+      "type": "heartbeat",
+      "ts": 1755830387.7822988,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 601309.5,
+      "type": "perf_cycle",
+      "timestamp": 1755830387.8806937,
+      "decode_ms": 94,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 601547.6000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 44,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830388.1224246
+    },
+    {
+      "t": 601591.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830388.1225529,
+      "decode_ms": 95,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 601787.700000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 45,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830388.3627472
+    },
+    {
+      "t": 601837.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830388.3628597,
+      "decode_ms": 95,
+      "cycle_latency_ms": 95,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 602027.8000000119,
+      "type": "perf_cycle",
+      "timestamp": 1755830388.6026912,
+      "decode_ms": 94,
+      "cycle_latency_ms": 94,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 602262.1000000089,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 45,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830388.8393528
+    },
+    {
+      "t": 602311.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830388.839476,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 602504.1000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 46,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830389.0797255
+    },
+    {
+      "t": 602552.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830389.0798519,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 602744.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830389.3211277,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 602986.200000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 46,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830389.5636258
+    },
+    {
+      "t": 603032.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830389.5637553,
+      "decode_ms": 91,
+      "cycle_latency_ms": 91,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 603228.200000003,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 47,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830389.8029773
+    },
+    {
+      "t": 603276.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830389.8030922,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 603323.5,
+      "type": "heartbeat",
+      "ts": 1755830389.803169,
+      "bytes_received": 6759890,
+      "pcm_frames": 103,
+      "buffer_usage": 1,
+      "voiced_frames": 103,
+      "silence_frames": 0,
+      "low_energy_mode": false
+    },
+    {
+      "t": 603467.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830390.0435028,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 603708.400000006,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 47,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830390.2850606
+    },
+    {
+      "t": 603736.900000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830390.2851846,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 603950.8000000119,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 48,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830390.5257628
+    },
+    {
+      "t": 604001.400000006,
+      "type": "perf_cycle",
+      "timestamp": 1755830390.5258849,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 604194.1000000089,
+      "type": "perf_cycle",
+      "timestamp": 1755830390.7661195,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 604436.200000003,
+      "type": "endpoint_event",
+      "event": "final",
+      "utterance_index": 48,
+      "reason": "silence+stable",
+      "voiced_ms": 120,
+      "silence_ms": 720,
+      "utterance_ms": 720,
+      "end_silence_gap_ms": 720,
+      "timestamp": 1755830391.0073535
+    },
+    {
+      "t": 604487.200000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830391.007484,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 604671.1000000089,
+      "type": "endpoint_event",
+      "event": "start",
+      "utterance_index": 49,
+      "reason": null,
+      "voiced_ms": null,
+      "silence_ms": null,
+      "utterance_ms": null,
+      "end_silence_gap_ms": null,
+      "timestamp": 1755830391.2479386
+    },
+    {
+      "t": 604720.700000003,
+      "type": "perf_cycle",
+      "timestamp": 1755830391.2480533,
+      "decode_ms": 90,
+      "cycle_latency_ms": 90,
+      "window_seconds": 6,
+      "interval_ms": 240,
+      "tokens": 4
+    },
+    {
+      "t": 604974.6000000089,
       "type": "ws_close",
       "code": 1005
     }
