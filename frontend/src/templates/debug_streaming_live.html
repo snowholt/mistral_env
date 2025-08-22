@@ -58,6 +58,9 @@
           <button id="btn-disconnect" class="btn btn-danger" disabled>
             <i class="fas fa-times"></i> Disconnect
           </button>
+          <button id="btn-reset-conversation" class="btn btn-warning" disabled>
+            <i class="fas fa-refresh"></i> Reset Conversation
+          </button>
           <button id="btn-clear" class="btn btn-secondary">
             <i class="fas fa-trash"></i> Clear All
           </button>
@@ -217,6 +220,7 @@
     const chunkMsEl = document.getElementById('chunkMs');
     const btnConnect = document.getElementById('btn-connect');
     const btnDisconnect = document.getElementById('btn-disconnect');
+    const btnResetConversation = document.getElementById('btn-reset-conversation');
     const btnClear = document.getElementById('btn-clear');
     const btnExport = document.getElementById('btn-export');
     const conversationContainer = document.getElementById('conversation-container');
@@ -386,6 +390,7 @@
         startCapture();
         btnConnect.disabled = true;
         btnDisconnect.disabled = false;
+        btnResetConversation.disabled = false;
       };
       
       ws.onclose = () => {
@@ -394,6 +399,7 @@
         stopCapture();
         btnConnect.disabled = false;
         btnDisconnect.disabled = true;
+        btnResetConversation.disabled = true;
         connectionStart = null;
       };
       
@@ -408,6 +414,22 @@
     function disconnect() {
       if (ws) {
         ws.close();
+      }
+    }
+
+    function resetConversation() {
+      if (ws && ws.readyState === WebSocket.OPEN) {
+        try {
+          const resetMsg = JSON.stringify({
+            type: "reset_conversation"
+          });
+          ws.send(resetMsg);
+          log('Sending conversation reset request', 'send');
+        } catch (error) {
+          log(`Error sending reset: ${error.message}`, 'error');
+        }
+      } else {
+        log('Cannot reset conversation: WebSocket not connected', 'warning');
       }
     }
 
@@ -468,6 +490,11 @@
           
         } else if (msg.type === 'ready') {
           log('✅ Backend ready to receive audio', 'success');
+          
+        } else if (msg.type === 'conversation_reset') {
+          log('🔄 Conversation history reset successfully', 'success');
+          // Optionally clear conversation display if desired
+          // conversationContainer.innerHTML = '';
           
         } else {
           // Log unknown message types for debugging
@@ -732,6 +759,7 @@
     // Event listeners
     btnConnect.onclick = connect;
     btnDisconnect.onclick = disconnect;
+    btnResetConversation.onclick = resetConversation;
     btnClear.onclick = clearAll;
     btnExport.onclick = exportLogs;
 

@@ -472,7 +472,19 @@ async def streaming_voice_endpoint(
                 # Previously we appended first which duplicated the user content in the prompt
                 # inflating effective context tokens and causing context window overflow.
 
-                prev_history = list(state.conversation)  # pass a shallow copy of prior turns
+                # Apply conversation history management to prevent context confusion
+                # For voice conversations, we typically want shorter context windows to avoid repetitive responses
+                max_history_turns = int(os.getenv("VOICE_STREAMING_MAX_HISTORY_TURNS", "6"))  # Default: 3 user + 3 assistant turns
+                
+                # Get conversation history with length limitation
+                if max_history_turns <= 0:
+                    # If set to 0 or negative, disable conversation history (fresh context each time)
+                    prev_history = []
+                else:
+                    # Take the most recent exchanges only
+                    prev_history = list(state.conversation[-max_history_turns:])
+                
+                logger.debug(f"[streaming_voice] Using conversation history: {len(prev_history)} turns (max: {max_history_turns})")
 
                 # Generate LLM response (limit length for latency)
                 # Offload potentially blocking LLM generation to thread pool to avoid stalling event loop
@@ -841,6 +853,18 @@ async def streaming_voice_endpoint(
                         data = json.loads(msg["text"]) if msg["text"] else {}
                         if data.get("type") == "ping":
                             await _send_json(websocket, {"type": "pong", "ts": time.time()})
+                        elif data.get("type") == "reset_conversation":
+                            # Clear conversation history for fresh context
+                            state.conversation.clear()
+                            state.emitted_assistant_for.clear()
+                            state.processed_utterance_indices.clear()
+                            state.assistant_turns = 0
+                            logger.info(f"[streaming_voice] Conversation history reset for session {state.session_id}")
+                            await _send_json(websocket, {
+                                "type": "conversation_reset", 
+                                "message": "Conversation history cleared",
+                                "ts": time.time()
+                            })
                         else:
                             await _send_json(websocket, {"type": "ack", "ts": time.time()})
                         state.last_client_msg = time.time()
