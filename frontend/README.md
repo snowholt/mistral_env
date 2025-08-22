@@ -2,6 +2,21 @@
 
 Beautiful Flask-based web interface for interacting with BeautyAI models featuring animated 3D backgrounds and voice conversation capabilities.
 
+## 🆕 Latest Weekly Progress (Aug 16–22, 2025)
+Added two advanced debugging & QA tools (accessible in deployed env):
+| Tool | Path | Purpose |
+|------|------|---------|
+| Live Streaming Debug Console | `/debug/streaming-live` | Real mic capture, auto speech detection, real-time STT + model replies, latency metrics, export session data |
+| PCM Upload Debug Tool | `/debug/pcm-upload` | Frame-by-frame simulation of audio files (PCM/WAV/WebM/etc.), metrics & event logging, replay vs fast modes |
+
+Key Frontend Achievements:
+- AudioWorklet-based ultra-low latency capture (5–10ms) with fallback to ScriptProcessor where unsupported.
+- Conversation bleeding bug validated fixed (proper buffer resets visualized in debug console).
+- Real-time metrics: first partial, final transcription, TTS ready, total cycle time.
+- Auto language detection (Arabic/English) integrated into streaming workflow.
+
+Upcoming (Roadmap): Echo cancellation / self-voice suppression → WebRTC integration for model stream mode → mobile performance optimizations.
+
 ## 🚀 Quick Start
 
 ```bash
@@ -50,6 +65,7 @@ frontend/
 - **Real-time Audio**: WebSocket-based voice conversation
 - **Automatic Language Detection**: Supports Arabic and English
 - **Visual Feedback**: Voice activity indicators and status displays
+ - **Latency Metrics (Debug Tools)**: Millisecond timing for STT & TTS stages
 
 ### Chat Features
 - **Model Selection**: Switch between available AI models
@@ -70,6 +86,7 @@ The frontend communicates with the backend API:
 - **Input**: WAV, MP3, WebM, OGG
 - **Output**: WAV (for download), WebM (for streaming)
 - **Recommended**: WAV for best quality and compatibility
+ - **PCM Upload Tool**: Accepts raw PCM (auto sample rate normalization to 16kHz)
 
 ## 🔧 Development
 
@@ -112,3 +129,6 @@ curl http://localhost:8000/ws/voice-conversation/status
 
 For backend documentation, see [`../backend/README.md`](../backend/README.md)  
 For main project overview, see [`../README.md`](../README.md)
+
+---
+Advanced streaming / voice internals: see `../docs/VOICE.md` & streaming debug validation reports.

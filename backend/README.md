@@ -2,6 +2,14 @@
 
 FastAPI-based backend server providing inference capabilities for language models with voice features.
 
+## 🆕 Latest Weekly Progress (Aug 16–22, 2025)
+Key backend updates:
+- Conversation bleeding bug fixed (ring buffer + decoder state reset each utterance, WebM boundary detection, async lock safety).
+- Empty voice responses resolved (imports, thinking-mode param propagation, filtering disabled thinking blocks).
+- Added support for enhanced debug tooling (latency metrics: first partial, final transcript, TTS synthesis, total cycle).
+- Achieved ~65ms average first partial transcription latency via optimized audio worklet streaming path.
+- Roadmap: Echo / self-voice suppression → WebRTC streaming mode → mobile/browser performance optimization dashboard.
+
 ## 🚀 Quick Start
 
 ```bash
@@ -50,6 +58,7 @@ backend/
 - **Simple Voice Service**: Ultra-fast WebSocket voice chat (<2s response)
 - **Transcription**: Whisper-based speech-to-text
 - **Synthesis**: Edge TTS for fast multilingual speech synthesis
+ - **Debug Metrics Feed**: Structured timing + event messages for streaming consoles
 
 ### System Services
 - **Memory Monitoring**: GPU/CPU usage tracking
@@ -73,6 +82,8 @@ backend/
 ### Voice Features
 - `GET /api/v1/voice/endpoints` - Available voice endpoints
 - `GET /api/v1/health/voice` - Voice services health check
+ - `WebSocket /ws/voice-conversation` - Streaming audio → STT → LLM → TTS response
+   - Emits: partial_transcript, final_transcript, voice_response, metrics events
 
 ## 🎯 CLI Interface
 
@@ -106,6 +117,22 @@ beautyai system status              # System monitoring
 ```
 
 ### Adding Custom Models
+## 🎤 Voice Streaming Pipeline (Backend Overview)
+1. Client streams PCM/WebM frames to `/ws/voice-conversation` (language=auto optional).
+2. Buffer + VAD heuristics perform utterance boundary detection (no push-to-talk needed).
+3. Whisper STT produces incremental partial transcripts; final transcript on boundary.
+4. Chat inference isolated per utterance (post bleeding fix) with selected model + generation params.
+5. Edge TTS synthesizes reply (segments or full) → base64 audio returned.
+6. Metrics (timestamps for partial, final, tts_ready) included for debug tools.
+
+Recent Fixes:
+- Conversation isolation: ring buffer reset + decoder state clearing per new utterance.
+- Thinking-mode filtering ensures clean voice output when disabled.
+
+Planned Enhancements:
+- Echo cancellation (exclude recently played TTS from STT path).
+- Optional WebRTC transport for lower jitter / latency.
+- Adaptive frame sizing based on live latency feedback.
 ```bash
 beautyai model add --name "custom-model" \
                    --model-id "organization/model-name" \
@@ -210,3 +237,6 @@ export PYTHONPATH=/path/to/beautyai/backend
 
 For frontend documentation, see [`../frontend/README.md`](../frontend/README.md)  
 For main project overview, see [`../README.md`](../README.md)
+
+---
+Additional docs: `../docs/VOICE.md`, streaming debug validation reports, architecture overview.
