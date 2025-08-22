@@ -38,7 +38,16 @@
           </div>
           <div class="form-group">
             <label for="chunkMs">Chunk Size (ms):</label>
-            <input id="chunkMs" type="number" value="320" min="100" max="1000" step="20">
+            <input id="chunkMs" type="number" value="20" min="10" max="100" step="5">
+            <small>Lower = better latency, Higher = better efficiency</small>
+          </div>
+          <div class="form-group">
+            <label for="captureMethod">Capture Method:</label>
+            <select id="captureMethod">
+              <option value="auto">Auto (AudioWorklet preferred)</option>
+              <option value="worklet">AudioWorklet (Low latency)</option>
+              <option value="script">ScriptProcessor (Fallback)</option>
+            </select>
           </div>
         </div>
         
@@ -443,28 +452,84 @@
       try {
         updateMicStatus('active');
         
-        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        // Create audio context at hardware sample rate for optimal performance
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        
+        // Request microphone access with optimal settings
         mediaStream = await navigator.mediaDevices.getUserMedia({ 
           audio: { 
-            sampleRate: 16000,
             channelCount: 1,
             echoCancellation: true,
-            noiseSuppression: true
+            noiseSuppression: true,
+            autoGainControl: false // Disable AGC for consistent levels
           } 
         });
         
         source = audioCtx.createMediaStreamSource(mediaStream);
+        
+        // Load AudioWorklet processor for low-latency processing
+        await audioCtx.audioWorklet.addModule('/static/js/audio-processor-worklet.js');
+        
+        // Create AudioWorklet node with configuration
+        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20; // Default 20ms for low latency
+        processor = new AudioWorkletNode(audioCtx, 'audio-processor', {
+          processorOptions: {
+            targetSampleRate: 16000,
+            chunkSizeMs: chunkSizeMs
+          }
+        });
+        
+        // Handle messages from AudioWorklet
+        processor.port.onmessage = (event) => {
+          const { type, data, level, sampleRate, samples } = event.data;
+          
+          if (type === 'audioLevel') {
+            // Update audio level visualization
+            updateAudioLevel(level);
+            
+          } else if (type === 'audioChunk') {
+            // Send audio chunk to WebSocket
+            if (ws && ws.readyState === WebSocket.OPEN) {
+              ws.send(data.buffer);
+              metrics.audioChunksSent++;
+              
+              // Calculate and display data rate
+              const dataRate = (data.buffer.byteLength * 1000 / chunkSizeMs / 1024).toFixed(1);
+              document.getElementById('data-rate').textContent = `${dataRate} KB/s`;
+            }
+          }
+        };
+        
+        // Connect audio pipeline
+        source.connect(processor);
+        
+        log(`Audio capture started (${audioCtx.sampleRate}Hz → 16kHz, ${chunkSizeMs}ms chunks)`, 'success');
+        
+      } catch (error) {
+        log(`Failed to start audio capture: ${error.message}`, 'error');
+        updateMicStatus('inactive');
+        
+        // Fallback to ScriptProcessor if AudioWorklet not supported
+        if (error.message.includes('AudioWorklet') || error.message.includes('addModule')) {
+          log('AudioWorklet not supported, falling back to ScriptProcessor', 'warning');
+          await startCaptureFallback();
+        }
+      }
+    }
+
+    async function startCaptureFallback() {
+      try {
+        // Fallback to ScriptProcessor for older browsers
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+        
         analyser = audioCtx.createAnalyser();
         analyser.fftSize = 2048;
         
         processor = audioCtx.createScriptProcessor(4096, 1, 1);
         
-        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 320;
+        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20;
         const framesPerChunk = Math.round(audioCtx.sampleRate * (chunkSizeMs / 1000));
         let acc = new Float32Array(0);
-        
-        // Audio level monitoring
-        const dataArray = new Uint8Array(analyser.frequencyBinCount);
         
         processor.onaudioprocess = e => {
           const input = e.inputBuffer.getChannelData(0);
@@ -503,10 +568,10 @@
         source.connect(processor);
         processor.connect(audioCtx.destination);
         
-        log('Audio capture started successfully', 'success');
+        log('Audio capture started (ScriptProcessor fallback)', 'success');
         
       } catch (error) {
-        log(`Failed to start audio capture: ${error.message}`, 'error');
+        log(`Fallback audio capture failed: ${error.message}`, 'error');
         updateMicStatus('inactive');
       }
     }
@@ -515,8 +580,14 @@
       updateMicStatus('inactive');
       
       if (processor) {
+        if (processor.port) {
+          // AudioWorklet cleanup
+          processor.port.onmessage = null;
+        } else {
+          // ScriptProcessor cleanup
+          processor.onaudioprocess = null;
+        }
         processor.disconnect();
-        processor.onaudioprocess = null;
       }
       if (source) {
         source.disconnect();
