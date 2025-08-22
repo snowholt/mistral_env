@@ -114,7 +114,7 @@ async def incremental_decode_loop(
             return
 
     interval = config.decode_interval_ms / 1000.0
-    logger.debug("Starting incremental decode loop (interval=%.3fs window=%.1fs)", interval, config.window_seconds)
+    logger.info(f"[decode] Starting incremental decode loop (interval=%.3fs window=%.1fs) with BUFFER RESET FIXES - session={session.session_id}" % (interval, config.window_seconds))
 
     try:
         while state.running and not session.closed:
@@ -208,6 +208,7 @@ async def incremental_decode_loop(
             # 4. Advance endpoint state with current tokens (Phase 5 integration)
             endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=tokens or None)
             final_event = None
+            start_event = None
             for ev in endpoint_events:
                 yield {
                     "type": "endpoint_event",
@@ -222,6 +223,18 @@ async def incremental_decode_loop(
                 }
                 if ev.type == "final":
                     final_event = ev
+                elif ev.type == "start":
+                    start_event = ev
+
+            # Reset buffer at start of new utterance to prevent conversation bleeding
+            if start_event and start_event.utterance_index > 0:  # Skip reset for very first utterance
+                reset_buffer_at_start = os.getenv("VOICE_STREAMING_RESET_BUFFER_AT_START", "1") == "1"
+                if reset_buffer_at_start:
+                    logger.info(
+                        "[decode] Resetting ring buffer at start of new utterance (utterance_index=%d)",
+                        start_event.utterance_index
+                    )
+                    await session.pcm_buffer.reset_for_new_utterance()
 
             # 5. Emit final transcript exactly once per utterance
             final_emitted = False

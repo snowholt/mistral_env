@@ -104,6 +104,22 @@ class PCMInt16RingBuffer:
             self.write_index = 0
             self.total_written = 0
 
+    async def reset_for_new_utterance(self) -> None:
+        """
+        Reset ring buffer for new utterance to prevent conversation bleeding.
+        
+        This method clears the audio history while preserving stats for debugging.
+        Should be called after final transcript processing to ensure clean
+        utterance boundaries.
+        """
+        async with self.lock:
+            # Clear audio data
+            self.write_index = 0
+            self.total_written = 0
+            # Keep stats for debugging but reset max usage
+            self.stats.max_usage_ratio = 0.0
+            # Note: Don't reset total stats as they're useful for session diagnostics
+
     async def rms(self, seconds: float) -> float:
         window = await self.read_last_window(seconds)
         if not window:

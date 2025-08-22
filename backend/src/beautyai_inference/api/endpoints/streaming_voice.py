@@ -734,6 +734,16 @@ async def streaming_voice_endpoint(
                     state.last_final_time = time.time()
                     event.setdefault("decode_language", language)
                     await _send_json(state.websocket, event)
+                    
+                    # Reset WebM decoder after final transcript to prevent audio bleeding
+                    reset_webm_after_final = os.getenv("VOICE_STREAMING_RESET_WEBM_AFTER_FINAL", "1") == "1"
+                    if reset_webm_after_final and state.webm_decoder:
+                        logger.debug(
+                            "[streaming_voice] Resetting WebM decoder after final transcript (utterance_index=%d)",
+                            utterance_index
+                        )
+                        state.webm_decoder.reset_for_new_utterance()
+                    
                     if state.metrics:
                         maybe_log_structured(logger, "voice_stream_metrics", state.metrics.snapshot())
                     final_text = final_text_candidate
@@ -859,6 +869,16 @@ async def streaming_voice_endpoint(
                             state.emitted_assistant_for.clear()
                             state.processed_utterance_indices.clear()
                             state.assistant_turns = 0
+                            
+                            # Also reset audio buffers to prevent bleeding from previous conversation
+                            if state.audio_session and hasattr(state.audio_session, 'pcm_buffer'):
+                                await state.audio_session.pcm_buffer.reset_for_new_utterance()
+                                logger.debug(f"[streaming_voice] Reset audio buffer during conversation reset")
+                            
+                            if state.webm_decoder:
+                                state.webm_decoder.reset_for_new_utterance()
+                                logger.debug(f"[streaming_voice] Reset WebM decoder during conversation reset")
+                                
                             logger.info(f"[streaming_voice] Conversation history reset for session {state.session_id}")
                             await _send_json(websocket, {
                                 "type": "conversation_reset", 
@@ -892,6 +912,11 @@ async def streaming_voice_endpoint(
                             try:
                                 state.webm_decoder = create_realtime_decoder()
                                 state.webm_chunk_queue = asyncio.Queue()
+                                
+                                # Reset PCM buffer when starting new audio file to prevent conversation bleeding
+                                if state.audio_session and hasattr(state.audio_session, 'pcm_buffer'):
+                                    await state.audio_session.pcm_buffer.reset_for_new_utterance()
+                                    logger.info(f"[streaming_voice] Reset PCM buffer for new audio file (compressed mode: {state.compressed_mode})")
                                 
                                 # Start WebM decoding task
                                 async def _webm_decoder_task():
@@ -933,6 +958,16 @@ async def streaming_voice_endpoint(
                                 logger.exception("Failed to start WebM decoder: %s", e)
                                 await _send_json(websocket, {"type": "error", "stage": "ingest", "message": f"decoder_start_failed: {e}"})
                                 state.compressed_mode = None
+                    
+                    # Detect new WebM file boundary even after compressed mode is set
+                    elif state.compressed_mode == "webm-opus" and len(payload) >= 4 and payload[:4] == b"\x1a\x45\xdf\xa3":
+                        logger.info(f"[streaming_voice] Detected new WebM file boundary - resetting for clean transcription")
+                        # Reset decoder and buffer for new file
+                        if state.webm_decoder:
+                            state.webm_decoder.reset_for_new_utterance()
+                        if state.audio_session and hasattr(state.audio_session, 'pcm_buffer'):
+                            await state.audio_session.pcm_buffer.reset_for_new_utterance()
+                            logger.info(f"[streaming_voice] Reset PCM buffer for new WebM file boundary")
 
                     if state.compressed_mode:
                         # Feed compressed payload into WebM decoder queue

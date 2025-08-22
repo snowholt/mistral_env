@@ -454,6 +454,41 @@ class WebMDecoder:
             logger.debug("WebMDecoder cleanup completed")
         except Exception as e:
             logger.error(f"Error during WebMDecoder cleanup: {e}")
+
+    def reset_for_new_utterance(self):
+        """
+        Reset decoder state for new utterance to prevent audio bleeding.
+        
+        This method ensures that each new audio stream starts with a clean
+        decoder state, preventing accumulation of audio from previous utterances.
+        """
+        try:
+            # Reset streaming state
+            self._streaming_active = False
+            
+            # Clean up any active FFmpeg process
+            if self._ffmpeg_process:
+                logger.debug("Resetting WebM decoder: terminating existing FFmpeg process")
+                try:
+                    if self._ffmpeg_process.returncode is None:
+                        self._ffmpeg_process.terminate()
+                except Exception as e:
+                    logger.warning(f"Error terminating FFmpeg during reset: {e}")
+                finally:
+                    self._ffmpeg_process = None
+            
+            # Clear temporary files from previous processing
+            try:
+                if self.temp_dir.exists():
+                    for temp_file in self.temp_dir.glob("webm_temp_*"):
+                        temp_file.unlink()
+            except Exception as e:
+                logger.warning(f"Error cleaning temp files during reset: {e}")
+                
+            logger.debug("WebMDecoder reset for new utterance completed")
+            
+        except Exception as e:
+            logger.error(f"Error during WebMDecoder reset: {e}")
     
     def get_stats(self) -> Dict[str, any]:
         """Get decoder statistics and configuration."""
