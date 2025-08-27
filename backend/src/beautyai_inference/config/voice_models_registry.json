@@ -58,6 +58,41 @@
       }
     },
 
+    "beautyai-whisper-turbo": {
+      "model_id": "/home/lumi/.cache/beautyai-whisper-turbo/whisper_fine_tuned",
+      "engine_type": "whisper_finetuned_arabic",
+      "type": "speech_to_text",
+      "description": "BeautyAI fine-tuned Arabic Whisper Turbo (809M params, optimized for BeautyAI voice dataset)",
+      "supported_languages": ["ar"],
+      "gpu_enabled": true,
+      "performance_profile": "beautyai_arabic_specialized",
+      "documentation": {
+        "base_model": "https://huggingface.co/openai/whisper-large-v3-turbo",
+        "fine_tuning": "Custom Arabic voice dataset for BeautyAI framework",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "809MB parameters (3.2GB local storage)",
+        "speed": "4x faster than large-v3, BeautyAI-optimized for Arabic",
+        "architecture": "4 decoder layers, fine-tuned on BeautyAI Arabic voice dataset",
+        "optimization": "BeautyAI-specific fine-tuning, torch.compile compatible, local storage",
+        "performance": "Enhanced Arabic transcription for BeautyAI voice streaming"
+      },
+      "training_details": {
+        "dataset": "BeautyAI custom Arabic voice dataset",
+        "fine_tuning_date": "2025-08-19",
+        "base_model": "openai/whisper-large-v3-turbo",
+        "optimization_target": "Arabic voice streaming performance"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 4,
+        "recommended_vram_gb": 6,
+        "supports_flash_attention": false,
+        "supports_torch_compile": true,
+        "local_storage": true
+      }
+    },
+
     "whisper-arabic-turbo": {
       "model_id": "mboushaba/whisper-large-v3-turbo-arabic",
       "engine_type": "whisper_arabic_turbo",
@@ -115,7 +150,7 @@
   },
 
   "default_models": {
-    "stt": "whisper-large-v3-turbo",
+    "stt": "beautyai-whisper-turbo",
     "tts": "edge-tts"
   },
 

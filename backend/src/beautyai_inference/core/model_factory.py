@@ -150,6 +150,11 @@ class ModelFactory:
                 logger.info(f"Creating WhisperArabicTurboEngine for model: {whisper_config.model_id}")
                 return WhisperArabicTurboEngine()
             
+            elif engine_type == "whisper_finetuned_arabic":
+                logger.info(f"Creating WhisperFinetunedArabicEngine for model: {whisper_config.model_id}")
+                from ..services.voice.transcription.whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
+                return WhisperFinetunedArabicEngine()
+            
             else:
                 logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
                 return WhisperLargeV3TurboEngine()

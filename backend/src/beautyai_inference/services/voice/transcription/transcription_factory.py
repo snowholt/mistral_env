@@ -19,6 +19,7 @@ from ....config.voice_config_loader import get_voice_config
 from .whisper_large_v3_engine import WhisperLargeV3Engine
 from .whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine  
 from .whisper_arabic_turbo_engine import WhisperArabicTurboEngine
+from .whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +96,7 @@ def create_transcription_service() -> TranscriptionServiceProtocol:
             "whisper_large_v3": WhisperLargeV3Engine,
             "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
             "whisper_arabic_turbo": WhisperArabicTurboEngine,
+            "whisper_finetuned_arabic": WhisperFinetunedArabicEngine,
             # Legacy support
             "transformers": WhisperLargeV3TurboEngine,
             "faster-whisper": WhisperLargeV3TurboEngine,
@@ -127,6 +129,7 @@ def get_available_engines() -> dict[str, str]:
         "whisper_large_v3": "Maximum accuracy (1.55B params, 32 layers)",
         "whisper_large_v3_turbo": "Speed optimized (809M params, 4 layers, 4x faster)",
         "whisper_arabic_turbo": "Arabic specialized (809M params, 31% WER Arabic)",
+        "whisper_finetuned_arabic": "BeautyAI fine-tuned Arabic (809M params, custom dataset)",
     }
 
 
@@ -140,7 +143,8 @@ def validate_engine_availability() -> dict[str, bool]:
     engines = {
         "whisper_large_v3": WhisperLargeV3Engine,
         "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
-        "whisper_arabic_turbo": WhisperArabicTurboEngine
+        "whisper_arabic_turbo": WhisperArabicTurboEngine,
+        "whisper_finetuned_arabic": WhisperFinetunedArabicEngine
     }
     
     availability = {}

@@ -794,6 +794,9 @@ class ModelManager:
             elif engine_type == "whisper_arabic_turbo":
                 from ..services.voice.transcription.whisper_arabic_turbo_engine import WhisperArabicTurboEngine
                 return WhisperArabicTurboEngine()
+            elif engine_type == "whisper_finetuned_arabic":
+                from ..services.voice.transcription.whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
+                return WhisperFinetunedArabicEngine()
             else:
                 logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
                 from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
