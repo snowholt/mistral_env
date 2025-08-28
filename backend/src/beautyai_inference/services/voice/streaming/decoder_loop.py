@@ -53,6 +53,9 @@ class DecoderState:
     running: bool = True
     last_final_utterance_index: int = -1  # guard against double final emits
     last_final_text: str = ""  # track last finalized text to suppress duplicate finals/partials when buffer window re-decodes trailing silence
+    last_total_written_at_final: int = -1  # ring buffer total_written snapshot when last final emitted
+    last_ring_total_written: int = -1      # updated each cycle for start-guard logic
+    suppress_until_audio_growth: bool = False  # block decoding/token activation until new audio arrives
 
     def reset_after_final(self) -> None:
         """Reset token stability tracking for next utterance.
@@ -64,8 +67,11 @@ class DecoderState:
         last_final_text to avoid duplicates.
         """
         self.stable_prefix_tokens.clear()
-        # Preserve last_transcript; we only change it when genuinely new
-        # tokens appear. Record the final text for duplicate suppression.
+        # Preserve last_transcript by default (prevents duplicate partial re-emits
+        # when decode window still contains prior utterance). Allow override via env.
+        if os.getenv("VOICE_STREAMING_CLEAR_LAST_TRANSCRIPT", "0") == "1":
+            self.last_transcript = ""
+        # Record the final text for duplicate suppression.
         self.last_final_text = self.last_transcript
 
 
@@ -121,6 +127,13 @@ async def incremental_decode_loop(
             cycle_start = time.time()
 
             # 1. Obtain audio window (raw PCM bytes) and compute RMS for this interval
+            # Track ring buffer growth to suppress phantom re-decodes after finalization
+            try:
+                ring_total = session.pcm_buffer.total_written  # type: ignore[attr-defined]
+            except Exception:
+                ring_total = -1
+            state.last_ring_total_written = ring_total
+
             pcm_window = await session.pcm_buffer.read_last_window(config.window_seconds)
             if not pcm_window:
                 # Nothing buffered yet; sleep next interval
@@ -143,14 +156,53 @@ async def incremental_decode_loop(
                     frame_rms = math.sqrt(acc / count) if count else 0.0
 
             # 2. Decode the current window (windowed re-decode approach)
-            decode_start = time.time()
-            transcription = fw_service.transcribe_audio_bytes(
-                pcm_window, audio_format="wav", language=config.language
-            )
-            decode_ms = int((time.time() - decode_start) * 1000)
+            # Phantom suppression: if we finalized and ring buffer has NOT grown, skip decode to avoid
+            # regenerating identical tokens from stale window (which we cleared) causing duplicate utterances.
+            phantom_guard_enabled = os.getenv("VOICE_STREAMING_PHANTOM_GUARD", "1") == "1"
+            skip_decode = False
+            if (
+                phantom_guard_enabled
+                and state.last_final_utterance_index >= 0
+                and state.last_total_written_at_final >= 0
+                and ring_total >= 0
+                and ring_total <= state.last_total_written_at_final
+            ):
+                skip_decode = True
+
+            if skip_decode:
+                transcription = ""
+                decode_ms = 0
+            else:
+                decode_start = time.time()
+                transcription = fw_service.transcribe_audio_bytes(
+                    pcm_window, audio_format="wav", language=config.language
+                )
+                decode_ms = int((time.time() - decode_start) * 1000)
             tokens: List[str] = []
             if transcription:
                 tokens = transcription.strip().split()
+                # --------------------------------------------------
+                # Repetition Mitigation (client observed loop cases)
+                # Detect large consecutive n-gram repetition and collapse to single cycle.
+                # --------------------------------------------------
+                try:
+                    rep_threshold = int(os.getenv("VOICE_STREAMING_REPETITION_SCORE_THRESHOLD", "60"))
+                    if len(tokens) >= 12 and rep_threshold > 0:
+                        collapsed, rep_info = _collapse_repetition(tokens)
+                        if rep_info and rep_info["score"] >= rep_threshold and collapsed != tokens:
+                            yield {
+                                "type": "decode_sanitized",
+                                "reason": "repetition_collapse",
+                                "removed_cycles": rep_info.get("repeats", 0) - 1,
+                                "ngram": rep_info.get("phrase"),
+                                "score": rep_info.get("score"),
+                                "original_tokens": len(tokens),
+                                "collapsed_tokens": len(collapsed),
+                                "timestamp": time.time(),
+                            }
+                            tokens = collapsed
+                except Exception:  # pragma: no cover - defensive
+                    pass
             logger.debug(
                 "[decode] session=%s chars=%d tokens=%d decode_ms=%d window=%.1fs",  # fine-grained debug
                 session.session_id,
@@ -206,7 +258,8 @@ async def incremental_decode_loop(
                     }
 
             # 4. Advance endpoint state with current tokens (Phase 5 integration)
-            endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=tokens or None)
+            # If we skipped decode we must not feed old tokens to endpoint detector
+            endpoint_events = update_endpoint(endpoint_state, frame_rms, current_tokens=(tokens or None) if not skip_decode else None)
             final_event = None
             start_event = None
             for ev in endpoint_events:
@@ -229,7 +282,8 @@ async def incremental_decode_loop(
             # Reset buffer at start of new utterance to prevent conversation bleeding
             if start_event and start_event.utterance_index > 0:  # Skip reset for very first utterance
                 reset_buffer_at_start = os.getenv("VOICE_STREAMING_RESET_BUFFER_AT_START", "1") == "1"
-                if reset_buffer_at_start:
+                cleared_on_final_enabled = os.getenv("VOICE_STREAMING_CLEAR_BUFFER_ON_FINAL", "1") == "1"
+                if reset_buffer_at_start and not cleared_on_final_enabled:
                     logger.info(
                         "[decode] Resetting ring buffer at start of new utterance (utterance_index=%d)",
                         start_event.utterance_index
@@ -280,6 +334,21 @@ async def incremental_decode_loop(
                 # Record last_final_text only if non-empty to further suppress duplicates
                 if final_text and final_text.strip():
                     state.reset_after_final()
+                    # Snapshot current ring buffer total_written so we can detect if new audio arrives
+                    try:
+                        state.last_total_written_at_final = session.pcm_buffer.total_written  # type: ignore[attr-defined]
+                    except Exception:
+                        state.last_total_written_at_final = -1
+                    # Optional: Clear ring buffer immediately to prevent stale token window re-decodes
+                    if os.getenv("VOICE_STREAMING_CLEAR_BUFFER_ON_FINAL", "1") == "1":
+                        try:
+                            await session.pcm_buffer.reset_for_new_utterance()
+                            logger.info("[decode] Cleared ring buffer on final (utterance_index=%d)", final_event.utterance_index)
+                            # Activate phantom suppression until new audio arrives
+                            state.last_total_written_at_final = session.pcm_buffer.total_written  # should now be 0
+                            state.suppress_until_audio_growth = True
+                        except Exception:
+                            logger.warning("[decode] Failed to clear ring buffer on final")
 
             # Lenient fallback finalization (if no endpoint driven final)
             if (
@@ -319,6 +388,7 @@ async def incremental_decode_loop(
                 "window_seconds": config.window_seconds,
                 "interval_ms": config.decode_interval_ms,
                 "tokens": len(tokens),
+                "phantom_guard": skip_decode,
             }
             to_sleep = interval - elapsed
             if to_sleep > 0:
@@ -329,6 +399,49 @@ async def incremental_decode_loop(
         logger.exception("Decoder loop error (%s): %s", session.session_id, e)
     finally:
         logger.debug("Decoder loop terminating (%s)", session.session_id)
+
+
+def _collapse_repetition(tokens: List[str]) -> tuple[List[str], Optional[Dict[str, Any]]]:
+    """Detect repeated n-gram loops and collapse to a single cycle.
+
+    Returns (possibly_collapsed_tokens, repetition_info|None)
+
+    Heuristic: search n-grams size 3..12 consuming >=60% of sequence via >=2 repeats.
+    Score = (repeated_span / total_tokens) * 120 capped 100 (mirrors frontend logic).
+    """
+    best = None
+    total = len(tokens)
+    for n in range(12, 2, -1):  # try larger n-grams first for maximal collapse
+        if n * 2 > total:
+            continue
+        for i in range(0, total - n * 2 + 1):
+            phrase = tokens[i : i + n]
+            repeats = 1
+            j = i + n
+            while j + n <= total and tokens[j : j + n] == phrase:
+                repeats += 1
+                j += n
+            if repeats >= 2:
+                span = repeats * n
+                coverage = span / total
+                score = min(100, int(coverage * 120))
+                if not best or span > best["span"]:
+                    best = {
+                        "phrase": " ".join(phrase),
+                        "repeats": repeats,
+                        "span": span,
+                        "coverage": coverage,
+                        "score": score,
+                        "start": i,
+                        "end": j,
+                    }
+        if best:  # early exit once we found largest n producing repetition
+            break
+    if not best:
+        return tokens, None
+    # Collapse to single phrase + tail remainder beyond repeated span
+    collapsed = tokens[: best["start"]] + tokens[best["start"] : best["start"] + (best["end"] - best["start"]) // best["repeats"]] + tokens[best["end"] :]
+    return collapsed, best
 
 
 __all__ = [

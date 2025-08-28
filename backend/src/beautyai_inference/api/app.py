@@ -13,6 +13,7 @@ import os
 
 # Import the routers
 from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
+from .endpoints.debug_router import debug_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
 # Logging configured centrally in run_server via configure_logging.
@@ -101,6 +102,7 @@ app.include_router(models_router)
 app.include_router(inference_router)
 app.include_router(config_router)
 app.include_router(system_router)
+app.include_router(debug_router)
 
 # Conditionally include streaming voice scaffold (Phase 1) if feature flag set and router imported.
 if streaming_voice_router is not None:  # pragma: no cover (env dependent)

@@ -66,7 +66,14 @@
   <button id="btnMicStart" disabled>Start Mic</button>
   <button id="btnMicStop" disabled>Stop Mic</button>
       <button id="btnAbort" disabled>Abort Stream</button>
-      <button id="btnExport" disabled>Export Log</button>
+      <div class="export-group">
+        <button id="btnExport" disabled>Export</button>
+        <select id="exportFormat" disabled>
+          <option value="json" selected>JSON</option>
+          <option value="markdown">Markdown</option>
+        </select>
+        <button id="btnServerReport" disabled title="Fetch server-side session diagnostic report">Server Report</button>
+      </div>
       <button id="btnClear">Clear</button>
     </div>
     <div class="metrics">
@@ -100,13 +107,24 @@
     <h2>Event Log</h2>
     <div class="log-toolbar">
       <label><input type="checkbox" id="showHeartbeat" checked /> Heartbeats</label>
-      <label><input type="checkbox" id="showFrames" /> Frame Sent</label>
+      <label><input type="checkbox" id="showFrames" /> Frames</label>
+      <label><input type="checkbox" id="showPerf" checked /> Perf</label>
+      <label><input type="checkbox" id="showEndpoint" checked /> Endpoint</label>
     </div>
     <div id="log" class="log"></div>
   </section>
 
+  <section class="panel" id="analysisPanel">
+    <h2>Heuristics & Metrics</h2>
+    <div id="heuristicsBox" class="mono small">(no data)</div>
+    <h3>Server Report</h3>
+    <div id="serverReportBox" class="mono small hidden"></div>
+  </section>
+
   <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
-  <script>
+  <script type="module">
+    import { buildStructuredReport, exportJson, exportMarkdown } from "{{ url_for('static', filename='js/debug_export.js') }}";
+    import { analyzeEvents, buildHeuristicSummary } from "{{ url_for('static', filename='js/debug_heuristics.js') }}";
     // ==========================================
     // Utility / State
     // ==========================================
@@ -123,10 +141,11 @@
     const E = id => document.getElementById(id);
     const els = {
       wsStatus: E('wsStatus'), wsUrl: E('wsUrl'), lang: E('langSel'), frameMs: E('frameMs'), paceMode: E('paceMode'), autoplay: E('autoplayTTS'), wsMode: E('wsMode'),
-      file: E('audioFile'), btnConnect: E('btnConnect'), btnDisconnect: E('btnDisconnect'), btnStream: E('btnStream'), btnAbort: E('btnAbort'), btnExport: E('btnExport'), btnClear: E('btnClear'),
-  mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mFirstAssistant: E('mFirstAssistant'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'), mStreamDuration: E('mStreamDuration'),
-  partial: E('partialBox'), conversation: E('conversationBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames'), fileLabel: E('fileLabel'), btnPickFile: E('btnPickFile'), wsPreset: E('wsPreset'), btnMicStart: E('btnMicStart'), btnMicStop: E('btnMicStop')
+      file: E('audioFile'), btnConnect: E('btnConnect'), btnDisconnect: E('btnDisconnect'), btnStream: E('btnStream'), btnAbort: E('btnAbort'), btnExport: E('btnExport'), btnClear: E('btnClear'), exportFormat: E('exportFormat'), btnServerReport: E('btnServerReport'),
+      mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mFirstAssistant: E('mFirstAssistant'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'), mStreamDuration: E('mStreamDuration'),
+      partial: E('partialBox'), conversation: E('conversationBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames'), showPerf: E('showPerf'), showEndpoint: E('showEndpoint'), fileLabel: E('fileLabel'), btnPickFile: E('btnPickFile'), wsPreset: E('wsPreset'), btnMicStart: E('btnMicStart'), btnMicStop: E('btnMicStop'), heuristicsBox: E('heuristicsBox'), serverReportBox: E('serverReportBox')
     };
+    const sessionMeta = { session_id:null, connection_id:null, start_utc:null, client:{ ua: navigator.userAgent } };
     // Microphone capture state
     let micActive=false, micWorkletNode=null, micStream=null, micAudioCtx=null;
 
@@ -150,9 +169,10 @@
       const ev = { t: now, type, ...data };
       evLog.push(ev);
       const rel = sessionStart? (now - sessionStart).toFixed(1): '0.0';
-      if ((type==='heartbeat' && !els.showHeartbeat.checked) || (type==='frame_sent' && !els.showFrames.checked)) return;
+      if ((type==='heartbeat' && !els.showHeartbeat.checked) || (type==='frame_sent' && !els.showFrames.checked) || (type==='perf_cycle' && !els.showPerf.checked) || ((type==='endpoint_event' || (type==='server_event' && data.event)) && !els.showEndpoint.checked)) return;
       els.log.textContent += `[+${rel}ms] ${type} ${JSON.stringify(data)}\n`;
       els.log.scrollTop = els.log.scrollHeight;
+      if(type==='final' || type==='final_transcript' || type==='endpoint_event' || type==='perf_cycle') updateHeuristics();
     }
 
     function resetSession(){
@@ -160,9 +180,11 @@
       framesSent=bytesSent=partials=finals=responses=0;
       firstPartialAt=firstFinalAt=ttsStartAt=ttsCompleteAt=null;
       [els.mFrames, els.mBytes, els.mPartials, els.mFinals, els.mResponses].forEach(el=>el.textContent='0');
-  [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=>el.textContent='-');
-  streamStartAt=null;
-  els.partial.textContent=''; els.conversation.innerHTML='';
+      [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=>el.textContent='-');
+      streamStartAt=null;
+      els.partial.textContent=''; els.conversation.innerHTML='';
+      if(els.heuristicsBox) els.heuristicsBox.textContent='(no data)';
+      if(els.serverReportBox) els.serverReportBox.classList.add('hidden');
     }
 
     // ==========================================
@@ -222,7 +244,18 @@
 
     function handleServerMessage(data){
       try {
-        const msg = JSON.parse(data); const type = msg.type || msg.event;
+        const msg = JSON.parse(data); let type = msg.type || msg.event;
+        if(type==='endpoint'){ // normalize to endpoint_event for filters/heuristics
+          type = 'endpoint_event';
+          msg.event = msg.event || msg.type_detail || msg.event_type || msg.event; // preserve original if present
+        }
+        if(type==='ready') {
+          sessionMeta.session_id = msg.session_id || msg.sessionId || msg.session;
+            sessionMeta.connection_id = msg.connection_id || msg.connectionId || null;
+            sessionMeta.start_utc = new Date().toISOString();
+            log('ready_ack', {session_id: sessionMeta.session_id});
+            toggleButtons();
+        }
         switch(type){
           case 'partial_transcript':
             partials++; if(!firstPartialAt){ firstPartialAt=performance.now(); if(streamStartAt) els.mFirstPartial.textContent = (firstPartialAt - streamStartAt).toFixed(1); }
@@ -249,6 +282,8 @@
             log('tts_complete',{processing_ms:msg.processing_ms}); break;
           case 'heartbeat':
             log('heartbeat', msg); break;
+          case 'decode_sanitized':
+            log('decode_sanitized', msg); break;
           case 'error':
             log('error',{message:msg.message}); break;
           default:
@@ -346,11 +381,39 @@
     function abortStream(){ if(frameTimer){ clearTimeout(frameTimer); frameTimer=null; log('stream_aborted'); toggleButtons(); } }
 
     // ==========================================
-    // Export & Clear
+    // Export, Heuristics, Clear
     // ==========================================
-    function exportLog(){
-      const blob = new Blob([JSON.stringify({created:new Date().toISOString(), events:evLog}, null, 2)], {type:'application/json'});
-      const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='offline_stream_log.json'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(url),500);
+    function collectConfig(){
+      return {
+        language: els.lang.value,
+        frame_ms: parseInt(els.frameMs.value,10),
+        pacing: els.paceMode.value,
+        autoplay_tts: els.autoplay.checked,
+        mode: els.wsMode.value,
+        file: els.file.files && els.file.files[0]? { name: els.file.files[0].name, size: els.file.files[0].size }: null
+      };
+    }
+    function structuredExport(){
+      const events = evLog.map(e=> ({ ...e, t_rel_ms: sessionStart? (e.t - sessionStart).toFixed(1): '0.0' }));
+      const report = buildStructuredReport({ ...sessionMeta, config: collectConfig() }, events);
+      if(els.exportFormat.value==='markdown') exportMarkdown(report); else exportJson(report);
+    }
+    async function fetchServerReport(){
+      if(!sessionMeta.session_id){ alert('No session id yet. Start a session first.'); return; }
+      try {
+        const res = await fetch(`/api/v1/debug/session-report?session_id=${encodeURIComponent(sessionMeta.session_id)}&include_journal=1`);
+        if(!res.ok) throw new Error(`Server report error ${res.status}`);
+        const data = await res.json();
+        els.serverReportBox.classList.remove('hidden');
+        els.serverReportBox.textContent = JSON.stringify(data, null, 2);
+      } catch(e){ alert(e.message); }
+    }
+    function updateHeuristics(){
+      if(!els.heuristicsBox) return;
+      const events = evLog.map(e=> ({type:e.type, text:e.text, event:e.event, t_rel_ms: sessionStart? (e.t - sessionStart).toFixed(1): '0.0'}));
+      const analysis = analyzeEvents(events);
+      const summary = buildHeuristicSummary(analysis);
+      els.heuristicsBox.textContent = JSON.stringify(summary, null, 2);
     }
     function clearAll(){ evLog.length=0; els.log.textContent=''; resetSession(); log('cleared'); }
 
@@ -364,7 +427,10 @@
       els.btnDisconnect.disabled = !connected;
       els.btnStream.disabled = !connected || !int16Audio || streaming;
       els.btnAbort.disabled = !streaming;
-      els.btnExport.disabled = evLog.length===0;
+      const hasEvents = evLog.length>0;
+      if(els.btnExport) els.btnExport.disabled = !hasEvents;
+      if(els.exportFormat) els.exportFormat.disabled = !hasEvents;
+      if(els.btnServerReport) els.btnServerReport.disabled = !connected || !sessionMeta.session_id;
       if(els.btnMicStart){ els.btnMicStart.disabled = !connected || micActive || els.wsMode.value!=='streaming'; }
       if(els.btnMicStop){ els.btnMicStop.disabled = !connected || !micActive; }
     }
@@ -400,7 +466,8 @@
   if(els.btnMicStart) els.btnMicStart.onclick = startMic;
   if(els.btnMicStop) els.btnMicStop.onclick = stopMic;
     els.btnAbort.onclick = abortStream;
-    els.btnExport.onclick = exportLog;
+  if(els.btnExport) els.btnExport.onclick = structuredExport;
+  if(els.btnServerReport) els.btnServerReport.onclick = fetchServerReport;
     els.btnClear.onclick = clearAll;
     els.file.onchange = async ()=>{ await decodeSelectedFile(); toggleButtons(); };
     els.lang.onchange = ()=>{ if(ws) { log('lang_change_ignored'); } };

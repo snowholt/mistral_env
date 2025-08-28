@@ -179,15 +179,20 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
                 local_files_only=True
             )
             
-            # Create fine-tuned Arabic-optimized pipeline (FIXED: simplified to avoid parameter conflicts)
-            self.pipe = pipeline(
-                "automatic-speech-recognition",
-                model=self.model,
-                tokenizer=self.processor.tokenizer,
-                feature_extractor=self.processor.feature_extractor,
-                torch_dtype=self.torch_dtype,
-                device=self.device
-            )
+            # (Revised) Defer creating pipeline; we'll run a manual generate path first
+            # Pipeline kept as optional fallback for future compatibility or batch decode features.
+            try:
+                self.pipe = pipeline(
+                    "automatic-speech-recognition",
+                    model=self.model,
+                    tokenizer=self.processor.tokenizer,
+                    feature_extractor=self.processor.feature_extractor,
+                    torch_dtype=self.torch_dtype,
+                    device=self.device
+                )
+            except Exception as e:
+                logger.warning(f"Deferred pipeline creation failed (will rely on manual path): {e}")
+                self.pipe = None
             
             # FIXED: Skip torch.compile for now to ensure compatibility like other engines
             logger.info("Skipping torch.compile to ensure compatibility")
@@ -231,31 +236,97 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             Transcribed text
         """
         try:
-            # Prepare audio input for pipeline
-            audio_input = {
-                "array": audio_array,
-                "sampling_rate": 16000
-            }
-            
-            # FIXED: Use simplified parameter structure matching working engines
-            # Configure generation parameters for fine-tuned Arabic model
-            generate_kwargs = self._get_finetuned_arabic_parameters(language)
-            
-            # FIXED: Use the correct parameter structure to avoid pipeline errors
-            kwargs = {"generate_kwargs": generate_kwargs} if generate_kwargs else {}
-            
-            # FIXED: Perform transcription with simplified call (matching working engines)
-            result = self.pipe(audio_input, **kwargs)
-            
-            # Extract and clean transcription
-            transcribed_text = result.get("text", "").strip() if result else ""
-            transcribed_text = self._clean_finetuned_arabic_transcription(transcribed_text)
-            
-            return transcribed_text
+            # Primary path: manual feature extraction + model.generate to avoid pipeline arg mapping issues.
+            generate_kwargs = self._get_finetuned_arabic_parameters(language) or {}
+            if not self.model or not self.processor:
+                logger.error("Model or processor not loaded in fine-tuned engine")
+                return ""
+            self.model.eval()
+            import torch
+            with torch.inference_mode():
+                inputs = self.processor(
+                    audio_array,
+                    sampling_rate=16000,
+                    return_tensors="pt"
+                )
+                input_features = inputs.get("input_features")
+                if input_features is None:
+                    # Some processor versions may use 'features'
+                    input_features = inputs.get("features")
+                if input_features is None:
+                    raise RuntimeError("Processor did not return input_features")
+                input_features = input_features.to(self.device, dtype=self.torch_dtype)
+
+                # Whisper generate expects input_features (older versions accepted inputs=)
+                try:
+                    generated_ids = self.model.generate(
+                        input_features=input_features,
+                        **{k: v for k, v in generate_kwargs.items() if v is not None}
+                    )
+                except TypeError as te:
+                    # Fallback to legacy argument name
+                    if "unexpected keyword argument 'input_features'" in str(te):
+                        generated_ids = self.model.generate(
+                            inputs=input_features,
+                            **{k: v for k, v in generate_kwargs.items() if v is not None}
+                        )
+                    else:
+                        raise
+                text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
+                text = text.strip()
+                # Heuristic repetition mitigation (pre-clean) for Arabic short utterances
+                if text:
+                    original_text = text
+                    mitigated = self._mitigate_repetition(text)
+                    if mitigated != original_text:
+                        logger.debug("[repetition-mitigated] '%s' -> '%s'", original_text[:80], mitigated[:80])
+                        text = mitigated
+            text = self._clean_finetuned_arabic_transcription(text)
+            # If we got a plausible transcript, return early
+            if text:
+                return text
+            # If empty, attempt pipeline fallback (some edge cases rely on internal suppression logic)
+            if self.pipe is not None:
+                try:
+                    audio_input = {"array": audio_array, "sampling_rate": 16000}
+                    pipe_kwargs = {"generate_kwargs": generate_kwargs} if generate_kwargs else {}
+                    result = self.pipe(audio_input, **pipe_kwargs)
+                    alt_text = (result.get("text", "") if isinstance(result, dict) else "").strip()
+                    return self._clean_finetuned_arabic_transcription(alt_text)
+                except Exception as pe:
+                    logger.warning(f"Pipeline fallback also failed: {pe}")
+            return ""
             
         except Exception as e:
+            err_msg = str(e)
             logger.error(f"Fine-tuned Arabic transcription failed: {e}")
-            # Attempt fallback for problematic audio
+
+            # AUTO-RECOVERY: If classic 'input_ids' mis-binding error appears, rebuild a minimal pipeline once.
+            if "unexpected keyword argument 'input_ids'" in err_msg or "got an unexpected keyword argument 'input_ids'" in err_msg:
+                try:
+                    if getattr(self, "_recovery_attempted", False) is False:
+                        self._recovery_attempted = True
+                        logger.warning("Attempting auto-recovery: rebuilding Whisper pipeline without explicit tokenizer binding")
+                        # Rebuild a minimal pipeline letting HF infer processor parts to avoid mis-mapping to input_ids
+                        from transformers import pipeline as hf_pipeline
+                        self.pipe = hf_pipeline(
+                            "automatic-speech-recognition",
+                            model=self.model,
+                            torch_dtype=self.torch_dtype,
+                            device=self.device
+                        )
+                        # Retry once
+                        try:
+                            retry_result = self.pipe(audio_input, **({"generate_kwargs": generate_kwargs} if generate_kwargs else {}))
+                            retry_text = retry_result.get("text", "").strip() if retry_result else ""
+                            return self._clean_finetuned_arabic_transcription(retry_text)
+                        except Exception as retry_e:
+                            logger.error(f"Auto-recovery retry failed: {retry_e}")
+                    else:
+                        logger.debug("Auto-recovery already attempted; skipping rebuild")
+                except Exception as rec_e:
+                    logger.error(f"Pipeline auto-rebuild failed: {rec_e}")
+            # Attempt fallback for problematic audio (will be empty-safe)
             return self._fallback_transcription(audio_array, language)
     
     def _get_finetuned_arabic_parameters(self, language: str) -> Dict[str, Any]:
@@ -270,24 +341,26 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
         """
         # FIXED: Add essential parameters to prevent repetition in streaming
         params = {
-            # Essential repetition prevention
-            "repetition_penalty": 1.2,  # Penalize repetitive tokens
-            "no_repeat_ngram_size": 3,  # Prevent repeating 3-grams
-            "max_new_tokens": 128,  # Conservative limit for streaming
-            
-            # Quality controls for streaming
-            "do_sample": False,  # Deterministic for consistency
-            "num_beams": 1,  # Faster for streaming
-            "temperature": 0.0,  # Deterministic
-            
-            # Audio-specific thresholds
+            # Core decoding behavior
+            "task": "transcribe",
+            "return_timestamps": False,
+            # Deterministic + speed
+            "do_sample": False,
+            "temperature": 0.0,
+            "num_beams": 1,
+            # Streaming / windowed re-decode critical flag: prevents model from
+            # conditioning on previous decoded tokens when we re-decode the trailing window.
+            # Without this the model can accumulate duplicated phrases.
+            "condition_on_prev_tokens": False,
+            # Repetition mitigation (empirically tuned starting values)
+            "repetition_penalty": float(__import__('os').getenv('WHISPER_AR_REPETITION_PENALTY', '1.22')),
+            "no_repeat_ngram_size": int(__import__('os').getenv('WHISPER_AR_NO_REPEAT_NGRAM', '4')),
+            # Length controls (tighter to avoid runaway repeats)
+            "max_new_tokens": int(__import__('os').getenv('WHISPER_AR_MAX_NEW_TOKENS', '96')),
+            # Audio heuristic thresholds (leave defaults but expose easily tunable)
             "compression_ratio_threshold": 2.4,
             "logprob_threshold": -1.0,
             "no_speech_threshold": 0.6,
-            
-            # Timestamps and format
-            "return_timestamps": False,
-            "task": "transcribe"
         }
         
         # Language-specific settings
@@ -300,6 +373,61 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             pass
         
         return params
+
+    # ---------------- Repetition Mitigation Utilities -----------------
+    def _mitigate_repetition(self, text: str) -> str:
+        """Detect and collapse pathological repeated phrases in Arabic transcripts.
+
+        Strategy:
+          1. Remove excessive immediate single-token repetitions (>2 in a row).
+          2. Detect multi-token phrase (length 3..8) repeated consecutively; if total
+             token span of repeats exceeds threshold, keep first occurrence only.
+        """
+        try:
+            tokens = text.split()
+            if len(tokens) < 6:
+                return text  # too short to loop pathologically
+
+            # 1. Immediate token repetition collapse
+            collapsed: List[str] = []
+            last = None
+            repeat_count = 0
+            for tok in tokens:
+                if tok == last:
+                    repeat_count += 1
+                    if repeat_count < 2:  # allow up to 2 consecutive
+                        collapsed.append(tok)
+                else:
+                    last = tok
+                    repeat_count = 0
+                    collapsed.append(tok)
+
+            # 2. Phrase repetition detection (greedy longest first)
+            def collapse_phrase(seq: List[str]) -> List[str]:
+                for n in range(8, 2, -1):  # phrase length 8 down to 3
+                    i = 0
+                    while i + n * 2 <= len(seq):
+                        segment = seq[i:i+n]
+                        repeats = 1
+                        j = i + n
+                        while j + n <= len(seq) and seq[j:j+n] == segment:
+                            repeats += 1
+                            j += n
+                        # Threshold: phrase appears >=2 times and combined length >=12 tokens
+                        if repeats >= 2 and repeats * n >= 12:
+                            # Keep first occurrence only
+                            seq = seq[:i+n] + seq[j:]
+                            # Restart scan after collapse
+                            return collapse_phrase(seq)
+                        i += 1
+                return seq
+
+            mitigated_tokens = collapse_phrase(collapsed)
+            if len(mitigated_tokens) < len(tokens):
+                return " ".join(mitigated_tokens)
+            return text
+        except Exception:
+            return text  # fail-safe
     
     def _clean_finetuned_arabic_transcription(self, text: str) -> str:
         """
