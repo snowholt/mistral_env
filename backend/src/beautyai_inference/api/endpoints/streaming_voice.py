@@ -345,19 +345,29 @@ async def streaming_voice_endpoint(
         # Endpoint / decoder dynamic tuning via env
         decode_interval_ms = int(os.getenv("VOICE_STREAMING_DECODE_INTERVAL_MS", "480"))
         window_seconds = float(os.getenv("VOICE_STREAMING_WINDOW_SECONDS", "8.0"))
-        min_silence_ms = int(os.getenv("VOICE_STREAMING_MIN_SILENCE_MS", "600"))
+        min_speech_ms = int(os.getenv("VOICE_STREAMING_MIN_SPEECH_MS", "480"))  # New configurable parameter
+        min_silence_ms = int(os.getenv("VOICE_STREAMING_MIN_SILENCE_MS", "720"))  # Increased default
         token_stable_ms = int(os.getenv("VOICE_STREAMING_TOKEN_STABLE_MS", "600"))
         max_utterance_ms = int(os.getenv("VOICE_STREAMING_MAX_UTTERANCE_MS", "12000"))
+        min_token_growth_cycles = int(os.getenv("VOICE_STREAMING_MIN_TOKEN_GROWTH_CYCLES", "3"))
+        stability_buffer_ms = int(os.getenv("VOICE_STREAMING_STABILITY_BUFFER_MS", "240"))
+        
         ep_cfg = EndpointConfig(
+            min_speech_ms=min_speech_ms,
             min_silence_ms=min_silence_ms,
             token_stable_ms=token_stable_ms,
             max_utterance_ms=max_utterance_ms,
+            min_token_growth_cycles=min_token_growth_cycles,
+            stability_buffer_ms=stability_buffer_ms,
         )
         ep_state = EndpointState(config=ep_cfg)
         # Provide aggressive fast-path if requested
         if os.getenv("VOICE_STREAMING_LOW_LATENCY_PRESET", "0") == "1":
+            ep_state.config.min_speech_ms = min(ep_state.config.min_speech_ms, 240)
             ep_state.config.min_silence_ms = min(ep_state.config.min_silence_ms, 480)
             ep_state.config.token_stable_ms = min(ep_state.config.token_stable_ms, 480)
+            ep_state.config.min_token_growth_cycles = min(ep_state.config.min_token_growth_cycles, 2)
+            ep_state.config.stability_buffer_ms = min(ep_state.config.stability_buffer_ms, 120)
         # Hard stop guard: force finalize if no final after grace window
         force_final_grace = float(os.getenv("VOICE_STREAMING_FORCE_FINAL_AFTER_SEC", "15"))
         session_start_time = time.time()
