@@ -33,4 +33,15 @@ class StreamingSession:
         self.total_frames_received += 1
         self.touch()
 
+    async def reset_counters_for_new_utterance(self) -> None:
+        """Reset per-utterance counters after final transcript processing.
+        
+        This ensures metrics reflect only the current utterance activity
+        and prevents counter inflation across multiple utterances.
+        """
+        # Reset byte and frame counters for new utterance
+        self.bytes_received = 0
+        self.total_frames_received = 0
+        # Buffer is reset separately via reset_for_new_utterance() in decoder_loop
+
 __all__ = ["StreamingSession"]

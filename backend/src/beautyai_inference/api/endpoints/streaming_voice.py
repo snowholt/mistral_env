@@ -76,7 +76,8 @@ class SessionState:
     mock_running: bool = False
     mock_task: Optional[asyncio.Task] = None
     disconnected: bool = False
-    bytes_received: int = 0
+    bytes_received: int = 0  # Raw bytes received (includes WebM containers)
+    pcm_bytes_received: int = 0  # Actual PCM bytes ingested into buffer
     pcm_frames_received: int = 0
     audio_session: Optional[StreamingSession] = None  # Phase 2
     conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
@@ -114,6 +115,25 @@ class SessionState:
     def touch(self) -> None:
         """Update the last activity timestamp."""
         self.last_activity = time.time()
+
+    async def reset_counters_for_new_utterance(self) -> None:
+        """Reset per-utterance metrics after final transcript processing.
+        
+        This ensures heartbeat metrics reflect only current utterance activity
+        and prevents counter inflation across multiple utterances.
+        """
+        # Reset PCM byte and frame counters for new utterance  
+        self.pcm_bytes_received = 0
+        self.pcm_frames_received = 0
+        # Reset voice activity counters
+        self.voiced_frame_count = 0
+        self.silence_frame_count = 0
+        # Reset to low energy mode for new utterance
+        self.low_energy_mode = True
+        
+        # Also reset the audio session counters
+        if self.audio_session:
+            await self.audio_session.reset_counters_for_new_utterance()
 
 
 class StreamingSessionRegistry:
@@ -745,6 +765,15 @@ async def streaming_voice_endpoint(
                     event.setdefault("decode_language", language)
                     await _send_json(state.websocket, event)
                     
+                    # Reset counters for new utterance after final transcript
+                    reset_counters_after_final = os.getenv("VOICE_STREAMING_RESET_COUNTERS_AFTER_FINAL", "1") == "1"
+                    if reset_counters_after_final:
+                        await state.reset_counters_for_new_utterance()
+                        logger.debug(
+                            "[streaming_voice] Reset metrics counters after final transcript (utterance_index=%d)",
+                            utterance_index
+                        )
+                    
                     # Reset WebM decoder after final transcript to prevent audio bleeding
                     reset_webm_after_final = os.getenv("VOICE_STREAMING_RESET_WEBM_AFTER_FINAL", "1") == "1"
                     if reset_webm_after_final and state.webm_decoder:
@@ -853,7 +882,7 @@ async def streaming_voice_endpoint(
                     hb_payload = {
                         "type": "heartbeat",
                         "ts": time.time(),
-                        "bytes_received": state.bytes_received,
+                        "bytes_received": state.pcm_bytes_received,  # Use actual PCM bytes, not raw input
                         "pcm_frames": state.pcm_frames_received,
                         "buffer_usage": (state.audio_session.pcm_buffer.usage_ratio() if state.audio_session else None),
                         "voiced_frames": state.voiced_frame_count,
@@ -946,6 +975,7 @@ async def streaming_voice_endpoint(
                                         async for pcm_chunk in state.webm_decoder.stream_realtime_pcm(chunk_generator()):
                                             if state.audio_session:
                                                 await state.audio_session.ingest_pcm(pcm_chunk)
+                                                state.pcm_bytes_received += len(pcm_chunk)  # Track actual PCM bytes
                                                 state.pcm_frames_received += 1
                                                 if state.pcm_frames_received <= 3:
                                                     logger.debug("[%s] (dec) ingested PCM frame bytes=%d buf_usage=%.3f", 
@@ -964,7 +994,7 @@ async def streaming_voice_endpoint(
                                     "type": "ingest_mode",
                                     "mode": state.compressed_mode,
                                     "timestamp": time.time(),
-                                    "bytes_received": state.bytes_received,
+                                    "bytes_received": state.pcm_bytes_received,  # Use PCM bytes (initially 0 for WebM)
                                     "frame_hint_bytes": 640,
                                 })
                                 
@@ -1013,6 +1043,7 @@ async def streaming_voice_endpoint(
                             except Exception:
                                 pass
                             await state.audio_session.ingest_pcm(payload)
+                            state.pcm_bytes_received += len(payload)  # Track actual PCM bytes
                             state.pcm_frames_received += 1
                             if state.pcm_frames_received <= 3:  # log only first few for noise control
                                 logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
@@ -1022,7 +1053,7 @@ async def streaming_voice_endpoint(
                                     "type": "ingest_mode",
                                     "mode": "pcm16le",
                                     "timestamp": time.time(),
-                                    "bytes_received": state.bytes_received,
+                                    "bytes_received": state.pcm_bytes_received,  # Use PCM bytes in event
                                     "frame_size_bytes": len(payload),
                                 })
     except WebSocketDisconnect:
@@ -1036,7 +1067,7 @@ async def streaming_voice_endpoint(
             await _send_json(websocket, {
                 "type": "session_end",
                 "timestamp": time.time(),
-                "bytes_received": state.bytes_received,
+                "bytes_received": state.pcm_bytes_received,  # Use actual PCM bytes
                 "pcm_frames": state.pcm_frames_received,
                 "voiced_frames": state.voiced_frame_count,
                 "silence_frames": state.silence_frame_count,
