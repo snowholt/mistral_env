@@ -6,6 +6,44 @@
   <title>BeautyAI Voice Streaming Debug Console</title>
   <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_streaming.css') }}">
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+  <style>
+    .language-mismatch-banner {
+      background: linear-gradient(135deg, #ff9800, #f57c00);
+      color: white;
+      padding: 12px;
+      margin-bottom: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(255, 152, 0, 0.3);
+      animation: slideDown 0.3s ease-out;
+    }
+    
+    .banner-content {
+      display: flex;
+      align-items: center;
+      gap: 15px;
+    }
+    
+    .banner-content i {
+      font-size: 18px;
+    }
+    
+    .banner-actions {
+      margin-left: auto;
+      display: flex;
+      gap: 8px;
+    }
+    
+    .btn-sm {
+      padding: 4px 12px;
+      font-size: 12px;
+      border-radius: 4px;
+    }
+    
+    @keyframes slideDown {
+      from { transform: translateY(-100%); opacity: 0; }
+      to { transform: translateY(0); opacity: 1; }
+    }
+  </style>
 </head>
 <body>
   <div class="container">
@@ -70,6 +108,19 @@
         </div>
       </div>
     </section>
+
+    <!-- Language Mismatch Banner -->
+    <div id="language-mismatch-banner" class="language-mismatch-banner" style="display: none;">
+      <div class="banner-content">
+        <i class="fas fa-language"></i>
+        <span id="mismatch-message">Language mismatch detected</span>
+        <div class="banner-actions">
+          <button id="btn-switch-language" class="btn btn-sm btn-primary">Switch</button>
+          <button id="btn-ignore-mismatch" class="btn btn-sm btn-secondary">Ignore</button>
+          <button id="btn-close-banner" class="btn btn-sm btn-danger">×</button>
+        </div>
+      </div>
+    </div>
 
     <!-- Status Dashboard -->
     <section class="status-dashboard">
@@ -210,6 +261,10 @@
     let logEntries = [];
     let conversationTurns = [];
     let currentUtteranceStart = null;
+    
+    // Assistant response deduplication tracking
+    let assistantResponses = new Map(); // utterance_index -> response_data
+    let lastLanguageMismatch = null;
 
     // DOM elements
     const logEl = document.getElementById('log');
@@ -275,6 +330,35 @@
           updateStatus(statusEl, 'Inactive', 'inactive');
           iconEl.className = 'fas fa-microphone-slash status-icon status-inactive';
           break;
+      }
+    }
+
+    function showLanguageMismatchBanner(detectedLang, expectedLang) {
+      const banner = document.getElementById('language-mismatch-banner');
+      const message = document.getElementById('mismatch-message');
+      
+      message.textContent = `Detected ${detectedLang} speech, but expected ${expectedLang}. Switch language?`;
+      banner.style.display = 'block';
+      
+      lastLanguageMismatch = { detected: detectedLang, expected: expectedLang };
+    }
+
+    function hideLanguageMismatchBanner() {
+      document.getElementById('language-mismatch-banner').style.display = 'none';
+    }
+
+    function switchLanguage() {
+      if (lastLanguageMismatch) {
+        document.getElementById('language').value = lastLanguageMismatch.detected;
+        log(`Language switched to: ${lastLanguageMismatch.detected}`, 'info');
+        hideLanguageMismatchBanner();
+        
+        // Optionally reconnect with new language
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          log('Reconnecting with new language...', 'info');
+          disconnect();
+          setTimeout(connect, 500);
+        }
       }
     }
 
@@ -438,67 +522,111 @@
         const msg = JSON.parse(data);
         metrics.totalMessages++;
         
+        // Extract event type from various message formats
         const eventType = msg.event || msg.type || 'unknown';
-        log(`RX: ${eventType} ${msg.text ? `- "${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}"` : ''}`, 'receive');
         
-        if (msg.event === 'partial_transcript' || msg.type === 'partial_transcript') {
-          currentPartial = msg.text;
-          metrics.transcriptionEvents++;
-          
-          // Update transcription view
-          const lines = transcriptEl.value.split('\n').filter(l => !l.startsWith('[PARTIAL]'));
-          transcriptEl.value = lines.join('\n');
-          if (currentPartial) {
-            transcriptEl.value += `\n[PARTIAL] ${currentPartial}`;
-          }
-          
-        } else if (msg.event === 'final_transcript' || msg.type === 'final_transcript') {
-          const finalText = msg.text;
-          transcriptEl.value += `\n${finalText}`;
-          addConversationMessage('user', finalText);
-          metrics.transcriptionEvents++;
-          currentPartial = '';
-          
-          // Log that we expect an assistant response soon
-          log(`🎯 Final transcript received - expecting assistant response...`, 'info');
-          
-        } else if (msg.event === 'assistant_text' || msg.type === 'assistant_text' || 
-                   msg.event === 'assistant_response' || msg.type === 'assistant_response') {
-          const assistantText = msg.text;
-          assistantEl.value += `\n${assistantText}`;
-          addConversationMessage('assistant', assistantText);
-          
-          log(`✅ Assistant response received!`, 'success');
-          
-        } else if (msg.type === 'assistant_pipeline_start') {
-          log(`🚀 Assistant pipeline started for utterance ${msg.utterance_index || 'unknown'}`, 'info');
-          
-        } else if (msg.event === 'tts_chunk' || msg.type === 'tts_chunk' || 
-                   msg.event === 'tts_audio' || msg.type === 'tts_audio') {
-          metrics.ttsEvents++;
-          log(`🔊 TTS audio received (${msg.encoding || 'unknown'} format)`, 'info');
-          // Could optionally play audio chunk here
-          
-        } else if (msg.type === 'tts_start') {
-          log('🎵 TTS synthesis started', 'info');
-          
-        } else if (msg.type === 'tts_complete') {
-          log('✅ TTS synthesis completed', 'success');
-          
-        } else if (msg.type === 'error') {
-          log(`❌ Backend error: ${msg.message} (stage: ${msg.stage || 'unknown'})`, 'error');
-          
-        } else if (msg.type === 'ready') {
-          log('✅ Backend ready to receive audio', 'success');
-          
-        } else if (msg.type === 'conversation_reset') {
-          log('🔄 Conversation history reset successfully', 'success');
-          // Optionally clear conversation display if desired
-          // conversationContainer.innerHTML = '';
-          
-        } else {
-          // Log unknown message types for debugging
-          log(`❓ Unknown message type: ${eventType}`, 'warning');
+        // Handle endpoint_event wrapper format
+        if (msg.type === 'endpoint_event' && msg.event) {
+          handleEndpointEvent(msg);
+          return;
+        }
+        
+        // Log message with truncated text for readability
+        const textPreview = msg.text ? `- "${msg.text.substring(0, 50)}${msg.text.length > 50 ? '...' : ''}"` : '';
+        log(`RX: ${eventType} ${textPreview}`, 'receive');
+        
+        switch(eventType) {
+          case 'partial_transcript':
+            handlePartialTranscript(msg);
+            break;
+            
+          case 'final_transcript':
+            handleFinalTranscript(msg);
+            break;
+            
+          case 'assistant_text':
+          case 'assistant_response':
+            handleAssistantResponse(msg);
+            break;
+            
+          case 'assistant_pipeline_start':
+            handleAssistantPipelineStart(msg);
+            break;
+            
+          case 'assistant_turn':
+            handleAssistantTurn(msg);
+            break;
+            
+          case 'assistant_pipeline_done':
+            handleAssistantPipelineDone(msg);
+            break;
+            
+          case 'final_queued':
+            handleFinalQueued(msg);
+            break;
+            
+          case 'language_mismatch_notice':
+            handleLanguageMismatch(msg);
+            break;
+            
+          case 'metrics_snapshot':
+            handleMetricsSnapshot(msg);
+            break;
+            
+          case 'perf_cycle':
+            handlePerfCycle(msg);
+            break;
+            
+          case 'heartbeat':
+            handleHeartbeat(msg);
+            break;
+            
+          case 'decoder_started':
+            log(`🚀 Decoder started for session`, 'info');
+            break;
+            
+          case 'ingest_mode':
+            log(`📥 Ingest mode: ${msg.mode || 'unknown'}`, 'info');
+            break;
+            
+          case 'start':
+            log(`▶️ Utterance start (index: ${msg.utterance_index || 'unknown'})`, 'info');
+            break;
+            
+          case 'final':
+            log(`🏁 Utterance final (index: ${msg.utterance_index || 'unknown'})`, 'success');
+            break;
+            
+          case 'tts_chunk':
+          case 'tts_audio':
+            metrics.ttsEvents++;
+            log(`🔊 TTS audio received (${msg.encoding || 'unknown'} format)`, 'info');
+            break;
+            
+          case 'tts_start':
+            log('🎵 TTS synthesis started', 'info');
+            break;
+            
+          case 'tts_complete':
+            log('✅ TTS synthesis completed', 'success');
+            break;
+            
+          case 'error':
+            log(`❌ Backend error: ${msg.message} (stage: ${msg.stage || 'unknown'})`, 'error');
+            break;
+            
+          case 'ready':
+            log('✅ Backend ready to receive audio', 'success');
+            break;
+            
+          case 'conversation_reset':
+            log('🔄 Conversation history reset successfully', 'success');
+            break;
+            
+          default:
+            // Log unknown message types at debug level instead of warning
+            log(`🔧 Debug event: ${eventType}${textPreview}`, 'debug');
+            break;
         }
         
         updateMetrics();
@@ -506,6 +634,105 @@
       } catch (err) {
         log('Received non-JSON message', 'warning');
       }
+    }
+
+    function handleEndpointEvent(msg) {
+      const innerEvent = msg.event;
+      const utteranceIndex = msg.utterance_index;
+      
+      log(`🎯 Endpoint: ${innerEvent} (utterance ${utteranceIndex})`, 'info');
+      
+      // Handle the inner event
+      if (innerEvent === 'start') {
+        log(`▶️ Utterance ${utteranceIndex} started`, 'info');
+      } else if (innerEvent === 'final') {
+        log(`🏁 Utterance ${utteranceIndex} finalized`, 'success');
+      }
+    }
+
+    function handlePartialTranscript(msg) {
+      currentPartial = msg.text;
+      metrics.transcriptionEvents++;
+      
+      // Update transcription view
+      const lines = transcriptEl.value.split('\n').filter(l => !l.startsWith('[PARTIAL]'));
+      transcriptEl.value = lines.join('\n');
+      if (currentPartial) {
+        transcriptEl.value += `\n[PARTIAL] ${currentPartial}`;
+      }
+    }
+
+    function handleFinalTranscript(msg) {
+      const finalText = msg.text;
+      transcriptEl.value += `\n${finalText}`;
+      addConversationMessage('user', finalText);
+      metrics.transcriptionEvents++;
+      currentPartial = '';
+      
+      log(`🎯 Final transcript received - expecting assistant response...`, 'info');
+    }
+
+    function handleAssistantResponse(msg) {
+      const utteranceIndex = msg.utterance_index;
+      const assistantText = msg.text;
+      
+      // Deduplicate by utterance_index
+      if (utteranceIndex !== undefined) {
+        if (assistantResponses.has(utteranceIndex)) {
+          log(`🔄 Duplicate assistant response for utterance ${utteranceIndex} - ignoring`, 'debug');
+          return;
+        }
+        assistantResponses.set(utteranceIndex, { text: assistantText, timestamp: Date.now() });
+      }
+      
+      assistantEl.value += `\n${assistantText}`;
+      addConversationMessage('assistant', assistantText);
+      
+      log(`✅ Assistant response received for utterance ${utteranceIndex}!`, 'success');
+    }
+
+    function handleAssistantPipelineStart(msg) {
+      const utteranceIndex = msg.utterance_index || 'unknown';
+      log(`🚀 Assistant pipeline started for utterance ${utteranceIndex}`, 'info');
+    }
+
+    function handleAssistantTurn(msg) {
+      const utteranceIndex = msg.utterance_index || 'unknown';
+      log(`🔄 Assistant turn completed for utterance ${utteranceIndex}`, 'success');
+    }
+
+    function handleAssistantPipelineDone(msg) {
+      const utteranceIndex = msg.utterance_index || 'unknown';
+      log(`✅ Assistant pipeline done for utterance ${utteranceIndex}`, 'success');
+    }
+
+    function handleFinalQueued(msg) {
+      const utteranceIndex = msg.utterance_index || 'unknown';
+      log(`📥 Final transcript queued for utterance ${utteranceIndex}`, 'info');
+    }
+
+    function handleLanguageMismatch(msg) {
+      const detected = msg.detected_language || msg.detected || 'unknown';
+      const expected = msg.expected_language || msg.expected || document.getElementById('language').value;
+      
+      log(`🌐 Language mismatch: detected ${detected}, expected ${expected}`, 'warning');
+      showLanguageMismatchBanner(detected, expected);
+    }
+
+    function handleMetricsSnapshot(msg) {
+      log(`📊 Metrics snapshot: ${JSON.stringify(msg.metrics || msg)}`, 'debug');
+    }
+
+    function handlePerfCycle(msg) {
+      const decodeMs = msg.decode_ms || msg.latency_ms || 'unknown';
+      const tokens = msg.tokens || 'unknown';
+      log(`⚡ Perf cycle: ${decodeMs}ms, ${tokens} tokens`, 'debug');
+    }
+
+    function handleHeartbeat(msg) {
+      const bufferUsage = msg.buffer_usage || 'unknown';
+      const bytesReceived = msg.bytes_received || 'unknown';
+      log(`💓 Heartbeat: buffer ${bufferUsage}, bytes ${bytesReceived}`, 'debug');
     }
 
     async function startCapture() {
@@ -714,6 +941,11 @@
       conversationTurns = [];
       currentUtteranceStart = null;
       
+      // Reset assistant deduplication tracking
+      assistantResponses.clear();
+      lastLanguageMismatch = null;
+      hideLanguageMismatchBanner();
+      
       document.getElementById('turn-count').textContent = '0';
       document.getElementById('avg-response-time').textContent = '-- ms';
       document.getElementById('latency-display').textContent = '-- ms';
@@ -762,6 +994,11 @@
     btnResetConversation.onclick = resetConversation;
     btnClear.onclick = clearAll;
     btnExport.onclick = exportLogs;
+
+    // Language mismatch banner event listeners
+    document.getElementById('btn-switch-language').onclick = switchLanguage;
+    document.getElementById('btn-ignore-mismatch').onclick = hideLanguageMismatchBanner;
+    document.getElementById('btn-close-banner').onclick = hideLanguageMismatchBanner;
 
     // Initialize
     updateConnectionStatus('disconnected');

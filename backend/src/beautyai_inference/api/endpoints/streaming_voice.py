@@ -835,22 +835,26 @@ async def streaming_voice_endpoint(
     try:
         # Heartbeat / liveness task
         async def _heartbeat_loop():
-            while True:
-                await asyncio.sleep(2.0)
-                if state.disconnected:
-                    break
-                hb_payload = {
-                    "type": "heartbeat",
-                    "ts": time.time(),
-                    "bytes_received": state.bytes_received,
-                    "pcm_frames": state.pcm_frames_received,
-                    "buffer_usage": (state.audio_session.pcm_buffer.usage_ratio() if state.audio_session else None),
-                    "voiced_frames": state.voiced_frame_count,
-                    "silence_frames": state.silence_frame_count,
-                    "low_energy_mode": state.low_energy_mode,
-                }
-                await _send_json(websocket, hb_payload)
-                state.last_heartbeat_sent = time.time()
+            try:
+                while True:
+                    await asyncio.sleep(2.0)
+                    if state.disconnected:
+                        break
+                    hb_payload = {
+                        "type": "heartbeat",
+                        "ts": time.time(),
+                        "bytes_received": state.bytes_received,
+                        "pcm_frames": state.pcm_frames_received,
+                        "buffer_usage": (state.audio_session.pcm_buffer.usage_ratio() if state.audio_session else None),
+                        "voiced_frames": state.voiced_frame_count,
+                        "silence_frames": state.silence_frame_count,
+                        "low_energy_mode": state.low_energy_mode,
+                    }
+                    await _send_json(websocket, hb_payload)
+                    state.last_heartbeat_sent = time.time()
+            except asyncio.CancelledError:
+                logger.debug("Heartbeat loop cancelled; closing cleanly")
+                return
         state.heartbeat_task = asyncio.create_task(_heartbeat_loop())
 
         while True:
@@ -1040,7 +1044,7 @@ async def streaming_voice_endpoint(
         # Heartbeat task
         if state.heartbeat_task and not state.heartbeat_task.done():
             state.heartbeat_task.cancel()
-            with contextlib.suppress(Exception):
+            with contextlib.suppress(asyncio.CancelledError):
                 await state.heartbeat_task
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:

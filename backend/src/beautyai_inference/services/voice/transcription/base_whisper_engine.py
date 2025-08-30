@@ -52,6 +52,15 @@ class BaseWhisperEngine(ABC):
         # Performance tracking
         self.load_time = None
         self.last_inference_time = None
+        # Runtime stats (extended by subclasses)
+        self._runtime_stats: Dict[str, Any] = {
+            "feature_extractions": 0,
+            "generate_calls": 0,
+            "total_feature_ms": 0.0,
+            "total_generate_ms": 0.0,
+            "consecutive_failures": 0,
+            "circuit_open_events": 0,
+        }
         
         # GPU optimization settings
         if self.device.startswith("cuda"):
@@ -243,6 +252,11 @@ class BaseWhisperEngine(ABC):
                 logger.error(f"{self._get_engine_name()} model not loaded. Call load_whisper_model() first.")
                 return ""
             
+            # DEBUG: Log which engine is handling the request
+            engine_name = self._get_engine_name()
+            if hasattr(self, '_runtime_stats') and (self._runtime_stats.get('generate_calls', 0) % 10) == 0:
+                logger.info(f"[engine-trace] {engine_name} handling transcription request")
+            
             start_time = time.time()
             
             # Preprocess audio
@@ -264,6 +278,18 @@ class BaseWhisperEngine(ABC):
         except Exception as e:
             logger.error(f"{self._get_engine_name()} transcription failed: {e}")
             return ""
+
+    # ---------------- Runtime Stats -----------------
+    def get_runtime_stats(self) -> Dict[str, Any]:
+        """Return a shallow copy of current runtime statistics for observability.
+
+        Returns:
+            dict: metrics including counts and cumulative timings.
+        """
+        try:
+            return dict(self._runtime_stats)
+        except Exception:  # pragma: no cover - defensive
+            return {}
     
     @abstractmethod
     def _transcribe_implementation(self, audio_array: np.ndarray, language: str) -> str:

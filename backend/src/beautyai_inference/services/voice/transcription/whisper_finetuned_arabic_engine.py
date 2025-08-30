@@ -53,6 +53,10 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
         self.supports_torch_compile = self._check_torch_compile_support()
         self.dialect_handling = True
         self.fine_tuned = True
+        # Circuit breaker / failure mitigation
+        self._max_consecutive_failures = int(__import__('os').getenv('WHISPER_AR_MAX_CONSECUTIVE_FAILURES', '5'))
+        self._circuit_breaker_cooldown_sec = float(__import__('os').getenv('WHISPER_AR_CIRCUIT_COOLDOWN_SEC', '2.0'))
+        self._circuit_last_open_time: Optional[float] = None
         
         # Custom model configuration
         self.low_cpu_mem_usage = True
@@ -236,6 +240,25 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             Transcribed text
         """
         try:
+            # DEBUG: Confirm this engine is being used
+            if (self._runtime_stats.get('generate_calls', 0) % 5) == 0:
+                logger.info("[engine-trace] WhisperFinetunedArabicEngine._transcribe_implementation called")
+            
+            # Circuit breaker: avoid hammering model if we hit repeated failures
+            if self._runtime_stats.get('consecutive_failures', 0) >= self._max_consecutive_failures:
+                now = time.time()
+                if self._circuit_last_open_time is None:
+                    self._circuit_last_open_time = now
+                    self._runtime_stats['circuit_open_events'] += 1
+                    logger.warning("[whisper-circuit] Opened after %d consecutive failures", self._runtime_stats.get('consecutive_failures'))
+                elif (now - self._circuit_last_open_time) < self._circuit_breaker_cooldown_sec:
+                    # Still in cooldown window – skip heavy work
+                    return ""
+                else:
+                    # Cooldown elapsed – reset breaker
+                    logger.info("[whisper-circuit] Cooldown elapsed; allowing new attempts")
+                    self._runtime_stats['consecutive_failures'] = 0
+                    self._circuit_last_open_time = None
             # Primary path: manual feature extraction + model.generate to avoid pipeline arg mapping issues.
             generate_kwargs = self._get_finetuned_arabic_parameters(language) or {}
             if not self.model or not self.processor:
@@ -244,11 +267,16 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             self.model.eval()
             import torch
             with torch.inference_mode():
+                feat_start = time.time()
                 inputs = self.processor(
                     audio_array,
                     sampling_rate=16000,
-                    return_tensors="pt"
+                    return_tensors="pt",
+                    return_attention_mask=True  # good practice for batching / future
                 )
+                feat_ms = (time.time() - feat_start) * 1000.0
+                self._runtime_stats['feature_extractions'] += 1
+                self._runtime_stats['total_feature_ms'] += feat_ms
                 input_features = inputs.get("input_features")
                 if input_features is None:
                     # Some processor versions may use 'features'
@@ -256,22 +284,66 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
                 if input_features is None:
                     raise RuntimeError("Processor did not return input_features")
                 input_features = input_features.to(self.device, dtype=self.torch_dtype)
-
+                
+                # Log feature shape for debugging (Whisper features are typically [B, 80, T] not [B, T, 80])
+                feat_shape = tuple(input_features.shape)
+                # Validate: expect [batch_size, n_mels, time_frames]
+                # Standard Whisper: n_mels=80, but fine-tuned models may use different mel configs
+                if input_features.dim() == 3:
+                    batch_size, n_mels, time_frames = feat_shape
+                    if n_mels not in [80, 128]:  # Allow both standard (80) and extended (128) mel configs
+                        logger.warning(
+                            "[whisper] Unexpected n_mels=%d in shape %s (expect 80 or 128)", n_mels, feat_shape
+                        )
+                    # Positive debug log every few calls to confirm correct path
+                    if (self._runtime_stats.get('feature_extractions', 0) % 10) == 1:
+                        logger.info(
+                            "[whisper-debug] Feature extraction OK: shape=%s, n_mels=%d, time_frames=%d", 
+                            feat_shape, n_mels, time_frames
+                        )
+                else:
+                    logger.warning(
+                        "[whisper] Unexpected feature dimensionality: shape=%s (expect 3D [B, n_mels, T])", feat_shape
+                    )
+                gen_start = time.time()
                 # Whisper generate expects input_features (older versions accepted inputs=)
+                
+                # Filter out pipeline-specific parameters that model.generate doesn't understand
+                # These can cause "unexpected keyword argument 'input_ids'" errors in newer transformers
+                pipeline_only_params = {
+                    'no_speech_threshold', 'compression_ratio_threshold', 'logprob_threshold',
+                    'condition_on_prev_tokens', 'repetition_penalty', 'no_repeat_ngram_size'
+                }
+                model_generate_kwargs = {
+                    k: v for k, v in generate_kwargs.items() 
+                    if v is not None and k not in pipeline_only_params
+                }
+                
                 try:
                     generated_ids = self.model.generate(
                         input_features=input_features,
-                        **{k: v for k, v in generate_kwargs.items() if v is not None}
+                        **model_generate_kwargs
                     )
                 except TypeError as te:
                     # Fallback to legacy argument name
                     if "unexpected keyword argument 'input_features'" in str(te):
                         generated_ids = self.model.generate(
                             inputs=input_features,
-                            **{k: v for k, v in generate_kwargs.items() if v is not None}
+                            **model_generate_kwargs
                         )
                     else:
                         raise
+                gen_ms = (time.time() - gen_start) * 1000.0
+                self._runtime_stats['generate_calls'] += 1
+                self._runtime_stats['total_generate_ms'] += gen_ms
+                if (self._runtime_stats['generate_calls'] % 25) == 0:
+                    logger.info(
+                        "[whisper-metrics] features=%d (%.1fms avg) generate=%d (%.1fms avg)",
+                        self._runtime_stats['feature_extractions'],
+                        (self._runtime_stats['total_feature_ms'] / max(1, self._runtime_stats['feature_extractions'])),
+                        self._runtime_stats['generate_calls'],
+                        (self._runtime_stats['total_generate_ms'] / max(1, self._runtime_stats['generate_calls'])),
+                    )
                 text = self.processor.batch_decode(generated_ids, skip_special_tokens=True)[0]
                 text = text.strip()
                 # Heuristic repetition mitigation (pre-clean) for Arabic short utterances
@@ -284,6 +356,8 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             text = self._clean_finetuned_arabic_transcription(text)
             # If we got a plausible transcript, return early
             if text:
+                # reset failure counter
+                self._runtime_stats['consecutive_failures'] = 0
                 return text
             # If empty, attempt pipeline fallback (some edge cases rely on internal suppression logic)
             if self.pipe is not None:
@@ -292,6 +366,8 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
                     pipe_kwargs = {"generate_kwargs": generate_kwargs} if generate_kwargs else {}
                     result = self.pipe(audio_input, **pipe_kwargs)
                     alt_text = (result.get("text", "") if isinstance(result, dict) else "").strip()
+                    if alt_text:
+                        self._runtime_stats['consecutive_failures'] = 0
                     return self._clean_finetuned_arabic_transcription(alt_text)
                 except Exception as pe:
                     logger.warning(f"Pipeline fallback also failed: {pe}")
@@ -300,13 +376,17 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
         except Exception as e:
             err_msg = str(e)
             logger.error(f"Fine-tuned Arabic transcription failed: {e}")
+            try:
+                self._runtime_stats['consecutive_failures'] += 1
+            except Exception:
+                pass
 
             # AUTO-RECOVERY: If classic 'input_ids' mis-binding error appears, rebuild a minimal pipeline once.
             if "unexpected keyword argument 'input_ids'" in err_msg or "got an unexpected keyword argument 'input_ids'" in err_msg:
                 try:
                     if getattr(self, "_recovery_attempted", False) is False:
                         self._recovery_attempted = True
-                        logger.warning("Attempting auto-recovery: rebuilding Whisper pipeline without explicit tokenizer binding")
+                        logger.warning("[whisper-recovery] Attempting auto-recovery: rebuilding Whisper pipeline without explicit tokenizer binding")
                         # Rebuild a minimal pipeline letting HF infer processor parts to avoid mis-mapping to input_ids
                         from transformers import pipeline as hf_pipeline
                         self.pipe = hf_pipeline(
@@ -317,17 +397,24 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
                         )
                         # Retry once
                         try:
+                            audio_input = {"array": audio_array, "sampling_rate": 16000}
                             retry_result = self.pipe(audio_input, **({"generate_kwargs": generate_kwargs} if generate_kwargs else {}))
                             retry_text = retry_result.get("text", "").strip() if retry_result else ""
+                            if retry_text:
+                                logger.info("[whisper-recovery] Successful retry after pipeline rebuild")
+                                self._runtime_stats['consecutive_failures'] = 0
                             return self._clean_finetuned_arabic_transcription(retry_text)
                         except Exception as retry_e:
-                            logger.error(f"Auto-recovery retry failed: {retry_e}")
+                            logger.error(f"[whisper-recovery] Retry failed: {retry_e}")
                     else:
-                        logger.debug("Auto-recovery already attempted; skipping rebuild")
+                        logger.debug("[whisper-recovery] Auto-recovery already attempted; skipping rebuild")
                 except Exception as rec_e:
-                    logger.error(f"Pipeline auto-rebuild failed: {rec_e}")
+                    logger.error(f"[whisper-recovery] Pipeline auto-rebuild failed: {rec_e}")
             # Attempt fallback for problematic audio (will be empty-safe)
-            return self._fallback_transcription(audio_array, language)
+            fb = self._fallback_transcription(audio_array, language)
+            if fb:
+                self._runtime_stats['consecutive_failures'] = 0
+            return fb
     
     def _get_finetuned_arabic_parameters(self, language: str) -> Dict[str, Any]:
         """
