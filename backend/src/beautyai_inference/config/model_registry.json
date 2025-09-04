@@ -87,7 +87,7 @@
       "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine - ULTRA SPEED OPTIMIZED",
       "model_architecture": "causal_lm",
       "n_gpu_layers": -1,
-      "n_ctx": 512,
+      "n_ctx": 4096,
       "n_batch": 32768,
       "n_threads": 4,
       "custom_generation_params": {
