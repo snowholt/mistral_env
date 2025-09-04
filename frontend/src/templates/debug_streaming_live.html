@@ -1297,7 +1297,38 @@
     
     // Device management listeners
     document.getElementById('btn-refresh-devices').onclick = refreshAudioDevices;
-    
+
+    // Device selection listeners
+    document.getElementById('microphoneDevice').onchange = function(e) {
+      if (window.voiceClient) {
+        window.voiceClient.selectedMicDevice = e.target.value || null;
+        if (window.voiceClient._connected) {
+          window.voiceClient.stopCapture && window.voiceClient.stopCapture();
+          window.voiceClient.initAudio && window.voiceClient.initAudio();
+        }
+        log(`Microphone device changed: ${e.target.value}`, 'info');
+      }
+    };
+    document.getElementById('speakerDevice').onchange = function(e) {
+      if (window.voiceClient && window.voiceClient.ttsPlayer) {
+        window.voiceClient.selectedSpeakerDevice = e.target.value || null;
+        window.voiceClient.ttsPlayer.setOutputDevice(e.target.value || null);
+        log(`Speaker device changed: ${e.target.value}`, 'info');
+      }
+    };
+    document.getElementById('echoCancellation').onchange = function(e) {
+      if (window.voiceClient) {
+        window.voiceClient.echoCancellation = e.target.checked;
+        log(`Echo cancellation ${e.target.checked ? 'enabled' : 'disabled'}`, 'info');
+      }
+    };
+    document.getElementById('duplexMode').onchange = function(e) {
+      if (window.voiceClient) {
+        window.voiceClient.duplexEnabled = e.target.checked;
+        log(`Duplex mode ${e.target.checked ? 'enabled' : 'disabled'}`, 'info');
+      }
+    };
+
     // Echo test listeners
     document.getElementById('btn-echo-test').onclick = startEchoTest;
     document.getElementById('btn-stop-echo-test').onclick = stopEchoTest;

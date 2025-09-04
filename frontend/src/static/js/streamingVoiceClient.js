@@ -32,9 +32,18 @@ class StreamingVoiceClient {
     // Phase 8 additions
     this.autoRearm = opts.autoRearm !== false; // auto re-arm after TTS complete
     this._suspended = false;
-  this._lastMicLevel = 0;
-  this._ingestMode = null; // 'pcm16le' | 'webm-opus' etc
-  this._diag = { firstFrameAt: null, readyAt: null };
+    this._lastMicLevel = 0;
+    this._ingestMode = null; // 'pcm16le' | 'webm-opus' etc
+    this._diag = { firstFrameAt: null, readyAt: null };
+    
+    // Duplex streaming additions
+    this.duplexEnabled = opts.duplexEnabled !== false;
+    this.duplexWebSocket = null;
+    this.ttsPlayer = null;
+    this.echoCancellation = opts.echoCancellation !== false;
+    this.selectedMicDevice = opts.selectedMicDevice || null;
+    this.selectedSpeakerDevice = opts.selectedSpeakerDevice || null;
+    this._currentStream = null;
   }
 
   async initAudio() {
@@ -50,27 +59,203 @@ class StreamingVoiceClient {
       };
       this.processorReady = true;
       if (this.debug) console.log('[StreamingVoice] Worklet loaded');
+      
+      // Initialize duplex components if enabled
+      if (this.duplexEnabled) {
+        await this._initializeDuplexMode();
+      }
     } catch (err) {
       console.error('Failed to load audio worklet', err);
       throw err;
     }
   }
 
+  /**
+   * Initialize duplex mode components (TTS player and duplex WebSocket)
+   */
+  async _initializeDuplexMode() {
+    if (this.debug) console.log('[StreamingVoice] Initializing duplex mode');
+    
+    // Initialize TTS player
+    if (window.TTSPlayer) {
+      this.ttsPlayer = new window.TTSPlayer({
+        outputDeviceId: this.selectedSpeakerDevice,
+        separateOutput: true, // Ensure separate audio routing
+        debug: this.debug,
+        onProgress: (progress) => {
+          this.onEvent({ type: 'tts_progress', ...progress });
+        },
+        onStateChange: (state) => {
+          this.onEvent({ type: 'tts_state_change', state });
+        },
+        onError: (error) => {
+          this.onEvent({ type: 'tts_error', error });
+        },
+        onPlaybackComplete: () => {
+          this.onEvent({ type: 'tts_playback_complete' });
+        }
+      });
+      
+      await this.ttsPlayer.initialize();
+      if (this.debug) console.log('[StreamingVoice] TTS player initialized');
+    } else {
+      console.warn('[StreamingVoice] TTSPlayer not available, duplex mode limited');
+    }
+    
+    // Initialize duplex WebSocket
+    if (window.DuplexWebSocket) {
+      // Will be connected later in connect() method
+      if (this.debug) console.log('[StreamingVoice] Duplex WebSocket ready');
+    } else {
+      console.warn('[StreamingVoice] DuplexWebSocket not available, falling back to legacy mode');
+      this.duplexEnabled = false;
+    }
+  }
+
   async start() {
     if (!this.enabled) return;
     await this.initAudio();
-    const stream = await navigator.mediaDevices.getUserMedia({
-      audio: {
-        channelCount: 1,
-        noiseSuppression: true,
-        echoCancellation: false,
-        autoGainControl: false
+    
+    // Enhanced audio constraints for echo cancellation
+    const audioConstraints = {
+      channelCount: 1,
+      sampleRate: 48000, // High sample rate for better quality
+      echoCancellation: this.echoCancellation,
+      noiseSuppression: true,
+      autoGainControl: true,
+      // Advanced constraints to prevent monitor/loopback devices
+      deviceId: this.selectedMicDevice ? { exact: this.selectedMicDevice } : undefined,
+    };
+    
+    // Get available devices and validate selection
+    if (this.selectedMicDevice) {
+      const devices = await this._getAudioDevices();
+      const selectedDevice = devices.find(d => d.deviceId === this.selectedMicDevice);
+      
+      if (!selectedDevice) {
+        console.warn('[StreamingVoice] Selected mic device not found, using default');
+        delete audioConstraints.deviceId;
+        this.selectedMicDevice = null;
+      } else if (this._isMonitorDevice(selectedDevice)) {
+        console.warn('[StreamingVoice] Selected device appears to be a monitor/loopback, using default');
+        delete audioConstraints.deviceId;
+        this.selectedMicDevice = null;
       }
-    });
-    const src = this.audioContext.createMediaStreamSource(stream);
-    src.connect(this.workletNode); // no monitor to avoid echo
-    this._setupCapture(); // begin capture chain
-    this.onEvent({ type: 'audio_ready' });
+    }
+    
+    try {
+      this._currentStream = await navigator.mediaDevices.getUserMedia({
+        audio: audioConstraints
+      });
+      
+      // Validate stream settings
+      const track = this._currentStream.getAudioTracks()[0];
+      const settings = track.getSettings();
+      
+      if (this.debug) {
+        console.log('[StreamingVoice] Audio track settings:', settings);
+        console.log('[StreamingVoice] Echo cancellation active:', settings.echoCancellation);
+      }
+      
+      // Emit device info event
+      this.onEvent({ 
+        type: 'audio_device_info', 
+        settings: settings,
+        echoCancellationActive: settings.echoCancellation,
+        deviceId: settings.deviceId,
+        deviceLabel: track.label
+      });
+      
+      const src = this.audioContext.createMediaStreamSource(this._currentStream);
+      src.connect(this.workletNode); // no monitor to avoid echo
+      this._setupCapture(); // begin capture chain
+      this.onEvent({ type: 'audio_ready' });
+      
+    } catch (error) {
+      console.error('[StreamingVoice] Failed to start audio:', error);
+      this.onEvent({ type: 'audio_error', error: error.message });
+      throw error;
+    }
+  }
+
+  /**
+   * Get available audio input/output devices
+   */
+  async _getAudioDevices() {
+    try {
+      const devices = await navigator.mediaDevices.enumerateDevices();
+      return devices.filter(device => device.kind === 'audioinput');
+    } catch (error) {
+      console.error('[StreamingVoice] Failed to enumerate devices:', error);
+      return [];
+    }
+  }
+
+  /**
+   * Detect if device is likely a monitor/loopback device
+   */
+  _isMonitorDevice(device) {
+    const suspiciousTerms = [
+      'monitor', 'loopback', 'stereo mix', 'what u hear', 'wave out mix',
+      'speakers', 'headphones', 'output', 'playback'
+    ];
+    
+    const deviceName = (device.label || '').toLowerCase();
+    return suspiciousTerms.some(term => deviceName.includes(term));
+  }
+
+  /**
+   * Set microphone device (with validation)
+   */
+  async setMicrophoneDevice(deviceId) {
+    const devices = await this._getAudioDevices();
+    const device = devices.find(d => d.deviceId === deviceId);
+    
+    if (!device) {
+      throw new Error('Device not found');
+    }
+    
+    if (this._isMonitorDevice(device)) {
+      throw new Error('Selected device appears to be a monitor/loopback device');
+    }
+    
+    this.selectedMicDevice = deviceId;
+    this.onEvent({ type: 'mic_device_selected', deviceId, device });
+    
+    // Restart audio if currently active
+    if (this._currentStream) {
+      await this._restartAudio();
+    }
+  }
+
+  /**
+   * Set speaker device for TTS output
+   */
+  async setSpeakerDevice(deviceId) {
+    this.selectedSpeakerDevice = deviceId;
+    this.onEvent({ type: 'speaker_device_selected', deviceId });
+    
+    // Update TTS player output if active
+    if (this.ttsPlayer && this.ttsPlayer.audioElement && this.ttsPlayer.audioElement.setSinkId) {
+      try {
+        await this.ttsPlayer.audioElement.setSinkId(deviceId);
+        console.log('[StreamingVoice] TTS output routed to:', deviceId);
+      } catch (error) {
+        console.warn('[StreamingVoice] Failed to set TTS output device:', error);
+      }
+    }
+  }
+
+  /**
+   * Restart audio with new settings
+   */
+  async _restartAudio() {
+    if (this._currentStream) {
+      this._currentStream.getTracks().forEach(track => track.stop());
+      this._currentStream = null;
+    }
+    
+    await this.start();
   }
 
   _setupCapture() {
@@ -121,20 +306,48 @@ class StreamingVoiceClient {
   }
 
   _maybeSendFrames() {
-    if (!this.ws || this.ws.readyState !== WebSocket.OPEN) return;
+    if (!this._connected) return;
+    
+    // Check which connection type we're using
+    const canSend = this.duplexWebSocket ? 
+      this.duplexWebSocket.isConnected : 
+      (this.ws && this.ws.readyState === WebSocket.OPEN);
+      
+    if (!canSend) return;
+    
     let total = 0;
     for (const arr of this._int16SendQueue) total += arr.length;
     if (total < this.samplesPerFrame) return;
+    
     const concat = new Int16Array(total);
     let offset = 0;
-    for (const arr of this._int16SendQueue) { concat.set(arr, offset); offset += arr.length; }
+    for (const arr of this._int16SendQueue) { 
+      concat.set(arr, offset); 
+      offset += arr.length; 
+    }
     this._int16SendQueue = [];
+    
     for (let pos = 0; pos + this.samplesPerFrame <= concat.length; pos += this.samplesPerFrame) {
       const frame = concat.subarray(pos, pos + this.samplesPerFrame);
-      try { this.ws.send(frame.buffer); } catch {}
-      this._lastFrameSentAt = performance.now();
-      if (this.debug) this.onEvent({ type: 'frame_sent', samples: frame.length });
+      
+      try {
+        if (this.duplexWebSocket) {
+          // Send via duplex WebSocket with binary protocol
+          const frameBuffer = frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength);
+          this.duplexWebSocket.sendMicChunk(frameBuffer);
+        } else {
+          // Legacy mode - send raw binary
+          this.ws.send(frame.buffer);
+        }
+        
+        this._lastFrameSentAt = performance.now();
+        if (this.debug) this.onEvent({ type: 'frame_sent', samples: frame.length });
+        
+      } catch (error) {
+        console.warn('[StreamingVoice] Failed to send frame:', error);
+      }
     }
+    
     const leftoverSamples = concat.length % this.samplesPerFrame;
     if (leftoverSamples) {
       const tail = concat.subarray(concat.length - leftoverSamples);
@@ -143,7 +356,8 @@ class StreamingVoiceClient {
   }
 
   async connect() {
-  if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    if (this.ws && this.ws.readyState === WebSocket.OPEN) return;
+    
     // Determine appropriate API host. Prefer explicit override, else map frontend -> api subdomain.
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     let apiHost = window.BEAUTYAI_API_HOST || window.location.host;
@@ -153,30 +367,102 @@ class StreamingVoiceClient {
       apiHost = 'api.gmai.sa';
     }
     // Normalize unsupported language values (e.g., 'auto') to 'ar' default
-  let lang = (this.language === 'auto' || !this.language) ? 'ar' : this.language;
-  // Heuristic: if user started speaking English but UI stuck on 'ar', allow override via window.FORCE_STREAM_LANG
-  if (window.FORCE_STREAM_LANG) lang = window.FORCE_STREAM_LANG;
+    let lang = (this.language === 'auto' || !this.language) ? 'ar' : this.language;
+    // Heuristic: if user started speaking English but UI stuck on 'ar', allow override via window.FORCE_STREAM_LANG
+    if (window.FORCE_STREAM_LANG) lang = window.FORCE_STREAM_LANG;
     const url = `${protocol}//${apiHost}/api/v1/ws/streaming-voice?language=${encodeURIComponent(lang)}`;
     this._attempts = (this._attempts || 0) + 1;
-    if (this.debug) console.log('[StreamingVoice] connecting attempt', this._attempts, url);
-    this.ws = new WebSocket(url);
-    this.ws.onopen = () => { this._connected = true; this.onEvent({ type: 'ws_open' }); };
-    this.ws.onclose = (ev) => {
-      const wasConnected = this._connected;
-      this._connected = false;
-      this.onEvent({ type: 'ws_close', code: ev.code, reason: ev.reason, was_connected: wasConnected, attempts: this._attempts });
-    };
-    this.ws.onerror = (e) => { this.onEvent({ type: 'ws_error', error: e }); };
-    this.ws.onmessage = (msg) => {
-      try {
-        const data = JSON.parse(msg.data);
-        this._handleServerEvent(data);
-      } catch {}
-    };
+    
+    if (this.duplexEnabled && window.DuplexWebSocket) {
+      // Use duplex WebSocket for bidirectional streaming
+      if (this.debug) console.log('[StreamingVoice] connecting duplex mode attempt', this._attempts, url);
+      
+      this.duplexWebSocket = new window.DuplexWebSocket({
+        url: url,
+        debug: this.debug,
+        onTextMessage: (data) => {
+          this._handleServerEvent(data);
+        },
+        onTTSChunk: (audioData, sequenceNumber, flags) => {
+          this._handleTTSChunk(audioData, sequenceNumber, flags);
+        },
+        onConnectionChange: (connected) => {
+          this._connected = connected;
+          this.onEvent({ type: connected ? 'ws_open' : 'ws_close', duplex: true });
+        },
+        onError: (error) => {
+          this.onEvent({ type: 'ws_error', error, duplex: true });
+        }
+      });
+      
+      await this.duplexWebSocket.connect();
+      
+    } else {
+      // Fallback to legacy WebSocket
+      if (this.debug) console.log('[StreamingVoice] connecting legacy mode attempt', this._attempts, url);
+      
+      this.ws = new WebSocket(url);
+      this.ws.onopen = () => { this._connected = true; this.onEvent({ type: 'ws_open' }); };
+      this.ws.onclose = (ev) => {
+        const wasConnected = this._connected;
+        this._connected = false;
+        this.onEvent({ type: 'ws_close', code: ev.code, reason: ev.reason, was_connected: wasConnected, attempts: this._attempts });
+      };
+      this.ws.onerror = (e) => { this.onEvent({ type: 'ws_error', error: e }); };
+      this.ws.onmessage = (msg) => {
+        try {
+          const data = JSON.parse(msg.data);
+          this._handleServerEvent(data);
+        } catch {}
+      };
+    }
+  }
+
+  /**
+   * Handle incoming TTS audio chunks for duplex streaming
+   */
+  _handleTTSChunk(audioData, sequenceNumber, flags) {
+    if (!audioData) {
+      // End marker received
+      this.onEvent({ type: 'tts_stream_end', sequence: sequenceNumber });
+      return;
+    }
+    
+    // Forward to TTS player
+    if (this.ttsPlayer) {
+      this.ttsPlayer.processChunk(audioData, sequenceNumber, flags);
+    } else {
+      // Fallback: emit event for external handling
+      this.onEvent({ 
+        type: 'tts_chunk_received', 
+        audioData, 
+        sequence: sequenceNumber, 
+        flags 
+      });
+    }
   }
 
   disconnect() {
-    if (this.ws) { try { this.ws.close(); } catch(_){} }
+    if (this.duplexWebSocket) {
+      this.duplexWebSocket.disconnect();
+      this.duplexWebSocket = null;
+    }
+    
+    if (this.ws) { 
+      try { this.ws.close(); } catch(_){} 
+      this.ws = null;
+    }
+    
+    // Stop TTS player
+    if (this.ttsPlayer) {
+      this.ttsPlayer.stop();
+    }
+    
+    // Stop current audio stream
+    if (this._currentStream) {
+      this._currentStream.getTracks().forEach(track => track.stop());
+      this._currentStream = null;
+    }
   }
 
   suspend() {
@@ -242,6 +528,15 @@ class StreamingVoiceClient {
         if (this.autoRearm && !this._suspended) {
           this.onEvent({ type: 'auto_rearm' });
         }
+        break;
+      case 'tts_streaming_complete':
+        this.onEvent({ type: 'tts_streaming_complete', utterance_index: ev.utterance_index, total_chunks: ev.total_chunks });
+        if (this.autoRearm && !this._suspended) {
+          this.onEvent({ type: 'auto_rearm' });
+        }
+        break;
+      case 'tts_progress':
+        this.onEvent({ type: 'tts_progress', utterance_index: ev.utterance_index, chunks_sent: ev.chunks_sent });
         break;
       case 'ingest_mode':
         this._ingestMode = ev.mode;

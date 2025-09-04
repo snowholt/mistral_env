@@ -286,6 +286,93 @@ class ConfigAPIAdapter(APIServiceAdapter):
             if not isinstance(temperature, (int, float)) or temperature < 0 or temperature > 2:
                 errors.append("temperature must be between 0 and 2")
         
+        # Duplex streaming configuration validation
+        if "duplex" in config_data:
+            duplex_config = config_data["duplex"]
+            if not isinstance(duplex_config, dict):
+                errors.append("duplex configuration must be a dictionary")
+            else:
+                errors.extend(self._validate_duplex_config(duplex_config))
+        
+        return errors
+    
+    def _validate_duplex_config(self, duplex_config: Dict[str, Any]) -> List[str]:
+        """Validate duplex streaming configuration."""
+        errors = []
+        
+        # TTS model selection
+        if "tts_model" in duplex_config:
+            tts_model = duplex_config["tts_model"]
+            if not isinstance(tts_model, str):
+                errors.append("tts_model must be a string")
+        
+        # Echo suppression thresholds
+        if "echo_suppression" in duplex_config:
+            echo_config = duplex_config["echo_suppression"]
+            if not isinstance(echo_config, dict):
+                errors.append("echo_suppression must be a dictionary")
+            else:
+                if "correlation_threshold" in echo_config:
+                    threshold = echo_config["correlation_threshold"]
+                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+                        errors.append("echo_suppression.correlation_threshold must be between 0 and 1")
+                
+                if "spectral_threshold" in echo_config:
+                    threshold = echo_config["spectral_threshold"]
+                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+                        errors.append("echo_suppression.spectral_threshold must be between 0 and 1")
+                
+                if "vad_threshold" in echo_config:
+                    threshold = echo_config["vad_threshold"]
+                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
+                        errors.append("echo_suppression.vad_threshold must be between 0 and 1")
+        
+        # Jitter buffer configuration
+        if "jitter_buffer" in duplex_config:
+            jitter_config = duplex_config["jitter_buffer"]
+            if not isinstance(jitter_config, dict):
+                errors.append("jitter_buffer must be a dictionary")
+            else:
+                if "target_size_ms" in jitter_config:
+                    size = jitter_config["target_size_ms"]
+                    if not isinstance(size, int) or size < 10 or size > 1000:
+                        errors.append("jitter_buffer.target_size_ms must be between 10 and 1000")
+                
+                if "max_size_ms" in jitter_config:
+                    max_size = jitter_config["max_size_ms"]
+                    if not isinstance(max_size, int) or max_size < 50 or max_size > 5000:
+                        errors.append("jitter_buffer.max_size_ms must be between 50 and 5000")
+        
+        # Barge-in sensitivity
+        if "barge_in_sensitivity" in duplex_config:
+            sensitivity = duplex_config["barge_in_sensitivity"]
+            if not isinstance(sensitivity, (int, float)) or sensitivity < 0 or sensitivity > 1:
+                errors.append("barge_in_sensitivity must be between 0 and 1")
+        
+        # Duplex mode validation
+        if "mode" in duplex_config:
+            mode = duplex_config["mode"]
+            valid_modes = ["full", "half", "auto"]
+            if mode not in valid_modes:
+                errors.append(f"duplex mode must be one of: {', '.join(valid_modes)}")
+        
+        # TTS streaming configuration
+        if "tts_streaming" in duplex_config:
+            tts_streaming = duplex_config["tts_streaming"]
+            if not isinstance(tts_streaming, dict):
+                errors.append("tts_streaming must be a dictionary")
+            else:
+                if "chunk_size_ms" in tts_streaming:
+                    chunk_size = tts_streaming["chunk_size_ms"]
+                    if not isinstance(chunk_size, int) or chunk_size < 10 or chunk_size > 200:
+                        errors.append("tts_streaming.chunk_size_ms must be between 10 and 200")
+                
+                if "format" in tts_streaming:
+                    format_type = tts_streaming["format"]
+                    valid_formats = ["opus", "pcm16", "webm"]
+                    if format_type not in valid_formats:
+                        errors.append(f"tts_streaming.format must be one of: {', '.join(valid_formats)}")
+        
         return errors
     
     def _validate_system_config(self, config_data: Dict[str, Any]) -> List[str]:
