@@ -42,6 +42,7 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
 )
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
 from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
+from beautyai_inference.services.voice.echo_suppression import EchoSuppressor, EchoConfig
 from beautyai_inference.logging.setup import session_id_ctx
 from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
 from beautyai_inference.services.voice.utils.text_cleaning import sanitize_tts_text
@@ -111,6 +112,10 @@ class SessionState:
     emitted_pipeline_for: set[int] = field(default_factory=set)  # assistant_pipeline_start sent for these utterances
     last_endpoint_sig: Optional[str] = None
     last_endpoint_time: float = 0.0
+    # Echo suppression for duplex streaming
+    echo_suppressor: Optional[EchoSuppressor] = None
+    tts_streaming_task: Optional[asyncio.Task] = None  # Task for streaming TTS chunks
+    tts_streaming_active: bool = False
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -156,6 +161,41 @@ class StreamingSessionRegistry:
 
 
 session_registry = StreamingSessionRegistry()
+
+# Binary frame protocol for duplex streaming
+class MessageType:
+    """Binary message types for duplex audio streaming."""
+    MIC_CHUNK = 0x01
+    TTS_CHUNK = 0x02  
+    CONTROL = 0x03
+    META = 0x04
+
+class MessageFlags:
+    """Binary message flags."""
+    START = 0x01
+    END = 0x02
+    URGENT = 0x04
+    COMPRESSED = 0x08
+
+def pack_binary_frame(msg_type: int, seq_num: int, flags: int, payload: bytes) -> bytes:
+    """Pack binary frame with header."""
+    import struct
+    timestamp = int(time.time() * 1000) & 0xFFFFFFFF  # 32-bit timestamp in ms
+    header = struct.pack('<BBHBBBI', msg_type, seq_num & 0xFF, (seq_num >> 8) & 0xFFFF, flags, 0, 0, timestamp)
+    return header + payload
+
+def unpack_binary_frame(data: bytes) -> tuple[int, int, int, int, bytes]:
+    """Unpack binary frame header."""
+    import struct
+    if len(data) < 8:
+        raise ValueError("Frame too short")
+    
+    header = struct.unpack('<BBHBBBI', data[:8])
+    msg_type, seq_low, seq_high, flags, _, _, timestamp = header
+    seq_num = seq_low | (seq_high << 8)
+    payload = data[8:]
+    
+    return msg_type, seq_num, flags, timestamp, payload
 
 MOCK_PHRASES_AR = ["مرحباً", "مرحباً بك", "مرحباً بك في وضع البث", "مرحبا بالتجربة"]
 MOCK_PHRASES_EN = ["hello", "hello there", "hello there streaming", "streaming mock"]
@@ -295,6 +335,17 @@ async def streaming_voice_endpoint(
     state.metrics = SessionMetrics(session_id=session_id)
     # Phase 2: attach audio streaming session (ring buffer size ~40s)
     state.audio_session = StreamingSession(connection_id=connection_id, session_id=session_id, language=language)
+    
+    # Initialize echo suppressor for duplex streaming
+    echo_config = EchoConfig(
+        energy_threshold=float(os.getenv("VOICE_STREAMING_VAD_ENERGY_THRESHOLD", "0.01")),
+        min_speech_duration_ms=int(os.getenv("VOICE_STREAMING_MIN_SPEECH_DURATION", "300")),
+        tts_duck_db=float(os.getenv("VOICE_STREAMING_TTS_DUCK_DB", "-12.0")),
+        tts_pause_threshold_ms=int(os.getenv("VOICE_STREAMING_TTS_PAUSE_THRESHOLD", "500")),
+        gate_mic_during_tts=os.getenv("VOICE_STREAMING_GATE_MIC_DURING_TTS", "1") == "1",
+    )
+    state.echo_suppressor = EchoSuppressor(echo_config)
+    
     session_registry.add(state)
     logger.info("🌐 Streaming voice connection established: %s (lang=%s) phase4_env=%s force_real=%s disable_mock=%s", connection_id, language, os.getenv("VOICE_STREAMING_PHASE4"), os.getenv("VOICE_STREAMING_FORCE_REAL"), os.getenv("VOICE_STREAMING_DISABLE_MOCK"))
 
@@ -613,20 +664,29 @@ async def streaming_voice_endpoint(
                 from base64 import b64encode
                 # Prefer enforced/explicit requested language for synthesis if available
                 synth_lang = state.requested_language if state.requested_language in ("ar","en") else chat_result.get("detected_language", lang or "ar")
-                tts_path = await voice_service.text_to_speech(response_text, language=synth_lang)
-                audio_bytes = tts_path.read_bytes()
-                audio_b64 = b64encode(audio_bytes).decode("utf-8")
+                
+                # Use duplex streaming if enabled
+                duplex_streaming = os.getenv("VOICE_STREAMING_DUPLEX_ENABLED", "1") == "1"
+                
+                if duplex_streaming and state.echo_suppressor:
+                    # Stream TTS chunks for duplex communication
+                    await _stream_tts_response(response_text, synth_lang, utterance_index, state)
+                else:
+                    # Fallback to traditional base64 audio (for compatibility)
+                    tts_path = await voice_service.text_to_speech(response_text, language=synth_lang)
+                    audio_bytes = tts_path.read_bytes()
+                    audio_b64 = b64encode(audio_bytes).decode("utf-8")
 
-                await _send_json(state.websocket, {
-                    "type": "tts_audio",
-                    "utterance_index": utterance_index,
-                    "mime_type": "audio/wav",  # current synthesis output
-                    "encoding": "base64",
-                    "audio": audio_b64,
-                    "text": response_text,
-                    "chars": len(response_text),
-                    "timestamp": time.time(),
-                })
+                    await _send_json(state.websocket, {
+                        "type": "tts_audio",
+                        "utterance_index": utterance_index,
+                        "mime_type": "audio/wav",  # current synthesis output
+                        "encoding": "base64",
+                        "audio": audio_b64,
+                        "text": response_text,
+                        "chars": len(response_text),
+                        "timestamp": time.time(),
+                    })
 
                 await _send_json(state.websocket, {
                     "type": "tts_complete",
@@ -669,6 +729,119 @@ async def streaming_voice_endpoint(
                     )
                 else:
                     state.pipeline_active_for = None
+
+    async def _stream_tts_response(text: str, language: str, utterance_index: int, state: SessionState) -> None:
+        """Stream TTS response as binary audio chunks for duplex communication."""
+        try:
+            logger.debug(f"Starting TTS streaming for utterance {utterance_index}: {len(text)} chars")
+            
+            # Notify echo suppressor that TTS is starting
+            if state.echo_suppressor:
+                await state.echo_suppressor.on_tts_start()
+            
+            state.tts_streaming_active = True
+            chunk_seq = 0
+            
+            # Get TTS engine from model manager or create new one
+            from beautyai_inference.core.model_manager import ModelManager
+            model_manager = ModelManager()
+            
+            # Try to get Edge TTS engine
+            try:
+                edge_tts_engine = model_manager.get_tts_engine("edge-tts")
+                if edge_tts_engine is None:
+                    # Create new Edge TTS engine
+                    from beautyai_inference.inference_engines.edge_tts_engine import EdgeTTSEngine
+                    from beautyai_inference.config.config_manager import ModelConfig
+                    config = ModelConfig(name="edge-tts", model_id="edge-tts", engine_type="edge_tts")
+                    edge_tts_engine = EdgeTTSEngine(config)
+                    edge_tts_engine.load_model()
+                
+                # Stream TTS audio chunks
+                async for audio_chunk in edge_tts_engine.stream_tts_chunks(
+                    text=text,
+                    language=language,
+                    chunk_size_ms=40,  # 40ms chunks for low latency
+                    target_sample_rate=16000
+                ):
+                    if not state.tts_streaming_active or state.disconnected:
+                        logger.debug("TTS streaming cancelled")
+                        break
+                    
+                    # Process chunk through echo suppressor
+                    if state.echo_suppressor:
+                        processed_chunk = await state.echo_suppressor.process_tts_audio(audio_chunk)
+                    else:
+                        processed_chunk = audio_chunk
+                    
+                    # Pack as binary frame
+                    flags = MessageFlags.START if chunk_seq == 0 else 0
+                    binary_frame = pack_binary_frame(
+                        MessageType.TTS_CHUNK,
+                        chunk_seq,
+                        flags,
+                        processed_chunk
+                    )
+                    
+                    # Send binary frame to client
+                    if state.websocket.client_state == WebSocketState.CONNECTED:
+                        try:
+                            await state.websocket.send_bytes(binary_frame)
+                            chunk_seq += 1
+                            
+                            # Emit progress event
+                            if chunk_seq % 10 == 0:  # Every ~400ms
+                                await _send_json(state.websocket, {
+                                    "type": "tts_progress",
+                                    "utterance_index": utterance_index,
+                                    "chunks_sent": chunk_seq,
+                                    "timestamp": time.time(),
+                                })
+                        except Exception as e:
+                            logger.warning(f"Failed to send TTS chunk: {e}")
+                            break
+                
+                # Send end marker
+                if state.tts_streaming_active and not state.disconnected:
+                    end_frame = pack_binary_frame(
+                        MessageType.TTS_CHUNK,
+                        chunk_seq,
+                        MessageFlags.END,
+                        b""  # Empty payload for end marker
+                    )
+                    
+                    if state.websocket.client_state == WebSocketState.CONNECTED:
+                        try:
+                            await state.websocket.send_bytes(end_frame)
+                        except Exception as e:
+                            logger.warning(f"Failed to send TTS end frame: {e}")
+                
+                logger.debug(f"TTS streaming completed: {chunk_seq} chunks sent")
+                
+            except Exception as e:
+                logger.error(f"TTS streaming failed: {e}")
+                # Emit error event
+                await _send_json(state.websocket, {
+                    "type": "error",
+                    "stage": "tts_streaming",
+                    "message": f"TTS streaming failed: {str(e)}",
+                    "utterance_index": utterance_index,
+                })
+        
+        finally:
+            state.tts_streaming_active = False
+            
+            # Notify echo suppressor that TTS completed
+            if state.echo_suppressor:
+                await state.echo_suppressor.on_tts_complete()
+            
+            # Emit completion event
+            await _send_json(state.websocket, {
+                "type": "tts_streaming_complete",
+                "utterance_index": utterance_index,
+                "total_chunks": chunk_seq,
+                "timestamp": time.time(),
+            })
 
     async def decoder_task() -> None:
         """Incremental decoder task wrapper.
@@ -888,6 +1061,8 @@ async def streaming_voice_endpoint(
                         "voiced_frames": state.voiced_frame_count,
                         "silence_frames": state.silence_frame_count,
                         "low_energy_mode": state.low_energy_mode,
+                        "echo_suppression": (state.echo_suppressor.get_metrics() if state.echo_suppressor else None),
+                        "tts_streaming_active": state.tts_streaming_active,
                     }
                     await _send_json(websocket, hb_payload)
                     state.last_heartbeat_sent = time.time()
@@ -1025,12 +1200,19 @@ async def streaming_voice_endpoint(
                         if state.audio_session:
                             if len(payload) % 2 != 0:
                                 logger.debug("[%s] odd-length PCM payload=%d", connection_id, len(payload))
+                            
+                            # Process through echo suppressor if available
+                            if state.echo_suppressor:
+                                processed_payload = await state.echo_suppressor.process_mic_audio(payload)
+                            else:
+                                processed_payload = payload
+                            
                             # Simple energy gate (average absolute amplitude)
                             try:
                                 # interpret payload as int16 little-endian
                                 import array
                                 arr = array.array('h')
-                                arr.frombytes(payload)
+                                arr.frombytes(processed_payload)
                                 if arr:
                                     avg_abs = sum(abs(s) for s in arr) / len(arr)
                                     # threshold ~ 220 (~0.0067 full scale) heuristically tuned
@@ -1042,8 +1224,8 @@ async def streaming_voice_endpoint(
                                         state.silence_frame_count += 1
                             except Exception:
                                 pass
-                            await state.audio_session.ingest_pcm(payload)
-                            state.pcm_bytes_received += len(payload)  # Track actual PCM bytes
+                            await state.audio_session.ingest_pcm(processed_payload)
+                            state.pcm_bytes_received += len(processed_payload)  # Track actual PCM bytes
                             state.pcm_frames_received += 1
                             if state.pcm_frames_received <= 3:  # log only first few for noise control
                                 logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
@@ -1082,6 +1264,15 @@ async def streaming_voice_endpoint(
             state.llm_tts_task.cancel()
             with contextlib.suppress(Exception):
                 await state.llm_tts_task
+        
+        # Cancel TTS streaming task
+        if state.tts_streaming_task and not state.tts_streaming_task.done():
+            state.tts_streaming_task.cancel()
+            with contextlib.suppress(Exception):
+                await state.tts_streaming_task
+        
+        # Stop TTS streaming
+        state.tts_streaming_active = False
         # Heartbeat task
         if state.heartbeat_task and not state.heartbeat_task.done():
             state.heartbeat_task.cancel()

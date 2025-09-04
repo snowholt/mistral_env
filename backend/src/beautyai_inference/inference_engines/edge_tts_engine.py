@@ -9,7 +9,9 @@ import os
 import asyncio
 import concurrent.futures
 import threading
-from typing import Dict, Any, Optional, List
+import io
+import wave
+from typing import Dict, Any, Optional, List, AsyncGenerator, Union
 from pathlib import Path
 
 from ..core.model_interface import ModelInterface
@@ -56,6 +58,10 @@ class EdgeTTSEngine(ModelInterface):
         
         # Pre-warm the most common voices for faster access
         self._preload_common_voices()
+        
+        # Streaming support for duplex voice
+        self._chunk_size_ms = 40  # 40ms chunks for low latency
+        self._streaming_sample_rate = 16000  # Target sample rate for streaming
 
     def _init_voice_mappings(self):
         """Initialize voice mappings."""
@@ -347,6 +353,156 @@ class EdgeTTSEngine(ModelInterface):
             # Fallback: just use the first chunk
             import shutil
             shutil.copy2(chunk_paths[0], output_path)
+
+    async def stream_tts_chunks(
+        self, 
+        text: str, 
+        language: str = "en",
+        speaker_voice: Optional[str] = None,
+        gender: str = "female",
+        chunk_size_ms: int = 40,
+        target_sample_rate: int = 16000,
+        **kwargs
+    ) -> AsyncGenerator[bytes, None]:
+        """
+        Stream TTS audio as small chunks for duplex voice communication.
+        
+        Args:
+            text: Text to convert to speech
+            language: Language code (en, ar, es, etc.)
+            speaker_voice: Specific voice to use (overrides language mapping)
+            gender: Voice gender ("female" or "male")
+            chunk_size_ms: Size of each audio chunk in milliseconds (default: 40ms)
+            target_sample_rate: Target sample rate for output (default: 16000)
+            **kwargs: Additional parameters
+            
+        Yields:
+            bytes: PCM16 audio chunks ready for WebSocket streaming
+        """
+        try:
+            # Fast text preprocessing
+            text = text.strip()
+            if not text:
+                return
+            
+            # Select voice
+            voice = self._get_voice(language, speaker_voice, gender)
+            
+            logger.debug(f"Streaming TTS: {len(text)} chars, voice: {voice}, chunks: {chunk_size_ms}ms")
+            
+            # Create communicate object
+            communicate = edge_tts.Communicate(text, voice)
+            
+            # Stream audio data
+            audio_buffer = io.BytesIO()
+            
+            async for chunk in communicate.stream():
+                if chunk["type"] == "audio":
+                    audio_buffer.write(chunk["data"])
+                    
+                    # Process accumulated audio into chunks
+                    audio_data = audio_buffer.getvalue()
+                    if len(audio_data) >= self._calculate_min_buffer_size(chunk_size_ms, target_sample_rate):
+                        # Convert to PCM16 and yield chunks
+                        async for pcm_chunk in self._process_audio_to_chunks(
+                            audio_data, chunk_size_ms, target_sample_rate
+                        ):
+                            yield pcm_chunk
+                        
+                        # Reset buffer
+                        audio_buffer = io.BytesIO()
+            
+            # Process any remaining audio
+            remaining_audio = audio_buffer.getvalue()
+            if remaining_audio:
+                async for pcm_chunk in self._process_audio_to_chunks(
+                    remaining_audio, chunk_size_ms, target_sample_rate
+                ):
+                    yield pcm_chunk
+                    
+        except Exception as e:
+            logger.error(f"Error during streaming TTS: {e}")
+            raise
+
+    def _calculate_min_buffer_size(self, chunk_size_ms: int, sample_rate: int) -> int:
+        """Calculate minimum buffer size needed before processing chunks."""
+        # Edge TTS typically outputs at 24kHz, so we need enough data for processing
+        return int((24000 * chunk_size_ms * 2) / 1000)  # 2 bytes per sample
+
+    async def _process_audio_to_chunks(
+        self, 
+        audio_data: bytes, 
+        chunk_size_ms: int, 
+        target_sample_rate: int
+    ) -> AsyncGenerator[bytes, None]:
+        """Process raw audio data into PCM16 chunks at target sample rate."""
+        try:
+            # Convert to WAV format first
+            wav_buffer = io.BytesIO()
+            
+            # Edge TTS outputs 24kHz 16-bit mono by default
+            with wave.open(wav_buffer, 'wb') as wav_file:
+                wav_file.setnchannels(1)  # mono
+                wav_file.setsampwidth(2)  # 16-bit
+                wav_file.setframerate(24000)  # Edge TTS default
+                wav_file.writeframes(audio_data)
+            
+            wav_buffer.seek(0)
+            
+            # Read back as wave
+            with wave.open(wav_buffer, 'rb') as wav_file:
+                frames = wav_file.readframes(-1)
+                
+                # Convert to target sample rate if needed
+                if wav_file.getframerate() != target_sample_rate:
+                    frames = await self._resample_audio(
+                        frames, wav_file.getframerate(), target_sample_rate
+                    )
+                
+                # Split into chunks
+                samples_per_chunk = int((target_sample_rate * chunk_size_ms) / 1000)
+                bytes_per_chunk = samples_per_chunk * 2  # 16-bit = 2 bytes per sample
+                
+                for i in range(0, len(frames), bytes_per_chunk):
+                    chunk = frames[i:i + bytes_per_chunk]
+                    if len(chunk) >= bytes_per_chunk // 2:  # At least half a chunk
+                        yield chunk
+                        
+        except Exception as e:
+            logger.error(f"Error processing audio chunks: {e}")
+            # Yield silence as fallback
+            samples_per_chunk = int((target_sample_rate * chunk_size_ms) / 1000)
+            silence = b'\x00' * (samples_per_chunk * 2)
+            yield silence
+
+    async def _resample_audio(self, audio_data: bytes, source_rate: int, target_rate: int) -> bytes:
+        """Simple audio resampling."""
+        if source_rate == target_rate:
+            return audio_data
+        
+        # Simple linear interpolation resampling
+        import array
+        source_samples = array.array('h')  # signed short
+        source_samples.frombytes(audio_data)
+        
+        # Calculate ratio
+        ratio = source_rate / target_rate
+        target_length = int(len(source_samples) / ratio)
+        
+        target_samples = array.array('h')
+        for i in range(target_length):
+            source_idx = i * ratio
+            base_idx = int(source_idx)
+            
+            if base_idx + 1 < len(source_samples):
+                # Linear interpolation
+                frac = source_idx - base_idx
+                sample = source_samples[base_idx] * (1 - frac) + source_samples[base_idx + 1] * frac
+                target_samples.append(int(sample))
+            elif base_idx < len(source_samples):
+                target_samples.append(source_samples[base_idx])
+        
+        return target_samples.tobytes()
 
     def get_available_speakers(self, language: str = None) -> List[str]:
         """Get available speakers for the specified language."""
