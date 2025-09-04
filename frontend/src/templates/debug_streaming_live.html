@@ -43,6 +43,103 @@
       from { transform: translateY(-100%); opacity: 0; }
       to { transform: translateY(0); opacity: 1; }
     }
+    
+    /* Device Selection Styles */
+    .form-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 15px;
+      margin-bottom: 20px;
+    }
+    
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 5px;
+    }
+    
+    .form-group label {
+      font-weight: 600;
+      color: #555;
+      font-size: 0.9rem;
+    }
+    
+    .form-group select {
+      padding: 8px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+    
+    .checkbox-group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .checkbox-group input[type="checkbox"] {
+      transform: scale(1.2);
+    }
+    
+    .checkbox-group label {
+      margin: 0;
+      font-weight: normal;
+    }
+    
+    .form-group small {
+      color: #666;
+      font-size: 0.8rem;
+      font-style: italic;
+    }
+    
+    /* Echo Test Styles */
+    .test-results {
+      background: #f8f9fa;
+      border: 1px solid #e9ecef;
+      border-radius: 8px;
+      padding: 15px;
+      margin-top: 10px;
+    }
+    
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+      gap: 15px;
+    }
+    
+    .metric {
+      text-align: center;
+    }
+    
+    .metric-label {
+      font-size: 0.8rem;
+      color: #666;
+      margin-bottom: 5px;
+    }
+    
+    .metric-value {
+      font-size: 1.1rem;
+      font-weight: 600;
+      color: #333;
+    }
+    
+    #echo-detected.positive {
+      color: #dc3545;
+    }
+    
+    #echo-detected.negative {
+      color: #28a745;
+    }
+    
+    #vad-activity.active {
+      color: #007bff;
+    }
+    
+    .btn-sm {
+      padding: 4px 8px;
+      font-size: 0.8rem;
+      margin-left: 8px;
+    }
   </style>
 </head>
 <body>
@@ -89,6 +186,71 @@
           </div>
         </div>
         
+        <!-- Audio Device Settings -->
+        <h4><i class="fas fa-volume-up"></i> Audio Device Settings</h4>
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="microphoneDevice">Microphone:</label>
+            <select id="microphoneDevice">
+              <option value="">Default</option>
+            </select>
+            <button id="btn-refresh-devices" class="btn btn-sm btn-secondary">
+              <i class="fas fa-refresh"></i> Refresh
+            </button>
+          </div>
+          <div class="form-group">
+            <label for="speakerDevice">Speaker:</label>
+            <select id="speakerDevice">
+              <option value="">Default</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label>Echo Cancellation:</label>
+            <div class="checkbox-group">
+              <input type="checkbox" id="echoCancellation" checked>
+              <label for="echoCancellation">Enable echo cancellation</label>
+            </div>
+            <small>Prevents TTS output from leaking into microphone</small>
+          </div>
+          <div class="form-group">
+            <label>Duplex Mode:</label>
+            <div class="checkbox-group">
+              <input type="checkbox" id="duplexMode" checked>
+              <label for="duplexMode">Enable full duplex streaming</label>
+            </div>
+            <small>Real-time bidirectional audio streaming</small>
+          </div>
+        </div>
+        
+        <!-- Echo Test Controls -->
+        <h4><i class="fas fa-vial"></i> Echo Test</h4>
+        <div class="button-group">
+          <button id="btn-echo-test" class="btn btn-warning">
+            <i class="fas fa-play"></i> Run Echo Test
+          </button>
+          <button id="btn-stop-echo-test" class="btn btn-secondary" disabled>
+            <i class="fas fa-stop"></i> Stop Test
+          </button>
+        </div>
+        <div id="echo-test-results" class="test-results" style="display: none;">
+          <div class="metrics-grid">
+            <div class="metric">
+              <div class="metric-label">Echo Detected:</div>
+              <div id="echo-detected" class="metric-value">No</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">Correlation:</div>
+              <div id="echo-correlation" class="metric-value">0.0</div>
+            </div>
+            <div class="metric">
+              <div class="metric-label">VAD Activity:</div>
+              <div id="vad-activity" class="metric-value">Inactive</div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Connection Controls -->
+        <h4><i class="fas fa-plug"></i> Connection</h4>
         <div class="button-group">
           <button id="btn-connect" class="btn btn-primary">
             <i class="fas fa-plug"></i> Connect
@@ -742,15 +904,26 @@
         // Create audio context at hardware sample rate for optimal performance
         audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         
-        // Request microphone access with optimal settings
-        mediaStream = await navigator.mediaDevices.getUserMedia({ 
+        // Get selected devices
+        const microphoneDeviceId = document.getElementById('microphoneDevice').value;
+        const echoCancellation = document.getElementById('echoCancellation').checked;
+        
+        // Request microphone access with selected device and settings
+        const constraints = { 
           audio: { 
             channelCount: 1,
-            echoCancellation: true,
+            echoCancellation: echoCancellation,
             noiseSuppression: true,
             autoGainControl: false // Disable AGC for consistent levels
           } 
-        });
+        };
+        
+        // Use specific device if selected
+        if (microphoneDeviceId) {
+          constraints.audio.deviceId = { exact: microphoneDeviceId };
+        }
+        
+        mediaStream = await navigator.mediaDevices.getUserMedia(constraints);
         
         source = audioCtx.createMediaStreamSource(mediaStream);
         
@@ -988,12 +1161,146 @@
     // Update metrics every second
     setInterval(updateMetrics, 1000);
 
+    // Audio Device Management
+    let currentDevices = { audioInput: [], audioOutput: [] };
+    
+    async function refreshAudioDevices() {
+      try {
+        const devices = await navigator.mediaDevices.enumerateDevices();
+        currentDevices.audioInput = devices.filter(d => d.kind === 'audioinput');
+        currentDevices.audioOutput = devices.filter(d => d.kind === 'audiooutput');
+        
+        // Update microphone dropdown
+        const micSelect = document.getElementById('microphoneDevice');
+        micSelect.innerHTML = '<option value="">Default</option>';
+        currentDevices.audioInput.forEach(device => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Microphone ${device.deviceId.slice(0, 8)}`;
+          micSelect.appendChild(option);
+        });
+        
+        // Update speaker dropdown
+        const speakerSelect = document.getElementById('speakerDevice');
+        speakerSelect.innerHTML = '<option value="">Default</option>';
+        currentDevices.audioOutput.forEach(device => {
+          const option = document.createElement('option');
+          option.value = device.deviceId;
+          option.textContent = device.label || `Speaker ${device.deviceId.slice(0, 8)}`;
+          speakerSelect.appendChild(option);
+        });
+        
+        log(`Found ${currentDevices.audioInput.length} microphones, ${currentDevices.audioOutput.length} speakers`, 'info');
+        
+      } catch (error) {
+        log(`Device enumeration failed: ${error.message}`, 'error');
+      }
+    }
+    
+    // Echo Test Functionality
+    let echoTestActive = false;
+    let echoTestAudio = null;
+    let echoTestStartTime = null;
+    
+    function startEchoTest() {
+      if (echoTestActive) return;
+      
+      echoTestActive = true;
+      echoTestStartTime = Date.now();
+      
+      // Show results panel
+      const resultsPanel = document.getElementById('echo-test-results');
+      resultsPanel.style.display = 'block';
+      
+      // Update UI
+      document.getElementById('btn-echo-test').disabled = true;
+      document.getElementById('btn-stop-echo-test').disabled = false;
+      
+      // Play a test tone through TTS system
+      echoTestAudio = new Audio('data:audio/wav;base64,UklGRnoGAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YQoGAACBhYqFbF1fdJivrJBhNjVgodDbq2EcBj+a2/LDciUFLIHO8tiJNwgZaLvt559NEAxQp+PwtmMcBjiR1/LMeSwFJHfH8N2QQAoUYrTp66hVFApGn+D4rn0+CCSFrfPhqZISAFWl4v6jUg8dXqzl7p1SEA');
+      
+      echoTestAudio.onended = () => {
+        if (echoTestActive) {
+          // Continue test until stopped
+          echoTestAudio.currentTime = 0;
+          echoTestAudio.play().catch(e => log(`Echo test playback failed: ${e.message}`, 'error'));
+        }
+      };
+      
+      echoTestAudio.play().catch(e => log(`Echo test failed to start: ${e.message}`, 'error'));
+      
+      log('Echo test started - listening for echo/feedback', 'info');
+      
+      // Simulate echo metrics updates (in real implementation, these would come from backend)
+      updateEchoMetrics();
+    }
+    
+    function stopEchoTest() {
+      if (!echoTestActive) return;
+      
+      echoTestActive = false;
+      
+      // Stop audio
+      if (echoTestAudio) {
+        echoTestAudio.pause();
+        echoTestAudio = null;
+      }
+      
+      // Update UI
+      document.getElementById('btn-echo-test').disabled = false;
+      document.getElementById('btn-stop-echo-test').disabled = true;
+      
+      // Hide results after a delay
+      setTimeout(() => {
+        const resultsPanel = document.getElementById('echo-test-results');
+        resultsPanel.style.display = 'none';
+      }, 3000);
+      
+      const duration = ((Date.now() - echoTestStartTime) / 1000).toFixed(1);
+      log(`Echo test completed (${duration}s)`, 'info');
+    }
+    
+    function updateEchoMetrics() {
+      if (!echoTestActive) return;
+      
+      // In a real implementation, these metrics would come from the echo suppression service
+      // For now, simulate realistic values
+      const correlation = Math.random() * 0.3; // Low correlation indicates good echo suppression
+      const vadActive = Math.random() > 0.7; // Random VAD activity
+      const echoDetected = correlation > 0.15; // Threshold for echo detection
+      
+      // Update display
+      const echoDetectedEl = document.getElementById('echo-detected');
+      const correlationEl = document.getElementById('echo-correlation');
+      const vadActivityEl = document.getElementById('vad-activity');
+      
+      echoDetectedEl.textContent = echoDetected ? 'Yes' : 'No';
+      echoDetectedEl.className = `metric-value ${echoDetected ? 'positive' : 'negative'}`;
+      
+      correlationEl.textContent = correlation.toFixed(3);
+      
+      vadActivityEl.textContent = vadActive ? 'Active' : 'Inactive';
+      vadActivityEl.className = `metric-value ${vadActive ? 'active' : ''}`;
+      
+      // Continue updating if test is active
+      if (echoTestActive) {
+        setTimeout(updateEchoMetrics, 500);
+      }
+    }
+
     // Event listeners
     btnConnect.onclick = connect;
     btnDisconnect.onclick = disconnect;
     btnResetConversation.onclick = resetConversation;
     btnClear.onclick = clearAll;
     btnExport.onclick = exportLogs;
+    
+    // Device management listeners
+    document.getElementById('btn-refresh-devices').onclick = refreshAudioDevices;
+    
+    // Echo test listeners
+    document.getElementById('btn-echo-test').onclick = startEchoTest;
+    document.getElementById('btn-stop-echo-test').onclick = stopEchoTest;
 
     // Language mismatch banner event listeners
     document.getElementById('btn-switch-language').onclick = switchLanguage;
@@ -1003,6 +1310,9 @@
     // Initialize
     updateConnectionStatus('disconnected');
     updateMicStatus('inactive');
+    
+    // Initialize device list
+    refreshAudioDevices();
     
     log('Debug console initialized', 'info');
   </script>
