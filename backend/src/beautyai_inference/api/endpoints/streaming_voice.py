@@ -344,7 +344,7 @@ async def streaming_voice_endpoint(
         tts_pause_threshold_ms=int(os.getenv("VOICE_STREAMING_TTS_PAUSE_THRESHOLD", "500")),
         gate_mic_during_tts=os.getenv("VOICE_STREAMING_GATE_MIC_DURING_TTS", "1") == "1",
     )
-    state.echo_suppressor = EchoSuppressor(echo_config)
+    state.echo_suppressor = EchoSuppressor(config=echo_config)
     
     session_registry.add(state)
     logger.info("🌐 Streaming voice connection established: %s (lang=%s) phase4_env=%s force_real=%s disable_mock=%s", connection_id, language, os.getenv("VOICE_STREAMING_PHASE4"), os.getenv("VOICE_STREAMING_FORCE_REAL"), os.getenv("VOICE_STREAMING_DISABLE_MOCK"))
