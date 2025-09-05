@@ -75,9 +75,13 @@ def create_transcription_service() -> TranscriptionServiceProtocol:
         # Fallback to direct instantiation (original behavior)
         logger.info("🔄 Creating direct Whisper engine instance (non-persistent)")
         
-        vc = get_voice_config()
-        stt_cfg = vc.get_stt_model_config()
-        engine_type = (stt_cfg.engine_type or '').lower()
+        try:
+            vc = get_voice_config()
+            stt_cfg = vc.get_stt_model_config()
+            engine_type = (stt_cfg.engine_type or '').lower()
+        except Exception as e:
+            logger.error(f"Error loading voice config: {e}, using default engine")
+            return WhisperLargeV3TurboEngine()
         
         # Check environment overrides
         force_arabic = os.getenv("FORCE_ARABIC_ENGINE") == "1"

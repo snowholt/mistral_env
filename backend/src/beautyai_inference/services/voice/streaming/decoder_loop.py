@@ -111,12 +111,35 @@ async def incremental_decode_loop(
 
     # Ensure whisper model loaded (new engines handle their own fallbacks internally)
     if not fw_service.is_model_loaded():
-        loaded = fw_service.load_whisper_model()
-        if not loaded:
+        try:
+            logger.info(f"[decode] Loading Whisper model for session {session.session_id}")
+            loaded = fw_service.load_whisper_model()
+            if not loaded:
+                logger.error(
+                    "Failed to load transcription model for streaming session %s – aborting decode loop",
+                    session.session_id,
+                )
+                # Emit error event before returning
+                yield {
+                    "type": "decoder_error",
+                    "error": "Failed to load Whisper model",
+                    "session_id": session.session_id,
+                    "timestamp": time.time()
+                }
+                return
+            else:
+                logger.info(f"[decode] Successfully loaded Whisper model for session {session.session_id}")
+        except Exception as e:
             logger.error(
-                "Failed to load transcription model for streaming session %s – aborting decode loop",
-                session.session_id,
+                "Exception while loading transcription model for session %s: %s – aborting decode loop",
+                session.session_id, e
             )
+            yield {
+                "type": "decoder_error",
+                "error": f"Exception loading Whisper model: {str(e)}",
+                "session_id": session.session_id,
+                "timestamp": time.time()
+            }
             return
 
     interval = config.decode_interval_ms / 1000.0
@@ -174,9 +197,24 @@ async def incremental_decode_loop(
                 decode_ms = 0
             else:
                 decode_start = time.time()
-                transcription = fw_service.transcribe_audio_bytes(
-                    pcm_window, audio_format="wav", language=config.language
-                )
+                try:
+                    transcription = fw_service.transcribe_audio_bytes(
+                        pcm_window, audio_format="wav", language=config.language
+                    )
+                    if transcription is None:
+                        logger.warning(f"[decode] Transcription service returned None for session {session.session_id}")
+                        transcription = ""
+                except Exception as e:
+                    logger.error(f"[decode] Transcription failed for session {session.session_id}: {e}")
+                    transcription = ""
+                    # Emit error event for debugging
+                    yield {
+                        "type": "transcription_error",
+                        "error": str(e),
+                        "session_id": session.session_id,
+                        "timestamp": time.time(),
+                        "window_seconds": config.window_seconds
+                    }
                 decode_ms = int((time.time() - decode_start) * 1000)
             tokens: List[str] = []
             if transcription:

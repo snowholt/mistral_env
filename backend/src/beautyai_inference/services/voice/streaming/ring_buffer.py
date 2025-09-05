@@ -56,8 +56,14 @@ class PCMInt16RingBuffer:
     async def write(self, pcm_int16: bytes) -> None:
         if self._closed:
             return
+        
+        # Handle odd-length data by padding with zero byte
         if len(pcm_int16) % 2 != 0:
-            raise ValueError("PCM data length must be multiple of 2")
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"PCM data length {len(pcm_int16)} not multiple of 2, padding with zero byte")
+            pcm_int16 = pcm_int16 + b'\x00'
+            
         samples = len(pcm_int16) // 2
         async with self.lock:
             if samples >= self.capacity_samples:

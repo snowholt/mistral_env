@@ -333,11 +333,20 @@ class StreamingVoiceClient {
       try {
         if (this.duplexWebSocket) {
           // Send via duplex WebSocket with binary protocol
-          const frameBuffer = frame.buffer.slice(frame.byteOffset, frame.byteOffset + frame.byteLength);
+          // Ensure proper byte alignment for Int16 data
+          const frameBuffer = new ArrayBuffer(frame.byteLength);
+          const frameView = new Uint8Array(frameBuffer);
+          const sourceView = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+          frameView.set(sourceView);
           this.duplexWebSocket.sendMicChunk(frameBuffer);
         } else {
           // Legacy mode - send raw binary
-          this.ws.send(frame.buffer);
+          // Create properly aligned buffer
+          const frameBuffer = new ArrayBuffer(frame.byteLength);
+          const frameView = new Uint8Array(frameBuffer);
+          const sourceView = new Uint8Array(frame.buffer, frame.byteOffset, frame.byteLength);
+          frameView.set(sourceView);
+          this.ws.send(frameBuffer);
         }
         
         this._lastFrameSentAt = performance.now();

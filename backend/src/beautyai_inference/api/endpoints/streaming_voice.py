@@ -1203,12 +1203,18 @@ async def streaming_voice_endpoint(
                             
                             # Process through echo suppressor if available
                             if state.echo_suppressor:
-                                processed_payload = await state.echo_suppressor.process_mic_audio(payload)
+                                echo_result = await state.echo_suppressor.process_mic_audio(payload)
+                                processed_payload = echo_result.get("processed_audio", payload)
                             else:
                                 processed_payload = payload
                             
                             # Simple energy gate (average absolute amplitude)
                             try:
+                                # Ensure payload length is even before processing as int16
+                                if len(processed_payload) % 2 != 0:
+                                    logger.warning(f"[{connection_id}] Odd payload length {len(processed_payload)}, padding with zero")
+                                    processed_payload = processed_payload + b'\x00'
+                                    
                                 # interpret payload as int16 little-endian
                                 import array
                                 arr = array.array('h')
@@ -1222,8 +1228,8 @@ async def streaming_voice_endpoint(
                                             state.low_energy_mode = False
                                     else:
                                         state.silence_frame_count += 1
-                            except Exception:
-                                pass
+                            except Exception as e:
+                                logger.warning(f"[{connection_id}] Audio processing error: {e}")
                             await state.audio_session.ingest_pcm(processed_payload)
                             state.pcm_bytes_received += len(processed_payload)  # Track actual PCM bytes
                             state.pcm_frames_received += 1
