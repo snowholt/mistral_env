@@ -35,6 +35,7 @@ from ...services.voice.conversation.simple_voice_service import SimpleVoiceServi
 from ...services.voice.vad_service import RealTimeVADService, VADConfig, get_vad_service, initialize_vad_service
 from ...utils import create_batch_decoder, WebMDecodingError
 from ...core.websocket_connection_pool import get_websocket_pool, WebSocketConnectionData
+from ..performance_integration import get_performance_monitoring_service
 
 logger = logging.getLogger(__name__)
 
@@ -222,8 +223,19 @@ class SimpleVoiceWebSocketManager:
         session_id: str = None
     ) -> bool:
         """Accept connection with minimal setup using connection pool."""
+        connect_start_time = time.time()
+        
         try:
             await websocket.accept()
+            
+            # Add performance metric for connection
+            perf_service = get_performance_monitoring_service()
+            if perf_service.is_enabled():
+                await perf_service.add_custom_metric(
+                    "websocket_simple_voice_connections_total", 
+                    1, 
+                    {"language": language, "voice_type": voice_type}
+                )
             
             # Ensure voice service is ready
             await self._ensure_service_initialized()
@@ -297,6 +309,15 @@ class SimpleVoiceWebSocketManager:
             # Store mapping from original connection_id to pool connection_id
             setattr(self, f"_pool_mapping_{connection_id}", pool_connection_id)
             
+            # Add connection time performance metric
+            if perf_service.is_enabled():
+                connection_time_ms = (time.time() - connect_start_time) * 1000
+                await perf_service.add_custom_metric(
+                    "websocket_simple_voice_connection_time_ms", 
+                    connection_time_ms, 
+                    {"language": language, "voice_type": voice_type}
+                )
+            
             return True
             
         except Exception as e:
@@ -317,6 +338,23 @@ class SimpleVoiceWebSocketManager:
                 if connection_data and connection_data.voice_session_data:
                     session_duration = time.time() - connection_data.client_info.get("connected_at", time.time())
                     message_count = connection_data.voice_session_data.get("message_count", 0)
+                    
+                    # Add performance metrics for disconnection
+                    perf_service = get_performance_monitoring_service()
+                    if perf_service.is_enabled():
+                        language = connection_data.voice_session_data.get("language", "unknown")
+                        voice_type = connection_data.voice_session_data.get("voice_type", "unknown")
+                        labels = {"language": language, "voice_type": voice_type}
+                        
+                        await perf_service.add_custom_metric(
+                            "websocket_simple_voice_disconnections_total", 1, labels
+                        )
+                        await perf_service.add_custom_metric(
+                            "websocket_simple_voice_session_duration_seconds", session_duration, labels
+                        )
+                        await perf_service.add_custom_metric(
+                            "websocket_simple_voice_messages_per_session", message_count, labels
+                        )
                     
                     logger.info(f"🔌 Simple voice WebSocket disconnected: {connection_id} (pool ID: {pool_connection_id}, duration: {session_duration:.1f}s, messages: {message_count})")
                 
@@ -426,6 +464,15 @@ class SimpleVoiceWebSocketManager:
         
         start_time = time.time()
         
+        # Add performance metric for audio message processing
+        perf_service = get_performance_monitoring_service()
+        if perf_service.is_enabled():
+            await perf_service.add_custom_metric(
+                "websocket_simple_voice_audio_messages_total", 
+                1, 
+                {"language": language, "voice_type": voice_type}
+            )
+        
         try:
             # Update message count
             voice_session["message_count"] += 1
@@ -518,6 +565,21 @@ class SimpleVoiceWebSocketManager:
                     await self.send_message(connection_id, response_data)
                 
                 logger.info(f"✅ Simple voice processing completed in {processing_time:.2f}s for {connection_id}")
+                
+                # Add performance metrics
+                if perf_service.is_enabled():
+                    labels = {"language": language, "voice_type": voice_type, "quality": transcription_quality}
+                    await perf_service.add_custom_metric(
+                        "websocket_simple_voice_processing_time_ms", 
+                        processing_time * 1000, 
+                        labels
+                    )
+                    await perf_service.add_custom_metric(
+                        "websocket_simple_voice_processing_success_total", 
+                        1, 
+                        labels
+                    )
+                
                 return {"success": True, "processing_time": processing_time}
             
             finally:
@@ -530,6 +592,14 @@ class SimpleVoiceWebSocketManager:
         except Exception as e:
             processing_time = time.time() - start_time
             logger.error(f"❌ Error processing simple voice message for {connection_id}: {e}")
+            
+            # Add error performance metric
+            if perf_service.is_enabled():
+                await perf_service.add_custom_metric(
+                    "websocket_simple_voice_processing_errors_total", 
+                    1, 
+                    {"language": language, "voice_type": voice_type, "error_type": "processing_error"}
+                )
             
             await self.send_message(connection_id, {
                 "type": "error",
@@ -1279,6 +1349,22 @@ async def get_simple_voice_status():
                 }
             }
         }
+        
+        # Add performance monitoring data if available
+        perf_service = get_performance_monitoring_service()
+        if perf_service.is_enabled():
+            dashboard_data = await perf_service.get_dashboard_data()
+            if dashboard_data:
+                result["performance_monitoring"] = {
+                    "enabled": True,
+                    "system_cpu": dashboard_data.get("system_summary", {}).get("system_cpu_usage_percent"),
+                    "system_memory": dashboard_data.get("system_summary", {}).get("system_memory_usage_percent"),
+                    "active_alerts": dashboard_data.get("alert_summary", {}).get("total_active", 0),
+                    "anomaly_statistics": dashboard_data.get("anomaly_statistics", {})
+                }
+        
+        return result
+        
     except Exception as e:
         logger.error(f"❌ Error getting simple voice status: {e}")
         return {
