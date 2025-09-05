@@ -30,6 +30,9 @@ from fastapi import WebSocket
 from starlette.websockets import WebSocketState
 import psutil
 
+# Import circuit breaker for integration
+from .circuit_breaker import CircuitBreaker, CircuitBreakerConfig, circuit_breaker_registry
+
 logger = logging.getLogger(__name__)
 
 
@@ -157,7 +160,9 @@ class ConnectionPool(ABC):
         max_idle_time_seconds: int = 300,
         health_check_interval_seconds: int = 60,
         acquisition_timeout_seconds: int = 30,
-        enable_metrics: bool = True
+        enable_metrics: bool = True,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[CircuitBreakerConfig] = None
     ):
         self.pool_name = pool_name
         self.max_pool_size = max_pool_size
@@ -166,6 +171,7 @@ class ConnectionPool(ABC):
         self.health_check_interval_seconds = health_check_interval_seconds
         self.acquisition_timeout_seconds = acquisition_timeout_seconds
         self.enable_metrics = enable_metrics
+        self.enable_circuit_breaker = enable_circuit_breaker
         
         # Connection storage
         self._connections: Dict[str, Any] = {}
@@ -174,6 +180,11 @@ class ConnectionPool(ABC):
         
         # Pool metrics
         self.metrics = PoolMetrics(pool_name=pool_name, max_pool_size=max_pool_size)
+        
+        # Circuit breaker integration
+        self._circuit_breaker: Optional[CircuitBreaker] = None
+        if enable_circuit_breaker:
+            self._circuit_breaker_config = circuit_breaker_config or CircuitBreakerConfig()
         
         # Health monitoring
         self._health_check_task: Optional[asyncio.Task] = None
@@ -205,6 +216,15 @@ class ConnectionPool(ABC):
         """Start the connection pool and background tasks."""
         logger.info(f"Starting connection pool '{self.pool_name}'")
         
+        # Initialize circuit breaker if enabled
+        if self.enable_circuit_breaker:
+            self._circuit_breaker = await circuit_breaker_registry.get_or_create(
+                f"pool_{self.pool_name}",
+                self._circuit_breaker_config,
+                pool_metrics_provider=self._get_pool_metrics_for_circuit_breaker
+            )
+            logger.info(f"Circuit breaker enabled for pool '{self.pool_name}'")
+        
         # Initialize minimum connections
         for i in range(self.min_pool_size):
             try:
@@ -225,6 +245,11 @@ class ConnectionPool(ABC):
         # Signal shutdown
         self._shutdown_event.set()
         
+        # Stop circuit breaker
+        if self._circuit_breaker:
+            await circuit_breaker_registry.remove(f"pool_{self.pool_name}")
+            self._circuit_breaker = None
+        
         # Cancel health check task
         if self._health_check_task and not self._health_check_task.done():
             self._health_check_task.cancel()
@@ -243,7 +268,22 @@ class ConnectionPool(ABC):
 
     async def acquire_connection(self, **kwargs) -> tuple[str, Any]:
         """
-        Acquire a connection from the pool.
+        Acquire a connection from the pool with circuit breaker protection.
+        
+        Returns:
+            Tuple of (connection_id, connection_object)
+        """
+        # Use circuit breaker if enabled
+        if self._circuit_breaker:
+            return await self._circuit_breaker.call(
+                self._acquire_connection_internal, **kwargs
+            )
+        else:
+            return await self._acquire_connection_internal(**kwargs)
+
+    async def _acquire_connection_internal(self, **kwargs) -> tuple[str, Any]:
+        """
+        Internal connection acquisition logic without circuit breaker.
         
         Returns:
             Tuple of (connection_id, connection_object)
@@ -349,7 +389,8 @@ class ConnectionPool(ABC):
             
         except Exception as e:
             logger.error(f"Failed to create connection: {e}")
-            raise ConnectionPoolError(f"Failed to create connection: {e}")
+            # Re-raise the original exception to be handled by circuit breaker
+            raise e
 
     async def _destroy_and_remove_connection(self, connection_id: str):
         """Destroy a connection and remove it from the pool."""
@@ -454,6 +495,10 @@ class ConnectionPool(ABC):
                 except Exception as e:
                     logger.warning(f"Health check callback failed: {e}")
 
+    async def _get_pool_metrics_for_circuit_breaker(self) -> Dict[str, Any]:
+        """Get pool metrics for circuit breaker health monitoring."""
+        return self.get_metrics()
+
     def add_connection_created_callback(self, callback: Callable):
         """Add callback for when connections are created."""
         self._connection_created_callbacks.append(callback)
@@ -485,7 +530,7 @@ class ConnectionPool(ABC):
                 'metadata': metrics.metadata
             })
         
-        return {
+        base_metrics = {
             'pool': {
                 'name': self.pool_name,
                 'total_connections': self.metrics.total_connections,
@@ -511,3 +556,9 @@ class ConnectionPool(ABC):
                 'timestamp': time.time()
             }
         }
+        
+        # Add circuit breaker metrics if enabled
+        if self._circuit_breaker:
+            base_metrics['circuit_breaker'] = self._circuit_breaker.get_metrics()
+        
+        return base_metrics

@@ -37,6 +37,30 @@
     "tracing_enabled": false,
     "health_check_interval_s": 30
   },
+  "connection_pool": {
+    "max_pool_size": 100,
+    "min_pool_size": 5,
+    "max_idle_time_seconds": 600,
+    "health_check_interval_seconds": 30,
+    "acquisition_timeout_seconds": 10,
+    "enable_metrics": true,
+    "enable_circuit_breaker": true,
+    "max_message_queue_size": 100
+  },
+  "circuit_breaker": {
+    "enabled": true,
+    "failure_threshold": 5,
+    "recovery_timeout_seconds": 60.0,
+    "success_threshold": 3,
+    "failure_rate_threshold": 0.5,
+    "minimum_requests": 10,
+    "timeout_seconds": 30.0,
+    "max_retry_attempts": 3,
+    "backoff_multiplier": 2.0,
+    "max_backoff_seconds": 300.0,
+    "health_check_enabled": true,
+    "health_check_interval_seconds": 30.0
+  },
   "models": {
     "default_asr_model": "openai/whisper-large-v3",
     "default_llm_model": "microsoft/DialoGPT-large",

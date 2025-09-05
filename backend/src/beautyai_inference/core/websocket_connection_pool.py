@@ -27,7 +27,7 @@ from starlette.websockets import WebSocketState
 
 from .connection_pool import (
     ConnectionPool, ConnectionPoolError, ConnectionMetrics, 
-    ConnectionState, PoolExhaustedException
+    ConnectionState, PoolExhaustedException, CircuitBreakerConfig
 )
 
 logger = logging.getLogger(__name__)
@@ -100,7 +100,9 @@ class WebSocketConnectionPool(ConnectionPool):
         health_check_interval_seconds: int = 30,  # More frequent for real-time
         acquisition_timeout_seconds: int = 10,  # Shorter timeout for real-time
         enable_metrics: bool = True,
-        max_message_queue_size: int = 100
+        max_message_queue_size: int = 100,
+        enable_circuit_breaker: bool = True,
+        circuit_breaker_config: Optional[CircuitBreakerConfig] = None
     ):
         super().__init__(
             pool_name=pool_name,
@@ -109,7 +111,9 @@ class WebSocketConnectionPool(ConnectionPool):
             max_idle_time_seconds=max_idle_time_seconds,
             health_check_interval_seconds=health_check_interval_seconds,
             acquisition_timeout_seconds=acquisition_timeout_seconds,
-            enable_metrics=enable_metrics
+            enable_metrics=enable_metrics,
+            enable_circuit_breaker=enable_circuit_breaker,
+            circuit_breaker_config=circuit_breaker_config
         )
         
         self.max_message_queue_size = max_message_queue_size
@@ -267,7 +271,36 @@ class WebSocketConnectionPool(ConnectionPool):
         message_type: str = "text"
     ) -> bool:
         """
-        Send message to a specific connection.
+        Send message to a specific connection with circuit breaker protection.
+        
+        Args:
+            connection_id: Target connection ID
+            message: Message to send
+            message_type: Type of message (text, binary, json)
+            
+        Returns:
+            bool: True if sent successfully, False otherwise
+        """
+        # Use circuit breaker if enabled
+        if self._circuit_breaker:
+            try:
+                return await self._circuit_breaker.call(
+                    self._send_to_connection_internal, connection_id, message, message_type
+                )
+            except Exception as e:
+                logger.warning(f"Circuit breaker blocked send to connection {connection_id}: {e}")
+                return False
+        else:
+            return await self._send_to_connection_internal(connection_id, message, message_type)
+
+    async def _send_to_connection_internal(
+        self, 
+        connection_id: str, 
+        message: Union[str, bytes, Dict[str, Any]],
+        message_type: str = "text"
+    ) -> bool:
+        """
+        Internal message sending logic without circuit breaker.
         
         Args:
             connection_id: Target connection ID
@@ -513,10 +546,56 @@ _websocket_pool_instance: Optional[WebSocketConnectionPool] = None
 
 
 def get_websocket_pool() -> WebSocketConnectionPool:
-    """Get the global WebSocket connection pool instance."""
+    """Get the global WebSocket connection pool instance with configuration."""
     global _websocket_pool_instance
     if _websocket_pool_instance is None:
-        _websocket_pool_instance = WebSocketConnectionPool()
+        # Load configuration from config system
+        try:
+            from ..config.config_loader import get_config
+            config = get_config()
+            
+            # Connection pool configuration
+            pool_config = config.get('connection_pool', {})
+            circuit_breaker_config_dict = config.get('circuit_breaker', {})
+            
+            # Create circuit breaker config if enabled
+            circuit_breaker_config = None
+            if circuit_breaker_config_dict.get('enabled', True):
+                circuit_breaker_config = CircuitBreakerConfig(
+                    failure_threshold=circuit_breaker_config_dict.get('failure_threshold', 5),
+                    recovery_timeout_seconds=circuit_breaker_config_dict.get('recovery_timeout_seconds', 60.0),
+                    success_threshold=circuit_breaker_config_dict.get('success_threshold', 3),
+                    failure_rate_threshold=circuit_breaker_config_dict.get('failure_rate_threshold', 0.5),
+                    minimum_requests=circuit_breaker_config_dict.get('minimum_requests', 10),
+                    timeout_seconds=circuit_breaker_config_dict.get('timeout_seconds', 30.0),
+                    max_retry_attempts=circuit_breaker_config_dict.get('max_retry_attempts', 3),
+                    backoff_multiplier=circuit_breaker_config_dict.get('backoff_multiplier', 2.0),
+                    max_backoff_seconds=circuit_breaker_config_dict.get('max_backoff_seconds', 300.0),
+                    health_check_enabled=circuit_breaker_config_dict.get('health_check_enabled', True),
+                    health_check_interval_seconds=circuit_breaker_config_dict.get('health_check_interval_seconds', 30.0)
+                )
+            
+            _websocket_pool_instance = WebSocketConnectionPool(
+                pool_name=pool_config.get('pool_name', 'websocket_pool'),
+                max_pool_size=pool_config.get('max_pool_size', 100),
+                min_pool_size=pool_config.get('min_pool_size', 5),
+                max_idle_time_seconds=pool_config.get('max_idle_time_seconds', 600),
+                health_check_interval_seconds=pool_config.get('health_check_interval_seconds', 30),
+                acquisition_timeout_seconds=pool_config.get('acquisition_timeout_seconds', 10),
+                enable_metrics=pool_config.get('enable_metrics', True),
+                max_message_queue_size=pool_config.get('max_message_queue_size', 100),
+                enable_circuit_breaker=pool_config.get('enable_circuit_breaker', True),
+                circuit_breaker_config=circuit_breaker_config
+            )
+            
+        except ImportError:
+            # Fallback to default configuration if config system not available
+            logger.warning("Config system not available, using default WebSocket pool configuration")
+            _websocket_pool_instance = WebSocketConnectionPool()
+        except Exception as e:
+            logger.error(f"Error loading WebSocket pool configuration: {e}, using defaults")
+            _websocket_pool_instance = WebSocketConnectionPool()
+    
     return _websocket_pool_instance
 
 
