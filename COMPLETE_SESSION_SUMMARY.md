@@ -89,41 +89,42 @@ ConnectionPool (ABC)           # Generic base class with lifecycle
 ```markdown
 - [x] Step 1: Enhanced Configuration Management (COMPLETED)
 - [x] Step 2: Add Connection Pooling (COMPLETED)  
-- [ ] Step 3: Implement Circuit Breakers (READY TO START)
+- [x] Step 3: Implement Circuit Breakers (COMPLETED)
 - [ ] Step 4: Add Performance Monitoring
 - [ ] Step 5: Optimize Buffer Sizes
 ```
 
-### Step 3: Circuit Breakers (Next Priority) 🚀
-**Objective**: Implement circuit breaker pattern using pool health metrics
+### Step 4: Performance Monitoring (Next Priority) 🚀
+**Objective**: Build comprehensive performance monitoring leveraging circuit breaker metrics
 
 **Design Foundation**:
-- Leverage existing `ConnectionPool.health_checks()` and error tracking
-- Use pool metrics for failure rate calculations
-- Integrate with WebSocket connection state management
-- Provide automatic recovery and backpressure mechanisms
+- Build on existing `PoolMetrics`, `ConnectionMetrics`, and `CircuitBreakerMetrics`
+- Integrate with circuit breaker health monitoring and failure tracking
+- Use existing metrics collection infrastructure from connection pools
+- Provide real-time dashboard and alerting capabilities
 
 **Key Implementation Areas**:
 ```python
-# Circuit Breaker Components:
-class CircuitBreakerState(Enum):
-    CLOSED, OPEN, HALF_OPEN = auto(), auto(), auto()
-
-class ConnectionCircuitBreaker:
+# Performance Monitoring Components:
+class PerformanceMonitor:
     def __init__(self, pool: WebSocketConnectionPool):
         self.pool = pool
-        # Use existing pool.metrics for failure tracking
+        # Use existing pool.metrics and circuit_breaker.metrics
     
-    async def call_with_circuit_breaker(self, operation):
-        # Implement circuit breaker logic
+    async def collect_metrics(self):
+        # Aggregate metrics from pool and circuit breaker
+        pass
+    
+    async def detect_anomalies(self):
+        # Use circuit breaker failure patterns for detection
         pass
 ```
 
 **Integration Points**:
-- `websocket_simple_voice.py`: Wrap connection operations 
-- `connection_pool.py`: Add circuit breaker metrics
-- New file: `backend/src/beautyai_inference/core/circuit_breaker.py`
-- Configuration: Add circuit breaker thresholds to config files
+- `websocket_simple_voice.py`: Add performance metrics endpoints
+- `connection_pool.py`: Enhanced metrics collection with performance data
+- New file: `backend/src/beautyai_inference/core/performance_monitor.py`
+- Configuration: Add performance monitoring thresholds to config files
 
 ### Step 4: Performance Monitoring
 **Foundation**: Build on existing `PoolMetrics` and `ConnectionMetrics`
@@ -133,10 +134,11 @@ class ConnectionCircuitBreaker:
 - Resource utilization tracking
 
 ### Step 5: Buffer Optimization  
-**Foundation**: Use per-connection message queues from connection pool
-- Adaptive buffer sizing based on connection latency
-- Queue depth monitoring and optimization
-- Memory usage optimization for audio streams
+**Foundation**: Use per-connection message queues and circuit breaker health data
+- Adaptive buffer sizing based on connection latency and circuit breaker states
+- Queue depth monitoring and optimization using connection pool metrics
+- Memory usage optimization for audio streams with circuit breaker feedback
+- Use circuit breaker failure patterns to optimize buffer strategies
 
 ## 🔧 Technical Infrastructure Status
 
@@ -251,7 +253,7 @@ pytest -v tests/test_connection_pool_integration.py
 ## 🚀 Continuation Command
 **Status**: System is fully functional with enhanced configuration management and connection pooling. Ready to proceed with **Step 3: Circuit Breaker Implementation**.
 
-**Command to Resume**: `"Please proceed with Step 3: Implement Circuit Breakers using the connection pool health metrics and error tracking infrastructure."`
+**Command to Resume**: `"Please proceed with Step 4: Implement Performance Monitoring using the circuit breaker metrics, connection pool health data, and existing monitoring infrastructure."`
 
 ---
 *Generated: $(date) - Full context preservation for seamless continuation*
