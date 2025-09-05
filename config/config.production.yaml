@@ -1,0 +1,42 @@
+# BeautyAI Production Configuration
+
+duplex:
+  # Optimized for production
+  jitter_buffer_target_ms: 80
+  jitter_buffer_max_ms: 300
+  max_concurrent_sessions: 50
+  session_timeout_ms: 600000  # 10 minutes
+  
+  # Conservative echo suppression for production
+  echo_correlation_threshold: 0.12
+  echo_spectral_threshold: 0.10
+  barge_in_sensitivity: 0.25
+
+system:
+  # Production logging
+  log_level: "WARNING"
+  log_format: "json"
+  log_file: "/var/log/beautyai/app.log"
+  
+  # Production caching
+  cache_dir: "/var/cache/beautyai"
+  model_cache_size_gb: 20
+  
+  # Production API settings
+  api_timeout_s: 60
+  max_request_size_mb: 200
+  
+  # Full monitoring in production
+  metrics_enabled: true
+  tracing_enabled: true
+  health_check_interval_s: 15
+
+models:
+  # Preload critical models
+  preload_models:
+    - "openai/whisper-large-v3"
+    - "microsoft/DialoGPT-large"
+  
+  # Faster loading in production
+  model_load_timeout_s: 180
+  model_unload_delay_s: 600

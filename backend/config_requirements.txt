@@ -1,0 +1,18 @@
+# Configuration Management Dependencies
+# Additional packages for enhanced configuration management
+
+# Configuration validation and schema management
+pydantic>=2.0.0
+pydantic-settings>=2.0.0
+
+# YAML configuration file support
+PyYAML>=6.0
+
+# File system monitoring for hot-reload
+watchdog>=3.0.0
+
+# Encryption for secrets management
+cryptography>=41.0.0
+
+# Environment variable loading
+python-dotenv>=1.0.0

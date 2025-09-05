@@ -1,0 +1,50 @@
+{
+  "duplex": {
+    "tts_model": "edge-tts",
+    "tts_voice": "ar-SA-ZariyahNeural",
+    "tts_streaming_enabled": true,
+    "tts_chunk_size_ms": 40,
+    "tts_format": "opus",
+    "echo_correlation_threshold": 0.15,
+    "echo_spectral_threshold": 0.12,
+    "echo_vad_threshold": 0.05,
+    "echo_suppression_enabled": true,
+    "echo_adaptive_threshold": true,
+    "jitter_buffer_target_ms": 60,
+    "jitter_buffer_max_ms": 200,
+    "jitter_buffer_adaptive": true,
+    "duplex_mode": "full",
+    "barge_in_enabled": true,
+    "barge_in_sensitivity": 0.3,
+    "barge_in_delay_ms": 300,
+    "audio_buffer_size_ms": 10000,
+    "pcm_buffer_size_samples": 16000,
+    "max_concurrent_sessions": 10,
+    "session_timeout_ms": 300000
+  },
+  "system": {
+    "gpu_enabled": true,
+    "gpu_memory_fraction": 0.8,
+    "gpu_memory_growth": true,
+    "log_level": "INFO",
+    "log_format": "json",
+    "log_file": null,
+    "cache_dir": "./cache",
+    "model_cache_size_gb": 10,
+    "api_timeout_s": 30,
+    "max_request_size_mb": 100,
+    "metrics_enabled": true,
+    "tracing_enabled": false,
+    "health_check_interval_s": 30
+  },
+  "models": {
+    "default_asr_model": "openai/whisper-large-v3",
+    "default_llm_model": "microsoft/DialoGPT-large",
+    "default_tts_model": "edge-tts",
+    "model_load_timeout_s": 120,
+    "model_unload_delay_s": 300,
+    "preload_models": [],
+    "quantization_enabled": true,
+    "quantization_bits": 8
+  }
+}

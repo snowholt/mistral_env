@@ -1,0 +1,5 @@
+# Additional dependencies for enhanced configuration management
+pydantic[email]>=2.0.0
+cryptography>=3.4.0
+watchdog>=2.1.0
+PyYAML>=6.0

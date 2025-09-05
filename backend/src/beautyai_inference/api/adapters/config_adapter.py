@@ -1,45 +1,60 @@
 """
-Configuration API Adapter.
+Enhanced Configuration API Adapter.
 
 Provides API-compatible interface for configuration management,
-bridging config services with REST/GraphQL endpoints.
+bridging enhanced config services with REST/GraphQL endpoints.
 """
 from typing import Dict, Any, Optional, List
 import logging
 import time
+import asyncio
 
 from .base_adapter import APIServiceAdapter
 from ..models import APIRequest, APIResponse
 from ..errors import ValidationError, ConfigurationError
-from ...services.config.config_service import ConfigService
+from ...core.config_manager import get_config_manager, ConfigManager
 
 logger = logging.getLogger(__name__)
 
 
 class ConfigAPIAdapter(APIServiceAdapter):
     """
-    API adapter for configuration management.
+    Enhanced API adapter for configuration management.
     
     Provides API-compatible interface for:
-    - Application configuration retrieval and updates
-    - Model registry configuration
-    - System settings management
+    - Environment-aware configuration management
+    - Hot-reloading configuration updates
+    - Encrypted secrets management
+    - Configuration validation and health checks
+    - Duplex streaming configuration
     """
     
-    def __init__(self, config_service: ConfigService):
-        """Initialize config API adapter with required service."""
-        self.config_service = config_service
-        super().__init__(self.config_service)
+    def __init__(self, config_manager: Optional[ConfigManager] = None):
+        """Initialize config API adapter with enhanced configuration manager."""
+        self.config_manager = config_manager or get_config_manager()
+        super().__init__(self.config_manager)
+        
+        # Register for configuration reload notifications
+        self.config_manager.register_reload_callback(self._on_config_reload)
+    
+    async def _on_config_reload(self, config_manager: ConfigManager):
+        """Handle configuration reload events."""
+        logger.info("Configuration reloaded, updating adapter state")
+        # Perform any necessary cleanup or reinitialization
     
     def get_supported_operations(self) -> Dict[str, str]:
         """Get dictionary of supported operations and their descriptions."""
         return {
             "get_config": "Get current application configuration",
-            "update_config": "Update application configuration", 
-            "reset_config": "Reset configuration to defaults",
-            "get_model_registry": "Get model registry configuration",
-            "update_model_registry": "Update model registry",
-            "validate_config": "Validate configuration parameters"
+            "get_duplex_config": "Get duplex streaming configuration", 
+            "get_system_config": "Get system configuration",
+            "get_model_config": "Get model configuration",
+            "update_config": "Update configuration section",
+            "validate_config": "Validate configuration parameters",
+            "health_check": "Perform configuration health check",
+            "reload_config": "Reload configuration from files",
+            "get_secrets": "Get encrypted secret values",
+            "set_secret": "Set encrypted secret value"
         }
     
     async def get_config(self, section: Optional[str] = None) -> Dict[str, Any]:
@@ -47,48 +62,94 @@ class ConfigAPIAdapter(APIServiceAdapter):
         Get current application configuration.
         
         Args:
-            section: Optional specific configuration section
+            section: Optional specific configuration section (duplex, system, models)
             
         Returns:
             Dictionary with configuration data
         """
         try:
-            # Configure service
-            self.config_service.configure({})
-            
-            # Get configuration
-            if section:
-                config_data = self.config_service.get_section(section)
+            if section == "duplex":
+                config_data = self.config_manager.get_duplex_config().dict()
+            elif section == "system":
+                config_data = self.config_manager.get_system_config().dict()
+            elif section == "models":
+                config_data = self.config_manager.get_model_config().dict()
+            elif section is None:
+                config_data = self.config_manager.get_all_config()
             else:
-                config_data = self.config_service.get_all_config()
+                raise ValidationError(f"Unknown configuration section: {section}")
             
             return {
                 "config": config_data,
                 "section": section,
-                "timestamp": int(time.time())
+                "timestamp": int(time.time()),
+                "version": getattr(self.config_manager, '_config_version', '1.0.0')
             }
             
         except Exception as e:
             logger.error(f"Failed to get configuration: {e}")
             raise ConfigurationError(f"Configuration retrieval failed: {e}")
     
-    async def update_config(self, config_updates: Dict[str, Any], 
-                           section: Optional[str] = None,
+    async def get_duplex_config(self) -> Dict[str, Any]:
+        """Get duplex streaming configuration."""
+        try:
+            duplex_config = self.config_manager.get_duplex_config()
+            return {
+                "duplex_config": duplex_config.dict(),
+                "schema": duplex_config.schema(),
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Failed to get duplex configuration: {e}")
+            raise ConfigurationError(f"Duplex configuration retrieval failed: {e}")
+    
+    async def get_system_config(self) -> Dict[str, Any]:
+        """Get system configuration."""
+        try:
+            system_config = self.config_manager.get_system_config()
+            return {
+                "system_config": system_config.dict(),
+                "schema": system_config.schema(),
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Failed to get system configuration: {e}")
+            raise ConfigurationError(f"System configuration retrieval failed: {e}")
+    
+    async def get_model_config(self) -> Dict[str, Any]:
+        """Get model configuration."""
+        try:
+            model_config = self.config_manager.get_model_config()
+            return {
+                "model_config": model_config.dict(),
+                "schema": model_config.schema(),
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Failed to get model configuration: {e}")
+            raise ConfigurationError(f"Model configuration retrieval failed: {e}")
+    
+    async def update_config(self, section: str, config_updates: Dict[str, Any], 
                            validate_only: bool = False) -> Dict[str, Any]:
         """
-        Update application configuration.
+        Update configuration section.
         
         Args:
+            section: Configuration section to update (duplex, system, models)
             config_updates: Configuration updates to apply
-            section: Optional specific section to update
             validate_only: If True, only validate without applying changes
             
         Returns:
             Dictionary with update results
         """
         try:
+            # Validate section
+            valid_sections = ["duplex", "system", "models"]
+            if section not in valid_sections:
+                raise ValidationError(f"Invalid section. Must be one of: {valid_sections}")
+            
             # Validate configuration updates
-            validation_result = self.validate_config(config_updates, section)
+            validation_result = await self.validate_config(config_updates, section)
             
             if not validation_result["valid"]:
                 raise ValidationError(f"Invalid configuration: {validation_result['errors']}")
@@ -101,16 +162,20 @@ class ConfigAPIAdapter(APIServiceAdapter):
                     "timestamp": int(time.time())
                 }
             
-            # Apply configuration updates
-            if section:
-                result = self.config_service.update_section(section, config_updates)
-            else:
-                result = self.config_service.update_config(config_updates)
+            # Apply configuration updates using transaction
+            with self.config_manager.config_update_transaction():
+                success = self.config_manager.update_config(section, config_updates)
+                
+                if not success:
+                    raise ConfigurationError(f"Failed to update {section} configuration")
+            
+            # Get updated configuration
+            updated_config = await self.get_config(section)
             
             return {
                 "validated": True,
                 "changes_applied": True,
-                "updated_config": result,
+                "updated_config": updated_config["config"],
                 "validation": validation_result,
                 "timestamp": int(time.time())
             }
@@ -119,83 +184,8 @@ class ConfigAPIAdapter(APIServiceAdapter):
             logger.error(f"Failed to update configuration: {e}")
             raise ConfigurationError(f"Configuration update failed: {e}")
     
-    async def reset_config(self, section: Optional[str] = None) -> Dict[str, Any]:
-        """
-        Reset configuration to defaults.
-        
-        Args:
-            section: Optional specific section to reset
-            
-        Returns:
-            Dictionary with reset results
-        """
-        try:
-            # Reset configuration
-            if section:
-                result = self.config_service.reset_section(section)
-            else:
-                result = self.config_service.reset_to_defaults()
-            
-            return {
-                "reset_successful": True,
-                "section": section,
-                "default_config": result,
-                "timestamp": int(time.time())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to reset configuration: {e}")
-            raise ConfigurationError(f"Configuration reset failed: {e}")
-    
-    async def get_model_registry(self) -> Dict[str, Any]:
-        """
-        Get model registry configuration.
-        
-        Returns:
-            Dictionary with model registry data
-        """
-        try:
-            # Get model registry
-            registry_data = self.config_service.get_model_registry()
-            
-            return {
-                "registry": registry_data,
-                "model_count": len(registry_data.get("models", {})),
-                "default_model": registry_data.get("default_model"),
-                "timestamp": int(time.time())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to get model registry: {e}")
-            raise ConfigurationError(f"Model registry retrieval failed: {e}")
-    
-    async def update_model_registry(self, registry_updates: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Update model registry configuration.
-        
-        Args:
-            registry_updates: Registry updates to apply
-            
-        Returns:
-            Dictionary with update results
-        """
-        try:
-            # Update model registry
-            result = self.config_service.update_model_registry(registry_updates)
-            
-            return {
-                "updated_registry": result,
-                "model_count": len(result.get("models", {})),
-                "default_model": result.get("default_model"),
-                "timestamp": int(time.time())
-            }
-            
-        except Exception as e:
-            logger.error(f"Failed to update model registry: {e}")
-            raise ConfigurationError(f"Model registry update failed: {e}")
-    
-    def validate_config(self, config_data: Dict[str, Any], 
-                       section: Optional[str] = None) -> Dict[str, Any]:
+    async def validate_config(self, config_data: Dict[str, Any], 
+                             section: Optional[str] = None) -> Dict[str, Any]:
         """
         Validate configuration parameters.
         
@@ -206,37 +196,35 @@ class ConfigAPIAdapter(APIServiceAdapter):
         Returns:
             Dictionary with validation results
         """
-        validation_errors = []
-        warnings = []
-        
         try:
-            # Basic structure validation
-            if not isinstance(config_data, dict):
-                validation_errors.append("Configuration must be a dictionary")
-                return {
-                    "valid": False,
-                    "errors": validation_errors,
-                    "warnings": warnings,
-                    "timestamp": int(time.time())
-                }
+            # Use the enhanced configuration manager's validation
+            if section:
+                # Create temporary config object to validate
+                if section == "duplex":
+                    from ...core.config_manager import DuplexStreamingConfig
+                    temp_config = self.config_manager.get_duplex_config().dict()
+                    temp_config.update(config_data)
+                    DuplexStreamingConfig(**temp_config)  # Validates with pydantic
+                    
+                elif section == "system":
+                    from ...core.config_manager import SystemConfig
+                    temp_config = self.config_manager.get_system_config().dict()
+                    temp_config.update(config_data)
+                    SystemConfig(**temp_config)  # Validates with pydantic
+                    
+                elif section == "models":
+                    from ...core.config_manager import ModelConfig
+                    temp_config = self.config_manager.get_model_config().dict()
+                    temp_config.update(config_data)
+                    ModelConfig(**temp_config)  # Validates with pydantic
             
-            # Section-specific validation
-            if section == "models":
-                validation_errors.extend(self._validate_model_config(config_data))
-            elif section == "inference":
-                validation_errors.extend(self._validate_inference_config(config_data))
-            elif section == "system":
-                validation_errors.extend(self._validate_system_config(config_data))
-            else:
-                # General validation for unknown sections
-                for key, value in config_data.items():
-                    if key.startswith("_"):
-                        warnings.append(f"Configuration key '{key}' starts with underscore")
+            # Use configuration manager's validation
+            overall_validation = self.config_manager.validate_config()
             
             return {
-                "valid": len(validation_errors) == 0,
-                "errors": validation_errors,
-                "warnings": warnings,
+                "valid": True,
+                "errors": [],
+                "warnings": overall_validation.get("warnings", []),
                 "section": section,
                 "timestamp": int(time.time())
             }
@@ -245,148 +233,99 @@ class ConfigAPIAdapter(APIServiceAdapter):
             logger.error(f"Configuration validation failed: {e}")
             return {
                 "valid": False,
-                "errors": [f"Validation error: {e}"],
-                "warnings": warnings,
+                "errors": [str(e)],
+                "warnings": [],
                 "section": section,
                 "timestamp": int(time.time())
             }
     
-    def _validate_model_config(self, config_data: Dict[str, Any]) -> List[str]:
-        """Validate model configuration section."""
-        errors = []
-        
-        if "models" in config_data:
-            models = config_data["models"]
-            if not isinstance(models, dict):
-                errors.append("models must be a dictionary")
-            else:
-                for model_name, model_config in models.items():
-                    if not isinstance(model_config, dict):
-                        errors.append(f"Model '{model_name}' config must be a dictionary")
-                        continue
-                    
-                    required_fields = ["model_id", "engine_type"]
-                    for field in required_fields:
-                        if field not in model_config:
-                            errors.append(f"Model '{model_name}' missing required field '{field}'")
-        
-        return errors
+    async def health_check(self) -> Dict[str, Any]:
+        """Perform configuration health check."""
+        try:
+            health_status = self.config_manager.health_check()
+            return {
+                "status": "healthy" if health_status["status"] == "healthy" else "unhealthy",
+                "details": health_status,
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Configuration health check failed: {e}")
+            return {
+                "status": "unhealthy",
+                "error": str(e),
+                "timestamp": int(time.time())
+            }
     
-    def _validate_inference_config(self, config_data: Dict[str, Any]) -> List[str]:
-        """Validate inference configuration section."""
-        errors = []
-        
-        if "max_tokens" in config_data:
-            max_tokens = config_data["max_tokens"]
-            if not isinstance(max_tokens, int) or max_tokens <= 0:
-                errors.append("max_tokens must be a positive integer")
-        
-        if "temperature" in config_data:
-            temperature = config_data["temperature"]
-            if not isinstance(temperature, (int, float)) or temperature < 0 or temperature > 2:
-                errors.append("temperature must be between 0 and 2")
-        
-        # Duplex streaming configuration validation
-        if "duplex" in config_data:
-            duplex_config = config_data["duplex"]
-            if not isinstance(duplex_config, dict):
-                errors.append("duplex configuration must be a dictionary")
-            else:
-                errors.extend(self._validate_duplex_config(duplex_config))
-        
-        return errors
+    async def reload_config(self) -> Dict[str, Any]:
+        """Reload configuration from files."""
+        try:
+            # Trigger configuration reload
+            self.config_manager._load_all_config()
+            
+            return {
+                "reloaded": True,
+                "message": "Configuration reloaded successfully",
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Configuration reload failed: {e}")
+            return {
+                "reloaded": False,
+                "error": str(e),
+                "timestamp": int(time.time())
+            }
     
-    def _validate_duplex_config(self, duplex_config: Dict[str, Any]) -> List[str]:
-        """Validate duplex streaming configuration."""
-        errors = []
-        
-        # TTS model selection
-        if "tts_model" in duplex_config:
-            tts_model = duplex_config["tts_model"]
-            if not isinstance(tts_model, str):
-                errors.append("tts_model must be a string")
-        
-        # Echo suppression thresholds
-        if "echo_suppression" in duplex_config:
-            echo_config = duplex_config["echo_suppression"]
-            if not isinstance(echo_config, dict):
-                errors.append("echo_suppression must be a dictionary")
-            else:
-                if "correlation_threshold" in echo_config:
-                    threshold = echo_config["correlation_threshold"]
-                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-                        errors.append("echo_suppression.correlation_threshold must be between 0 and 1")
-                
-                if "spectral_threshold" in echo_config:
-                    threshold = echo_config["spectral_threshold"]
-                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-                        errors.append("echo_suppression.spectral_threshold must be between 0 and 1")
-                
-                if "vad_threshold" in echo_config:
-                    threshold = echo_config["vad_threshold"]
-                    if not isinstance(threshold, (int, float)) or threshold < 0 or threshold > 1:
-                        errors.append("echo_suppression.vad_threshold must be between 0 and 1")
-        
-        # Jitter buffer configuration
-        if "jitter_buffer" in duplex_config:
-            jitter_config = duplex_config["jitter_buffer"]
-            if not isinstance(jitter_config, dict):
-                errors.append("jitter_buffer must be a dictionary")
-            else:
-                if "target_size_ms" in jitter_config:
-                    size = jitter_config["target_size_ms"]
-                    if not isinstance(size, int) or size < 10 or size > 1000:
-                        errors.append("jitter_buffer.target_size_ms must be between 10 and 1000")
-                
-                if "max_size_ms" in jitter_config:
-                    max_size = jitter_config["max_size_ms"]
-                    if not isinstance(max_size, int) or max_size < 50 or max_size > 5000:
-                        errors.append("jitter_buffer.max_size_ms must be between 50 and 5000")
-        
-        # Barge-in sensitivity
-        if "barge_in_sensitivity" in duplex_config:
-            sensitivity = duplex_config["barge_in_sensitivity"]
-            if not isinstance(sensitivity, (int, float)) or sensitivity < 0 or sensitivity > 1:
-                errors.append("barge_in_sensitivity must be between 0 and 1")
-        
-        # Duplex mode validation
-        if "mode" in duplex_config:
-            mode = duplex_config["mode"]
-            valid_modes = ["full", "half", "auto"]
-            if mode not in valid_modes:
-                errors.append(f"duplex mode must be one of: {', '.join(valid_modes)}")
-        
-        # TTS streaming configuration
-        if "tts_streaming" in duplex_config:
-            tts_streaming = duplex_config["tts_streaming"]
-            if not isinstance(tts_streaming, dict):
-                errors.append("tts_streaming must be a dictionary")
-            else:
-                if "chunk_size_ms" in tts_streaming:
-                    chunk_size = tts_streaming["chunk_size_ms"]
-                    if not isinstance(chunk_size, int) or chunk_size < 10 or chunk_size > 200:
-                        errors.append("tts_streaming.chunk_size_ms must be between 10 and 200")
-                
-                if "format" in tts_streaming:
-                    format_type = tts_streaming["format"]
-                    valid_formats = ["opus", "pcm16", "webm"]
-                    if format_type not in valid_formats:
-                        errors.append(f"tts_streaming.format must be one of: {', '.join(valid_formats)}")
-        
-        return errors
+    async def get_secret(self, key: str) -> Dict[str, Any]:
+        """Get encrypted secret value."""
+        try:
+            secret_value = self.config_manager.get_secret(key)
+            
+            return {
+                "secret_exists": secret_value is not None,
+                "value": secret_value,
+                "key": key,
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Failed to get secret '{key}': {e}")
+            raise ConfigurationError(f"Secret retrieval failed: {e}")
     
-    def _validate_system_config(self, config_data: Dict[str, Any]) -> List[str]:
-        """Validate system configuration section."""
-        errors = []
-        
-        if "gpu_memory_fraction" in config_data:
-            fraction = config_data["gpu_memory_fraction"]
-            if not isinstance(fraction, (int, float)) or fraction <= 0 or fraction > 1:
-                errors.append("gpu_memory_fraction must be between 0 and 1")
-        
-        if "cache_dir" in config_data:
-            cache_dir = config_data["cache_dir"]
-            if not isinstance(cache_dir, str):
-                errors.append("cache_dir must be a string")
-        
-        return errors
+    async def set_secret(self, key: str, value: str) -> Dict[str, Any]:
+        """Set encrypted secret value."""
+        try:
+            self.config_manager.save_encrypted_secret(key, value)
+            
+            return {
+                "secret_saved": True,
+                "key": key,
+                "message": f"Secret '{key}' saved successfully",
+                "timestamp": int(time.time())
+            }
+        except Exception as e:
+            logger.error(f"Failed to set secret '{key}': {e}")
+            raise ConfigurationError(f"Secret storage failed: {e}")
+    
+    # Legacy methods for backward compatibility
+    async def reset_config(self, section: Optional[str] = None) -> Dict[str, Any]:
+        """Reset configuration to defaults (legacy method)."""
+        logger.warning("reset_config is deprecated, configuration is now file-based")
+        return {
+            "reset_successful": False,
+            "message": "Configuration reset not supported with new file-based system",
+            "recommendation": "Update configuration files directly",
+            "timestamp": int(time.time())
+        }
+    
+    async def get_model_registry(self) -> Dict[str, Any]:
+        """Get model registry configuration (redirects to model config)."""
+        return await self.get_model_config()
+    
+    async def update_model_registry(self, registry_updates: Dict[str, Any]) -> Dict[str, Any]:
+        """Update model registry configuration (redirects to model config update)."""
+        return await self.update_config("models", registry_updates)
+    
+    def cleanup(self):
+        """Cleanup adapter resources."""
+        if hasattr(self.config_manager, 'cleanup'):
+            self.config_manager.cleanup()
+            logger.info("Configuration adapter cleaned up")
