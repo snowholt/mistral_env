@@ -189,6 +189,18 @@ async def startup_event():
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
     
+    # Initialize buffer optimization system
+    try:
+        from ..core.buffer_integration import initialize_buffer_optimization_from_config
+        buffer_manager = await initialize_buffer_optimization_from_config()
+        if buffer_manager:
+            logger.info("📊 Buffer optimization system initialized successfully")
+        else:
+            logger.info("📊 Buffer optimization disabled in configuration")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to initialize buffer optimization: {e}")
+        logger.info("📊 Continuing without buffer optimization")
+    
     # Check if model preloading should be skipped (useful for development/testing)
     skip_preload = os.getenv("SKIP_MODEL_PRELOAD", "0") == "1"
     if skip_preload:
@@ -209,6 +221,14 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("🛑 BeautyAI Inference API shutting down...")
+    
+    # Shutdown buffer optimization system
+    try:
+        from ..core.buffer_optimizer import shutdown_buffer_manager
+        await shutdown_buffer_manager()
+        logger.info("📊 Buffer optimization system shut down successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Error shutting down buffer optimization: {e}")
 
 
 @app.get("/")

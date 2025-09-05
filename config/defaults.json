@@ -87,6 +87,58 @@
       "data_aggregation_interval_seconds": 60.0
     }
   },
+  "buffer_optimization": {
+    "enabled": true,
+    "optimization_interval_seconds": 60.0,
+    "metrics_collection_enabled": true,
+    "publish_metrics_to_monitoring": true,
+    "global_memory_limit_mb": 256,
+    "websocket_buffer": {
+      "buffer_type": "audio_stream",
+      "strategy": "adaptive",
+      "sizing_algorithm": "predictive_based",
+      "initial_size_bytes": 65536,
+      "min_size_bytes": 16384,
+      "max_size_bytes": 262144,
+      "growth_factor": 1.5,
+      "shrink_factor": 0.8,
+      "resize_threshold_percentage": 10.0,
+      "overflow_threshold": 3,
+      "underrun_threshold": 5,
+      "latency_spike_threshold_ms": 500.0,
+      "utilization_threshold": 0.8
+    },
+    "audio_buffer": {
+      "buffer_type": "audio_stream", 
+      "strategy": "performance_optimized",
+      "sizing_algorithm": "latency_based",
+      "initial_size_bytes": 32768,
+      "min_size_bytes": 8192,
+      "max_size_bytes": 131072,
+      "growth_factor": 1.3,
+      "shrink_factor": 0.75,
+      "resize_threshold_percentage": 15.0,
+      "overflow_threshold": 2,
+      "underrun_threshold": 3,
+      "latency_spike_threshold_ms": 200.0,
+      "utilization_threshold": 0.75
+    },
+    "message_queue": {
+      "buffer_type": "message_queue",
+      "strategy": "memory_efficient",
+      "sizing_algorithm": "throughput_based",
+      "initial_size_bytes": 16384,
+      "min_size_bytes": 4096,
+      "max_size_bytes": 65536,
+      "growth_factor": 1.4,
+      "shrink_factor": 0.7,
+      "resize_threshold_percentage": 20.0,
+      "overflow_threshold": 5,
+      "underrun_threshold": 10,
+      "latency_spike_threshold_ms": 1000.0,
+      "utilization_threshold": 0.85
+    }
+  },
   "models": {
     "default_asr_model": "openai/whisper-large-v3",
     "default_llm_model": "microsoft/DialoGPT-large",

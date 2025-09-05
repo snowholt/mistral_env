@@ -497,3 +497,8 @@ class CircuitBreakerRegistry:
 
 # Global circuit breaker registry
 circuit_breaker_registry = CircuitBreakerRegistry()
+
+
+def get_circuit_breaker_registry() -> CircuitBreakerRegistry:
+    """Get the global circuit breaker registry."""
+    return circuit_breaker_registry

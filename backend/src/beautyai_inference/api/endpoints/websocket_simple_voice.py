@@ -35,6 +35,7 @@ from ...services.voice.conversation.simple_voice_service import SimpleVoiceServi
 from ...services.voice.vad_service import RealTimeVADService, VADConfig, get_vad_service, initialize_vad_service
 from ...utils import create_batch_decoder, WebMDecodingError
 from ...core.websocket_connection_pool import get_websocket_pool, WebSocketConnectionData
+from ...core.buffer_integration import BufferIntegrationHelper, WebSocketBufferWrapper, get_buffer_manager
 from ..performance_integration import get_performance_monitoring_service
 
 logger = logging.getLogger(__name__)
@@ -68,6 +69,10 @@ class SimpleVoiceWebSocketManager:
         
         # Connection pool for scalable connection management
         self.connection_pool = None
+        
+        # Buffer optimization system
+        self.buffer_manager = None
+        self._buffer_wrappers: Dict[str, WebSocketBufferWrapper] = {}
     
     async def _get_connection_pool(self):
         """Get or initialize the connection pool."""
@@ -76,6 +81,13 @@ class SimpleVoiceWebSocketManager:
             _connection_pool = get_websocket_pool()
             if not _connection_pool._health_check_task:
                 await _connection_pool.start()
+                
+        # Initialize buffer manager if available
+        if self.buffer_manager is None:
+            self.buffer_manager = get_buffer_manager()
+            if self.buffer_manager:
+                logger.info("Buffer optimization enabled for WebSocket connections")
+                
         return _connection_pool
     # (imports moved to module scope)
 
@@ -280,6 +292,24 @@ class SimpleVoiceWebSocketManager:
                     "_segments_processed": 0,
                     "_last_silence_guidance_ts": 0
                 }
+                
+                # Initialize optimized buffer wrapper if buffer manager is available
+                if self.buffer_manager:
+                    try:
+                        # Register buffers for this session
+                        await BufferIntegrationHelper.register_websocket_buffers(
+                            self.buffer_manager, connection_id
+                        )
+                        
+                        # Create optimized buffer wrapper
+                        buffer_wrapper = WebSocketBufferWrapper(connection_id, initial_size=65536)
+                        self._buffer_wrappers[connection_id] = buffer_wrapper
+                        
+                        logger.info(f"📊 Initialized optimized buffer for connection {connection_id}")
+                        
+                    except Exception as e:
+                        logger.warning(f"Failed to initialize optimized buffer for {connection_id}: {e}")
+                        # Continue without optimized buffers
             
             logger.info(f"✅ Simple voice WebSocket connected (pool ID: {pool_connection_id}): {connection_id} (lang: {language}, voice: {voice_type})")
             
@@ -360,6 +390,16 @@ class SimpleVoiceWebSocketManager:
                 
                 # Unregister from pool
                 await pool.unregister_websocket(pool_connection_id)
+                
+                # Clean up optimized buffer wrapper if exists
+                if connection_id in self._buffer_wrappers:
+                    try:
+                        buffer_wrapper = self._buffer_wrappers[connection_id]
+                        await buffer_wrapper.cleanup()
+                        del self._buffer_wrappers[connection_id]
+                        logger.info(f"📊 Cleaned up optimized buffer for connection {connection_id}")
+                    except Exception as buffer_error:
+                        logger.warning(f"⚠️ Failed to cleanup optimized buffer for {connection_id}: {buffer_error}")
                 
                 # Clean up mapping
                 delattr(self, f"_pool_mapping_{connection_id}")
@@ -642,7 +682,38 @@ class SimpleVoiceWebSocketManager:
         if voice_session.get("processing_turn", False):
             logger.debug(f"🚫 BLOCKED: Ignoring chunk during processing for {connection_id}")
             return {"success": True, "status": "ignored_during_processing"}
+
+        # Try to use optimized buffer wrapper if available
+        optimized_buffer = self._buffer_wrappers.get(connection_id)
+        if optimized_buffer:
+            # Use optimized buffer wrapper
+            start_time = time.time()
+            success = await optimized_buffer.write(audio_data)
+            processing_time_ms = (time.time() - start_time) * 1000
+            
+            if not success:
+                logger.warning(f"⚠️ Optimized buffer overflow for {connection_id}, falling back to legacy buffer")
+                # Fall through to legacy buffer handling
+            else:
+                # Update buffer metrics
+                await BufferIntegrationHelper.update_buffer_metrics_from_websocket(
+                    f"websocket_audio_{connection_id}",
+                    bytes_processed=len(audio_data),
+                    processing_time_ms=processing_time_ms,
+                    queue_size=optimized_buffer.get_available_data(),
+                    overflows=optimized_buffer._overflows,
+                    underruns=optimized_buffer._underruns
+                )
+                
+                # Check if we have enough data to process
+                available_data = optimized_buffer.get_available_data()
+                if available_data >= 32768:  # ~3 seconds worth of WebM data
+                    logger.info(f"🕒 Optimized buffer segment ready for {connection_id} ({available_data} bytes)")
+                    return await self._process_optimized_buffer(connection_id)
+                else:
+                    return {"success": True, "status": "buffering_optimized", "available_bytes": available_data}
         
+        # Legacy buffer handling (fallback)
         # Initialize chunk buffer if not exists
         if "chunk_buffer" not in voice_session:
             voice_session["chunk_buffer"] = []
@@ -744,6 +815,138 @@ class SimpleVoiceWebSocketManager:
             
             return {"success": False, "error": f"Chunk processing failed: {str(e)}"}
     
+    async def _process_optimized_buffer(self, connection_id: str) -> Dict[str, Any]:
+        """
+        Process audio data from optimized buffer wrapper.
+        
+        This method handles audio processing using the optimized buffer system
+        with adaptive sizing and memory pooling.
+        """
+        connection_data = self._get_connection_data_by_original_id(connection_id)
+        if not connection_data or not connection_data.voice_session_data:
+            return {"success": False, "error": "Connection not found"}
+        
+        voice_session = connection_data.voice_session_data
+        optimized_buffer = self._buffer_wrappers.get(connection_id)
+        
+        if not optimized_buffer:
+            logger.warning(f"⚠️ No optimized buffer found for {connection_id}")
+            return {"success": False, "error": "No optimized buffer"}
+        
+        # Mark as processing to prevent new chunks
+        voice_session["processing_turn"] = True
+        last_turn_id = f"turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
+        voice_session["last_turn_id"] = last_turn_id
+        
+        available_data = optimized_buffer.get_available_data()
+        logger.info(f"🚀 Processing optimized buffer for {connection_id}: {available_data} bytes (turn: {last_turn_id})")
+        
+        try:
+            # Read all available data from optimized buffer
+            audio_data = await optimized_buffer.read(available_data)
+            if not audio_data:
+                logger.warning(f"⚠️ No data read from optimized buffer for {connection_id}")
+                voice_session["processing_turn"] = False
+                return {"success": False, "error": "No audio data"}
+            
+            logger.info(f"📦 Retrieved {len(audio_data)} bytes from optimized buffer")
+            
+            # Update buffer metrics with processing completion
+            start_time = time.time()
+            
+            # Process the audio using existing voice service
+            processing_result = await self.voice_service.process_audio_conversation(
+                audio_data,
+                voice_session["language"],
+                voice_session["voice_type"],
+                context={
+                    "connection_id": connection_id,
+                    "turn_id": last_turn_id,
+                    "buffer_type": "optimized",
+                    "data_size": len(audio_data)
+                }
+            )
+            
+            processing_time_ms = (time.time() - start_time) * 1000
+            
+            # Update buffer metrics with processing performance
+            await BufferIntegrationHelper.update_buffer_metrics_from_websocket(
+                f"websocket_audio_{connection_id}",
+                bytes_processed=len(audio_data),
+                processing_time_ms=processing_time_ms,
+                queue_size=optimized_buffer.get_available_data(),
+                overflows=optimized_buffer._overflows,
+                underruns=optimized_buffer._underruns
+            )
+            
+            if processing_result.get("success", False):
+                logger.info(f"✅ Optimized buffer processing successful for {connection_id}")
+                
+                # Send the response
+                response_msg = {
+                    "type": "audio_response",
+                    "success": True,
+                    "connection_id": connection_id,
+                    "turn_id": last_turn_id,
+                    "timestamp": time.time(),
+                    "processing_time_ms": processing_time_ms,
+                    "buffer_type": "optimized",
+                    "data": processing_result
+                }
+                
+                await self.send_message(connection_id, response_msg)
+                
+                # Update session counters
+                voice_session["message_count"] += 1
+                voice_session["_segments_processed"] += 1
+                
+            else:
+                logger.error(f"❌ Optimized buffer processing failed for {connection_id}: {processing_result.get('error', 'Unknown error')}")
+                
+                # Send error response
+                error_msg = {
+                    "type": "processing_error",
+                    "success": False,
+                    "connection_id": connection_id,
+                    "turn_id": last_turn_id,
+                    "timestamp": time.time(),
+                    "error": processing_result.get("error", "Processing failed"),
+                    "buffer_type": "optimized"
+                }
+                
+                await self.send_message(connection_id, error_msg)
+            
+            # Reset processing flag
+            voice_session["processing_turn"] = False
+            
+            return {
+                "success": processing_result.get("success", False),
+                "turn_id": last_turn_id,
+                "processing_time_ms": processing_time_ms,
+                "buffer_type": "optimized",
+                "bytes_processed": len(audio_data)
+            }
+            
+        except Exception as e:
+            logger.error(f"❌ Error processing optimized buffer for {connection_id}: {e}")
+            
+            # Reset processing flag
+            voice_session["processing_turn"] = False
+            
+            # Send error response
+            error_msg = {
+                "type": "processing_error",
+                "success": False,
+                "connection_id": connection_id,
+                "timestamp": time.time(),
+                "error": f"Optimized buffer processing error: {str(e)}",
+                "buffer_type": "optimized"
+            }
+            
+            await self.send_message(connection_id, error_msg)
+            
+            return {"success": False, "error": f"Optimized buffer processing failed: {str(e)}"}
+
     async def _process_buffered_chunks(self, connection_id: str) -> Dict[str, Any]:
         """
         Process accumulated audio chunks as a complete WebM stream.
