@@ -332,6 +332,38 @@
       </div>
     </section>
 
+    <!-- Performance Monitoring Dashboard -->
+    <section class="performance-section">
+      <div class="card">
+        <h3><i class="fas fa-tachometer-alt"></i> Performance Monitoring Dashboard</h3>
+        <div class="dashboard-controls">
+          <button id="btn-refresh-dashboard" class="btn btn-sm btn-secondary">
+            <i class="fas fa-sync"></i> Refresh
+          </button>
+          <button id="btn-toggle-dashboard" class="btn btn-sm btn-info">
+            <i class="fas fa-eye"></i> Toggle
+          </button>
+          <select id="dashboard-metrics" class="form-control" style="width: auto; display: inline-block; margin-left: 10px;">
+            <option value="streaming,connection_pool,circuit_breaker">All Metrics</option>
+            <option value="streaming">Streaming Only</option>
+            <option value="connection_pool">Connection Pool</option>
+            <option value="circuit_breaker">Circuit Breaker</option>
+            <option value="system">System Resources</option>
+          </select>
+        </div>
+        <div class="performance-dashboard">
+          <iframe 
+            id="performance-dashboard-frame"
+            src="/api/v1/performance/dashboard?embed=true&metrics=streaming,connection_pool,circuit_breaker"
+            width="100%" 
+            height="500"
+            frameborder="0"
+            style="border-radius: 8px; background: white; margin-top: 10px;">
+          </iframe>
+        </div>
+      </div>
+    </section>
+
     <!-- Main Content -->
     <div class="main-content">
       <!-- Conversation Panel -->
@@ -957,7 +989,7 @@
           } else if (type === 'audioChunk') {
             // Send audio chunk to WebSocket with intelligent thresholding
             // This prevents sending silent/garbage audio that confuses Whisper
-            const minAudioThreshold = 0.001; // Base minimum RMS level
+            const minAudioThreshold = 0.0001; // Base minimum RMS level (lowered from 0.001 for better speech detection)
             const now = Date.now();
             
             // Calculate dynamic threshold based on recent audio levels
@@ -1297,6 +1329,39 @@
     
     // Device management listeners
     document.getElementById('btn-refresh-devices').onclick = refreshAudioDevices;
+
+    // Performance Dashboard Controls
+    document.getElementById('btn-refresh-dashboard').onclick = function() {
+      const frame = document.getElementById('performance-dashboard-frame');
+      const currentSrc = frame.src;
+      frame.src = currentSrc + '&t=' + Date.now(); // Force refresh
+      log('Performance dashboard refreshed', 'info');
+    };
+    
+    document.getElementById('btn-toggle-dashboard').onclick = function() {
+      const dashboard = document.querySelector('.performance-dashboard');
+      const btn = document.getElementById('btn-toggle-dashboard');
+      const icon = btn.querySelector('i');
+      
+      if (dashboard.style.display === 'none') {
+        dashboard.style.display = 'block';
+        icon.className = 'fas fa-eye';
+        btn.innerHTML = '<i class="fas fa-eye"></i> Hide';
+      } else {
+        dashboard.style.display = 'none';
+        icon.className = 'fas fa-eye-slash';
+        btn.innerHTML = '<i class="fas fa-eye-slash"></i> Show';
+      }
+      log(`Performance dashboard ${dashboard.style.display === 'none' ? 'hidden' : 'shown'}`, 'info');
+    };
+    
+    document.getElementById('dashboard-metrics').onchange = function(e) {
+      const frame = document.getElementById('performance-dashboard-frame');
+      const metrics = e.target.value;
+      const baseUrl = '/api/v1/performance/dashboard?embed=true';
+      frame.src = `${baseUrl}&metrics=${metrics}&t=${Date.now()}`;
+      log(`Dashboard metrics changed to: ${metrics}`, 'info');
+    };
 
     // Device selection listeners
     document.getElementById('microphoneDevice').onchange = function(e) {

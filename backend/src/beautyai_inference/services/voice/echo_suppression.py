@@ -495,6 +495,16 @@ class EchoSuppressor:
         
         logger.debug("TTS playbook stopped - returning to IDLE state")
     
+    async def on_tts_start(self):
+        """Callback when TTS synthesis starts - transition to TTS_PLAYING state."""
+        self.start_tts_playback()
+        logger.debug("TTS synthesis started via on_tts_start callback")
+    
+    async def on_tts_complete(self):
+        """Callback when TTS synthesis completes - return to IDLE state."""
+        self.stop_tts_playbook()
+        logger.debug("TTS synthesis completed via on_tts_complete callback")
+    
     def _call_sync_callback(self, callback: Callable, *args):
         """Helper to call sync callbacks safely."""
         try:

@@ -416,12 +416,13 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
                 self._runtime_stats['consecutive_failures'] = 0
             return fb
     
-    def _get_finetuned_arabic_parameters(self, language: str) -> Dict[str, Any]:
+    def _get_finetuned_arabic_parameters(self, language: str, session=None) -> Dict[str, Any]:
         """
         Get fine-tuned Arabic-optimized generation parameters.
         
         Args:
-            language: Target language
+            language: Target language (FORCED - no auto-detection)
+            session: Optional session context
             
         Returns:
             Dictionary of generation parameters optimized for fine-tuned Arabic model
@@ -450,14 +451,22 @@ class WhisperFinetunedArabicEngine(BaseWhisperEngine):
             "no_speech_threshold": 0.6,
         }
         
-        # Language-specific settings
-        if language == "ar" or language is None:
+        # FORCE LANGUAGE SELECTION - NO AUTO DETECTION
+        # Only support Arabic and English, force to user's selection
+        if language == "ar" or language == "arabic":
             params["language"] = "arabic"
-        elif language == "en":
+            logger.info("[whisper] FORCED language to Arabic (no auto-detection)")
+        elif language == "en" or language == "english":
             params["language"] = "english"
+            logger.info("[whisper] FORCED language to English (no auto-detection)")
+        elif language == "auto":
+            # Only allow auto for backward compatibility, but prefer explicit language
+            params["language"] = None  # Let model decide
+            logger.warning("[whisper] Auto-detection enabled - recommend using explicit 'ar' or 'en'")
         else:
-            # For other languages, let the model auto-detect
-            pass
+            # For any other language, default to Arabic since this is Arabic-tuned model
+            params["language"] = "arabic"
+            logger.warning(f"[whisper] Unsupported language '{language}', forcing to Arabic")
         
         return params
 

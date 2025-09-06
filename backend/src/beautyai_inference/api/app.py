@@ -16,6 +16,14 @@ from .endpoints import health_router, models_router, inference_router, config_ro
 from .endpoints.debug_router import debug_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
+# Import performance dashboard router
+try:
+    from .endpoints.performance_dashboard import performance_router
+    performance_router_available = True
+except ImportError:
+    performance_router_available = False
+    logger.warning("Performance dashboard router not available")
+
 # Logging configured centrally in run_server via configure_logging.
 logger = logging.getLogger(__name__)
 
@@ -46,6 +54,10 @@ tags_metadata = [
     {
         "name": "system",
         "description": "🖥️ **System Administration** - System utilities, monitoring, and administrative functions."
+    },
+    {
+        "name": "performance",
+        "description": "📊 **Performance Monitoring** - Real-time performance metrics, alerts, and system analytics."
     }
 ]
 
@@ -103,6 +115,16 @@ app.include_router(inference_router)
 app.include_router(config_router)
 app.include_router(system_router)
 app.include_router(debug_router)
+
+# Include performance dashboard router if available
+if performance_router_available:
+    app.include_router(
+        performance_router,
+        tags=["performance"]
+    )
+    logger.info("Performance dashboard endpoints registered")
+else:
+    logger.warning("Performance dashboard endpoints not registered - module not available")
 
 # Conditionally include streaming voice scaffold (Phase 1) if feature flag set and router imported.
 if streaming_voice_router is not None:  # pragma: no cover (env dependent)
@@ -189,6 +211,18 @@ async def startup_event():
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
     
+    # Initialize performance monitoring system
+    try:
+        from ..api.performance_integration import initialize_performance_monitoring
+        success = await initialize_performance_monitoring()
+        if success:
+            logger.info("📊 Performance monitoring system initialized successfully")
+        else:
+            logger.warning("📊 Performance monitoring initialization failed")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to initialize performance monitoring: {e}")
+        logger.info("📊 Continuing without performance monitoring")
+    
     # Initialize buffer optimization system
     try:
         from ..core.buffer_integration import initialize_buffer_optimization_from_config
@@ -221,6 +255,14 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("🛑 BeautyAI Inference API shutting down...")
+    
+    # Shutdown performance monitoring system
+    try:
+        from ..api.performance_integration import shutdown_performance_monitoring
+        await shutdown_performance_monitoring()
+        logger.info("📊 Performance monitoring system shut down successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Error shutting down performance monitoring: {e}")
     
     # Shutdown buffer optimization system
     try:

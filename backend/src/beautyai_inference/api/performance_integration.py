@@ -57,17 +57,34 @@ class PerformanceMonitoringService:
         try:
             logger.info("Initializing performance monitoring service")
             
-            # Load configuration
-            if config_manager:
-                config_data = await config_manager.get_config_section("performance_monitoring")
-            else:
-                # Load from default config
-                from ..core.config_management import get_config_manager
-                config_manager = get_config_manager()
-                if config_manager:
-                    config_data = await config_manager.get_config_section("performance_monitoring")
-                else:
-                    config_data = {}
+            # Load configuration with defaults since config manager isn't available
+            # Use default configuration for now
+            config_data = {
+                "enabled": True,
+                "collection_interval_seconds": 10.0,
+                "metrics_retention_seconds": 3600,
+                "anomaly_detection_enabled": True,
+                "alerting_enabled": True,
+                "system_metrics_enabled": True,
+                "circuit_breaker_monitoring": True,
+                "connection_pool_monitoring": True,
+                "custom_metrics_enabled": True,
+                "thresholds": {
+                    "cpu_usage_warning_threshold": 80.0,
+                    "cpu_usage_critical_threshold": 95.0,
+                    "memory_usage_warning_threshold": 85.0,
+                    "memory_usage_critical_threshold": 95.0,
+                    "response_time_warning_threshold_ms": 1000.0,
+                    "response_time_critical_threshold_ms": 5000.0,
+                    "error_rate_warning_threshold": 0.05,
+                    "error_rate_critical_threshold": 0.10
+                },
+                "historical_data": {
+                    "enable_historical_data": True,
+                    "historical_data_points": 1000,
+                    "data_aggregation_interval_seconds": 60.0
+                }
+            }
             
             # Create configuration object
             self._config = self._create_config_from_dict(config_data)

@@ -327,6 +327,10 @@ async def incremental_decode_loop(
                         start_event.utterance_index
                     )
                     await session.pcm_buffer.reset_for_new_utterance()
+                    # Clear previous text to prevent bleed-through
+                    state.last_transcript = ""
+                    state.last_final_text = ""
+                    state.stable_prefix_tokens.clear()
 
             # 5. Emit final transcript exactly once per utterance
             final_emitted = False
@@ -385,6 +389,9 @@ async def incremental_decode_loop(
                             # Activate phantom suppression until new audio arrives
                             state.last_total_written_at_final = session.pcm_buffer.total_written  # should now be 0
                             state.suppress_until_audio_growth = True
+                            # Clear all transcript state to prevent bleeding
+                            state.last_transcript = ""
+                            state.stable_prefix_tokens.clear()
                         except Exception:
                             logger.warning("[decode] Failed to clear ring buffer on final")
 

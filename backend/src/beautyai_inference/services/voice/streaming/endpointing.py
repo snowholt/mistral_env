@@ -26,8 +26,8 @@ class EndpointConfig:
     min_silence_ms: int = 720  # required trailing silence for endpoint (increased from 600ms for stability)
     token_stable_ms: int = 600  # how long tokens must remain unchanged to finalize
     max_utterance_ms: int = 12_000
-    rms_factor: float = 1.8
-    rms_margin: float = 0.0005
+    rms_factor: float = 1.2  # Lowered from 1.8 for more sensitive audio detection
+    rms_margin: float = 0.0001  # Lowered from 0.0005 for better speech detection
     frame_ms: int = 20  # assumed frame hop (client send cadence)
     # New hysteresis parameters for stable finalization
     min_token_growth_cycles: int = 3  # require token changes across this many cycles before allowing finalization

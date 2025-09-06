@@ -84,8 +84,8 @@ class SessionState:
     conversation: List[Dict[str, str]] = field(default_factory=list)  # Phase 6 conversation history
     llm_tts_task: Optional[asyncio.Task] = None  # background processing task for final transcript
     metrics: Optional[SessionMetrics] = None  # Phase 10 metrics aggregator
-    # Pending finals queue (utterance_index, text) to ensure no final_transcript is dropped
-    pending_finals: List[tuple[int, str]] = field(default_factory=list)
+    # Pending finals queue (utterance_index, text, language) to ensure no final_transcript is dropped
+    pending_finals: List[tuple[int, str, str]] = field(default_factory=list)
     # Deduplication tracking for finals (avoid echo / duplicate triggering)
     processed_utterance_indices: set[int] = field(default_factory=set)
     last_final_text: Optional[str] = None
@@ -723,9 +723,9 @@ async def streaming_voice_endpoint(
                 # Mark current task slot free then schedule next pending final if any
                 state.llm_tts_task = None
                 if state.pending_finals:
-                    next_utt, next_text = state.pending_finals.pop(0)
+                    next_utt, next_text, next_lang = state.pending_finals.pop(0)  # Include language from tuple
                     state.llm_tts_task = asyncio.create_task(
-                        _process_final_transcript(next_utt, next_text, lang, state)
+                        _process_final_transcript(next_utt, next_text, next_lang, state)
                     )
                 else:
                     state.pipeline_active_for = None
@@ -850,12 +850,20 @@ async def streaming_voice_endpoint(
         events, metrics snapshots, endpoint events, finals, perf cycles, & forced finals.
         """
         try:
+            # FORCE language selection - no auto-detection in streaming mode
+            forced_language = language
+            if language == "auto":
+                forced_language = "ar"  # Default to Arabic for auto mode
+                logger.info(f"[streaming_voice] Auto language mode, defaulting to Arabic")
+            else:
+                logger.info(f"[streaming_voice] FORCING transcription language to: {forced_language}")
+            
             async for event in incremental_decode_loop(
                 state.audio_session,
                 fw_service,
                 ep_state,
                 DecoderConfig(
-                    language=language,
+                    language=forced_language,  # Use forced language, not original
                     decode_interval_ms=decode_interval_ms,
                     window_seconds=window_seconds,
                 ),
@@ -975,13 +983,14 @@ async def streaming_voice_endpoint(
                                 _process_final_transcript(
                                     utterance_index,
                                     final_text_with_no_think,
-                                    language,
+                                    forced_language,  # Use forced language for consistency
                                     state,
                                 )
                             )
                         else:
                             # Queue this final for later processing to avoid dropping (also add /no_think)
                             final_text_with_no_think = final_text.strip() + " /no_think" if final_text.strip() else "unclear audio /no_think"
+                            state.pending_finals.append((utterance_index, final_text_with_no_think, forced_language))  # Include forced language
                             state.pending_finals.append((utterance_index, final_text_with_no_think))
                             await _send_json(state.websocket, {
                                 "type": "final_queued",
