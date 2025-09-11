@@ -173,7 +173,7 @@
           </div>
           <div class="form-group">
             <label for="chunkMs">Chunk Size (ms):</label>
-            <input id="chunkMs" type="number" value="20" min="10" max="100" step="5">
+            <input id="chunkMs" type="number" value="200" min="100" max="500" step="50">
             <small>Lower = better latency, Higher = better efficiency</small>
           </div>
           <div class="form-group">
@@ -963,7 +963,7 @@
         await audioCtx.audioWorklet.addModule('/static/js/audio-processor-worklet.js');
         
         // Create AudioWorklet node with configuration
-        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20; // Default 20ms for low latency
+        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 200; // Default 200ms to prevent word splitting
         processor = new AudioWorkletNode(audioCtx, 'audio-processor', {
           processorOptions: {
             targetSampleRate: 16000,
@@ -1004,7 +1004,7 @@
                 lastSignificantAudio = now;
                 
                 // Calculate and display data rate
-                const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20;
+                const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 200;
                 const dataRate = (data.buffer.byteLength * 1000 / chunkSizeMs / 1024).toFixed(1);
                 document.getElementById('data-rate').textContent = `${dataRate} KB/s`;
               } else {
@@ -1044,7 +1044,7 @@
         
         processor = audioCtx.createScriptProcessor(4096, 1, 1);
         
-        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 20;
+        const chunkSizeMs = parseInt(chunkMsEl.value, 10) || 200; // Default to 200ms chunks instead of 20ms
         const framesPerChunk = Math.round(audioCtx.sampleRate * (chunkSizeMs / 1000));
         let acc = new Float32Array(0);
         

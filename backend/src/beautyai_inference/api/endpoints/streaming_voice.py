@@ -42,6 +42,10 @@ from beautyai_inference.services.voice.streaming.decoder_loop import (
 )
 from beautyai_inference.services.voice.streaming.endpointing import EndpointState, EndpointConfig
 from beautyai_inference.services.voice.streaming.metrics import SessionMetrics, maybe_log_structured
+from beautyai_inference.services.voice.streaming.smart_audio_chunker import SmartAudioChunker, AudioChunkingConfig
+from beautyai_inference.services.voice.streaming.streaming_session_manager import StreamingSessionManager
+from beautyai_inference.services.voice.streaming.utterance_manager import UtteranceManager
+from beautyai_inference.services.voice.streaming.transcription_filter import TranscriptionFilter
 from beautyai_inference.services.voice.echo_suppression import EchoSuppressor, EchoConfig
 from beautyai_inference.logging.setup import session_id_ctx
 from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
@@ -116,6 +120,10 @@ class SessionState:
     echo_suppressor: Optional[EchoSuppressor] = None
     tts_streaming_task: Optional[asyncio.Task] = None  # Task for streaming TTS chunks
     tts_streaming_active: bool = False
+    # Smart audio chunking additions
+    smart_chunker: Optional[SmartAudioChunker] = None
+    utterance_manager: Optional[UtteranceManager] = None
+    transcription_filter: Optional[TranscriptionFilter] = None
 
     def touch(self) -> None:
         """Update the last activity timestamp."""
@@ -346,6 +354,23 @@ async def streaming_voice_endpoint(
     )
     state.echo_suppressor = EchoSuppressor(config=echo_config)
     
+    # Initialize smart audio chunker to prevent word splitting
+    chunk_config = AudioChunkingConfig(
+        chunk_duration_ms=int(os.getenv("VOICE_STREAMING_CHUNK_DURATION_MS", "200")),  # 200ms chunks
+        overlap_ms=int(os.getenv("VOICE_STREAMING_CHUNK_OVERLAP_MS", "50")),           # 50ms overlap
+        min_chunk_duration_ms=int(os.getenv("VOICE_STREAMING_MIN_CHUNK_DURATION_MS", "100")),
+        accumulation_buffer_ms=int(os.getenv("VOICE_STREAMING_ACCUMULATION_BUFFER_MS", "400")),
+        sample_rate=16000
+    )
+    state.smart_chunker = SmartAudioChunker(chunk_config)
+    
+    # Initialize utterance manager and transcription filter
+    state.utterance_manager = UtteranceManager()
+    state.transcription_filter = TranscriptionFilter()
+    
+    logger.info(f"✅ Initialized smart audio chunker with {chunk_config.chunk_duration_ms}ms chunks, "
+                f"{chunk_config.overlap_ms}ms overlap for session {session_id}")
+    
     session_registry.add(state)
     logger.info("🌐 Streaming voice connection established: %s (lang=%s) phase4_env=%s force_real=%s disable_mock=%s", connection_id, language, os.getenv("VOICE_STREAMING_PHASE4"), os.getenv("VOICE_STREAMING_FORCE_REAL"), os.getenv("VOICE_STREAMING_DISABLE_MOCK"))
 
@@ -521,6 +546,15 @@ async def streaming_voice_endpoint(
                 "utterance_index": utterance_index,
                 "timestamp": started_ts,
             })
+            # Instruct client to gate microphone during TTS playback (auto-mic-off)
+            if state.echo_suppressor and state.echo_suppressor.config.gate_mic_during_tts:
+                await _send_json(state.websocket, {
+                    "type": "mic_control",
+                    "action": "disable",
+                    "reason": "tts_playback",
+                    "utterance_index": utterance_index,
+                    "timestamp": time.time(),
+                })
             try:
                 if os.getenv("VOICE_STREAMING_DISABLE_TTS", "0") == "1":
                     # Skip synthesis entirely – still append conversation and emit synthetic completion
@@ -693,6 +727,15 @@ async def streaming_voice_endpoint(
                     "utterance_index": utterance_index,
                     "processing_ms": int((time.time() - started_ts) * 1000),
                 })
+                # Re-enable mic after TTS completes
+                if state.echo_suppressor and state.echo_suppressor.config.gate_mic_during_tts:
+                    await _send_json(state.websocket, {
+                        "type": "mic_control",
+                        "action": "enable",
+                        "reason": "tts_complete",
+                        "utterance_index": utterance_index,
+                        "timestamp": time.time(),
+                    })
                 # Emit a concise assistant_turn summary event AFTER audio completion for export stability
                 await _send_json(state.websocket, {
                     "type": "assistant_turn",
@@ -748,7 +791,10 @@ async def streaming_voice_endpoint(
             
             # Try to get Edge TTS engine
             try:
-                edge_tts_engine = model_manager.get_tts_engine("edge-tts")
+                # Debug: verify model_manager has method (hot-reload issues diagnostic)
+                if not hasattr(model_manager, 'get_tts_engine'):
+                    logger.error("ModelManager missing get_tts_engine attribute at runtime (diagnostic)")
+                edge_tts_engine = model_manager.get_tts_engine("edge-tts") if hasattr(model_manager, 'get_tts_engine') else None
                 if edge_tts_engine is None:
                     # Create new Edge TTS engine
                     from beautyai_inference.inference_engines.edge_tts_engine import EdgeTTSEngine
@@ -842,6 +888,15 @@ async def streaming_voice_endpoint(
                 "total_chunks": chunk_seq,
                 "timestamp": time.time(),
             })
+            # Re-enable mic after streaming TTS completion (duplex path)
+            if state.echo_suppressor and state.echo_suppressor.config.gate_mic_during_tts:
+                await _send_json(state.websocket, {
+                    "type": "mic_control",
+                    "action": "enable",
+                    "reason": "tts_stream_end",
+                    "utterance_index": utterance_index,
+                    "timestamp": time.time(),
+                })
 
     async def decoder_task() -> None:
         """Incremental decoder task wrapper.
@@ -873,6 +928,14 @@ async def streaming_voice_endpoint(
                 if etype == "partial_transcript":
                     if state.metrics and "decode_ms" in event:
                         state.metrics.inc_partial()
+                    # Apply transcription filter to partials (skip if rejected)
+                    if state.transcription_filter:
+                        filtered = state.transcription_filter.filter_transcription(event.get("text", ""))
+                        if filtered is None:
+                            # Skip emitting noisy partial
+                            continue
+                        else:
+                            event["text"] = filtered
                     # Annotate decode language for client debugging
                     event.setdefault("decode_language", language)
                     await _send_json(state.websocket, event)
@@ -927,6 +990,12 @@ async def streaming_voice_endpoint(
                     if state.metrics:
                         state.metrics.inc_final()
                     final_text_candidate = (event.get("text") or "").strip()
+                    if state.transcription_filter:
+                        filtered_final = state.transcription_filter.filter_transcription(final_text_candidate, is_final=True)
+                        if filtered_final is None:
+                            logger.debug("[streaming_voice] Final transcript rejected by filter: '%s'", final_text_candidate)
+                            continue
+                        final_text_candidate = filtered_final
                     if not final_text_candidate:
                         logger.debug("[streaming_voice] Ignoring empty final_transcript event (utterance_index=%s)", event.get("utterance_index"))
                         continue
@@ -990,8 +1059,7 @@ async def streaming_voice_endpoint(
                         else:
                             # Queue this final for later processing to avoid dropping (also add /no_think)
                             final_text_with_no_think = final_text.strip() + " /no_think" if final_text.strip() else "unclear audio /no_think"
-                            state.pending_finals.append((utterance_index, final_text_with_no_think, forced_language))  # Include forced language
-                            state.pending_finals.append((utterance_index, final_text_with_no_think))
+                            state.pending_finals.append((utterance_index, final_text_with_no_think, forced_language))  # Include forced language only once
                             await _send_json(state.websocket, {
                                 "type": "final_queued",
                                 "utterance_index": utterance_index,
@@ -1217,33 +1285,73 @@ async def streaming_voice_endpoint(
                             else:
                                 processed_payload = payload
                             
-                            # Simple energy gate (average absolute amplitude)
-                            try:
-                                # Ensure payload length is even before processing as int16
-                                if len(processed_payload) % 2 != 0:
-                                    logger.warning(f"[{connection_id}] Odd payload length {len(processed_payload)}, padding with zero")
-                                    processed_payload = processed_payload + b'\x00'
-                                    
-                                # interpret payload as int16 little-endian
-                                import array
-                                arr = array.array('h')
-                                arr.frombytes(processed_payload)
-                                if arr:
-                                    avg_abs = sum(abs(s) for s in arr) / len(arr)
-                                    # threshold ~ 220 (~0.0067 full scale) heuristically tuned
-                                    if avg_abs > 220:
-                                        state.voiced_frame_count += 1
-                                        if state.low_energy_mode and state.voiced_frame_count >= 3:
-                                            state.low_energy_mode = False
-                                    else:
-                                        state.silence_frame_count += 1
-                            except Exception as e:
-                                logger.warning(f"[{connection_id}] Audio processing error: {e}")
-                            await state.audio_session.ingest_pcm(processed_payload)
-                            state.pcm_bytes_received += len(processed_payload)  # Track actual PCM bytes
+                            # Ensure payload length is even before processing as int16
+                            if len(processed_payload) % 2 != 0:
+                                logger.warning(f"[{connection_id}] Odd payload length {len(processed_payload)}, padding with zero")
+                                processed_payload = processed_payload + b'\x00'
+                            
+                            # Process through smart audio chunker to prevent word splitting
+                            if state.smart_chunker:
+                                try:
+                                    # Process audio through smart chunker
+                                    for chunk_samples, timestamp_ms in state.smart_chunker.process_audio(processed_payload):
+                                        # Convert numpy array back to bytes
+                                        chunk_bytes = chunk_samples.tobytes()
+                                        
+                                        # Apply energy gate to chunked audio
+                                        try:
+                                            import array
+                                            arr = array.array('h')
+                                            arr.frombytes(chunk_bytes)
+                                            if arr:
+                                                avg_abs = sum(abs(s) for s in arr) / len(arr)
+                                                # threshold ~ 220 (~0.0067 full scale) heuristically tuned
+                                                if avg_abs > 220:
+                                                    state.voiced_frame_count += 1
+                                                    if state.low_energy_mode and state.voiced_frame_count >= 3:
+                                                        state.low_energy_mode = False
+                                                else:
+                                                    state.silence_frame_count += 1
+                                        except Exception as e:
+                                            logger.warning(f"[{connection_id}] Energy gate processing error: {e}")
+                                        
+                                        # Ingest the properly sized chunk
+                                        await state.audio_session.ingest_pcm(chunk_bytes)
+                                        state.pcm_bytes_received += len(chunk_bytes)
+                                        
+                                        if state.pcm_frames_received <= 3:
+                                            logger.debug("[%s] ingested smart chunk samples=%d timestamp=%dms buffer_usage=%.3f", 
+                                                        connection_id, len(chunk_samples), timestamp_ms, 
+                                                        state.audio_session.pcm_buffer.usage_ratio())
+                                except Exception as e:
+                                    logger.warning(f"[{connection_id}] Smart chunker error: {e}, falling back to direct ingestion")
+                                    # Fallback to direct ingestion if smart chunker fails
+                                    await state.audio_session.ingest_pcm(processed_payload)
+                                    state.pcm_bytes_received += len(processed_payload)
+                            else:
+                                # Fallback: direct ingestion without smart chunking
+                                # Simple energy gate (average absolute amplitude)
+                                try:
+                                    import array
+                                    arr = array.array('h')
+                                    arr.frombytes(processed_payload)
+                                    if arr:
+                                        avg_abs = sum(abs(s) for s in arr) / len(arr)
+                                        # threshold ~ 220 (~0.0067 full scale) heuristically tuned
+                                        if avg_abs > 220:
+                                            state.voiced_frame_count += 1
+                                            if state.low_energy_mode and state.voiced_frame_count >= 3:
+                                                state.low_energy_mode = False
+                                        else:
+                                            state.silence_frame_count += 1
+                                except Exception as e:
+                                    logger.warning(f"[{connection_id}] Audio processing error: {e}")
+                                
+                                await state.audio_session.ingest_pcm(processed_payload)
+                                state.pcm_bytes_received += len(processed_payload)
+                            
                             state.pcm_frames_received += 1
-                            if state.pcm_frames_received <= 3:  # log only first few for noise control
-                                logger.debug("[%s] ingested PCM frame bytes=%d buffer_usage=%.3f", connection_id, len(payload), state.audio_session.pcm_buffer.usage_ratio())
+                            
                             # Emit ingest_mode once on first raw PCM frame (if not already sent)
                             if state.pcm_frames_received == 1 and state.compressed_mode is None:
                                 await _send_json(websocket, {
@@ -1252,6 +1360,11 @@ async def streaming_voice_endpoint(
                                     "timestamp": time.time(),
                                     "bytes_received": state.pcm_bytes_received,  # Use PCM bytes in event
                                     "frame_size_bytes": len(payload),
+                                    "smart_chunking_enabled": state.smart_chunker is not None,
+                                    "chunk_config": {
+                                        "chunk_duration_ms": state.smart_chunker.config.chunk_duration_ms,
+                                        "overlap_ms": state.smart_chunker.config.overlap_ms
+                                    } if state.smart_chunker else None
                                 })
     except WebSocketDisconnect:
         logger.info("🔌 Streaming voice disconnect: %s", connection_id)
@@ -1296,6 +1409,30 @@ async def streaming_voice_endpoint(
         # Close ring buffer
         if state.audio_session and not state.audio_session.pcm_buffer.closed:
             await state.audio_session.pcm_buffer.close()
+        
+        # Clean up smart audio chunker
+        if state.smart_chunker:
+            try:
+                # Flush any remaining audio in the chunker
+                final_chunk = state.smart_chunker.flush()
+                if final_chunk and state.audio_session:
+                    chunk_samples, timestamp_ms = final_chunk
+                    chunk_bytes = chunk_samples.tobytes()
+                    await state.audio_session.ingest_pcm(chunk_bytes)
+                    logger.debug("[%s] Flushed final chunk: %d samples", connection_id, len(chunk_samples))
+                
+                # Reset chunker state
+                state.smart_chunker.reset()
+                chunker_stats = state.smart_chunker.get_stats()
+                logger.info("[%s] Smart chunker stats: %s", connection_id, chunker_stats)
+            except Exception as e:
+                logger.warning(f"[{connection_id}] Error cleaning up smart chunker: {e}")
+        
+        # Reset utterance manager and transcription filter
+        if state.utterance_manager:
+            state.utterance_manager.reset()
+        if state.transcription_filter:
+            state.transcription_filter.reset()
         # Tear down WebM decoder if active
         if state.webm_decoder:
             # Stop chunk queue by sending sentinel

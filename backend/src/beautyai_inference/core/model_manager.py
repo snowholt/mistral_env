@@ -723,10 +723,41 @@ class ModelManager:
             
             # Determine the best Whisper model to use
             if model_name is None:
-                # Auto-select based on language and voice registry default
-                stt_config = voice_config.get_stt_model_config()
-                model_name = voice_config._config["default_models"]["stt"]
-                logger.info(f"Auto-selected Whisper model from voice registry: {model_name}")
+                # Auto-select model based on requested language capabilities.
+                # Arabic-only fine-tuned model must not be used for English to avoid hallucinations.
+                try:
+                    requested_lang = (language or "auto").lower()
+                    models_cfg = voice_config._config.get("models", {})
+                    default_stt = voice_config._config["default_models"]["stt"]
+                    chosen = default_stt
+                    if requested_lang in ("en", "english"):
+                        # Prefer a multilingual turbo model supporting English
+                        # Priority order: whisper-large-v3-turbo, whisper-large-v3
+                        for candidate in ("whisper-large-v3-turbo", "whisper-large-v3"):
+                            cdata = models_cfg.get(candidate)
+                            if cdata and requested_lang.split("-")[0] in [l.split('-')[0] for l in cdata.get("supported_languages", [])]:
+                                if cdata.get("engine_type") not in ("whisper_finetuned_arabic", "whisper_arabic_turbo"):
+                                    chosen = candidate
+                                    break
+                        if chosen != default_stt and chosen != default_stt:
+                            logger.info(f"Overriding default STT model '{default_stt}' with English-capable model '{chosen}' for language=en")
+                    elif requested_lang in ("ar", "arabic"):
+                        # Keep default (likely Arabic optimized) – if default not Arabic specialized pick Arabic specialized if available
+                        def is_arabic_special(e_type: str) -> bool:
+                            return e_type in ("whisper_finetuned_arabic", "whisper_arabic_turbo")
+                        default_data = models_cfg.get(default_stt, {})
+                        if not is_arabic_special(default_data.get("engine_type", "")):
+                            # Search for Arabic specialized model
+                            for candidate, cdata in models_cfg.items():
+                                if is_arabic_special(cdata.get("engine_type", "")):
+                                    chosen = candidate
+                                    logger.info(f"Selecting Arabic specialized model '{chosen}' instead of default '{default_stt}'")
+                                    break
+                    model_name = chosen
+                except Exception as sel_e:  # pragma: no cover - defensive
+                    logger.warning(f"Language-aware model selection failed, falling back to default: {sel_e}")
+                    model_name = voice_config._config["default_models"]["stt"]
+                logger.info(f"Auto-selected Whisper model for language='{language}': {model_name}")
             
             # Create internal model name for tracking (prefix with 'whisper:')
             internal_model_name = f"whisper:{model_name}"
@@ -994,4 +1025,51 @@ class ModelManager:
                     
         except Exception as e:
             logger.error(f"Error getting Whisper model info: {e}")
+            return None
+
+    # ================= TTS Engine Management =================
+    def get_tts_engine(self, model_name: Optional[str] = None) -> Optional[Any]:
+        """Retrieve (and lazily load) a TTS engine (e.g., Edge TTS) by model name.
+
+        Args:
+            model_name: Optional model key from voice registry (defaults to registry default)
+        Returns:
+            Loaded TTS engine instance or None.
+        """
+        try:
+            from ..config.voice_config_loader import get_voice_config
+            voice_config = get_voice_config()
+            if model_name is None:
+                model_name = voice_config._config["default_models"]["tts"]
+            internal_name = f"tts:{model_name}"
+            with self._lock:
+                if internal_name in self._loaded_models:
+                    self._model_last_used[internal_name] = time.time()
+                    self._start_model_timer(internal_name)
+                    return self._loaded_models[internal_name]
+                model_entry = voice_config._config["models"].get(model_name)
+                if not model_entry:
+                    logger.error(f"TTS model '{model_name}' not found in voice registry")
+                    return None
+                engine_type = model_entry.get("engine_type", "edge_tts")
+                if engine_type == "edge_tts":
+                    from ..inference_engines.edge_tts_engine import EdgeTTSEngine
+                    from ..config.config_manager import ModelConfig
+                    config = ModelConfig(name=model_name, model_id=model_entry.get("model_id", model_name), engine_type=engine_type)
+                    engine = EdgeTTSEngine(config)
+                else:
+                    logger.warning(f"Unknown TTS engine_type '{engine_type}', attempting Edge TTS fallback")
+                    from ..inference_engines.edge_tts_engine import EdgeTTSEngine
+                    from ..config.config_manager import ModelConfig
+                    config = ModelConfig(name=model_name, model_id=model_entry.get("model_id", model_name), engine_type="edge_tts")
+                    engine = EdgeTTSEngine(config)
+                engine.load_model()
+                self._loaded_models[internal_name] = engine
+                self._model_last_used[internal_name] = time.time()
+                self._start_model_timer(internal_name)
+                self._save_persistence_state()
+                logger.info(f"✅ Loaded TTS engine '{model_name}' ({engine_type})")
+                return engine
+        except Exception as e:  # pragma: no cover - defensive
+            logger.error(f"Failed to get/load TTS engine '{model_name}': {e}")
             return None

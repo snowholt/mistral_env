@@ -17,9 +17,9 @@ class StreamingVoiceClient {
     this.audioContext = null;
     this.workletNode = null;
     this.processorReady = false;
-    this.frameSizeMs = 20; // target packet duration
+    this.frameSizeMs = 200; // Increased from 20ms to 200ms to prevent word splitting
     this.targetSampleRate = 16000;
-    this.samplesPerFrame = (this.targetSampleRate * this.frameSizeMs) / 1000; // e.g. 320 samples @16k
+    this.samplesPerFrame = (this.targetSampleRate * this.frameSizeMs) / 1000; // e.g. 3200 samples @16k
     this._floatDownsampleQueue = new Float32Array(0);
     this._int16SendQueue = [];
     this.debug = !!opts.debug;
@@ -542,6 +542,16 @@ class StreamingVoiceClient {
         this.onEvent({ type: 'tts_streaming_complete', utterance_index: ev.utterance_index, total_chunks: ev.total_chunks });
         if (this.autoRearm && !this._suspended) {
           this.onEvent({ type: 'auto_rearm' });
+        }
+        break;
+      case 'mic_control':
+        // Auto mic gating from server (disable/enable capture during TTS)
+        if (ev.action === 'disable') {
+          this._suspended = true; // soft suspend sending without closing socket
+          this.onEvent({ type: 'mic_gated', reason: ev.reason, utterance_index: ev.utterance_index });
+        } else if (ev.action === 'enable') {
+          this._suspended = false;
+          this.onEvent({ type: 'mic_reenabled', reason: ev.reason, utterance_index: ev.utterance_index });
         }
         break;
       case 'tts_progress':

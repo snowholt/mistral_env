@@ -150,7 +150,7 @@
   },
 
   "default_models": {
-    "stt": "beautyai-whisper-turbo",
+    "stt": "whisper-large-v3-turbo",
     "tts": "edge-tts"
   },
 
