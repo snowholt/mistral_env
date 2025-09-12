@@ -37,6 +37,8 @@ from ...utils import create_batch_decoder, WebMDecodingError
 from ...core.websocket_connection_pool import get_websocket_pool, WebSocketConnectionData
 from ...core.buffer_integration import BufferIntegrationHelper, WebSocketBufferWrapper, get_buffer_manager
 from ..performance_integration import get_performance_monitoring_service
+from ...core.persistent_model_manager import PersistentModelManager
+from ...core.voice_session_manager import get_voice_session_manager, VoiceSessionManager
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +59,7 @@ class SimpleVoiceWebSocketManager:
     - Automatic turn completion
     - Gemini Live / GPT Voice style interaction
     - Connection pool management for scalability
+    - Persistent model preloading for faster responses
     """
     
     def __init__(self):
@@ -73,6 +76,17 @@ class SimpleVoiceWebSocketManager:
         # Buffer optimization system
         self.buffer_manager = None
         self._buffer_wrappers: Dict[str, WebSocketBufferWrapper] = {}
+        
+        # Persistent model manager for preloaded models
+        self.persistent_model_manager = None
+        self._persistent_models_initialized = False
+        
+        # Voice session manager for conversation context
+        self.session_manager = get_voice_session_manager(persist_sessions=True)
+        
+        # Background task for session cleanup
+        self._cleanup_task = None
+        self._cleanup_interval = 300  # 5 minutes
     
     async def _get_connection_pool(self):
         """Get or initialize the connection pool."""
@@ -196,15 +210,44 @@ class SimpleVoiceWebSocketManager:
         return None
         
     async def _ensure_service_initialized(self):
-        """Ensure the voice service and VAD service are initialized."""
+        """Ensure the voice service, VAD service, and persistent models are initialized."""
+        
+        # Initialize persistent model manager first (if not already done)
+        if not self._persistent_models_initialized:
+            logger.info("Initializing persistent model manager...")
+            try:
+                self.persistent_model_manager = PersistentModelManager()
+                await self.persistent_model_manager.initialize()
+                
+                # Start preloading models in background
+                logger.info("Starting model preloading...")
+                await self.persistent_model_manager.preload_models()
+                
+                self._persistent_models_initialized = True
+                logger.info("✅ Persistent model manager initialized successfully")
+            except Exception as e:
+                logger.error(f"❌ Failed to initialize persistent model manager: {e}")
+                # Continue without persistent models
+                self.persistent_model_manager = None
+        
+        # Initialize voice service with access to persistent models
         if not self._service_initialized:
             logger.info("Initializing SimpleVoiceService...")
+            
+            # Pass persistent model manager to voice service if available
+            if self.persistent_model_manager:
+                # Check if voice service can use persistent models
+                if hasattr(self.voice_service, 'set_persistent_model_manager'):
+                    self.voice_service.set_persistent_model_manager(self.persistent_model_manager)
+                    logger.info("✅ Connected voice service to persistent model manager")
+            
             await self.voice_service.initialize()
             self._service_initialized = True
             logger.info("✅ SimpleVoiceService initialized successfully")
         
+        # Initialize VAD service with adaptive configuration
         if not self._vad_initialized:
-            logger.info("Initializing VAD service for real-time processing...")
+            logger.info("Initializing adaptive VAD service for real-time processing...")
             
             # Create VAD configuration optimized for real-time processing
             vad_config = VADConfig(
@@ -212,7 +255,11 @@ class SimpleVoiceWebSocketManager:
                 silence_threshold_ms=500,  # 500ms silence to trigger turn end
                 sampling_rate=16000,  # Standard sampling rate
                 speech_threshold=0.5,  # Speech detection threshold
-                buffer_max_duration_ms=30000  # 30 second max buffer
+                buffer_max_duration_ms=30000,  # 30 second max buffer
+                # Enable adaptive features
+                adaptive_threshold=True,
+                energy_threshold=0.01,  # Energy threshold for speech detection
+                language_specific_tuning=True
             )
             
             # Initialize global VAD service
@@ -220,11 +267,14 @@ class SimpleVoiceWebSocketManager:
             if success:
                 self.vad_service = get_vad_service()
                 self._vad_initialized = True
-                logger.info("✅ VAD service initialized successfully")
+                logger.info("✅ Adaptive VAD service initialized successfully")
             else:
                 logger.error("❌ Failed to initialize VAD service")
                 # Continue without VAD for backward compatibility
                 self.vad_service = None
+        
+        # Start background session cleanup if not already running
+        await self._start_session_cleanup_task()
     
     async def connect(
         self, 
@@ -292,6 +342,17 @@ class SimpleVoiceWebSocketManager:
                     "_segments_processed": 0,
                     "_last_silence_guidance_ts": 0
                 }
+                
+                # Create voice session for context management
+                voice_session = await self.session_manager.create_session(
+                    connection_id=connection_id,
+                    language=language,
+                    voice_type=voice_type,
+                    session_id=session_id or f"simple_{connection_id}"
+                )
+                
+                # Store session reference in connection data
+                connection_data.voice_session_data["session_object"] = voice_session
                 
                 # Initialize optimized buffer wrapper if buffer manager is available
                 if self.buffer_manager:
@@ -369,6 +430,12 @@ class SimpleVoiceWebSocketManager:
                     session_duration = time.time() - connection_data.client_info.get("connected_at", time.time())
                     message_count = connection_data.voice_session_data.get("message_count", 0)
                     
+                    # Close voice session
+                    voice_session = connection_data.voice_session_data.get("session_object")
+                    if voice_session:
+                        await self.session_manager.close_session(voice_session.session_id)
+                        logger.info(f"Voice session closed: {voice_session.session_id}")
+                    
                     # Add performance metrics for disconnection
                     perf_service = get_performance_monitoring_service()
                     if perf_service.is_enabled():
@@ -429,8 +496,37 @@ class SimpleVoiceWebSocketManager:
                 await self.voice_service.cleanup()
                 self._service_initialized = False
                 logger.info("✅ SimpleVoiceService cleaned up")
+                
+                # Note: We don't cleanup persistent models as they should stay loaded
+                # for faster subsequent connections
+                if self.persistent_model_manager:
+                    logger.info("ℹ️ Persistent models kept loaded for faster reconnections")
         except Exception as e:
             logger.error(f"❌ Error during simple voice service cleanup: {e}")
+    
+    async def _start_session_cleanup_task(self):
+        """Start the background session cleanup task."""
+        if self._cleanup_task is None or self._cleanup_task.done():
+            self._cleanup_task = asyncio.create_task(self._session_cleanup_loop())
+            logger.info("🧹 Started background session cleanup task")
+    
+    async def _session_cleanup_loop(self):
+        """Background loop for cleaning up expired sessions."""
+        while True:
+            try:
+                await asyncio.sleep(self._cleanup_interval)
+                
+                # Clean up expired sessions
+                cleaned_count = await self.session_manager.cleanup_expired_sessions()
+                if cleaned_count > 0:
+                    logger.info(f"🧹 Cleaned up {cleaned_count} expired voice sessions")
+                
+            except asyncio.CancelledError:
+                logger.info("Session cleanup task cancelled")
+                break
+            except Exception as e:
+                logger.error(f"Error in session cleanup loop: {e}")
+                # Continue the loop even if there's an error
     
     def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
         """Helper method to get connection data by original connection ID."""
@@ -517,7 +613,17 @@ class SimpleVoiceWebSocketManager:
             # Update message count
             voice_session["message_count"] += 1
             
+            # Get conversation context for better responses
+            voice_session_object = voice_session.get("session_object")
+            conversation_context = ""
+            if voice_session_object:
+                conversation_context = await self.session_manager.get_conversation_context(
+                    voice_session_object.session_id
+                )
+            
             logger.info(f"🎤 Processing audio message {voice_session['message_count']} for {connection_id} (lang: {language}, voice: {voice_type})")
+            if conversation_context:
+                logger.info(f"📖 Using conversation context: {conversation_context[:100]}...")
             
             # Send processing started message
             await self.send_message(connection_id, {
@@ -550,7 +656,8 @@ class SimpleVoiceWebSocketManager:
                     audio_data=audio_data,
                     audio_format=audio_format,  # Pass the detected format
                     language=language,
-                    gender=voice_type
+                    gender=voice_type,
+                    conversation_context=conversation_context  # Add context for better responses
                 )
                 
                 processing_time = time.time() - start_time
@@ -603,6 +710,19 @@ class SimpleVoiceWebSocketManager:
                         "timestamp": time.time()
                     }
                     await self.send_message(connection_id, response_data)
+                
+                # Record conversation turn in session
+                if voice_session_object:
+                    transcribed_text = result.get("transcribed_text", "") or ""
+                    response_text = result.get("response_text", "") or ""
+                    
+                    await self.session_manager.add_conversation_turn(
+                        session_id=voice_session_object.session_id,
+                        user_input=transcribed_text,
+                        ai_response=response_text,
+                        processing_time_ms=int(processing_time * 1000),
+                        transcription_quality=transcription_quality
+                    )
                 
                 logger.info(f"✅ Simple voice processing completed in {processing_time:.2f}s for {connection_id}")
                 
@@ -1479,6 +1599,15 @@ async def get_simple_voice_status():
         
         pool_metrics = pool.get_metrics()
         
+        # Get persistent model status
+        persistent_model_status = {}
+        if simple_ws_manager.persistent_model_manager:
+            try:
+                persistent_model_status = await simple_ws_manager.persistent_model_manager.get_health_status()
+            except Exception as e:
+                logger.warning(f"Failed to get persistent model status: {e}")
+                persistent_model_status = {"error": str(e)}
+        
         # Get active connections info from pool
         active_connections_info = []
         for conn_data in pool_metrics["connections"]:
@@ -1497,11 +1626,16 @@ async def get_simple_voice_status():
                         "message_count": voice_data.get("message_count", 0)
                     })
         
-        return {
+        # Get session manager statistics
+        session_stats = simple_ws_manager.session_manager.get_session_stats()
+        
+        result = {
             "service": "simple_voice_chat",
             "status": "available",
             "active_connections": len(active_connections_info),
             "connections": active_connections_info,
+            "persistent_models": persistent_model_status,
+            "session_management": session_stats,
             "pool_metrics": {
                 "total_connections": pool_metrics["pool"]["total_connections"],
                 "active_connections": pool_metrics["pool"]["active_connections"],
@@ -1514,12 +1648,19 @@ async def get_simple_voice_status():
                 "target_response_time": "< 2 seconds",
                 "supported_languages": ["ar", "en"],
                 "voice_types": ["male", "female"],
-                "engine": "Edge TTS via SimpleVoiceService"
+                "engine": "Edge TTS via SimpleVoiceService",
+                "persistent_models_enabled": simple_ws_manager._persistent_models_initialized,
+                "adaptive_vad_enabled": simple_ws_manager._vad_initialized
             },
             "features": [
                 "Ultra-fast voice responses",
                 "Simplified parameter set",
                 "Connection pooling for scalability",
+                "Persistent model preloading",
+                "Adaptive VAD processing",
+                "Language-specific tuning",
+                "Enhanced session management",
+                "Conversation context preservation",
                 "No complex configuration",
                 "Direct Edge TTS integration",
                 "Arabic and English only",
@@ -1538,8 +1679,9 @@ async def get_simple_voice_status():
                     "response_time": "< 2 seconds",
                     "memory_usage": "< 50MB",
                     "languages": "ar, en only",
-                    "features": "Voice chat only",
-                    "connection_management": "Pooled"
+                    "features": "Voice chat with persistent models",
+                    "connection_management": "Pooled",
+                    "models": "Preloaded and cached"
                 },
                 "advanced_endpoint": {
                     "route": "/ws/voice-conversation", 

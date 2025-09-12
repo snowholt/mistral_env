@@ -43,6 +43,33 @@ class VADConfig:
     speech_threshold: float = 0.5  # Speech probability threshold
     buffer_max_duration_ms: int = 30000  # Maximum buffer duration (30 seconds)
     vad_window_size_frames: int = 512  # VAD window size in frames
+    
+    # ENHANCED: Adaptive threshold settings
+    adaptive_threshold: bool = True  # Enable adaptive threshold
+    min_speech_duration_ms: int = 300  # Minimum speech duration to register
+    max_silence_duration_ms: int = 1500  # Maximum silence before force end
+    pre_speech_buffer_ms: int = 200  # Buffer to capture speech beginning
+    
+    # ENHANCED: Language-specific settings
+    language_specific_thresholds: Dict[str, float] = None  # Per-language thresholds
+    arabic_speech_threshold: float = 0.45  # Lower threshold for Arabic
+    english_speech_threshold: float = 0.5  # Standard threshold for English
+    
+    # ENHANCED: Environmental adaptation
+    noise_adaptation: bool = True  # Enable noise level adaptation
+    energy_threshold_multiplier: float = 2.0  # Energy threshold multiplier
+    ambient_noise_window_ms: int = 2000  # Window for ambient noise calculation
+    
+    def __post_init__(self):
+        """Initialize language-specific thresholds if not provided."""
+        if self.language_specific_thresholds is None:
+            self.language_specific_thresholds = {
+                'ar': self.arabic_speech_threshold,
+                'arabic': self.arabic_speech_threshold,
+                'en': self.english_speech_threshold,
+                'english': self.english_speech_threshold,
+                'auto': self.speech_threshold
+            }
 
 
 @dataclass
@@ -52,6 +79,8 @@ class AudioChunk:
     timestamp: float
     is_speech: bool
     probability: float
+    energy_level: float = 0.0  # ENHANCED: Audio energy level
+    language_hint: Optional[str] = None  # ENHANCED: Language hint for threshold adaptation
 
 
 class RealTimeVADService:
@@ -88,8 +117,24 @@ class RealTimeVADService:
         self.silence_counter = 0
         self.is_speaking = False
         self.last_speech_time = 0
-        self.turn_being_processed = False  # NEW: Prevent multiple turn completions
-        self.last_turn_timestamp = 0  # NEW: Track last turn completion time
+        self.turn_being_processed = False  # Prevent multiple turn completions
+        self.last_turn_timestamp = 0  # Track last turn completion time
+        
+        # ENHANCED: Adaptive threshold state
+        self.current_language = 'auto'
+        self.adaptive_threshold = self.config.speech_threshold
+        self.ambient_noise_level = 0.0
+        self.ambient_noise_samples = deque(maxlen=int(self.config.ambient_noise_window_ms / self.config.chunk_size_ms))
+        self.pre_speech_buffer = deque(maxlen=int(self.config.pre_speech_buffer_ms / self.config.chunk_size_ms))
+        
+        # ENHANCED: Speech timing validation
+        self.speech_start_time = 0
+        self.continuous_speech_duration = 0
+        self.continuous_silence_duration = 0
+        
+        # ENHANCED: Energy-based detection
+        self.energy_threshold = 0.01  # Will be adapted based on ambient noise
+        self.energy_window = deque(maxlen=50)  # Rolling window for energy calculation
         
         # Callbacks
         self.on_speech_start: Optional[Callable] = None
@@ -100,7 +145,7 @@ class RealTimeVADService:
         self._processing_lock = threading.Lock()
         self._stop_processing = False
         
-        self.logger.info("RealTimeVADService initialized")
+        self.logger.info("Enhanced RealTimeVADService initialized with adaptive features")
     
     async def initialize(self) -> bool:
         """
@@ -161,12 +206,149 @@ class RealTimeVADService:
             self.logger.error(f"VAD model test failed: {e}")
             raise
     
+    def set_language_context(self, language: str):
+        """
+        Set language context for adaptive threshold adjustment.
+        
+        Args:
+            language: Language code ('ar', 'en', 'auto')
+        """
+        old_language = self.current_language
+        self.current_language = language.lower()
+        
+        # Update adaptive threshold based on language
+        if self.config.adaptive_threshold:
+            self.adaptive_threshold = self.config.language_specific_thresholds.get(
+                self.current_language, 
+                self.config.speech_threshold
+            )
+            
+            self.logger.info(f"Language context updated: {old_language} -> {self.current_language}, threshold: {self.adaptive_threshold}")
+    
+    def _calculate_audio_energy(self, audio_data: np.ndarray) -> float:
+        """
+        Calculate the energy level of audio data.
+        
+        Args:
+            audio_data: Audio samples
+            
+        Returns:
+            Energy level (RMS)
+        """
+        if len(audio_data) == 0:
+            return 0.0
+        
+        # Calculate RMS energy
+        rms_energy = np.sqrt(np.mean(audio_data ** 2))
+        return float(rms_energy)
+    
+    def _update_ambient_noise_level(self, energy: float, is_speech: bool):
+        """
+        Update the ambient noise level estimation.
+        
+        Args:
+            energy: Current audio energy
+            is_speech: Whether current chunk contains speech
+        """
+        # Only use non-speech segments for ambient noise calculation
+        if not is_speech:
+            self.ambient_noise_samples.append(energy)
+            
+            if len(self.ambient_noise_samples) > 10:  # Need sufficient samples
+                # Use median to avoid outliers
+                self.ambient_noise_level = np.median(list(self.ambient_noise_samples))
+                
+                # Adapt energy threshold based on ambient noise
+                if self.config.noise_adaptation:
+                    self.energy_threshold = max(
+                        0.005,  # Minimum threshold
+                        self.ambient_noise_level * self.config.energy_threshold_multiplier
+                    )
+    
+    def _should_register_as_speech(self, probability: float, energy: float, duration_ms: float) -> bool:
+        """
+        Enhanced speech detection logic combining VAD probability, energy, and duration.
+        
+        Args:
+            probability: VAD model probability
+            energy: Audio energy level
+            duration_ms: Duration of continuous speech
+            
+        Returns:
+            True if should be registered as speech
+        """
+        # Basic VAD threshold check with language adaptation
+        vad_check = probability > self.adaptive_threshold
+        
+        # Energy-based check (helps with low-volume speech)
+        energy_check = energy > self.energy_threshold
+        
+        # Duration check (prevents very short spurious detections)
+        duration_check = duration_ms >= self.config.min_speech_duration_ms or self.is_speaking
+        
+        # Combine all checks
+        if self.config.adaptive_threshold:
+            # More sophisticated logic when adaptive mode is enabled
+            if vad_check and energy_check:
+                return duration_check
+            elif vad_check and duration_ms > self.config.min_speech_duration_ms:
+                # Strong VAD signal can override weak energy
+                return True
+            elif energy_check and probability > (self.adaptive_threshold * 0.7):
+                # Strong energy with reasonable VAD can work
+                return duration_check
+            else:
+                return False
+        else:
+            # Simple mode - just use VAD threshold
+            return vad_check and duration_check
+    
+    def _detect_speech_end(self, silence_duration_ms: float) -> bool:
+        """
+        Enhanced speech end detection with multiple criteria.
+        
+        Args:
+            silence_duration_ms: Current silence duration
+            
+        Returns:
+            True if speech end should be triggered
+        """
+        # Basic silence threshold
+        basic_threshold_met = silence_duration_ms >= self.config.silence_threshold_ms
+        
+        # Force end if silence is too long
+        force_end = silence_duration_ms >= self.config.max_silence_duration_ms
+        
+        # Consider speech duration - longer speech gets more patience
+        if self.continuous_speech_duration > 0:
+            # Give more time for longer utterances
+            patience_factor = min(2.0, 1.0 + (self.continuous_speech_duration / 5000))  # Up to 2x patience for 5s+ speech
+            adapted_threshold = self.config.silence_threshold_ms * patience_factor
+            adapted_threshold_met = silence_duration_ms >= adapted_threshold
+        else:
+            adapted_threshold_met = basic_threshold_met
+        
+        return force_end or adapted_threshold_met
+    
     def set_callbacks(
         self,
         on_speech_start: Optional[Callable] = None,
         on_speech_end: Optional[Callable] = None,
         on_turn_complete: Optional[Callable] = None
     ):
+        """
+        Set callback functions for VAD events.
+        
+        Args:
+            on_speech_start: Called when speech is detected
+            on_speech_end: Called when speech ends
+            on_turn_complete: Called when turn is complete (audio ready for processing)
+        """
+        self.on_speech_start = on_speech_start
+        self.on_speech_end = on_speech_end
+        self.on_turn_complete = on_turn_complete
+        
+        self.logger.info("VAD callbacks registered")
         """
         Set callback functions for VAD events.
         
@@ -286,7 +468,7 @@ class RealTimeVADService:
     
     async def _process_single_chunk(self, chunk: torch.Tensor, timestamp: float) -> Dict[str, Any]:
         """
-        Process a single audio chunk with VAD.
+        Process a single audio chunk with enhanced VAD.
         
         Args:
             chunk: Audio chunk tensor
@@ -301,26 +483,62 @@ class RealTimeVADService:
                 # Use the VAD model to get speech probability
                 speech_prob = self.vad_model(chunk.unsqueeze(0), self.sampling_rate).item()
             
-            is_speech = speech_prob > self.config.speech_threshold
+            # ENHANCED: Calculate audio energy
+            chunk_numpy = chunk.numpy()
+            energy_level = self._calculate_audio_energy(chunk_numpy)
             
-            # Create audio chunk object
-            audio_chunk = AudioChunk(
-                data=chunk.numpy(),
-                timestamp=timestamp,
-                is_speech=is_speech,
-                probability=speech_prob
+            # Add energy to rolling window
+            self.energy_window.append(energy_level)
+            
+            # ENHANCED: Use sophisticated speech detection
+            current_time = time.time()
+            
+            # Calculate continuous speech/silence duration
+            if self.is_speaking:
+                self.continuous_speech_duration = (current_time - self.speech_start_time) * 1000
+                self.continuous_silence_duration = 0
+            else:
+                self.continuous_silence_duration = self.silence_counter * self.config.chunk_size_ms
+            
+            # Enhanced speech detection
+            is_speech = self._should_register_as_speech(
+                speech_prob, 
+                energy_level, 
+                self.continuous_speech_duration
             )
             
-            # Add to buffer
+            # Update ambient noise level
+            self._update_ambient_noise_level(energy_level, is_speech)
+            
+            # Create enhanced audio chunk object
+            audio_chunk = AudioChunk(
+                data=chunk_numpy,
+                timestamp=timestamp,
+                is_speech=is_speech,
+                probability=speech_prob,
+                energy_level=energy_level,
+                language_hint=self.current_language
+            )
+            
+            # Add to pre-speech buffer for capturing speech beginning
+            if self.config.pre_speech_buffer_ms > 0:
+                self.pre_speech_buffer.append(audio_chunk)
+            
+            # Add to main buffer
             self.audio_buffer.append(audio_chunk)
             
             # Update state and handle speech detection
-            state_change = await self._update_speech_state(audio_chunk)
+            state_change = await self._update_speech_state_enhanced(audio_chunk)
             
             return {
                 "timestamp": timestamp,
                 "is_speech": is_speech,
                 "probability": speech_prob,
+                "energy_level": energy_level,
+                "adaptive_threshold": self.adaptive_threshold,
+                "ambient_noise": self.ambient_noise_level,
+                "continuous_speech_ms": self.continuous_speech_duration,
+                "continuous_silence_ms": self.continuous_silence_duration,
                 "state_change": state_change,
                 "buffer_size": len(self.audio_buffer)
             }
@@ -331,10 +549,99 @@ class RealTimeVADService:
                 "timestamp": timestamp,
                 "is_speech": False,
                 "probability": 0.0,
+                "energy_level": 0.0,
                 "error": str(e)
             }
     
-    async def _update_speech_state(self, chunk: AudioChunk) -> Optional[str]:
+    async def _update_speech_state_enhanced(self, chunk: AudioChunk) -> Optional[str]:
+        """
+        Enhanced speech state update with better detection logic.
+        
+        Args:
+            chunk: Current audio chunk
+            
+        Returns:
+            State change description if any
+        """
+        state_change = None
+        
+        # Don't process new chunks if a turn is being processed
+        if self.turn_being_processed:
+            return None
+        
+        current_time = time.time()
+        
+        if chunk.is_speech:
+            # Speech detected
+            
+            # Add pre-speech buffer if this is start of speech
+            if not self.is_speaking and self.config.pre_speech_buffer_ms > 0:
+                # Add buffered chunks from before speech started
+                for buffered_chunk in self.pre_speech_buffer:
+                    if buffered_chunk not in self.speech_chunks:
+                        self.speech_chunks.append(buffered_chunk)
+            
+            self.speech_chunks.append(chunk)
+            self.silence_counter = 0
+            self.last_speech_time = chunk.timestamp
+            
+            if not self.is_speaking:
+                # Speech started
+                self.is_speaking = True
+                self.speech_start_time = current_time
+                self.continuous_speech_duration = 0
+                state_change = "speech_start"
+                
+                self.logger.debug(f"Speech started - threshold: {self.adaptive_threshold}, prob: {chunk.probability}, energy: {chunk.energy_level}")
+                
+                if self.on_speech_start:
+                    try:
+                        await self._safe_callback(self.on_speech_start)
+                    except Exception as e:
+                        self.logger.error(f"Error in speech_start callback: {e}")
+        else:
+            # No speech detected
+            self.silence_counter += 1
+            
+            if self.is_speaking:
+                # Check if silence threshold exceeded using enhanced logic
+                silence_duration_ms = self.silence_counter * self.config.chunk_size_ms
+                
+                if self._detect_speech_end(silence_duration_ms):
+                    # End of turn detected
+                    
+                    # Check minimum speech duration
+                    speech_duration = (current_time - self.speech_start_time) * 1000
+                    if speech_duration < self.config.min_speech_duration_ms:
+                        self.logger.debug(f"Speech too short ({speech_duration:.0f}ms < {self.config.min_speech_duration_ms}ms), ignoring")
+                        # Reset speech state but don't trigger turn complete
+                        self.is_speaking = False
+                        self.speech_chunks.clear()
+                        self.silence_counter = 0
+                        return "speech_cancelled"
+                    
+                    # Prevent rapid duplicate turn completions
+                    if current_time - self.last_turn_timestamp < 1.0:  # 1 second minimum between turns
+                        self.logger.warning(f"Turn completion too soon - ignoring (last: {self.last_turn_timestamp}, current: {current_time})")
+                        return None
+                    
+                    self.is_speaking = False
+                    self.turn_being_processed = True  # Mark turn as being processed
+                    self.last_turn_timestamp = current_time
+                    state_change = "turn_complete"
+                    
+                    self.logger.info(f"Turn complete detected - speech: {speech_duration:.0f}ms, silence: {silence_duration_ms}ms")
+                    
+                    # Process accumulated speech
+                    await self._handle_turn_complete()
+                    
+                    if self.on_speech_end:
+                        try:
+                            await self._safe_callback(self.on_speech_end)
+                        except Exception as e:
+                            self.logger.error(f"Error in speech_end callback: {e}")
+        
+        return state_change
         """
         Update speech state based on current chunk and trigger callbacks.
         
@@ -486,10 +793,10 @@ class RealTimeVADService:
     
     def get_current_state(self) -> Dict[str, Any]:
         """
-        Get current VAD state information.
+        Get current enhanced VAD state information.
         
         Returns:
-            Current state dictionary
+            Current state dictionary with enhanced information
         """
         return {
             "is_speaking": self.is_speaking,
@@ -498,13 +805,34 @@ class RealTimeVADService:
             "buffer_size": len(self.audio_buffer),
             "last_speech_time": self.last_speech_time,
             "model_loaded": self.model_loaded,
-            "turn_being_processed": self.turn_being_processed,  # NEW: Track processing state
-            "last_turn_timestamp": self.last_turn_timestamp,  # NEW: Track last turn time
+            "turn_being_processed": self.turn_being_processed,
+            "last_turn_timestamp": self.last_turn_timestamp,
+            
+            # ENHANCED: Adaptive features
+            "current_language": self.current_language,
+            "adaptive_threshold": self.adaptive_threshold,
+            "ambient_noise_level": self.ambient_noise_level,
+            "energy_threshold": self.energy_threshold,
+            "continuous_speech_duration_ms": self.continuous_speech_duration,
+            "continuous_silence_duration_ms": self.continuous_silence_duration,
+            "pre_speech_buffer_size": len(self.pre_speech_buffer),
+            
+            # Performance metrics
+            "average_energy": np.mean(list(self.energy_window)) if self.energy_window else 0.0,
+            "energy_window_size": len(self.energy_window),
+            "ambient_noise_samples": len(self.ambient_noise_samples),
+            
             "config": {
                 "chunk_size_ms": self.config.chunk_size_ms,
                 "silence_threshold_ms": self.config.silence_threshold_ms,
                 "sampling_rate": self.config.sampling_rate,
-                "speech_threshold": self.config.speech_threshold
+                "speech_threshold": self.config.speech_threshold,
+                "adaptive_threshold_enabled": self.config.adaptive_threshold,
+                "min_speech_duration_ms": self.config.min_speech_duration_ms,
+                "max_silence_duration_ms": self.config.max_silence_duration_ms,
+                "pre_speech_buffer_ms": self.config.pre_speech_buffer_ms,
+                "noise_adaptation_enabled": self.config.noise_adaptation,
+                "language_specific_thresholds": self.config.language_specific_thresholds
             }
         }
     
@@ -513,11 +841,19 @@ class RealTimeVADService:
         self._stop_processing = True
         self.speech_chunks.clear()
         self.audio_buffer.clear()
-        self.turn_being_processed = False  # Reset processing state
+        self.turn_being_processed = False
         self.silence_counter = 0
         self.is_speaking = False
         
-        self.logger.info("VAD service cleaned up")
+        # ENHANCED: Clean up additional state
+        self.pre_speech_buffer.clear()
+        self.energy_window.clear()
+        self.ambient_noise_samples.clear()
+        self.continuous_speech_duration = 0
+        self.continuous_silence_duration = 0
+        self.speech_start_time = 0
+        
+        self.logger.info("Enhanced VAD service cleaned up")
 
 
 # Singleton instance for global access

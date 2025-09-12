@@ -76,6 +76,9 @@ class SimpleVoiceService:
         # UPDATED: Reference to persistent Whisper engine from ModelManager
         self.persistent_whisper_engine = None
         
+        # Persistent model manager reference (for enhanced performance)
+        self.persistent_model_manager = None
+        
         # Voice mappings from voice registry
         self.voice_mappings = self._setup_voice_mappings_from_registry()
         
@@ -89,6 +92,16 @@ class SimpleVoiceService:
         self.audio_config = self.voice_config.get_audio_config()
         
         self.logger.info("SimpleVoiceService initialized with voice registry configuration")
+    
+    def set_persistent_model_manager(self, persistent_model_manager):
+        """
+        Set the persistent model manager for enhanced performance.
+        
+        Args:
+            persistent_model_manager: PersistentModelManager instance
+        """
+        self.persistent_model_manager = persistent_model_manager
+        self.logger.info("Persistent model manager connected to SimpleVoiceService")
     
     def _setup_voice_mappings_from_registry(self) -> Dict[str, VoiceMapping]:
         """Set up voice mappings from voice registry."""
@@ -157,23 +170,60 @@ class SimpleVoiceService:
         try:
             self.logger.info("Pre-loading voice processing models...")
             
-            # UPDATED: Use ModelManager for persistent Whisper model loading
-            from ....core.model_manager import ModelManager
-            model_manager = ModelManager()
-            
-            # Get persistent Whisper model from ModelManager
-            whisper_engine = model_manager.get_streaming_whisper()  # Uses voice registry default
-            if whisper_engine:
-                stt_config = self.voice_config.get_stt_model_config()
-                self.logger.info(f"✅ Persistent Whisper model loaded: {stt_config.model_id}")
+            # UPDATED: Try to use persistent model manager first for better performance
+            if self.persistent_model_manager:
+                self.logger.info("Using persistent model manager for optimized model access")
                 
-                # Store reference to the persistent engine
-                self.persistent_whisper_engine = whisper_engine
-            else:
-                self.logger.warning("Failed to load persistent Whisper model, will use factory fallback")
-                self.persistent_whisper_engine = None
+                # Get preloaded Whisper model from persistent manager
+                try:
+                    whisper_engine = await self.persistent_model_manager.get_whisper_model()
+                    if whisper_engine:
+                        self.persistent_whisper_engine = whisper_engine
+                        self.logger.info("✅ Using preloaded Whisper model from persistent manager")
+                    else:
+                        self.logger.warning("No preloaded Whisper model available from persistent manager")
+                except Exception as e:
+                    self.logger.warning(f"Failed to get Whisper model from persistent manager: {e}")
+                
+                # Get preloaded LLM from persistent manager
+                try:
+                    llm_engine = await self.persistent_model_manager.get_llm_model()
+                    if llm_engine and self.chat_service is None:
+                        # Use the preloaded LLM for chat service
+                        from beautyai_inference.services.inference.chat_service import ChatService
+                        self.chat_service = ChatService()
+                        
+                        # Set the preloaded model in chat service if supported
+                        if hasattr(self.chat_service, 'set_model_engine'):
+                            self.chat_service.set_model_engine(llm_engine)
+                            self.logger.info("✅ Using preloaded LLM from persistent manager")
+                        else:
+                            # Fallback to regular loading
+                            success = self.chat_service.load_default_model_from_config()
+                            if success:
+                                self.logger.info("✅ Loaded default chat model (fallback)")
+                except Exception as e:
+                    self.logger.warning(f"Failed to get LLM model from persistent manager: {e}")
             
-            # Pre-load chat service with fastest model for 24/7 service
+            # Fallback to ModelManager if persistent manager not available or failed
+            if self.persistent_whisper_engine is None:
+                self.logger.info("Falling back to ModelManager for Whisper model loading")
+                from ....core.model_manager import ModelManager
+                model_manager = ModelManager()
+                
+                # Get persistent Whisper model from ModelManager
+                whisper_engine = model_manager.get_streaming_whisper()  # Uses voice registry default
+                if whisper_engine:
+                    stt_config = self.voice_config.get_stt_model_config()
+                    self.logger.info(f"✅ Persistent Whisper model loaded: {stt_config.model_id}")
+                    
+                    # Store reference to the persistent engine
+                    self.persistent_whisper_engine = whisper_engine
+                else:
+                    self.logger.warning("Failed to load persistent Whisper model, will use factory fallback")
+                    self.persistent_whisper_engine = None
+            
+            # Pre-load chat service with fastest model for 24/7 service (if not already done)
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
@@ -305,7 +355,8 @@ class SimpleVoiceService:
         chat_model: str = "qwen-3",
         voice_id: Optional[str] = None,
         language: Optional[str] = None,
-        gender: str = "female"
+        gender: str = "female",
+        conversation_context: Optional[str] = None  # Add conversation context
     ) -> Dict[str, Any]:
         """
         Process voice message: transcribe audio -> generate response -> synthesize speech.
@@ -317,6 +368,7 @@ class SimpleVoiceService:
             voice_id: Specific voice ID to use (overrides auto-selection)
             language: Target language ('ar' or 'en'), auto-detected if None
             gender: Voice gender preference ('female' or 'male')
+            conversation_context: Previous conversation context for better responses
             
         Returns:
             Dictionary containing:
@@ -369,8 +421,12 @@ class SimpleVoiceService:
                 detected_language = language
                 self.logger.info(f"Using specified language: {detected_language}")
             
-            # Step 4: Generate AI response using chat model with language specification
-            response_text = await self._generate_chat_response(transcribed_text, target_language=detected_language)
+            # Step 4: Generate AI response using chat model with language specification and context
+            response_text = await self._generate_chat_response(
+                transcribed_text, 
+                target_language=detected_language,
+                conversation_context=conversation_context
+            )
             if response_text.startswith("عذراً") or response_text.startswith("Sorry"):
                 # Handle chat failure gracefully - provide language-appropriate default response
                 logger.warning("Chat generation failed, using fallback response")
@@ -508,13 +564,14 @@ class SimpleVoiceService:
         self.logger.debug(f"Cleaned thinking blocks from response: {len(text)} -> {len(cleaned_text)} chars")
         return cleaned_text
     
-    async def _generate_chat_response(self, text: str, target_language: str = "auto") -> str:
+    async def _generate_chat_response(self, text: str, target_language: str = "auto", conversation_context: Optional[str] = None) -> str:
         """
-        Generates chat response using the actual chat service.
+        Generates chat response using the actual chat service with conversation context.
         
         Args:
             text: User input text to respond to
             target_language: Target language for response ("ar", "en", or "auto")
+            conversation_context: Previous conversation context for better responses
             
         Returns:
             Generated response text
@@ -543,11 +600,18 @@ class SimpleVoiceService:
                             return "Sorry, I'm experiencing technical difficulties. Please try again."
             
             # Create optimized message for fast responses in simple voice mode
-            if target_language == "ar":
-                optimized_message = f"أجب بإيجاز بالعربية: {text}"
+            if conversation_context:
+                if target_language == "ar":
+                    optimized_message = f"السياق: {conversation_context}\n\nأجب بإيجاز بالعربية: {text}"
+                else:
+                    optimized_message = f"Context: {conversation_context}\n\nAnswer briefly in English: {text}"
             else:
-                optimized_message = f"Answer briefly in English: {text}"
-            logger.info(f"Optimized message: {optimized_message[:100]}... (target_language: {target_language})")
+                if target_language == "ar":
+                    optimized_message = f"أجب بإيجاز بالعربية: {text}"
+                else:
+                    optimized_message = f"Answer briefly in English: {text}"
+                    
+            logger.info(f"Optimized message with context: {optimized_message[:100]}... (target_language: {target_language})")
             
             # Use the real chat service directly (chat_fast removed) with low-latency parameters
             result = self.chat_service.chat(

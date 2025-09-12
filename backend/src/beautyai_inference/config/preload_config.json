@@ -1,0 +1,53 @@
+{
+  "preload_on_startup": true,
+  "models": {
+    "whisper": {
+      "model_id": "large-v3-turbo",
+      "device": "cuda",
+      "compute_type": "float16",
+      "priority": 1,
+      "engine_type": "faster_whisper",
+      "optimization_level": "gpu_speed",
+      "target_latency_ms": 500
+    },
+    "llm": {
+      "model_path": "qwen3-unsloth-q4ks",
+      "n_gpu_layers": -1,
+      "context_size": 4096,
+      "priority": 2,
+      "engine_type": "llama.cpp",
+      "quantization": "Q4_K_S",
+      "max_new_tokens": 200,
+      "optimization": "ultra_speed"
+    },
+    "tts": {
+      "model_id": "edge-tts",
+      "engine_type": "edge_tts",
+      "priority": 3,
+      "always_available": true
+    }
+  },
+  "memory_thresholds": {
+    "max_gpu_memory_mb": 20000,
+    "warning_threshold_mb": 16000,
+    "min_free_memory_mb": 4000
+  },
+  "performance_targets": {
+    "vad_detection_latency_ms": 50,
+    "transcription_latency_s": 2,
+    "llm_response_latency_s": 3,
+    "tts_generation_latency_s": 1,
+    "total_round_trip_latency_s": 7
+  },
+  "startup_sequence": {
+    "parallel_loading": true,
+    "timeout_per_model_s": 60,
+    "total_startup_timeout_s": 180,
+    "fallback_on_failure": true
+  },
+  "monitoring": {
+    "memory_check_interval_s": 30,
+    "model_health_check_interval_s": 60,
+    "performance_logging": true
+  }
+}
