@@ -14,15 +14,15 @@ DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 # Backend connection settings
 BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
-BACKEND_PROTOCOL = os.getenv("BACKEND_PROTOCOL", "http" if DEBUG else "https")
-BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "ws" if DEBUG else "wss")
+BACKEND_PROTOCOL = os.getenv("BACKEND_PROTOCOL", "http")
+BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "ws")
 
 # API configuration
 API_PREFIX = os.getenv("API_PREFIX", "/api/v1")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
 
 # WebSocket endpoints
-WEBSOCKET_SIMPLE_VOICE_PATH = "/ws/simple-voice"
+WEBSOCKET_SIMPLE_VOICE_PATH = "/api/v1/ws/streaming-voice"
 WEBSOCKET_STREAMING_VOICE_PATH = "/api/v1/ws/streaming-voice"
 
 # Dynamic backend URLs

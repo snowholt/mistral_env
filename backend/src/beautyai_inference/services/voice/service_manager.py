@@ -19,17 +19,18 @@ logger = logging.getLogger(__name__)
 
 class VoiceServiceManager:
     """
-    Manager for persistent voice service with 24/7 model availability.
+    Enhanced manager for persistent voice service with 24/7 model availability.
     
-    This service ensures all models are pre-loaded and kept warm on GPU:
-    - STT (Whisper): Pre-loaded for instant transcription
-    - LLM (Chat): Pre-loaded from default_config.json for instant responses
+    This service integrates with PersistentModelManager for optimal performance:
+    - STT (Whisper): Pre-loaded via PersistentModelManager for instant transcription
+    - LLM (Chat): Pre-loaded via PersistentModelManager for instant responses
     - TTS (Edge): Always available, no pre-loading needed
     """
     
     def __init__(self):
         self.logger = logging.getLogger(__name__)
         self.simple_voice_service = None
+        self.persistent_model_manager = None
         self.is_initialized = False
         self.initialization_time = None
         self.health_stats = {
@@ -40,16 +41,25 @@ class VoiceServiceManager:
         
     async def initialize_persistent_service(self) -> bool:
         """
-        Initialize all voice models for persistent 24/7 operation.
+        Initialize all voice models for persistent 24/7 operation using PersistentModelManager.
         
         Returns:
             bool: True if all models loaded successfully
         """
         try:
-            self.logger.info("🚀 Initializing BeautyAI Voice Service Manager for 24/7 operation")
+            self.logger.info("🚀 Initializing BeautyAI Voice Service Manager with PersistentModelManager")
             start_time = time.time()
             
-            # Initialize the SimpleVoiceService with pre-loading
+            # Initialize PersistentModelManager first
+            from beautyai_inference.core.persistent_model_manager import PersistentModelManager
+            self.persistent_model_manager = PersistentModelManager.get_instance()
+            
+            # Preload models if not already loaded
+            preload_success = await self.persistent_model_manager.preload_models()
+            if not preload_success:
+                self.logger.warning("⚠️ Some models failed to preload, continuing with fallback")
+            
+            # Initialize the SimpleVoiceService with persistent models
             from beautyai_inference.services.voice.conversation.simple_voice_service import SimpleVoiceService
             self.simple_voice_service = SimpleVoiceService()
             
@@ -76,7 +86,7 @@ class VoiceServiceManager:
     
     async def health_check(self) -> Dict[str, Any]:
         """
-        Perform comprehensive health check of all voice models.
+        Perform comprehensive health check of all voice models including PersistentModelManager.
         
         Returns:
             Dict containing health status of all components
@@ -86,50 +96,67 @@ class VoiceServiceManager:
             "uptime_seconds": time.time() - (self.initialization_time or time.time()),
             "all_models_ready": False,
             "models_status": {},
+            "persistent_models_status": {},
             "performance_metrics": {}
         }
         
         try:
-            if not self.is_initialized or not self.simple_voice_service:
+            if not self.is_initialized:
                 health_status["error"] = "Service not initialized"
                 return health_status
             
-            # Check STT Model
-            if hasattr(self.simple_voice_service, 'transcription_service') and self.simple_voice_service.transcription_service:
-                # Quick test transcription
-                test_start = time.time()
-                test_audio = b'\x00' * 1024  # Dummy audio data for testing
-                try:
-                    # This would fail with dummy data, but we can check if service is loaded
-                    health_status["models_status"]["STT"] = "loaded"
-                    health_status["performance_metrics"]["STT_load_time"] = 0.001
-                except:
-                    health_status["models_status"]["STT"] = "error"
+            # Check PersistentModelManager status
+            if self.persistent_model_manager:
+                persistent_status = await self.persistent_model_manager.get_model_status()
+                health_status["persistent_models_status"] = persistent_status
+                
+                # Check individual persistent models
+                whisper_model = await self.persistent_model_manager.get_whisper_model()
+                llm_model = await self.persistent_model_manager.get_llm_model()
+                
+                health_status["models_status"]["STT_Persistent"] = "loaded" if whisper_model else "not_loaded"
+                health_status["models_status"]["LLM_Persistent"] = "loaded" if llm_model else "not_loaded"
             else:
-                health_status["models_status"]["STT"] = "not_loaded"
+                health_status["persistent_models_status"] = {"error": "PersistentModelManager not initialized"}
             
-            # Check LLM Model
-            if hasattr(self.simple_voice_service, 'chat_service') and self.simple_voice_service.chat_service:
-                if self.simple_voice_service.chat_service._default_model_loaded:
-                    health_status["models_status"]["LLM"] = f"loaded ({self.simple_voice_service.chat_service._default_model_name})"
+            # Check legacy service models for fallback
+            if self.simple_voice_service:
+                # Check STT Model
+                if hasattr(self.simple_voice_service, 'transcription_service') and self.simple_voice_service.transcription_service:
+                    health_status["models_status"]["STT_Legacy"] = "loaded"
                 else:
-                    # Check if any model is loaded
-                    loaded_models = list(self.simple_voice_service.chat_service.model_manager._loaded_models.keys())
-                    if loaded_models:
-                        health_status["models_status"]["LLM"] = f"loaded ({loaded_models[0]})"
+                    health_status["models_status"]["STT_Legacy"] = "not_loaded"
+                
+                # Check LLM Model
+                if hasattr(self.simple_voice_service, 'chat_service') and self.simple_voice_service.chat_service:
+                    if self.simple_voice_service.chat_service._default_model_loaded:
+                        health_status["models_status"]["LLM_Legacy"] = f"loaded ({self.simple_voice_service.chat_service._default_model_name})"
                     else:
-                        health_status["models_status"]["LLM"] = "not_loaded"
-            else:
-                health_status["models_status"]["LLM"] = "not_loaded"
+                        # Check if any model is loaded
+                        loaded_models = list(self.simple_voice_service.chat_service.model_manager._loaded_models.keys())
+                        if loaded_models:
+                            health_status["models_status"]["LLM_Legacy"] = f"loaded ({loaded_models[0]})"
+                        else:
+                            health_status["models_status"]["LLM_Legacy"] = "not_loaded"
+                else:
+                    health_status["models_status"]["LLM_Legacy"] = "not_loaded"
             
             # Check TTS (Edge TTS is always available)
             health_status["models_status"]["TTS"] = "ready (Edge TTS)"
             
-            # Overall health
-            health_status["all_models_ready"] = all(
-                status not in ["not_loaded", "error"] 
-                for status in health_status["models_status"].values()
-            )
+            # Overall health - check if either persistent or legacy models are available
+            stt_ready = (health_status["models_status"].get("STT_Persistent") == "loaded" or 
+                        health_status["models_status"].get("STT_Legacy") == "loaded")
+            llm_ready = (health_status["models_status"].get("LLM_Persistent") == "loaded" or 
+                        "loaded" in health_status["models_status"].get("LLM_Legacy", ""))
+            tts_ready = health_status["models_status"].get("TTS") == "ready (Edge TTS)"
+            
+            health_status["all_models_ready"] = stt_ready and llm_ready and tts_ready
+            
+            # Add memory monitoring if available
+            if self.persistent_model_manager:
+                memory_stats = await self.persistent_model_manager.get_memory_stats()
+                health_status["memory_stats"] = memory_stats
             
             self.health_stats = health_status
             self.logger.info(f"🔍 Health check completed: {health_status['all_models_ready']}")
@@ -185,7 +212,7 @@ class VoiceServiceManager:
             }
     
     async def get_service_stats(self) -> Dict[str, Any]:
-        """Get comprehensive service statistics."""
+        """Get comprehensive service statistics including PersistentModelManager data."""
         stats = {
             "service_info": {
                 "initialized": self.is_initialized,
@@ -193,58 +220,111 @@ class VoiceServiceManager:
                 "uptime_seconds": time.time() - (self.initialization_time or time.time()) if self.initialization_time else 0
             },
             "latest_health_check": self.health_stats,
+            "persistent_model_stats": await self.get_persistent_model_stats(),
             "performance_profile": {
                 "persistent_models": True,
                 "gpu_optimized": True,
-                "production_ready": self.is_initialized and self.health_stats.get("all_models_ready", False)
+                "production_ready": self.is_initialized and self.health_stats.get("all_models_ready", False),
+                "uses_persistent_model_manager": self.persistent_model_manager is not None
             }
         }
         
         return stats
     
     async def restart_failed_models(self) -> bool:
-        """Restart any failed models while keeping the service running."""
+        """Restart any failed models while keeping the service running, using PersistentModelManager."""
         try:
             self.logger.info("🔄 Attempting to restart failed models...")
             
             health = await self.health_check()
+            restart_needed = False
             
-            # Restart STT if needed
-            if health["models_status"].get("STT") in ["not_loaded", "error"]:
-                self.logger.info("🔄 Restarting STT model...")
+            # Check and restart persistent models if needed
+            if self.persistent_model_manager:
+                persistent_status = health.get("persistent_models_status", {})
+                
+                # Restart Whisper if needed
+                if health["models_status"].get("STT_Persistent") in ["not_loaded", "error"]:
+                    self.logger.info("🔄 Restarting Whisper model via PersistentModelManager...")
+                    whisper_success = await self.persistent_model_manager.reload_whisper_model()
+                    if whisper_success:
+                        self.logger.info("✅ Whisper model restarted successfully")
+                    else:
+                        self.logger.warning("⚠️ Failed to restart Whisper model")
+                    restart_needed = True
+                
+                # Restart LLM if needed
+                if health["models_status"].get("LLM_Persistent") in ["not_loaded", "error"]:
+                    self.logger.info("🔄 Restarting LLM model via PersistentModelManager...")
+                    llm_success = await self.persistent_model_manager.reload_llm_model()
+                    if llm_success:
+                        self.logger.info("✅ LLM model restarted successfully")
+                    else:
+                        self.logger.warning("⚠️ Failed to restart LLM model")
+                    restart_needed = True
+            
+            # Restart legacy models if persistent models failed
+            if health["models_status"].get("STT_Legacy") in ["not_loaded", "error"]:
+                self.logger.info("🔄 Restarting STT legacy model...")
                 if hasattr(self.simple_voice_service, 'transcription_service'):
                     self.simple_voice_service.transcription_service = None
-                # This will trigger reload on next request
+                restart_needed = True
             
-            # Restart LLM if needed
-            if health["models_status"].get("LLM") in ["not_loaded", "error"]:
-                self.logger.info("🔄 Restarting LLM model...")
+            if health["models_status"].get("LLM_Legacy") in ["not_loaded", "error"]:
+                self.logger.info("🔄 Restarting LLM legacy model...")
                 if hasattr(self.simple_voice_service, 'chat_service') and self.simple_voice_service.chat_service:
                     success = await self.simple_voice_service.chat_service.load_default_model_from_config()
                     if not success:
                         self.logger.warning("Failed to restart default model, service will use fallbacks")
+                restart_needed = True
             
-            # Re-check health
-            new_health = await self.health_check()
-            return new_health["all_models_ready"]
+            # Re-check health if any restarts were needed
+            if restart_needed:
+                new_health = await self.health_check()
+                return new_health["all_models_ready"]
+            else:
+                self.logger.info("✅ No model restarts needed")
+                return True
             
         except Exception as e:
             self.logger.error(f"❌ Error restarting models: {e}")
             return False
     
     async def shutdown(self):
-        """Gracefully shutdown the service manager."""
+        """Gracefully shutdown the service manager including PersistentModelManager."""
         try:
             self.logger.info("🛑 Shutting down Voice Service Manager...")
             
+            # Shutdown simple voice service
             if self.simple_voice_service:
                 await self.simple_voice_service.cleanup()
+            
+            # Cleanup PersistentModelManager
+            if self.persistent_model_manager:
+                await self.persistent_model_manager.cleanup()
+                self.logger.info("✅ PersistentModelManager cleanup complete")
             
             self.is_initialized = False
             self.logger.info("✅ Voice Service Manager shutdown complete")
             
         except Exception as e:
             self.logger.error(f"❌ Error during shutdown: {e}")
+    
+    async def get_persistent_model_stats(self) -> Dict[str, Any]:
+        """Get statistics from PersistentModelManager."""
+        if not self.persistent_model_manager:
+            return {"error": "PersistentModelManager not initialized"}
+        
+        try:
+            return {
+                "model_status": await self.persistent_model_manager.get_model_status(),
+                "memory_stats": await self.persistent_model_manager.get_memory_stats(),
+                "preload_config": self.persistent_model_manager.preload_config,
+                "models_ready": await self.persistent_model_manager.are_models_ready()
+            }
+        except Exception as e:
+            self.logger.error(f"Error getting persistent model stats: {e}")
+            return {"error": str(e)}
 
 
 # Global service manager instance for production use

@@ -32,6 +32,15 @@ inference_router = APIRouter(prefix="/inference", tags=["inference"])
 chat_service = ChatService() 
 session_service = SessionService()
 
+# Try to initialize PersistentModelManager for shared LLM access
+try:
+    from ...core.persistent_model_manager import PersistentModelManager
+    persistent_model_manager = PersistentModelManager.get_instance()
+    logger.info("PersistentModelManager initialized for chat endpoint")
+except Exception as e:
+    persistent_model_manager = None
+    logger.warning(f"PersistentModelManager not available for chat: {e}")
+
 
 @inference_router.post("/chat", response_model=ChatResponse)
 async def chat_completion(
@@ -101,10 +110,36 @@ async def chat_completion(
     
     try:
         logger.info(f"Chat request received for model: {request.model_name}")
+        
+        # Check if we can use persistent LLM model for faster response
+        use_persistent_llm = False
+        persistent_llm_model = None
+        
+        if persistent_model_manager:
+            try:
+                # Check if PersistentModelManager has a compatible LLM loaded
+                persistent_llm_model = await persistent_model_manager.get_llm_model()
+                if persistent_llm_model:
+                    # Check if the requested model matches or can use the persistent model
+                    persistent_config = persistent_model_manager.preload_config
+                    if persistent_config and "llm" in persistent_config.get("models", {}):
+                        llm_config = persistent_config["models"]["llm"]
+                        persistent_model_path = llm_config.get("model_path", "")
+                        
+                        # If the request doesn't specify a model or matches the persistent model
+                        if (not request.model_name or 
+                            request.model_name.lower() in persistent_model_path.lower() or
+                            "qwen" in request.model_name.lower() and "qwen" in persistent_model_path.lower()):
+                            use_persistent_llm = True
+                            logger.info(f"Using persistent LLM model for faster response: {persistent_model_path}")
+            except Exception as e:
+                logger.warning(f"Could not access persistent LLM model: {e}")
+        
         # Import the inference adapter
         from ..adapters.inference_adapter import InferenceAPIAdapter
         
         # Create adapter instance with chat service dependency
+        # If using persistent LLM, we'll inject it via parameters
         inference_adapter = InferenceAPIAdapter(
             chat_service=chat_service
         )
@@ -115,6 +150,12 @@ async def chat_completion(
         
         # Build effective generation configuration
         effective_config = request.get_effective_generation_config()
+        
+        # Add persistent model optimization if available
+        if use_persistent_llm and persistent_llm_model:
+            effective_config['_use_persistent_model'] = True
+            effective_config['_persistent_model_instance'] = persistent_llm_model
+            logger.info("Enhanced chat request with persistent LLM model")
         
         # **FIX: Explicitly add thinking mode to generation config**
         effective_config['enable_thinking'] = thinking_enabled
@@ -700,3 +741,46 @@ async def delete_session(
     except Exception as e:
         logger.error(f"Failed to delete session: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to delete session: {str(e)}")
+
+
+@inference_router.get("/models/persistent", response_model=APIResponse)
+async def get_persistent_model_status(
+    auth: AuthContext = Depends(get_auth_context)
+):
+    """
+    Get status of PersistentModelManager for shared model usage.
+    
+    Returns information about persistent models available for chat and voice.
+    """
+    require_permissions(auth, ["model_status"])
+    
+    try:
+        if not persistent_model_manager:
+            return APIResponse(
+                success=True,
+                data={
+                    "persistent_manager_available": False,
+                    "message": "PersistentModelManager not initialized"
+                }
+            )
+        
+        # Get model status
+        model_status = await persistent_model_manager.get_model_status()
+        memory_stats = await persistent_model_manager.get_memory_stats()
+        models_ready = await persistent_model_manager.are_models_ready()
+        
+        return APIResponse(
+            success=True,
+            data={
+                "persistent_manager_available": True,
+                "models_ready": models_ready,
+                "model_status": model_status,
+                "memory_stats": memory_stats,
+                "preload_config": persistent_model_manager.preload_config,
+                "message": "PersistentModelManager status retrieved successfully"
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Failed to get persistent model status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get persistent model status: {str(e)}")

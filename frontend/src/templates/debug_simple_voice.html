@@ -1,0 +1,1200 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="light">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BeautyAI - Simple Voice Debug Interface</title>
+    <link rel="stylesheet" href="/static/css/base.css">
+    <link rel="stylesheet" href="/static/css/simple_voice.css">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <style>
+        /* Debug-specific styles */
+        .debug-container {
+            font-family: 'Inter', sans-serif;
+            background: var(--bg-color);
+            min-height: 100vh;
+        }
+        
+        .debug-header {
+            background: linear-gradient(135deg, #dc3545, #c82333);
+            color: white;
+            padding: 1rem 2rem;
+            border-bottom: 3px solid #a71e2a;
+        }
+        
+        .debug-nav {
+            display: flex;
+            gap: 1rem;
+            margin-top: 1rem;
+        }
+        
+        .debug-tab {
+            padding: 0.5rem 1rem;
+            background: rgba(255, 255, 255, 0.1);
+            border: none;
+            color: white;
+            border-radius: 0.25rem;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        
+        .debug-tab.active {
+            background: rgba(255, 255, 255, 0.2);
+        }
+        
+        .debug-content {
+            padding: 2rem;
+            max-width: 1400px;
+            margin: 0 auto;
+        }
+        
+        .debug-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        
+        .debug-panel {
+            background: var(--bg-secondary);
+            border-radius: var(--border-radius-lg);
+            padding: 1.5rem;
+            box-shadow: var(--shadow);
+        }
+        
+        .debug-panel h3 {
+            margin: 0 0 1rem 0;
+            font-weight: 600;
+            color: var(--primary-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .debug-metric {
+            display: flex;
+            justify-content: space-between;
+            padding: 0.5rem 0;
+            border-bottom: 1px solid var(--border-color);
+        }
+        
+        .debug-metric:last-child {
+            border-bottom: none;
+        }
+        
+        .debug-metric-label {
+            font-weight: 500;
+            color: var(--text-secondary);
+        }
+        
+        .debug-metric-value {
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 500;
+            color: var(--text-color);
+        }
+        
+        .debug-controls {
+            display: flex;
+            gap: 1rem;
+            margin-bottom: 1rem;
+            flex-wrap: wrap;
+        }
+        
+        .debug-btn {
+            padding: 0.5rem 1rem;
+            border: none;
+            border-radius: var(--border-radius);
+            cursor: pointer;
+            font-weight: 500;
+            transition: all 0.2s;
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+        
+        .debug-btn-primary {
+            background: var(--primary-color);
+            color: white;
+        }
+        
+        .debug-btn-secondary {
+            background: var(--secondary-color);
+            color: white;
+        }
+        
+        .debug-btn-danger {
+            background: var(--danger-color);
+            color: white;
+        }
+        
+        .debug-btn-success {
+            background: var(--success-color);
+            color: white;
+        }
+        
+        .debug-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: var(--shadow);
+        }
+        
+        .debug-log {
+            background: #1a1a1a;
+            color: #f8f8f2;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            padding: 1rem;
+            border-radius: var(--border-radius);
+            height: 300px;
+            overflow-y: auto;
+            white-space: pre-wrap;
+            word-break: break-all;
+        }
+        
+        .debug-input-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-bottom: 1rem;
+            align-items: center;
+        }
+        
+        .debug-input {
+            flex: 1;
+            padding: 0.5rem;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background: var(--bg-color);
+            color: var(--text-color);
+        }
+        
+        .debug-chart {
+            width: 100%;
+            height: 200px;
+            border: 1px solid var(--border-color);
+            border-radius: var(--border-radius);
+            background: var(--bg-color);
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .websocket-message {
+            padding: 0.5rem;
+            margin: 0.25rem 0;
+            border-radius: 0.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8rem;
+        }
+        
+        .websocket-message.sent {
+            background: rgba(0, 123, 255, 0.1);
+            border-left: 3px solid var(--primary-color);
+        }
+        
+        .websocket-message.received {
+            background: rgba(40, 167, 69, 0.1);
+            border-left: 3px solid var(--success-color);
+        }
+        
+        .websocket-message.error {
+            background: rgba(220, 53, 69, 0.1);
+            border-left: 3px solid var(--danger-color);
+        }
+        
+        .status-indicator {
+            display: inline-block;
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            margin-right: 0.5rem;
+        }
+        
+        .status-good {
+            background: var(--success-color);
+        }
+        
+        .status-warning {
+            background: var(--warning-color);
+        }
+        
+        .status-error {
+            background: var(--danger-color);
+        }
+        
+        .full-width {
+            grid-column: 1 / -1;
+        }
+        
+        @media (max-width: 768px) {
+            .debug-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .debug-controls {
+                flex-direction: column;
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="debug-container">
+        <!-- Debug Header -->
+        <header class="debug-header">
+            <div class="header-content">
+                <div class="logo-section">
+                    <h1><i class="fas fa-bug"></i> BeautyAI Voice Debug</h1>
+                    <p class="subtitle">Advanced Debugging and Performance Monitoring</p>
+                </div>
+                
+                <div class="debug-controls">
+                    <button id="back-to-voice" class="debug-btn debug-btn-secondary">
+                        <i class="fas fa-arrow-left"></i> Back to Voice
+                    </button>
+                    <button id="export-debug-data" class="debug-btn debug-btn-primary">
+                        <i class="fas fa-download"></i> Export Debug Data
+                    </button>
+                </div>
+            </div>
+            
+            <nav class="debug-nav">
+                <button class="debug-tab active" data-tab="overview">Overview</button>
+                <button class="debug-tab" data-tab="audio">Audio Analysis</button>
+                <button class="debug-tab" data-tab="websocket">WebSocket</button>
+                <button class="debug-tab" data-tab="performance">Performance</button>
+                <button class="debug-tab" data-tab="devices">Devices</button>
+                <button class="debug-tab" data-tab="logs">Logs</button>
+            </nav>
+        </header>
+
+        <!-- Debug Content -->
+        <main class="debug-content">
+            <!-- Overview Tab -->
+            <div id="overview-tab" class="tab-content active">
+                <div class="debug-grid">
+                    <!-- Connection Status -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-plug"></i> Connection Status</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">WebSocket State</span>
+                            <span class="debug-metric-value" id="ws-state">Disconnected</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Connection Time</span>
+                            <span class="debug-metric-value" id="connection-time">0ms</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Last Ping</span>
+                            <span class="debug-metric-value" id="last-ping">N/A</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Reconnect Attempts</span>
+                            <span class="debug-metric-value" id="reconnect-attempts">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Voice Status -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-microphone"></i> Voice Status</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">VAD State</span>
+                            <span class="debug-metric-value" id="vad-state-debug">Idle</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Recording State</span>
+                            <span class="debug-metric-value" id="recording-state">Stopped</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Audio Level</span>
+                            <span class="debug-metric-value" id="audio-level-debug">0%</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Language</span>
+                            <span class="debug-metric-value" id="current-language">English</span>
+                        </div>
+                    </div>
+
+                    <!-- System Info -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-info-circle"></i> System Information</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Browser</span>
+                            <span class="debug-metric-value" id="browser-info">Unknown</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Audio Context</span>
+                            <span class="debug-metric-value" id="audio-context-info">Not initialized</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Media Recorder</span>
+                            <span class="debug-metric-value" id="media-recorder-info">Not available</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">WebRTC Support</span>
+                            <span class="debug-metric-value" id="webrtc-support">Unknown</span>
+                        </div>
+                    </div>
+
+                    <!-- Quick Stats -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-chart-line"></i> Session Statistics</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Total Requests</span>
+                            <span class="debug-metric-value" id="total-requests">0</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Successful Responses</span>
+                            <span class="debug-metric-value" id="successful-responses">0</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Average Latency</span>
+                            <span class="debug-metric-value" id="avg-latency">0ms</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Error Rate</span>
+                            <span class="debug-metric-value" id="error-rate">0%</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quick Actions -->
+                <div class="debug-panel full-width">
+                    <h3><i class="fas fa-play"></i> Quick Actions</h3>
+                    <div class="debug-controls">
+                        <button id="test-connection" class="debug-btn debug-btn-primary">
+                            <i class="fas fa-satellite-dish"></i> Test Connection
+                        </button>
+                        <button id="test-audio" class="debug-btn debug-btn-primary">
+                            <i class="fas fa-volume-high"></i> Test Audio
+                        </button>
+                        <button id="clear-cache" class="debug-btn debug-btn-secondary">
+                            <i class="fas fa-trash"></i> Clear Cache
+                        </button>
+                        <button id="force-reconnect" class="debug-btn debug-btn-warning">
+                            <i class="fas fa-sync"></i> Force Reconnect
+                        </button>
+                        <button id="reset-session" class="debug-btn debug-btn-danger">
+                            <i class="fas fa-power-off"></i> Reset Session
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Audio Analysis Tab -->
+            <div id="audio-tab" class="tab-content">
+                <div class="debug-grid">
+                    <!-- Audio Visualization -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-wave-square"></i> Real-time Waveform</h3>
+                        <canvas id="debug-waveform" class="debug-chart"></canvas>
+                        <div class="debug-controls" style="margin-top: 1rem;">
+                            <button id="start-audio-test" class="debug-btn debug-btn-success">
+                                <i class="fas fa-play"></i> Start Test
+                            </button>
+                            <button id="stop-audio-test" class="debug-btn debug-btn-danger">
+                                <i class="fas fa-stop"></i> Stop Test
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- VAD Analysis -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-chart-area"></i> VAD Analysis</h3>
+                        <canvas id="vad-chart" class="debug-chart"></canvas>
+                        <div class="debug-input-group">
+                            <label>VAD Threshold:</label>
+                            <input type="range" id="vad-threshold-debug" min="0.1" max="1.0" step="0.05" value="0.5" class="debug-input">
+                            <span id="vad-threshold-value">0.5</span>
+                        </div>
+                    </div>
+
+                    <!-- Audio Settings -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-cog"></i> Audio Configuration</h3>
+                        <div class="debug-input-group">
+                            <label>Sample Rate:</label>
+                            <select id="sample-rate-debug" class="debug-input">
+                                <option value="16000">16kHz</option>
+                                <option value="22050">22.05kHz</option>
+                                <option value="44100">44.1kHz</option>
+                                <option value="48000">48kHz</option>
+                            </select>
+                        </div>
+                        <div class="debug-input-group">
+                            <label>Channels:</label>
+                            <select id="channels-debug" class="debug-input">
+                                <option value="1">Mono</option>
+                                <option value="2">Stereo</option>
+                            </select>
+                        </div>
+                        <div class="debug-input-group">
+                            <label>Echo Cancellation:</label>
+                            <input type="checkbox" id="echo-cancellation" checked>
+                        </div>
+                        <div class="debug-input-group">
+                            <label>Noise Suppression:</label>
+                            <input type="checkbox" id="noise-suppression" checked>
+                        </div>
+                    </div>
+
+                    <!-- Audio Metrics -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-tachometer-alt"></i> Audio Metrics</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">RMS Level</span>
+                            <span class="debug-metric-value" id="rms-level">0.000</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Peak Level</span>
+                            <span class="debug-metric-value" id="peak-level">0.000</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">dB Level</span>
+                            <span class="debug-metric-value" id="db-level">-∞ dB</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">VAD Confidence</span>
+                            <span class="debug-metric-value" id="vad-confidence">0%</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- WebSocket Tab -->
+            <div id="websocket-tab" class="tab-content">
+                <div class="debug-grid">
+                    <!-- WebSocket Controls -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-terminal"></i> WebSocket Controls</h3>
+                        <div class="debug-controls">
+                            <button id="ws-connect" class="debug-btn debug-btn-success">
+                                <i class="fas fa-plug"></i> Connect
+                            </button>
+                            <button id="ws-disconnect" class="debug-btn debug-btn-danger">
+                                <i class="fas fa-unlink"></i> Disconnect
+                            </button>
+                            <button id="ws-ping" class="debug-btn debug-btn-primary">
+                                <i class="fas fa-satellite-dish"></i> Ping
+                            </button>
+                            <button id="clear-ws-log" class="debug-btn debug-btn-secondary">
+                                <i class="fas fa-eraser"></i> Clear Log
+                            </button>
+                        </div>
+                        
+                        <div class="debug-input-group">
+                            <label>WebSocket URL:</label>
+                            <input type="text" id="ws-url-debug" class="debug-input" readonly>
+                        </div>
+                        
+                        <div class="debug-input-group">
+                            <label>Send Message:</label>
+                            <input type="text" id="ws-message-input" class="debug-input" placeholder="Enter JSON message">
+                            <button id="ws-send-message" class="debug-btn debug-btn-primary">Send</button>
+                        </div>
+                    </div>
+
+                    <!-- WebSocket Status -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-info"></i> WebSocket Status</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Ready State</span>
+                            <span class="debug-metric-value" id="ws-ready-state">CLOSED</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Protocol</span>
+                            <span class="debug-metric-value" id="ws-protocol">N/A</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Messages Sent</span>
+                            <span class="debug-metric-value" id="ws-messages-sent">0</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Messages Received</span>
+                            <span class="debug-metric-value" id="ws-messages-received">0</span>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- WebSocket Log -->
+                <div class="debug-panel full-width">
+                    <h3><i class="fas fa-list"></i> WebSocket Message Log</h3>
+                    <div id="ws-log" class="debug-log"></div>
+                </div>
+            </div>
+
+            <!-- Performance Tab -->
+            <div id="performance-tab" class="tab-content">
+                <div class="debug-grid">
+                    <!-- Performance Chart -->
+                    <div class="debug-panel full-width">
+                        <h3><i class="fas fa-chart-line"></i> Performance Over Time</h3>
+                        <canvas id="performance-chart" style="width: 100%; height: 300px;"></canvas>
+                    </div>
+
+                    <!-- Latency Metrics -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-stopwatch"></i> Latency Metrics</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Connection Latency</span>
+                            <span class="debug-metric-value" id="connection-latency">0ms</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Audio Processing</span>
+                            <span class="debug-metric-value" id="audio-processing-time">0ms</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Transcription Time</span>
+                            <span class="debug-metric-value" id="transcription-time">0ms</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Response Time</span>
+                            <span class="debug-metric-value" id="response-time">0ms</span>
+                        </div>
+                    </div>
+
+                    <!-- Memory Usage -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-memory"></i> Memory Usage</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Used JS Heap</span>
+                            <span class="debug-metric-value" id="js-heap-used">0 MB</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Total JS Heap</span>
+                            <span class="debug-metric-value" id="js-heap-total">0 MB</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">JS Heap Limit</span>
+                            <span class="debug-metric-value" id="js-heap-limit">0 MB</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">DOM Nodes</span>
+                            <span class="debug-metric-value" id="dom-nodes">0</span>
+                        </div>
+                    </div>
+
+                    <!-- Network Stats -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-wifi"></i> Network Statistics</h3>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Connection Type</span>
+                            <span class="debug-metric-value" id="connection-type">Unknown</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Effective Type</span>
+                            <span class="debug-metric-value" id="effective-type">Unknown</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">Downlink</span>
+                            <span class="debug-metric-value" id="downlink">Unknown</span>
+                        </div>
+                        <div class="debug-metric">
+                            <span class="debug-metric-label">RTT</span>
+                            <span class="debug-metric-value" id="rtt">Unknown</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Devices Tab -->
+            <div id="devices-tab" class="tab-content">
+                <div class="debug-grid">
+                    <!-- Audio Input Devices -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-microphone"></i> Audio Input Devices</h3>
+                        <div id="audio-input-devices">
+                            <p>Loading devices...</p>
+                        </div>
+                        <div class="debug-controls">
+                            <button id="refresh-devices" class="debug-btn debug-btn-primary">
+                                <i class="fas fa-sync"></i> Refresh
+                            </button>
+                            <button id="test-input-device" class="debug-btn debug-btn-success">
+                                <i class="fas fa-test-tube"></i> Test Selected
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Audio Output Devices -->
+                    <div class="debug-panel">
+                        <h3><i class="fas fa-volume-high"></i> Audio Output Devices</h3>
+                        <div id="audio-output-devices">
+                            <p>Loading devices...</p>
+                        </div>
+                        <div class="debug-controls">
+                            <button id="test-output-device" class="debug-btn debug-btn-success">
+                                <i class="fas fa-play"></i> Test Playback
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Device Test Results -->
+                    <div class="debug-panel full-width">
+                        <h3><i class="fas fa-test-tube"></i> Device Test Results</h3>
+                        <div id="device-test-log" class="debug-log"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Logs Tab -->
+            <div id="logs-tab" class="tab-content">
+                <div class="debug-grid">
+                    <!-- Log Controls -->
+                    <div class="debug-panel full-width">
+                        <h3><i class="fas fa-file-alt"></i> Debug Logs</h3>
+                        <div class="debug-controls">
+                            <button id="clear-logs" class="debug-btn debug-btn-secondary">
+                                <i class="fas fa-eraser"></i> Clear Logs
+                            </button>
+                            <button id="export-logs" class="debug-btn debug-btn-primary">
+                                <i class="fas fa-download"></i> Export Logs
+                            </button>
+                            <select id="log-level" class="debug-input">
+                                <option value="all">All Levels</option>
+                                <option value="error">Errors Only</option>
+                                <option value="warn">Warnings & Errors</option>
+                                <option value="info">Info & Above</option>
+                                <option value="debug">Debug & Above</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <!-- Debug Log Display -->
+                    <div class="debug-panel full-width">
+                        <div id="debug-logs" class="debug-log"></div>
+                    </div>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <!-- Audio Element for Testing -->
+    <audio id="test-audio" preload="none" style="display: none;"></audio>
+
+    <!-- Configuration Data -->
+    <script id="beautyai-config" type="application/json">{{ config|tojson|safe }}</script>
+    <script id="beautyai-session" type="application/json">{{ session_id|tojson|safe }}</script>
+    
+    <!-- Scripts -->
+    <script type="text/javascript">
+        // Load configuration from JSON scripts
+        window.BEAUTYAI_CONFIG = JSON.parse(document.getElementById('beautyai-config').textContent);
+        window.SESSION_ID = JSON.parse(document.getElementById('beautyai-session').textContent);
+        window.DEBUG_MODE = true;
+    </script>
+    <script src="/static/js/audioUtils.js"></script>
+    <script src="/static/js/improvedVAD.js"></script>
+    <script src="/static/js/simpleVoiceClient.js"></script>
+    
+    <script>
+        // Debug interface controller
+        class DebugInterface {
+            constructor() {
+                this.voiceClient = null;
+                this.updateInterval = null;
+                this.logBuffer = [];
+                this.maxLogEntries = 1000;
+                
+                this.init();
+            }
+            
+            async init() {
+                // Initialize tab switching
+                this.setupTabs();
+                
+                // Initialize debug client
+                await this.initializeVoiceClient();
+                
+                // Start monitoring
+                this.startMonitoring();
+                
+                // Setup event listeners
+                this.setupEventListeners();
+                
+                // Load initial data
+                this.loadSystemInfo();
+                this.loadDeviceInfo();
+            }
+            
+            setupTabs() {
+                const tabs = document.querySelectorAll('.debug-tab');
+                const contents = document.querySelectorAll('.tab-content');
+                
+                tabs.forEach(tab => {
+                    tab.addEventListener('click', () => {
+                        const targetTab = tab.dataset.tab;
+                        
+                        // Update tab states
+                        tabs.forEach(t => t.classList.remove('active'));
+                        tab.classList.add('active');
+                        
+                        // Update content visibility
+                        contents.forEach(content => {
+                            content.classList.remove('active');
+                            if (content.id === targetTab + '-tab') {
+                                content.classList.add('active');
+                            }
+                        });
+                    });
+                });
+            }
+            
+            async initializeVoiceClient() {
+                try {
+                    this.voiceClient = new SimpleVoiceClient({
+                        containerId: 'debug-container',
+                        websocketUrl: window.BEAUTYAI_CONFIG.backend.simple_voice_ws,
+                        sessionId: window.SESSION_ID
+                    });
+                    
+                    // Override some methods for debugging
+                    this.interceptVoiceClientMethods();
+                    
+                    await this.voiceClient.initialize();
+                    
+                    this.log('info', 'Voice client initialized successfully');
+                    
+                } catch (error) {
+                    this.log('error', 'Failed to initialize voice client: ' + error.message);
+                }
+            }
+            
+            interceptVoiceClientMethods() {
+                // Intercept WebSocket messages for logging
+                const originalHandleMessage = this.voiceClient.handleWebSocketMessage.bind(this.voiceClient);
+                this.voiceClient.handleWebSocketMessage = (event) => {
+                    this.logWebSocketMessage('received', event.data);
+                    return originalHandleMessage(event);
+                };
+                
+                // Intercept WebSocket send for logging
+                if (this.voiceClient.websocket) {
+                    const originalSend = this.voiceClient.websocket.send.bind(this.voiceClient.websocket);
+                    this.voiceClient.websocket.send = (data) => {
+                        this.logWebSocketMessage('sent', data);
+                        return originalSend(data);
+                    };
+                }
+            }
+            
+            setupEventListeners() {
+                // Navigation
+                document.getElementById('back-to-voice').addEventListener('click', () => {
+                    window.location.href = '/voice';
+                });
+                
+                // Quick actions
+                document.getElementById('test-connection').addEventListener('click', () => this.testConnection());
+                document.getElementById('test-audio').addEventListener('click', () => this.testAudio());
+                document.getElementById('clear-cache').addEventListener('click', () => this.clearCache());
+                document.getElementById('force-reconnect').addEventListener('click', () => this.forceReconnect());
+                document.getElementById('reset-session').addEventListener('click', () => this.resetSession());
+                
+                // Export actions
+                document.getElementById('export-debug-data').addEventListener('click', () => this.exportDebugData());
+                document.getElementById('export-logs').addEventListener('click', () => this.exportLogs());
+                
+                // More event listeners for other controls...
+                this.setupAudioEventListeners();
+                this.setupWebSocketEventListeners();
+                this.setupDeviceEventListeners();
+            }
+            
+            setupAudioEventListeners() {
+                // Audio testing controls
+                document.getElementById('start-audio-test').addEventListener('click', () => this.startAudioTest());
+                document.getElementById('stop-audio-test').addEventListener('click', () => this.stopAudioTest());
+                
+                // VAD threshold control
+                const vadThreshold = document.getElementById('vad-threshold-debug');
+                vadThreshold.addEventListener('input', (e) => {
+                    const value = parseFloat(e.target.value);
+                    document.getElementById('vad-threshold-value').textContent = value.toFixed(2);
+                    if (this.voiceClient && this.voiceClient.vad) {
+                        this.voiceClient.vad.setSensitivity(value);
+                    }
+                });
+            }
+            
+            setupWebSocketEventListeners() {
+                // WebSocket controls
+                document.getElementById('ws-connect').addEventListener('click', () => this.connectWebSocket());
+                document.getElementById('ws-disconnect').addEventListener('click', () => this.disconnectWebSocket());
+                document.getElementById('ws-ping').addEventListener('click', () => this.pingWebSocket());
+                document.getElementById('clear-ws-log').addEventListener('click', () => this.clearWebSocketLog());
+                
+                // Send custom message
+                document.getElementById('ws-send-message').addEventListener('click', () => this.sendCustomMessage());
+            }
+            
+            setupDeviceEventListeners() {
+                document.getElementById('refresh-devices').addEventListener('click', () => this.loadDeviceInfo());
+                document.getElementById('test-input-device').addEventListener('click', () => this.testInputDevice());
+                document.getElementById('test-output-device').addEventListener('click', () => this.testOutputDevice());
+            }
+            
+            startMonitoring() {
+                this.updateInterval = setInterval(() => {
+                    this.updateMetrics();
+                }, 1000);
+            }
+            
+            updateMetrics() {
+                // Update connection status
+                if (this.voiceClient) {
+                    this.updateConnectionMetrics();
+                    this.updateVoiceMetrics();
+                    this.updatePerformanceMetrics();
+                }
+                
+                // Update system metrics
+                this.updateSystemMetrics();
+            }
+            
+            updateConnectionMetrics() {
+                const ws = this.voiceClient.websocket;
+                if (ws) {
+                    document.getElementById('ws-state').textContent = this.getWebSocketState(ws.readyState);
+                    document.getElementById('ws-ready-state').textContent = this.getWebSocketState(ws.readyState);
+                }
+                
+                // Update other connection metrics...
+            }
+            
+            updateVoiceMetrics() {
+                if (this.voiceClient.vad) {
+                    const vadState = this.voiceClient.vad.getState();
+                    document.getElementById('vad-state-debug').textContent = vadState.isSpeaking ? 'Speaking' : 'Listening';
+                    document.getElementById('audio-level-debug').textContent = Math.round(vadState.currentEnergy * 100) + '%';
+                }
+                
+                document.getElementById('recording-state').textContent = this.voiceClient.state.recording ? 'Recording' : 'Stopped';
+                document.getElementById('current-language').textContent = this.voiceClient.state.currentLanguage;
+            }
+            
+            updatePerformanceMetrics() {
+                // Update performance metrics
+                const metrics = this.voiceClient.metrics;
+                document.getElementById('total-requests').textContent = metrics.totalRequests;
+                document.getElementById('successful-responses').textContent = metrics.successfulRequests;
+                document.getElementById('avg-latency').textContent = Math.round(metrics.averageLatency) + 'ms';
+                
+                const errorRate = metrics.totalRequests > 0 ? 
+                    Math.round((1 - metrics.successfulRequests / metrics.totalRequests) * 100) : 0;
+                document.getElementById('error-rate').textContent = errorRate + '%';
+            }
+            
+            updateSystemMetrics() {
+                // Memory usage
+                if (performance.memory) {
+                    document.getElementById('js-heap-used').textContent = 
+                        (performance.memory.usedJSHeapSize / 1024 / 1024).toFixed(1) + ' MB';
+                    document.getElementById('js-heap-total').textContent = 
+                        (performance.memory.totalJSHeapSize / 1024 / 1024).toFixed(1) + ' MB';
+                    document.getElementById('js-heap-limit').textContent = 
+                        (performance.memory.jsHeapSizeLimit / 1024 / 1024).toFixed(1) + ' MB';
+                }
+                
+                // DOM nodes
+                document.getElementById('dom-nodes').textContent = 
+                    document.querySelectorAll('*').length;
+                
+                // Network information
+                if (navigator.connection) {
+                    const conn = navigator.connection;
+                    document.getElementById('connection-type').textContent = conn.type || 'Unknown';
+                    document.getElementById('effective-type').textContent = conn.effectiveType || 'Unknown';
+                    document.getElementById('downlink').textContent = conn.downlink ? conn.downlink + ' Mbps' : 'Unknown';
+                    document.getElementById('rtt').textContent = conn.rtt ? conn.rtt + ' ms' : 'Unknown';
+                }
+            }
+            
+            loadSystemInfo() {
+                // Browser info
+                const browserInfo = navigator.userAgent;
+                document.getElementById('browser-info').textContent = this.getBrowserName();
+                
+                // Audio context info
+                if (window.AudioContext || window.webkitAudioContext) {
+                    document.getElementById('audio-context-info').textContent = 'Supported';
+                } else {
+                    document.getElementById('audio-context-info').textContent = 'Not supported';
+                }
+                
+                // Media recorder info
+                if (window.MediaRecorder) {
+                    document.getElementById('media-recorder-info').textContent = 'Supported';
+                } else {
+                    document.getElementById('media-recorder-info').textContent = 'Not supported';
+                }
+                
+                // WebRTC support
+                if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+                    document.getElementById('webrtc-support').textContent = 'Supported';
+                } else {
+                    document.getElementById('webrtc-support').textContent = 'Not supported';
+                }
+                
+                // Set WebSocket URL
+                document.getElementById('ws-url-debug').value = window.BEAUTYAI_CONFIG.backend.simple_voice_ws;
+            }
+            
+            async loadDeviceInfo() {
+                try {
+                    const devices = await AudioUtils.getAudioDevices();
+                    
+                    // Display input devices
+                    const inputContainer = document.getElementById('audio-input-devices');
+                    inputContainer.innerHTML = '';
+                    
+                    if (devices.audioInputs.length === 0) {
+                        inputContainer.innerHTML = '<p>No audio input devices found</p>';
+                    } else {
+                        devices.audioInputs.forEach(device => {
+                            const div = document.createElement('div');
+                            div.innerHTML = `
+                                <label>
+                                    <input type="radio" name="input-device" value="${device.deviceId}">
+                                    ${device.label || 'Unknown Device'}
+                                </label>
+                            `;
+                            inputContainer.appendChild(div);
+                        });
+                    }
+                    
+                    // Display output devices
+                    const outputContainer = document.getElementById('audio-output-devices');
+                    outputContainer.innerHTML = '';
+                    
+                    if (devices.audioOutputs.length === 0) {
+                        outputContainer.innerHTML = '<p>No audio output devices found</p>';
+                    } else {
+                        devices.audioOutputs.forEach(device => {
+                            const div = document.createElement('div');
+                            div.innerHTML = `
+                                <label>
+                                    <input type="radio" name="output-device" value="${device.deviceId}">
+                                    ${device.label || 'Unknown Device'}
+                                </label>
+                            `;
+                            outputContainer.appendChild(div);
+                        });
+                    }
+                    
+                } catch (error) {
+                    this.log('error', 'Failed to load device info: ' + error.message);
+                }
+            }
+            
+            // Utility methods
+            getBrowserName() {
+                const ua = navigator.userAgent;
+                if (ua.includes('Chrome')) return 'Chrome';
+                if (ua.includes('Firefox')) return 'Firefox';
+                if (ua.includes('Safari')) return 'Safari';
+                if (ua.includes('Edge')) return 'Edge';
+                return 'Unknown';
+            }
+            
+            getWebSocketState(readyState) {
+                const states = ['CONNECTING', 'OPEN', 'CLOSING', 'CLOSED'];
+                return states[readyState] || 'UNKNOWN';
+            }
+            
+            log(level, message) {
+                const timestamp = new Date().toISOString();
+                const logEntry = {
+                    timestamp,
+                    level,
+                    message
+                };
+                
+                this.logBuffer.push(logEntry);
+                
+                // Limit buffer size
+                if (this.logBuffer.length > this.maxLogEntries) {
+                    this.logBuffer.shift();
+                }
+                
+                // Update log display
+                this.updateLogDisplay();
+                
+                // Console log
+                console[level](message);
+            }
+            
+            logWebSocketMessage(direction, data) {
+                const logContainer = document.getElementById('ws-log');
+                const messageDiv = document.createElement('div');
+                messageDiv.className = `websocket-message ${direction}`;
+                
+                const timestamp = new Date().toLocaleTimeString();
+                let formattedData = data;
+                
+                try {
+                    if (typeof data === 'string') {
+                        const parsed = JSON.parse(data);
+                        formattedData = JSON.stringify(parsed, null, 2);
+                    }
+                } catch (e) {
+                    // Not JSON, keep as is
+                }
+                
+                messageDiv.innerHTML = `
+                    <div style="font-weight: bold; margin-bottom: 0.25rem;">
+                        ${direction.toUpperCase()} - ${timestamp}
+                    </div>
+                    <pre style="margin: 0; white-space: pre-wrap;">${formattedData}</pre>
+                `;
+                
+                logContainer.appendChild(messageDiv);
+                logContainer.scrollTop = logContainer.scrollHeight;
+                
+                // Update counters
+                if (direction === 'sent') {
+                    const counter = document.getElementById('ws-messages-sent');
+                    counter.textContent = parseInt(counter.textContent) + 1;
+                } else {
+                    const counter = document.getElementById('ws-messages-received');
+                    counter.textContent = parseInt(counter.textContent) + 1;
+                }
+            }
+            
+            updateLogDisplay() {
+                const logContainer = document.getElementById('debug-logs');
+                const levelFilter = document.getElementById('log-level').value;
+                
+                let filteredLogs = this.logBuffer;
+                if (levelFilter !== 'all') {
+                    const levels = ['error', 'warn', 'info', 'debug'];
+                    const minLevel = levels.indexOf(levelFilter);
+                    filteredLogs = this.logBuffer.filter(log => 
+                        levels.indexOf(log.level) <= minLevel
+                    );
+                }
+                
+                logContainer.innerHTML = filteredLogs
+                    .slice(-100) // Show last 100 entries
+                    .map(log => `[${log.timestamp}] ${log.level.toUpperCase()}: ${log.message}`)
+                    .join('\n');
+                    
+                logContainer.scrollTop = logContainer.scrollHeight;
+            }
+            
+            // Test methods
+            async testConnection() {
+                this.log('info', 'Testing connection...');
+                try {
+                    if (this.voiceClient) {
+                        await this.voiceClient.connect();
+                        this.log('info', 'Connection test successful');
+                    }
+                } catch (error) {
+                    this.log('error', 'Connection test failed: ' + error.message);
+                }
+            }
+            
+            async testAudio() {
+                this.log('info', 'Testing audio...');
+                try {
+                    const result = await AudioUtils.testAudioIO();
+                    if (result.success) {
+                        this.log('info', 'Audio test successful');
+                    } else {
+                        this.log('error', 'Audio test failed: ' + result.error);
+                    }
+                } catch (error) {
+                    this.log('error', 'Audio test failed: ' + error.message);
+                }
+            }
+            
+            clearCache() {
+                this.log('info', 'Clearing cache...');
+                localStorage.clear();
+                sessionStorage.clear();
+                this.log('info', 'Cache cleared');
+            }
+            
+            forceReconnect() {
+                this.log('info', 'Forcing reconnection...');
+                if (this.voiceClient && this.voiceClient.websocket) {
+                    this.voiceClient.websocket.close();
+                    setTimeout(() => {
+                        this.voiceClient.connect();
+                    }, 1000);
+                }
+            }
+            
+            resetSession() {
+                this.log('info', 'Resetting session...');
+                if (this.voiceClient) {
+                    this.voiceClient.cleanup();
+                }
+                location.reload();
+            }
+            
+            exportDebugData() {
+                const data = {
+                    timestamp: new Date().toISOString(),
+                    sessionId: window.SESSION_ID,
+                    metrics: this.voiceClient ? this.voiceClient.metrics : {},
+                    logs: this.logBuffer,
+                    systemInfo: {
+                        userAgent: navigator.userAgent,
+                        memory: performance.memory ? {
+                            used: performance.memory.usedJSHeapSize,
+                            total: performance.memory.totalJSHeapSize,
+                            limit: performance.memory.jsHeapSizeLimit
+                        } : null,
+                        connection: navigator.connection ? {
+                            type: navigator.connection.type,
+                            effectiveType: navigator.connection.effectiveType,
+                            downlink: navigator.connection.downlink,
+                            rtt: navigator.connection.rtt
+                        } : null
+                    }
+                };
+                
+                const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `debug_data_${Date.now()}.json`;
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.log('info', 'Debug data exported');
+            }
+            
+            exportLogs() {
+                const logs = this.logBuffer
+                    .map(log => `[${log.timestamp}] ${log.level.toUpperCase()}: ${log.message}`)
+                    .join('\n');
+                
+                const blob = new Blob([logs], { type: 'text/plain' });
+                const url = URL.createObjectURL(blob);
+                
+                const a = document.createElement('a');
+                a.href = url;
+                a.download = `debug_logs_${Date.now()}.txt`;
+                a.click();
+                
+                URL.revokeObjectURL(url);
+                this.log('info', 'Logs exported');
+            }
+        }
+        
+        // Initialize debug interface when DOM is ready
+        document.addEventListener('DOMContentLoaded', function() {
+            window.debugInterface = new DebugInterface();
+        });
+    </script>
+</body>
+</html>
