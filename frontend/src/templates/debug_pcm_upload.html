@@ -2,480 +2,435 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
-  <title>Offline File → Streaming WS Debug</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_streaming.css') }}">
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_pcm_enhanced.css') }}">
+    <title>BeautyAI Debug - Simple WebSocket Tester</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- Debug Interface Styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_simple_websocket.css') }}">
 </head>
 <body>
-  <h1>Offline Audio File Streaming WebSocket Debug</h1>
-  <div class="note-banner">
-    Provide an audio file (wav / pcm / most browser-decodable formats). The file will be decoded, downsampled to 16 kHz Int16, then streamed frame-by-frame to the <code>/api/v1/ws/streaming-voice</code> endpoint to simulate a live session.<br>
-    New: Optional live microphone streaming (client-side downsample to 16 kHz Int16 via AudioWorklet) available in Streaming mode. Use responsibly; this is a debugging tool.
+  <div class="debug-container">
+    <header class="debug-header">
+      <h1><i class="fas fa-microphone-lines"></i> Simple WebSocket Voice Debug Tool</h1>
+      <div class="subtitle">Test STT → LLM → TTS pipeline without microphone using file upload</div>
+    </header>
+    
+    <div class="note-banner">
+      <i class="fas fa-info-circle"></i>
+      <div>
+        <strong>Debug the Simple WebSocket Voice Pipeline:</strong><br>
+        Upload audio files (WebM, WAV, MP3, PCM) to test the complete STT → LLM → TTS pipeline via 
+        <code>/api/ws/simple-voice-chat</code> endpoint with debug mode enabled. 
+        Monitor each stage with detailed metrics and logs.
+      </div>
+    </div>
+
+    <!-- Configuration Panel -->
+    <section class="debug-panel config-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-cogs"></i> Configuration</h2>
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span class="status-text" id="statusText">Disconnected</span>
+        </div>
+      </div>
+      
+      <div class="config-grid">
+        <!-- Audio File Upload -->
+        <div class="config-group">
+          <label class="config-label">
+            <i class="fas fa-file-audio"></i> Audio File
+          </label>
+          <div class="file-upload-area" id="fileUploadArea">
+            <input type="file" id="audioFile" accept="audio/*,.pcm" hidden>
+            <div class="file-upload-content">
+              <i class="fas fa-cloud-upload-alt"></i>
+              <div class="file-upload-text">
+                <span id="fileLabel">Click to select audio file</span>
+                <div class="file-upload-hint">Supports WebM, WAV, MP3, PCM</div>
+              </div>
+            </div>
+          </div>
+          <div class="file-info" id="fileInfo" style="display: none;">
+            <span id="fileName"></span>
+            <span id="fileSize"></span>
+          </div>
+        </div>
+
+        <!-- Language Selection -->
+        <div class="config-group">
+          <label class="config-label">
+            <i class="fas fa-language"></i> Language
+          </label>
+          <select id="languageSelect" class="config-select">
+            <option value="ar" selected>Arabic (العربية)</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+
+        <!-- Voice Type -->
+        <div class="config-group">
+          <label class="config-label">
+            <i class="fas fa-user"></i> Voice Type
+          </label>
+          <select id="voiceTypeSelect" class="config-select">
+            <option value="female" selected>Female</option>
+            <option value="male">Male</option>
+          </select>
+        </div>
+
+        <!-- Debug Mode -->
+        <div class="config-group">
+          <label class="config-label">
+            <i class="fas fa-bug"></i> Debug Mode
+          </label>
+          <div class="toggle-switch">
+            <input type="checkbox" id="debugModeToggle" checked>
+            <label for="debugModeToggle" class="toggle-label"></label>
+          </div>
+        </div>
+
+        <!-- WebSocket URL -->
+        <div class="config-group full-width">
+          <label class="config-label">
+            <i class="fas fa-plug"></i> WebSocket URL
+          </label>
+          <input type="text" id="websocketUrl" class="config-input" readonly>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-buttons">
+        <button id="connectBtn" class="btn btn-primary">
+          <i class="fas fa-plug"></i> Connect
+        </button>
+        <button id="disconnectBtn" class="btn btn-secondary" disabled>
+          <i class="fas fa-plug"></i> Disconnect
+        </button>
+        <button id="sendAudioBtn" class="btn btn-success" disabled>
+          <i class="fas fa-paper-plane"></i> Send Audio
+        </button>
+        <button id="clearLogsBtn" class="btn btn-outline">
+          <i class="fas fa-trash"></i> Clear Logs
+        </button>
+      </div>
+    </section>
+
+    <!-- Pipeline Status Panel -->
+    <section class="debug-panel pipeline-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-sitemap"></i> Pipeline Status</h2>
+        <div class="performance-grade" id="performanceGrade">
+          <span class="grade-label">Performance:</span>
+          <span class="grade-value" id="gradeValue">-</span>
+        </div>
+      </div>
+      
+      <div class="pipeline-stages">
+        <div class="stage" id="uploadStage">
+          <div class="stage-icon"><i class="fas fa-upload"></i></div>
+          <div class="stage-label">Upload</div>
+          <div class="stage-status">Ready</div>
+          <div class="stage-timing" id="uploadTiming">-</div>
+        </div>
+        
+        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
+        
+        <div class="stage" id="sttStage">
+          <div class="stage-icon"><i class="fas fa-microphone"></i></div>
+          <div class="stage-label">STT</div>
+          <div class="stage-status">Waiting</div>
+          <div class="stage-timing" id="sttTiming">-</div>
+        </div>
+        
+        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
+        
+        <div class="stage" id="llmStage">
+          <div class="stage-icon"><i class="fas fa-brain"></i></div>
+          <div class="stage-label">LLM</div>
+          <div class="stage-status">Waiting</div>
+          <div class="stage-timing" id="llmTiming">-</div>
+        </div>
+        
+        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
+        
+        <div class="stage" id="ttsStage">
+          <div class="stage-icon"><i class="fas fa-volume-high"></i></div>
+          <div class="stage-label">TTS</div>
+          <div class="stage-status">Waiting</div>
+          <div class="stage-timing" id="ttsTiming">-</div>
+        </div>
+      </div>
+      
+      <div class="pipeline-metrics">
+        <div class="metric">
+          <span class="metric-label">Total Time:</span>
+          <span class="metric-value" id="totalTime">-</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Bottleneck:</span>
+          <span class="metric-value" id="bottleneckStage">-</span>
+        </div>
+        <div class="metric">
+          <span class="metric-label">Session ID:</span>
+          <span class="metric-value" id="sessionId">-</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- Stage Details Panel -->
+    <section class="debug-panel details-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-chart-line"></i> Stage Details</h2>
+      </div>
+      
+      <div class="details-tabs">
+        <button class="tab-button active" data-tab="stt">
+          <i class="fas fa-microphone"></i> STT
+        </button>
+        <button class="tab-button" data-tab="llm">
+          <i class="fas fa-brain"></i> LLM
+        </button>
+        <button class="tab-button" data-tab="tts">
+          <i class="fas fa-volume-high"></i> TTS
+        </button>
+      </div>
+      
+      <div class="details-content">
+        <!-- STT Details -->
+        <div class="tab-content active" id="sttDetails">
+          <div class="detail-group">
+            <div class="detail-row">
+              <span class="detail-label">Transcribed Text:</span>
+              <span class="detail-value" id="sttTranscribedText">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Language Detected:</span>
+              <span class="detail-value" id="sttLanguage">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Confidence Score:</span>
+              <span class="detail-value" id="sttConfidence">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Processing Time:</span>
+              <span class="detail-value" id="sttProcessingTime">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Model Used:</span>
+              <span class="detail-value" id="sttModel">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Audio Duration:</span>
+              <span class="detail-value" id="sttAudioDuration">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Audio Format:</span>
+              <span class="detail-value" id="sttAudioFormat">-</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- LLM Details -->
+        <div class="tab-content" id="llmDetails">
+          <div class="detail-group">
+            <div class="detail-row">
+              <span class="detail-label">Response Text:</span>
+              <span class="detail-value" id="llmResponseText">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Prompt Tokens:</span>
+              <span class="detail-value" id="llmPromptTokens">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Completion Tokens:</span>
+              <span class="detail-value" id="llmCompletionTokens">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Processing Time:</span>
+              <span class="detail-value" id="llmProcessingTime">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Model Used:</span>
+              <span class="detail-value" id="llmModel">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Temperature:</span>
+              <span class="detail-value" id="llmTemperature">-</span>
+            </div>
+          </div>
+        </div>
+        
+        <!-- TTS Details -->
+        <div class="tab-content" id="ttsDetails">
+          <div class="detail-group">
+            <div class="detail-row">
+              <span class="detail-label">Audio Length:</span>
+              <span class="detail-value" id="ttsAudioLength">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Voice Used:</span>
+              <span class="detail-value" id="ttsVoice">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Processing Time:</span>
+              <span class="detail-value" id="ttsProcessingTime">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Output Format:</span>
+              <span class="detail-value" id="ttsOutputFormat">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Text Length:</span>
+              <span class="detail-value" id="ttsTextLength">-</span>
+            </div>
+            <div class="detail-row">
+              <span class="detail-label">Speech Rate:</span>
+              <span class="detail-value" id="ttsSpeechRate">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Response & Playback Panel -->
+    <section class="debug-panel response-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-play-circle"></i> Response & Playback</h2>
+      </div>
+      
+      <div class="response-content">
+        <div class="transcription-box">
+          <label>Transcription:</label>
+          <div class="transcription-text" id="transcriptionDisplay">No transcription yet...</div>
+        </div>
+        
+        <div class="response-box">
+          <label>AI Response:</label>
+          <div class="response-text" id="responseDisplay">No response yet...</div>
+        </div>
+        
+        <div class="audio-player-box">
+          <label>TTS Audio:</label>
+          <div class="audio-controls">
+            <audio id="ttsAudio" controls preload="none">
+              <source type="audio/webm">
+              Your browser does not support the audio element.
+            </audio>
+            <button id="downloadAudioBtn" class="btn btn-outline" disabled>
+              <i class="fas fa-download"></i> Download
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Debug Events Log Panel -->
+    <section class="debug-panel log-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-list-alt"></i> Debug Events Log</h2>
+        <div class="log-controls">
+          <div class="log-filters">
+            <label class="filter-checkbox">
+              <input type="checkbox" id="showInfoEvents" checked>
+              <span>Info</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" id="showWarningEvents" checked>
+              <span>Warning</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" id="showErrorEvents" checked>
+              <span>Error</span>
+            </label>
+            <label class="filter-checkbox">
+              <input type="checkbox" id="showDebugEvents">
+              <span>Debug</span>
+            </label>
+          </div>
+          <button id="exportLogsBtn" class="btn btn-outline btn-sm">
+            <i class="fas fa-download"></i> Export
+          </button>
+        </div>
+      </div>
+      
+      <div class="log-content">
+        <div id="debugEventsLog" class="debug-log">
+          <div class="log-entry initial">
+            <span class="log-timestamp">00:00:00</span>
+            <span class="log-level info">INFO</span>
+            <span class="log-stage">SYSTEM</span>
+            <span class="log-message">Debug interface ready. Upload an audio file to begin testing.</span>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Export Panel -->
+    <section class="debug-panel export-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-file-export"></i> Export & Analysis</h2>
+      </div>
+      
+      <div class="export-content">
+        <div class="export-options">
+          <div class="export-group">
+            <label>Export Format:</label>
+            <select id="exportFormat" class="config-select">
+              <option value="json">JSON</option>
+              <option value="csv">CSV</option>
+              <option value="markdown">Markdown Report</option>
+            </select>
+          </div>
+          
+          <div class="export-actions">
+            <button id="exportSessionBtn" class="btn btn-primary" disabled>
+              <i class="fas fa-file-export"></i> Export Session
+            </button>
+            <button id="exportDebugBtn" class="btn btn-secondary" disabled>
+              <i class="fas fa-bug"></i> Export Debug Data
+            </button>
+          </div>
+        </div>
+        
+        <div class="session-stats">
+          <div class="stat-item">
+            <span class="stat-label">Sessions:</span>
+            <span class="stat-value" id="sessionCount">0</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Avg Response Time:</span>
+            <span class="stat-value" id="avgResponseTime">-</span>
+          </div>
+          <div class="stat-item">
+            <span class="stat-label">Success Rate:</span>
+            <span class="stat-value" id="successRate">-</span>
+          </div>
+        </div>
+      </div>
+    </section>
   </div>
 
-  <section class="panel" id="configPanel">
-    <h2>Configuration</h2>
-    <div class="cfg-grid">
-      <label>Audio File
-        <div class="file-input-wrapper">
-          <input type="file" id="audioFile" accept="audio/*,.pcm" />
-          <span class="file-label" id="fileLabel">Choose file…</span>
-          <button type="button" class="btn-outline" id="btnPickFile">Browse</button>
-        </div>
-      </label>
-      <label>Mode
-        <select id="wsMode">
-          <option value="streaming" selected>Streaming (incremental)</option>
-          <option value="simple">Simple Voice Chat</option>
-        </select>
-      </label>
-      <label>Language
-        <select id="langSel">
-          <option value="auto">auto</option>
-          <option value="ar" selected>ar</option>
-          <option value="en">en</option>
-        </select>
-      </label>
-      <label>Frame (ms)
-        <input id="frameMs" type="number" min="10" max="60" step="5" value="20" />
-      </label>
-      <label>Pacing
-        <select id="paceMode">
-          <option value="realtime" selected>real-time</option>
-          <option value="fast">as-fast-as-possible</option>
-        </select>
-      </label>
-      <label>WS Endpoint
-        <div class="ws-endpoint-select">
-          <select id="wsPreset">
-            <option value="auto" selected>(auto detect)</option>
-            <option value="local">Local Default</option>
-            <option value="prod">Production API</option>
-            <option value="custom">Custom…</option>
-          </select>
-          <input id="wsUrl" placeholder="(auto)" class="hidden" />
-        </div>
-      </label>
-      <label>Autoplay TTS
-        <input type="checkbox" id="autoplayTTS" checked />
-      </label>
-      <div class="status-box" id="wsStatus" data-state="disconnected">● Disconnected</div>
-      <button id="btnConnect" class="primary">Connect</button>
-      <button id="btnDisconnect" disabled>Disconnect</button>
-  <button id="btnStream" disabled>Stream File</button>
-  <button id="btnMicStart" disabled>Start Mic</button>
-  <button id="btnMicStop" disabled>Stop Mic</button>
-      <button id="btnAbort" disabled>Abort Stream</button>
-      <div class="export-group">
-        <button id="btnExport" disabled>Export</button>
-        <select id="exportFormat" disabled>
-          <option value="json" selected>JSON</option>
-          <option value="markdown">Markdown</option>
-        </select>
-        <button id="btnServerReport" disabled title="Fetch server-side session diagnostic report">Server Report</button>
-      </div>
-      <button id="btnClear">Clear</button>
-    </div>
-    <div class="metrics">
-      <div><span>Decoded Rate:</span><code id="mDecodedRate">-</code></div>
-      <div><span>Frames Sent:</span><code id="mFrames">0</code></div>
-      <div><span>Bytes Sent:</span><code id="mBytes">0</code></div>
-      <div><span>Partials:</span><code id="mPartials">0</code></div>
-      <div><span>Finals:</span><code id="mFinals">0</code></div>
-      <div><span>Responses:</span><code id="mResponses">0</code></div>
-  <div><span>First Partial (ms)</span><code id="mFirstPartial">-</code></div>
-  <div><span>First Final (ms)</span><code id="mFirstFinal">-</code></div>
-  <div><span>Assistant Resp (ms)</span><code id="mFirstAssistant">-</code></div>
-  <div><span>TTS Start (ms)</span><code id="mTTSStart">-</code></div>
-  <div><span>TTS Complete (ms)</span><code id="mTTSComplete">-</code></div>
-  <div><span>Stream Duration (ms)</span><code id="mStreamDuration">-</code></div>
-    </div>
-  </section>
-
-  <section class="panel conversation-panel">
-    <h2>Conversation</h2>
-    <div class="conversation" id="conversationBox" aria-live="polite"></div>
-    <div class="conversation-side">
-      <h3>Partial Transcript</h3>
-      <div id="partialBox" class="partial-box mono">&nbsp;</div>
-      <h3>Received TTS (latest)</h3>
-      <audio id="ttsAudio" controls></audio>
-    </div>
-  </section>
-
-  <section class="panel">
-    <h2>Event Log</h2>
-    <div class="log-toolbar">
-      <label><input type="checkbox" id="showHeartbeat" checked /> Heartbeats</label>
-      <label><input type="checkbox" id="showFrames" /> Frames</label>
-      <label><input type="checkbox" id="showPerf" checked /> Perf</label>
-      <label><input type="checkbox" id="showEndpoint" checked /> Endpoint</label>
-    </div>
-    <div id="log" class="log"></div>
-  </section>
-
-  <section class="panel" id="analysisPanel">
-    <h2>Heuristics & Metrics</h2>
-    <div id="heuristicsBox" class="mono small">(no data)</div>
-    <h3>Server Report</h3>
-    <div id="serverReportBox" class="mono small hidden"></div>
-  </section>
-
-  <script src="{{ url_for('static', filename='js/audioUtils.js') }}"></script>
-  <script type="module">
-    import { buildStructuredReport, exportJson, exportMarkdown } from "{{ url_for('static', filename='js/debug_export.js') }}";
-    import { analyzeEvents, buildHeuristicSummary } from "{{ url_for('static', filename='js/debug_heuristics.js') }}";
-    // ==========================================
-    // Utility / State
-    // ==========================================
-    const evLog = [];
-    let ws = null;
-    let int16Audio = null; // Int16Array (16kHz)
-    let streamOffset = 0;
-    let frameTimer = null;
-    let sessionStart = null;
-  let framesSent=0, bytesSent=0, partials=0, finals=0, responses=0;
-  let firstPartialAt=null, firstFinalAt=null, firstAssistantAt=null, ttsStartAt=null, ttsCompleteAt=null;
-  let streamStartAt=null; // set when a file or mic stream begins
-
-    const E = id => document.getElementById(id);
-    const els = {
-      wsStatus: E('wsStatus'), wsUrl: E('wsUrl'), lang: E('langSel'), frameMs: E('frameMs'), paceMode: E('paceMode'), autoplay: E('autoplayTTS'), wsMode: E('wsMode'),
-      file: E('audioFile'), btnConnect: E('btnConnect'), btnDisconnect: E('btnDisconnect'), btnStream: E('btnStream'), btnAbort: E('btnAbort'), btnExport: E('btnExport'), btnClear: E('btnClear'), exportFormat: E('exportFormat'), btnServerReport: E('btnServerReport'),
-      mDecodedRate: E('mDecodedRate'), mFrames: E('mFrames'), mBytes: E('mBytes'), mPartials: E('mPartials'), mFinals: E('mFinals'), mResponses: E('mResponses'), mFirstPartial: E('mFirstPartial'), mFirstFinal: E('mFirstFinal'), mFirstAssistant: E('mFirstAssistant'), mTTSStart: E('mTTSStart'), mTTSComplete: E('mTTSComplete'), mStreamDuration: E('mStreamDuration'),
-      partial: E('partialBox'), conversation: E('conversationBox'), ttsAudio: E('ttsAudio'), log: E('log'), showHeartbeat: E('showHeartbeat'), showFrames: E('showFrames'), showPerf: E('showPerf'), showEndpoint: E('showEndpoint'), fileLabel: E('fileLabel'), btnPickFile: E('btnPickFile'), wsPreset: E('wsPreset'), btnMicStart: E('btnMicStart'), btnMicStop: E('btnMicStop'), heuristicsBox: E('heuristicsBox'), serverReportBox: E('serverReportBox')
-    };
-    const sessionMeta = { session_id:null, connection_id:null, start_utc:null, client:{ ua: navigator.userAgent } };
-    // Microphone capture state
-    let micActive=false, micWorkletNode=null, micStream=null, micAudioCtx=null;
-
-    function autoUrl(){
-      const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-      let host = window.BEAUTYAI_API_HOST || location.host; const hn = location.hostname;
-      if (/\.gmai\.sa$/i.test(hn) && !/^api\./i.test(hn)) host = 'api.gmai.sa';
-      const lang = encodeURIComponent(els.lang.value);
-      const mode = els.wsMode.value;
-      if(mode==='simple') return `${proto}//${host}/api/v1/ws/simple-voice-chat?language=${lang}&voice_type=female`;
-      return `${proto}//${host}/api/v1/ws/streaming-voice?language=${lang}`;
-    }
-
-    function setStatus(state){
-      els.wsStatus.dataset.state = state;
-      els.wsStatus.textContent = state==='connected'?'● Connected': state==='connecting'?'● Connecting...':'● Disconnected';
-    }
-
-    function log(type, data={}){
-      const now = performance.now();
-      const ev = { t: now, type, ...data };
-      evLog.push(ev);
-      const rel = sessionStart? (now - sessionStart).toFixed(1): '0.0';
-      if ((type==='heartbeat' && !els.showHeartbeat.checked) || (type==='frame_sent' && !els.showFrames.checked) || (type==='perf_cycle' && !els.showPerf.checked) || ((type==='endpoint_event' || (type==='server_event' && data.event)) && !els.showEndpoint.checked)) return;
-      els.log.textContent += `[+${rel}ms] ${type} ${JSON.stringify(data)}\n`;
-      els.log.scrollTop = els.log.scrollHeight;
-      if(type==='final' || type==='final_transcript' || type==='endpoint_event' || type==='perf_cycle') updateHeuristics();
-    }
-
-    function resetSession(){
-      sessionStart = performance.now();
-      framesSent=bytesSent=partials=finals=responses=0;
-      firstPartialAt=firstFinalAt=ttsStartAt=ttsCompleteAt=null;
-      [els.mFrames, els.mBytes, els.mPartials, els.mFinals, els.mResponses].forEach(el=>el.textContent='0');
-      [els.mDecodedRate, els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=>el.textContent='-');
-      streamStartAt=null;
-      els.partial.textContent=''; els.conversation.innerHTML='';
-      if(els.heuristicsBox) els.heuristicsBox.textContent='(no data)';
-      if(els.serverReportBox) els.serverReportBox.classList.add('hidden');
-    }
-
-    // ==========================================
-    // File Decoding
-    // ==========================================
-    async function decodeSelectedFile(){
-      const file = els.file.files?.[0];
-      if(!file){ alert('Select an audio file.'); return; }
-      const arrBuf = await file.arrayBuffer();
-      // If raw .pcm (assume 16kHz mono 16-bit LE)
-      if (file.name.match(/\.pcm$/i)) {
-        const raw = new Int16Array(arrBuf);
-        int16Audio = raw; els.mDecodedRate.textContent = '16000 (assumed)';
-        log('file_decoded', {samples: raw.length, assumed:true});
-        return;
-      }
-      const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-      const audioBuf = await audioCtx.decodeAudioData(arrBuf.slice(0));
-      const ch0 = audioBuf.getChannelData(0);
-      const srcRate = audioBuf.sampleRate;
-      els.mDecodedRate.textContent = String(srcRate);
-      const targetRate = 16000;
-      const ratio = srcRate / targetRate;
-      const outLen = Math.floor(ch0.length / ratio);
-      const outFloat = new Float32Array(outLen);
-      let inPos=0;
-      for (let i=0;i<outLen;i++) { // simple average decimate
-        let sum=0; let cnt=0;
-        for (let r=0;r<ratio && inPos<ch0.length;r++){ sum+=ch0[inPos++]; cnt++; }
-        outFloat[i]= sum / (cnt||1);
-      }
-      const int16 = new Int16Array(outFloat.length);
-      for (let i=0;i<outFloat.length;i++) {
-        let s=outFloat[i]; if(s>1)s=1; else if(s<-1)s=-1; int16[i]= s<0? s*0x8000: s*0x7FFF;
-      }
-      int16Audio = int16;
-      log('file_decoded', {samples:int16.length, src_rate:srcRate});
-    }
-
-    // ==========================================
-    // WebSocket Handling
-    // ==========================================
-    function connect(){
-      if (ws && ws.readyState===WebSocket.OPEN) return;
-      resetSession();
-      setStatus('connecting');
-      const url = (els.wsUrl.value.trim() || autoUrl());
-      els.wsUrl.value = url;
-      ws = new WebSocket(url);
-      ws.onopen = ()=>{ setStatus('connected'); log('ws_open'); toggleButtons(); };
-      ws.onclose = (e)=>{ setStatus('disconnected'); log('ws_close',{code:e.code}); toggleButtons(); abortStream(); stopMic(); };
-      ws.onerror = (e)=>{ log('ws_error'); };
-      ws.onmessage = (e)=>handleServerMessage(e.data);
-      toggleButtons();
-    }
-    function disconnect(){ if(ws){ try{ ws.close(); }catch{} } stopMic(); }
-
-    function handleServerMessage(data){
-      try {
-        const msg = JSON.parse(data); let type = msg.type || msg.event;
-        if(type==='endpoint'){ // normalize to endpoint_event for filters/heuristics
-          type = 'endpoint_event';
-          msg.event = msg.event || msg.type_detail || msg.event_type || msg.event; // preserve original if present
-        }
-        if(type==='ready') {
-          sessionMeta.session_id = msg.session_id || msg.sessionId || msg.session;
-            sessionMeta.connection_id = msg.connection_id || msg.connectionId || null;
-            sessionMeta.start_utc = new Date().toISOString();
-            log('ready_ack', {session_id: sessionMeta.session_id});
-            toggleButtons();
-        }
-        switch(type){
-          case 'partial_transcript':
-            partials++; if(!firstPartialAt){ firstPartialAt=performance.now(); if(streamStartAt) els.mFirstPartial.textContent = (firstPartialAt - streamStartAt).toFixed(1); }
-            els.mPartials.textContent=partials; els.partial.textContent = msg.text || ''; log('partial',{text:msg.text}); break;
-          case 'final_transcript':
-            finals++; if(!firstFinalAt){ firstFinalAt=performance.now(); if(streamStartAt) els.mFirstFinal.textContent = (firstFinalAt - streamStartAt).toFixed(1); }
-            els.mFinals.textContent=finals; log('final',{text:msg.text});
-            appendConversation('user', msg.text || '');
-            break;
-          case 'final_suppressed':
-            log('final_suppressed', msg); break;
-          case 'language_mismatch_notice':
-            log('lang_mismatch', msg); break;
-          case 'assistant_response':
-            responses++; if(!firstAssistantAt){ firstAssistantAt=performance.now(); if(streamStartAt) els.mFirstAssistant.textContent = (firstAssistantAt - streamStartAt).toFixed(1); }
-            els.mResponses.textContent=responses; log('assistant_response',{chars:msg.chars}); appendConversation('assistant', msg.text || ''); break;
-          case 'tts_start':
-            if(!ttsStartAt){ ttsStartAt=performance.now(); if(streamStartAt) els.mTTSStart.textContent = (ttsStartAt - streamStartAt).toFixed(1); } log('tts_start'); break;
-          case 'tts_audio':
-            log('tts_audio',{chars:msg.chars}); if(els.autoplay.checked && msg.audio){ playBase64Wav(msg.audio); } break;
-          case 'tts_complete':
-            if(!ttsCompleteAt){ ttsCompleteAt=performance.now(); if(streamStartAt) els.mTTSComplete.textContent = (ttsCompleteAt - streamStartAt).toFixed(1); }
-            if(streamStartAt) els.mStreamDuration.textContent = (performance.now() - streamStartAt).toFixed(1);
-            log('tts_complete',{processing_ms:msg.processing_ms}); break;
-          case 'heartbeat':
-            log('heartbeat', msg); break;
-          case 'decode_sanitized':
-            log('decode_sanitized', msg); break;
-          case 'error':
-            log('error',{message:msg.message}); break;
-          default:
-            log('server_event', msg);
-        }
-      } catch { log('non_json'); }
-    }
-    function appendConversation(role, text){
-      if(!text) return;
-      const item = document.createElement('div');
-      item.className = 'conv-item ' + role;
-      const icon = document.createElement('div'); icon.className='icon'; icon.textContent = role==='user' ? '👤' : '🤖';
-      const body = document.createElement('div'); body.className='body'; body.textContent = text;
-      item.appendChild(icon); item.appendChild(body);
-      els.conversation.appendChild(item);
-      els.conversation.scrollTop = els.conversation.scrollHeight;
-    }
-
-    // File input modernization
-    els.btnPickFile.addEventListener('click', ()=> els.file.click());
-    els.file.addEventListener('change', ()=> {
-      const f = els.file.files && els.file.files[0];
-      els.fileLabel.textContent = f ? f.name : 'Choose file…';
-    });
-
-    // WS preset selection
-    els.wsPreset.addEventListener('change', ()=>{
-      const val = els.wsPreset.value;
-      const input = els.wsUrl;
-      if(val==='custom') { input.classList.remove('hidden'); input.focus(); }
-      else { input.classList.add('hidden'); }
-      updatePresetUrl();
-    });
-    // Update URL when mode changes (if preset not custom)
-  els.wsMode.addEventListener('change', ()=>{ log('mode_change',{mode:els.wsMode.value}); updatePresetUrl(); toggleButtons(); });
-
-    function updatePresetUrl(){
-      const val = els.wsPreset.value; const mode = els.wsMode.value; const input = els.wsUrl; const lang = encodeURIComponent(els.lang.value);
-      if(val==='custom') return; // user handles
-      if(val==='auto'){ input.value=''; return; }
-      let baseHost;
-      if(val==='local') baseHost = `${location.protocol==='https:'?'wss':'ws'}://localhost:8000`;
-      else if(val==='prod') baseHost = 'wss://api.gmai.sa';
-      else baseHost = `${location.protocol==='https:'?'wss':'ws'}://${location.host}`;
-      const path = mode==='simple'? `/api/v1/ws/simple-voice-chat?language=${lang}&voice_type=female` : `/api/v1/ws/streaming-voice?language=${lang}`;
-      input.value = baseHost + path;
-    }
-
-    function delta(ts){ return sessionStart? (ts - sessionStart).toFixed(1): '-'; }
-
-    function playBase64Wav(b64){
-      try { const bin=atob(b64); const u8=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u8[i]=bin.charCodeAt(i); const blob=new Blob([u8],{type:'audio/wav'}); const url=URL.createObjectURL(blob); els.ttsAudio.src=url; els.ttsAudio.play().catch(()=>{}); els.ttsAudio.onended=()=>URL.revokeObjectURL(url);}catch{}
-    }
-
-    // ==========================================
-    // Streaming the Decoded Int16 Buffer
-    // ==========================================
-    function streamFile(){
-      if(!ws || ws.readyState!==WebSocket.OPEN){ alert('Connect first'); return; }
-      if(!int16Audio){ alert('Decode / select a file first'); return; }
-      streamOffset = 0; framesSent=bytesSent=0; els.mFrames.textContent='0'; els.mBytes.textContent='0';
-      // reset per-stream timing metrics (but not session counters like partial count until overwritten)
-      firstPartialAt=firstFinalAt=firstAssistantAt=ttsStartAt=ttsCompleteAt=null; streamStartAt = performance.now();
-      [els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=> el.textContent='-');
-      log('stream_start',{samples:int16Audio.length});
-      scheduleNextFrame(); toggleButtons();
-    }
-    function scheduleNextFrame(){
-      if(!ws || ws.readyState!==WebSocket.OPEN) return;
-      const frameMs = parseInt(els.frameMs.value,10) || 20;
-      const samplesPerFrame = 16000 * frameMs / 1000; // 320 for 20ms
-      if(streamOffset >= int16Audio.length){
-        frameTimer = null; // allow re-streaming without reconnect
-        log('stream_complete');
-        if(streamStartAt) els.mStreamDuration.textContent = (performance.now() - streamStartAt).toFixed(1);
-        toggleButtons();
-        return;
-      }
-      const end = Math.min(int16Audio.length, streamOffset + samplesPerFrame);
-      const frame = int16Audio.subarray(streamOffset, end);
-      try {
-        if(frame.length > 4096){ // split large burst to avoid decode backlog
-          let pos=0; const SL=1024;
-            while(pos<frame.length){ const slice=frame.subarray(pos,pos+SL); ws.send(slice.buffer); framesSent++; bytesSent += slice.length*2; log('frame_sent',{samples:slice.length,split:true}); pos+=SL; }
-        } else { ws.send(frame.buffer); framesSent++; bytesSent += frame.length*2; log('frame_sent',{samples:frame.length}); }
-      } catch(e){ log('send_error'); return; }
-      els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent;
-      streamOffset = end;
-      if(els.paceMode.value === 'fast') {
-        scheduleNextFrame();
+  <!-- Scripts -->
+  <script src="{{ url_for('static', filename='js/debug_websocket_tester.js') }}"></script>
+  
+  <script>
+    // Initialize the debug interface when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('🔧 Initializing Simple WebSocket Debug Interface...');
+      
+      // Initialize the debug WebSocket client
+      if (typeof DebugWebSocketTester !== 'undefined') {
+        window.debugClient = new DebugWebSocketTester();
+        window.debugClient.initialize();
+        console.log('✅ Debug WebSocket Tester initialized');
       } else {
-        frameTimer = setTimeout(scheduleNextFrame, frameMs);
+        console.error('❌ DebugWebSocketTester not found - check if debug_websocket_tester.js is loaded');
       }
-    }
-    function abortStream(){ if(frameTimer){ clearTimeout(frameTimer); frameTimer=null; log('stream_aborted'); toggleButtons(); } }
-
-    // ==========================================
-    // Export, Heuristics, Clear
-    // ==========================================
-    function collectConfig(){
-      return {
-        language: els.lang.value,
-        frame_ms: parseInt(els.frameMs.value,10),
-        pacing: els.paceMode.value,
-        autoplay_tts: els.autoplay.checked,
-        mode: els.wsMode.value,
-        file: els.file.files && els.file.files[0]? { name: els.file.files[0].name, size: els.file.files[0].size }: null
-      };
-    }
-    function structuredExport(){
-      const events = evLog.map(e=> ({ ...e, t_rel_ms: sessionStart? (e.t - sessionStart).toFixed(1): '0.0' }));
-      const report = buildStructuredReport({ ...sessionMeta, config: collectConfig() }, events);
-      if(els.exportFormat.value==='markdown') exportMarkdown(report); else exportJson(report);
-    }
-    async function fetchServerReport(){
-      if(!sessionMeta.session_id){ alert('No session id yet. Start a session first.'); return; }
-      try {
-        const res = await fetch(`/api/v1/debug/session-report?session_id=${encodeURIComponent(sessionMeta.session_id)}&include_journal=1`);
-        if(!res.ok) throw new Error(`Server report error ${res.status}`);
-        const data = await res.json();
-        els.serverReportBox.classList.remove('hidden');
-        els.serverReportBox.textContent = JSON.stringify(data, null, 2);
-      } catch(e){ alert(e.message); }
-    }
-    function updateHeuristics(){
-      if(!els.heuristicsBox) return;
-      const events = evLog.map(e=> ({type:e.type, text:e.text, event:e.event, t_rel_ms: sessionStart? (e.t - sessionStart).toFixed(1): '0.0'}));
-      const analysis = analyzeEvents(events);
-      const summary = buildHeuristicSummary(analysis);
-      els.heuristicsBox.textContent = JSON.stringify(summary, null, 2);
-    }
-    function clearAll(){ evLog.length=0; els.log.textContent=''; resetSession(); log('cleared'); }
-
-    // ==========================================
-    // Button / State Logic
-    // ==========================================
-    function toggleButtons(){
-      const connected = ws && ws.readyState===WebSocket.OPEN;
-      const streaming = frameTimer !== null;
-      els.btnConnect.disabled = connected;
-      els.btnDisconnect.disabled = !connected;
-      els.btnStream.disabled = !connected || !int16Audio || streaming;
-      els.btnAbort.disabled = !streaming;
-      const hasEvents = evLog.length>0;
-      if(els.btnExport) els.btnExport.disabled = !hasEvents;
-      if(els.exportFormat) els.exportFormat.disabled = !hasEvents;
-      if(els.btnServerReport) els.btnServerReport.disabled = !connected || !sessionMeta.session_id;
-      if(els.btnMicStart){ els.btnMicStart.disabled = !connected || micActive || els.wsMode.value!=='streaming'; }
-      if(els.btnMicStop){ els.btnMicStop.disabled = !connected || !micActive; }
-    }
-
-    // ==========================================
-    // Microphone (AudioWorklet) Live PCM Streaming (Streaming mode only)
-    // ==========================================
-  async function startMic(){
-      if(micActive) return; if(!ws || ws.readyState!==WebSocket.OPEN){ alert('Connect first'); return; }
-      if(els.wsMode.value !== 'streaming'){ alert('Mic only available in Streaming mode'); return; }
-      try {
-        micAudioCtx = new (window.AudioContext || window.webkitAudioContext)({sampleRate:48000});
-        const workletSource = `class PCMDownsampler extends AudioWorkletProcessor {\n  constructor(){ super(); this.buf=[]; this.ratio = sampleRate / 16000; }\n  process(inputs){ const input=inputs[0]; if(!input||!input[0]) return true; const ch=input[0]; for(let i=0;i<ch.length;i+=this.ratio){ const v=ch[Math.floor(i)]||0; const c = Math.max(-1, Math.min(1,v)); const iv = c<0? c*0x8000 : c*0x7FFF; this.buf.push(iv); } while(this.buf.length>=320){ const frame=this.buf.splice(0,320); const ab=new ArrayBuffer(frame.length*2); const dv=new DataView(ab); for(let i=0;i<frame.length;i++){ dv.setInt16(i*2, frame[i], true);} this.port.postMessage(ab);} return true; } }\nregisterProcessor('pcm-downsampler', PCMDownsampler);`;
-        const blob = new Blob([workletSource], {type:'application/javascript'});
-        const url = URL.createObjectURL(blob);
-        await micAudioCtx.audioWorklet.addModule(url);
-        micStream = await navigator.mediaDevices.getUserMedia({audio:true});
-        const src = micAudioCtx.createMediaStreamSource(micStream);
-        micWorkletNode = new AudioWorkletNode(micAudioCtx,'pcm-downsampler');
-  micWorkletNode.port.onmessage = (e)=>{ if(ws && ws.readyState===WebSocket.OPEN){ if(!streamStartAt){ streamStartAt = performance.now(); [els.mFirstPartial, els.mFirstFinal, els.mFirstAssistant, els.mTTSStart, els.mTTSComplete, els.mStreamDuration].forEach(el=> el.textContent='-'); log('mic_stream_start'); } ws.send(e.data); framesSent++; bytesSent += e.data.byteLength; els.mFrames.textContent=framesSent; els.mBytes.textContent=bytesSent; } };
-        src.connect(micWorkletNode); // no need to connect to destination for silent capture
-        micActive=true; log('mic_start'); toggleButtons();
-      } catch(err){ log('mic_error',{message:err.message}); alert('Mic init failed: '+err.message); }
-    }
-    function stopMic(){ if(!micActive) return; try{ micWorkletNode && micWorkletNode.disconnect(); micStream && micStream.getTracks().forEach(t=>t.stop()); micAudioCtx && micAudioCtx.close(); }catch{} micActive=false; log('mic_stop'); toggleButtons(); }
-
-    // ==========================================
-    // Event Bindings
-    // ==========================================
-    els.btnConnect.onclick = connect;
-    els.btnDisconnect.onclick = ()=>{ disconnect(); toggleButtons(); };
-  els.btnStream.onclick = streamFile;
-  if(els.btnMicStart) els.btnMicStart.onclick = startMic;
-  if(els.btnMicStop) els.btnMicStop.onclick = stopMic;
-    els.btnAbort.onclick = abortStream;
-  if(els.btnExport) els.btnExport.onclick = structuredExport;
-  if(els.btnServerReport) els.btnServerReport.onclick = fetchServerReport;
-    els.btnClear.onclick = clearAll;
-    els.file.onchange = async ()=>{ await decodeSelectedFile(); toggleButtons(); };
-    els.lang.onchange = ()=>{ if(ws) { log('lang_change_ignored'); } };
-    els.frameMs.oninput = ()=>{ if(frameTimer) log('frame_size_change_runtime'); };
-    els.showFrames.onchange = ()=>{}; els.showHeartbeat.onchange = ()=>{};
-
-    resetSession();
-    log('ready');
+    });
   </script>
 </body>
 </html>

@@ -595,7 +595,7 @@ class SimpleVoiceWebSocketManager:
         except Exception as e:
             logger.warning(f"Failed to send debug event: {e}")
     
-    def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
+    async def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
         """Helper method to get connection data by original connection ID."""
         try:
             pool_connection_id = getattr(self, f"_pool_mapping_{connection_id}", None)
