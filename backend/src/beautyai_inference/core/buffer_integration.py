@@ -36,7 +36,7 @@ class BufferIntegrationHelper:
                 logger.error("Config manager not available")
                 return False
                 
-            config_dict = await config_manager.get_config()
+            config_dict = config_manager.get_all_config()
             buffer_config = config_dict.get("buffer_optimization", {})
             
             # Register WebSocket audio buffer
@@ -83,7 +83,7 @@ class BufferIntegrationHelper:
                 logger.error("Config manager not available")
                 return False
                 
-            config_dict = await config_manager.get_config()
+            config_dict = config_manager.get_all_config()
             buffer_config = config_dict.get("buffer_optimization", {})
             
             # Register audio buffer
@@ -130,7 +130,7 @@ class BufferIntegrationHelper:
                 logger.error("Config manager not available")
                 return False
                 
-            config_dict = await config_manager.get_config()
+            config_dict = config_manager.get_all_config()
             buffer_config = config_dict.get("buffer_optimization", {})
             
             # Register message queue buffer
@@ -390,7 +390,7 @@ async def initialize_buffer_optimization_from_config() -> Optional[BufferManager
             logger.error("Config manager not available for buffer optimization")
             return None
             
-        config_dict = await config_manager.get_config()
+        config_dict = config_manager.get_all_config()
         buffer_config = config_dict.get("buffer_optimization", {})
         
         if not buffer_config.get("enabled", False):

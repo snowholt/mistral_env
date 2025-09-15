@@ -1,0 +1,17 @@
+{
+  "session_id": "simple_0938ff54-e37a-40aa-be09-ddc60fc974c4",
+  "connection_id": "0938ff54-e37a-40aa-be09-ddc60fc974c4",
+  "user_id": null,
+  "language": "en",
+  "voice_type": "female",
+  "created_at": 1757696132.42334,
+  "last_activity": 1757696132.42334,
+  "turn_count": 0,
+  "conversation_history": [],
+  "context_summary": "",
+  "session_metadata": {},
+  "total_processing_time_ms": 0,
+  "average_response_time_ms": 0.0,
+  "transcription_success_rate": 1.0,
+  "unclear_transcriptions": 0
+}

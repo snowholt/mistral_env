@@ -142,16 +142,18 @@ class VoiceSessionManager:
     - Session persistence (optional)
     """
     
-    def __init__(self, persist_sessions: bool = False, session_dir: Optional[Path] = None):
+    def __init__(self, persist_sessions: bool = False, session_dir: Optional[Path] = None, auto_cleanup_files: bool = True):
         """
         Initialize the Voice Session Manager.
         
         Args:
             persist_sessions: Whether to persist sessions to disk
             session_dir: Directory for session persistence
+            auto_cleanup_files: Whether to automatically delete session files when sessions expire/close
         """
         self.persist_sessions = persist_sessions
         self.session_dir = session_dir or Path("sessions/voice")
+        self.auto_cleanup_files = auto_cleanup_files
         
         # In-memory session storage
         self.active_sessions: Dict[str, VoiceSessionState] = {}
@@ -325,12 +327,13 @@ class VoiceSessionManager:
         
         return session.get_recent_context(self.context_window_turns)
     
-    async def close_session(self, session_id: str) -> bool:
+    async def close_session(self, session_id: str, delete_file: Optional[bool] = None) -> bool:
         """
         Close and cleanup a session.
         
         Args:
             session_id: Session identifier
+            delete_file: Whether to delete the session file (defaults to auto_cleanup_files setting)
             
         Returns:
             True if session was closed successfully
@@ -341,36 +344,68 @@ class VoiceSessionManager:
         
         session = self.active_sessions[session_id]
         
-        # Final persistence if enabled
-        if self.persist_sessions:
+        # Final persistence if enabled and not deleting file
+        should_delete_file = delete_file if delete_file is not None else self.auto_cleanup_files
+        if self.persist_sessions and not should_delete_file:
             await self._persist_session(session)
         
         # Remove from memory
         del self.active_sessions[session_id]
         
-        logger.info(f"Closed voice session: {session_id} (turns: {session.turn_count})")
+        # Delete session file if auto-cleanup is enabled
+        if should_delete_file and self.persist_sessions:
+            await self._delete_session_file(session_id)
+        
+        logger.info(f"Closed voice session: {session_id} (turns: {session.turn_count}, file_deleted: {should_delete_file})")
         return True
     
     async def cleanup_expired_sessions(self) -> int:
         """
-        Clean up expired sessions.
+        Clean up expired sessions and optionally orphaned session files.
         
         Returns:
             Number of sessions cleaned up
         """
         expired_sessions = []
         
+        # Clean up expired in-memory sessions
         for session_id, session in self.active_sessions.items():
             if self._is_session_expired(session):
                 expired_sessions.append(session_id)
         
         for session_id in expired_sessions:
-            await self.close_session(session_id)
+            await self.close_session(session_id, delete_file=True)  # Force file deletion for expired sessions
         
-        if expired_sessions:
-            logger.info(f"Cleaned up {len(expired_sessions)} expired voice sessions")
+        # Clean up orphaned session files (files without active sessions)
+        orphaned_files_count = 0
+        if self.auto_cleanup_files and self.persist_sessions and self.session_dir.exists():
+            try:
+                current_time = time.time()
+                timeout_seconds = self.session_timeout_minutes * 60
+                
+                for session_file in self.session_dir.glob("*.json"):
+                    try:
+                        # Check if file is older than timeout
+                        file_age = current_time - session_file.stat().st_mtime
+                        if file_age > timeout_seconds:
+                            # Extract session_id from filename
+                            session_id = session_file.stem
+                            
+                            # Only delete if not in active sessions
+                            if session_id not in self.active_sessions:
+                                session_file.unlink()
+                                orphaned_files_count += 1
+                                logger.debug(f"Deleted orphaned session file: {session_file.name}")
+                    except Exception as e:
+                        logger.warning(f"Failed to process session file {session_file}: {e}")
+            except Exception as e:
+                logger.error(f"Error during orphaned files cleanup: {e}")
         
-        return len(expired_sessions)
+        total_cleaned = len(expired_sessions) + orphaned_files_count
+        if total_cleaned > 0:
+            logger.info(f"Cleaned up {len(expired_sessions)} expired sessions and {orphaned_files_count} orphaned files")
+        
+        return total_cleaned
     
     def get_session_stats(self) -> Dict[str, Any]:
         """
@@ -435,6 +470,18 @@ class VoiceSessionManager:
         except Exception as e:
             logger.error(f"Failed to persist session {session.session_id}: {e}")
     
+    async def _delete_session_file(self, session_id: str):
+        """Delete session file from disk."""
+        try:
+            session_file = self.session_dir / f"{session_id}.json"
+            if session_file.exists():
+                session_file.unlink()
+                logger.debug(f"Deleted session file: {session_file.name}")
+            else:
+                logger.debug(f"Session file not found for deletion: {session_file.name}")
+        except Exception as e:
+            logger.error(f"Failed to delete session file {session_id}: {e}")
+    
     async def _load_session(self, session_id: str) -> Optional[VoiceSessionState]:
         """Load session from disk."""
         try:
@@ -491,7 +538,8 @@ _voice_session_manager: Optional[VoiceSessionManager] = None
 
 def get_voice_session_manager(
     persist_sessions: bool = False, 
-    session_dir: Optional[Path] = None
+    session_dir: Optional[Path] = None,
+    auto_cleanup_files: bool = True
 ) -> VoiceSessionManager:
     """
     Get the global voice session manager instance.
@@ -499,6 +547,7 @@ def get_voice_session_manager(
     Args:
         persist_sessions: Whether to enable session persistence
         session_dir: Directory for session persistence
+        auto_cleanup_files: Whether to automatically delete session files when sessions expire/close
         
     Returns:
         Voice session manager instance
@@ -506,7 +555,7 @@ def get_voice_session_manager(
     global _voice_session_manager
     
     if _voice_session_manager is None:
-        _voice_session_manager = VoiceSessionManager(persist_sessions, session_dir)
+        _voice_session_manager = VoiceSessionManager(persist_sessions, session_dir, auto_cleanup_files)
     
     return _voice_session_manager
 

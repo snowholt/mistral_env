@@ -119,6 +119,8 @@ class RealTimeVADService:
         self.last_speech_time = 0
         self.turn_being_processed = False  # Prevent multiple turn completions
         self.last_turn_timestamp = 0  # Track last turn completion time
+        self.turn_processing_started_time = 0  # Track when turn processing started
+        self.turn_processing_timeout = 30.0  # 30 second timeout for turn processing
         
         # ENHANCED: Adaptive threshold state
         self.current_language = 'auto'
@@ -627,6 +629,7 @@ class RealTimeVADService:
                     
                     self.is_speaking = False
                     self.turn_being_processed = True  # Mark turn as being processed
+                    self.turn_processing_started_time = current_time  # Record when processing started
                     self.last_turn_timestamp = current_time
                     state_change = "turn_complete"
                     
@@ -652,6 +655,11 @@ class RealTimeVADService:
             State change description if any
         """
         state_change = None
+        
+        # 🛡️ CRITICAL FIX: Check for turn processing timeout and reset if necessary
+        timeout_occurred = self.check_turn_processing_timeout()
+        if timeout_occurred:
+            self.logger.warning("Turn processing timeout - system reset, continuing with new audio")
         
         # 🛡️ CRITICAL FIX: Don't process new chunks if a turn is being processed
         if self.turn_being_processed:
@@ -692,6 +700,7 @@ class RealTimeVADService:
                     
                     self.is_speaking = False
                     self.turn_being_processed = True  # Mark turn as being processed
+                    self.turn_processing_started_time = current_time  # Record when processing started
                     self.last_turn_timestamp = current_time
                     state_change = "turn_complete"
                     
@@ -740,7 +749,37 @@ class RealTimeVADService:
     def reset_turn_processing(self):
         """Reset turn processing state to allow new turns."""
         self.turn_being_processed = False
+        self.turn_processing_started_time = 0
         self.logger.debug("Turn processing state reset")
+    
+    def check_turn_processing_timeout(self) -> bool:
+        """
+        Check if turn processing has timed out and reset if necessary.
+        
+        Returns:
+            True if timeout occurred and state was reset
+        """
+        if not self.turn_being_processed:
+            return False
+        
+        if self.turn_processing_started_time == 0:
+            self.turn_processing_started_time = time.time()
+            return False
+        
+        current_time = time.time()
+        processing_duration = current_time - self.turn_processing_started_time
+        
+        if processing_duration > self.turn_processing_timeout:
+            self.logger.warning(
+                f"Turn processing timeout after {processing_duration:.1f}s - forcing reset"
+            )
+            self.reset_turn_processing()
+            self.speech_chunks.clear()
+            self.silence_counter = 0
+            self.is_speaking = False
+            return True
+        
+        return False
     
     async def _concatenate_speech_chunks(self) -> np.ndarray:
         """
@@ -842,6 +881,7 @@ class RealTimeVADService:
         self.speech_chunks.clear()
         self.audio_buffer.clear()
         self.turn_being_processed = False
+        self.turn_processing_started_time = 0
         self.silence_counter = 0
         self.is_speaking = False
         

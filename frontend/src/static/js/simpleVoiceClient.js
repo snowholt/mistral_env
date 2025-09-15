@@ -84,27 +84,51 @@ class SimpleVoiceClient {
      */
     async initialize() {
         try {
-            console.log('Initializing SimpleVoiceClient...');
+            console.log('🚀 Initializing SimpleVoiceClient...');
+            console.log('🔧 Configuration:', {
+                containerId: this.config.containerId,
+                websocketUrl: this.config.websocketUrl,
+                sessionId: this.config.sessionId,
+                reconnectAttempts: this.config.reconnectAttempts
+            });
             
             // Get DOM references
             this.container = document.getElementById(this.config.containerId);
             if (!this.container) {
                 throw new Error(`Container element not found: ${this.config.containerId}`);
             }
+            console.log('✅ Container element found');
             
             this.bindDOMElements();
+            console.log('✅ DOM elements bound');
+            
             this.setupEventListeners();
+            console.log('✅ Event listeners set up');
             
             // Initialize VAD
+            console.log('🎙️ Initializing VAD...');
             await this.initializeVAD();
+            console.log('✅ VAD initialized successfully');
             
             // Connect to WebSocket
-            await this.connect();
+            console.log('🔗 Connecting to WebSocket...');
+            try {
+                await this.connect();
+                console.log('✅ WebSocket connection established');
+            } catch (error) {
+                console.warn('⚠️ Initial WebSocket connection failed, but continuing with manual controls:', error);
+                this.updateConnectionStatus('error', 'Connection failed - use Connect button');
+            }
             
-            console.log('SimpleVoiceClient initialized successfully');
+            console.log('🎉 SimpleVoiceClient initialized successfully!');
             
         } catch (error) {
-            console.error('Failed to initialize SimpleVoiceClient:', error);
+            console.error('💥 Failed to initialize SimpleVoiceClient:', error);
+            console.error('🔍 Error details:', {
+                name: error.name,
+                message: error.message,
+                stack: error.stack
+            });
             this.showError('Failed to initialize voice client: ' + error.message);
             throw error;
         }
@@ -114,11 +138,16 @@ class SimpleVoiceClient {
      * Bind DOM elements
      */
     bindDOMElements() {
+        console.log('🔗 Binding DOM elements...');
+        
         this.elements = {
-            // Connection status
+            // Connection controls
             connectionStatus: document.getElementById('connection-status'),
             statusDot: this.container.querySelector('.status-dot'),
             statusText: this.container.querySelector('.status-text'),
+            manualConnectBtn: document.getElementById('manual-connect-btn'),
+            manualDisconnectBtn: document.getElementById('manual-disconnect-btn'),
+            forceReloadBtn: document.getElementById('force-reload-btn'),
             
             // Voice controls
             micButton: document.getElementById('mic-button'),
@@ -168,58 +197,146 @@ class SimpleVoiceClient {
             metricAudioQuality: document.getElementById('metric-audio-quality'),
             metricResponseTime: document.getElementById('metric-response-time')
         };
+        
+        // Check for missing critical elements
+        const criticalElements = [
+            'manualConnectBtn', 'manualDisconnectBtn', 'forceReloadBtn',
+            'micButton', 'statusDot', 'statusText'
+        ];
+        
+        const missingElements = [];
+        for (const elementName of criticalElements) {
+            if (!this.elements[elementName]) {
+                missingElements.push(elementName);
+                console.error(`❌ Critical element missing: ${elementName}`);
+            }
+        }
+        
+        if (missingElements.length > 0) {
+            throw new Error(`Missing critical DOM elements: ${missingElements.join(', ')}`);
+        }
+        
+        console.log('✅ All critical DOM elements found');
+        console.log('🔗 Connection buttons found:', {
+            connect: !!this.elements.manualConnectBtn,
+            disconnect: !!this.elements.manualDisconnectBtn,
+            reload: !!this.elements.forceReloadBtn
+        });
     }
     
     /**
      * Setup event listeners
      */
     setupEventListeners() {
+        console.log('🎧 Setting up event listeners...');
+        
         // Microphone button
-        this.elements.micButton.addEventListener('click', () => this.toggleRecording());
+        if (this.elements.micButton) {
+            this.elements.micButton.addEventListener('click', () => this.toggleRecording());
+            console.log('✅ Microphone button listener added');
+        }
         
         // Language toggle
-        this.elements.languageToggle.addEventListener('change', (e) => {
-            this.setLanguage(e.target.checked ? 'arabic' : 'english');
-        });
+        if (this.elements.languageToggle) {
+            this.elements.languageToggle.addEventListener('change', (e) => {
+                this.setLanguage(e.target.checked ? 'arabic' : 'english');
+            });
+            console.log('✅ Language toggle listener added');
+        }
         
         // Auto-speak toggle
-        this.elements.autoSpeak.addEventListener('change', (e) => {
-            this.state.autoSpeak = e.target.checked;
-        });
+        if (this.elements.autoSpeak) {
+            this.elements.autoSpeak.addEventListener('change', (e) => {
+                this.state.autoSpeak = e.target.checked;
+            });
+        }
         
         // Volume control
-        this.elements.volumeSlider.addEventListener('input', (e) => {
-            const volume = parseInt(e.target.value) / 100;
-            this.state.volume = volume;
-            this.elements.volumeValue.textContent = e.target.value;
-            if (this.elements.ttsAudio) {
-                this.elements.ttsAudio.volume = volume;
-            }
-        });
+        if (this.elements.volumeSlider && this.elements.volumeValue) {
+            this.elements.volumeSlider.addEventListener('input', (e) => {
+                const volume = parseInt(e.target.value) / 100;
+                this.state.volume = volume;
+                this.elements.volumeValue.textContent = e.target.value;
+                if (this.elements.ttsAudio) {
+                    this.elements.ttsAudio.volume = volume;
+                }
+            });
+        }
         
         // VAD sensitivity
-        this.elements.vadSensitivity.addEventListener('input', (e) => {
-            const sensitivity = parseFloat(e.target.value);
-            this.elements.vadSensitivityValue.textContent = sensitivity;
-            if (this.vad) {
-                this.vad.setSensitivity(sensitivity);
-            }
-        });
+        if (this.elements.vadSensitivity && this.elements.vadSensitivityValue) {
+            this.elements.vadSensitivity.addEventListener('input', (e) => {
+                const sensitivity = parseFloat(e.target.value);
+                this.elements.vadSensitivityValue.textContent = sensitivity;
+                if (this.vad) {
+                    this.vad.setSensitivity(sensitivity);
+                }
+            });
+        }
         
         // Theme toggle
-        this.elements.themeBtn.addEventListener('click', () => this.toggleTheme());
+        if (this.elements.themeBtn) {
+            this.elements.themeBtn.addEventListener('click', () => this.toggleTheme());
+        }
         
         // Conversation controls
-        this.elements.clearConversation.addEventListener('click', () => this.clearConversation());
-        this.elements.exportConversation.addEventListener('click', () => this.exportConversation());
+        if (this.elements.clearConversation) {
+            this.elements.clearConversation.addEventListener('click', () => this.clearConversation());
+        }
+        if (this.elements.exportConversation) {
+            this.elements.exportConversation.addEventListener('click', () => this.exportConversation());
+        }
         
         // Error close
-        this.elements.errorClose.addEventListener('click', () => this.hideError());
+        if (this.elements.errorClose) {
+            this.elements.errorClose.addEventListener('click', () => this.hideError());
+        }
+        
+        // Manual connection controls - CRITICAL FOR USER REQUEST
+        console.log('🔗 Setting up manual connection controls...');
+        
+        if (this.elements.manualConnectBtn) {
+            console.log('📌 Adding click listener to Connect button');
+            this.elements.manualConnectBtn.addEventListener('click', (e) => {
+                console.log('🔗 Connect button clicked!');
+                e.preventDefault();
+                this.manualConnect();
+            });
+            console.log('✅ Connect button listener added');
+        } else {
+            console.error('❌ Manual connect button not found!');
+        }
+        
+        if (this.elements.manualDisconnectBtn) {
+            console.log('📌 Adding click listener to Disconnect button');
+            this.elements.manualDisconnectBtn.addEventListener('click', (e) => {
+                console.log('🔌 Disconnect button clicked!');
+                e.preventDefault();
+                this.manualDisconnect();
+            });
+            console.log('✅ Disconnect button listener added');
+        } else {
+            console.error('❌ Manual disconnect button not found!');
+        }
+        
+        if (this.elements.forceReloadBtn) {
+            console.log('📌 Adding click listener to Reload button');
+            this.elements.forceReloadBtn.addEventListener('click', (e) => {
+                console.log('🔄 Reload button clicked!');
+                e.preventDefault();
+                this.forceReload();
+            });
+            console.log('✅ Reload button listener added');
+        } else {
+            console.error('❌ Force reload button not found!');
+        }
         
         // TTS audio events
-        this.elements.ttsAudio.addEventListener('loadstart', () => this.onTTSStart());
-        this.elements.ttsAudio.addEventListener('ended', () => this.onTTSEnd());
-        this.elements.ttsAudio.addEventListener('error', (e) => this.onTTSError(e));
+        if (this.elements.ttsAudio) {
+            this.elements.ttsAudio.addEventListener('loadstart', () => this.onTTSStart());
+            this.elements.ttsAudio.addEventListener('ended', () => this.onTTSEnd());
+            this.elements.ttsAudio.addEventListener('error', (e) => this.onTTSError(e));
+        }
         
         // Keyboard shortcuts
         document.addEventListener('keydown', (e) => {
@@ -245,6 +362,8 @@ class SimpleVoiceClient {
         
         // Before unload
         window.addEventListener('beforeunload', () => this.cleanup());
+        
+        console.log('✅ All event listeners set up successfully');
     }
     
     /**
@@ -275,24 +394,53 @@ class SimpleVoiceClient {
      */
     async connect() {
         return new Promise((resolve, reject) => {
-            console.log(`Connecting to WebSocket: ${this.config.websocketUrl}`);
+            console.log(`🔗 Attempting WebSocket connection to: ${this.config.websocketUrl}`);
+            console.log('📊 Current state:', {
+                connected: this.state.connected,
+                websocketUrl: this.config.websocketUrl,
+                sessionId: this.config.sessionId,
+                protocol: this.config.websocketUrl.startsWith('wss://') ? 'WSS (Secure)' : 'WS (Insecure)'
+            });
             
             this.updateConnectionStatus('connecting', 'Connecting...');
             
             try {
+                // Validate WebSocket URL
+                if (!this.config.websocketUrl) {
+                    throw new Error('WebSocket URL is not configured');
+                }
+                
+                // Check for mixed content issues (HTTPS page trying to connect to WS)
+                if (window.location.protocol === 'https:' && this.config.websocketUrl.startsWith('ws://')) {
+                    console.warn('⚠️ Mixed content warning: HTTPS page trying to connect to insecure WebSocket');
+                    const fixedUrl = this.config.websocketUrl.replace('ws://', 'wss://');
+                    console.warn(`⚠️ Attempting to fix URL: ${this.config.websocketUrl} -> ${fixedUrl}`);
+                    this.config.websocketUrl = fixedUrl;
+                }
+                
+                console.log('✨ Creating WebSocket connection...');
                 this.websocket = new WebSocket(this.config.websocketUrl);
                 this.websocket.binaryType = 'arraybuffer';
                 
+                console.log('✨ WebSocket object created, waiting for connection...');
+                console.log('🔍 WebSocket readyState:', this.websocket.readyState, '(0=CONNECTING, 1=OPEN, 2=CLOSING, 3=CLOSED)');
+                
                 // Connection timeout
                 this.connectionTimeout = setTimeout(() => {
+                    console.error('⏰ WebSocket connection timeout after', this.config.connectionTimeout / 1000, 'seconds');
+                    console.error('🔍 WebSocket readyState at timeout:', this.websocket.readyState);
                     if (this.websocket.readyState === WebSocket.CONNECTING) {
                         this.websocket.close();
-                        reject(new Error('Connection timeout'));
+                        reject(new Error('Connection timeout - server may be unreachable'));
                     }
                 }, this.config.connectionTimeout);
                 
                 this.websocket.onopen = () => {
-                    console.log('WebSocket connected');
+                    console.log('✅ WebSocket connected successfully!');
+                    console.log('🔍 WebSocket readyState:', this.websocket.readyState);
+                    console.log('🔍 WebSocket protocol:', this.websocket.protocol);
+                    console.log('🔍 WebSocket extensions:', this.websocket.extensions);
+                    
                     clearTimeout(this.connectionTimeout);
                     this.state.connected = true;
                     this.reconnectAttempts = 0;
@@ -304,26 +452,79 @@ class SimpleVoiceClient {
                 this.websocket.onmessage = (event) => this.handleWebSocketMessage(event);
                 
                 this.websocket.onclose = (event) => {
-                    console.log('WebSocket closed:', event.code, event.reason);
+                    console.log('❌ WebSocket closed:', {
+                        code: event.code,
+                        reason: event.reason,
+                        wasClean: event.wasClean,
+                        timestamp: new Date().toISOString()
+                    });
+                    
+                    // Log common close codes
+                    const closeCodes = {
+                        1000: 'Normal closure',
+                        1001: 'Going away',
+                        1002: 'Protocol error',
+                        1003: 'Unsupported data',
+                        1005: 'No status received',
+                        1006: 'Abnormal closure',
+                        1007: 'Invalid frame payload data',
+                        1008: 'Policy violation',
+                        1009: 'Message too big',
+                        1010: 'Mandatory extension',
+                        1011: 'Internal server error',
+                        1015: 'TLS handshake failure'
+                    };
+                    
+                    const codeDescription = closeCodes[event.code] || 'Unknown error';
+                    console.log(`🔍 Close code ${event.code}: ${codeDescription}`);
+                    
                     this.state.connected = false;
-                    this.updateConnectionStatus('disconnected', 'Disconnected');
+                    this.updateConnectionStatus('disconnected', `Disconnected (${codeDescription})`);
                     this.disableControls();
                     
                     if (!event.wasClean && this.reconnectAttempts < this.config.reconnectAttempts) {
+                        console.log(`🔄 Connection lost unexpectedly, attempting reconnection...`);
                         this.attemptReconnect();
                     }
                 };
                 
                 this.websocket.onerror = (error) => {
-                    console.error('WebSocket error:', error);
+                    console.error('🚨 WebSocket error occurred:', error);
+                    console.error('🔍 Error event details:', {
+                        type: error.type,
+                        target: error.target,
+                        timeStamp: error.timeStamp
+                    });
+                    console.error('🔍 WebSocket readyState at error:', this.websocket.readyState);
+                    console.error('🔍 WebSocket URL being attempted:', this.config.websocketUrl);
+                    
                     clearTimeout(this.connectionTimeout);
                     
+                    // Provide detailed error information
+                    let errorMessage = 'Failed to connect to voice service';
+                    
+                    if (this.config.websocketUrl.startsWith('wss://') && window.location.protocol === 'http:') {
+                        errorMessage = 'Cannot connect to secure WebSocket from insecure page';
+                    } else if (this.config.websocketUrl.includes('localhost') && window.location.hostname !== 'localhost') {
+                        errorMessage = 'Cannot connect to localhost from remote host';
+                    } else if (this.websocket.readyState === WebSocket.CONNECTING) {
+                        errorMessage = 'Connection refused - server may be down or unreachable';
+                    }
+                    
+                    console.error('🔍 Interpreted error:', errorMessage);
+                    
                     if (this.websocket.readyState === WebSocket.CONNECTING) {
-                        reject(new Error('Failed to connect to voice service'));
+                        reject(new Error(errorMessage));
                     }
                 };
                 
             } catch (error) {
+                console.error('💥 Exception during WebSocket creation:', error);
+                console.error('🔍 Exception details:', {
+                    name: error.name,
+                    message: error.message,
+                    stack: error.stack
+                });
                 clearTimeout(this.connectionTimeout);
                 reject(error);
             }
@@ -756,11 +957,146 @@ class SimpleVoiceClient {
     }
     
     /**
+     * Manual connection control
+     */
+    async manualConnect() {
+        console.log('🔗 Manual connect triggered by user');
+        console.log('📊 Current WebSocket state:', {
+            websocket: !!this.websocket,
+            readyState: this.websocket?.readyState,
+            connected: this.state.connected
+        });
+        
+        this.elements.manualConnectBtn.disabled = true;
+        this.elements.manualConnectBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+        
+        try {
+            if (this.websocket) {
+                console.log('🔌 Closing existing WebSocket connection');
+                this.websocket.close();
+                this.websocket = null;
+            }
+            
+            console.log('🔗 Attempting new WebSocket connection...');
+            await this.connect();
+            console.log('✅ Manual connection successful');
+            this.showMessage('Successfully connected to voice service!', 'success');
+            
+        } catch (error) {
+            console.error('❌ Manual connection failed:', error);
+            this.showError('Manual connection failed: ' + error.message);
+        } finally {
+            this.elements.manualConnectBtn.disabled = false;
+            this.elements.manualConnectBtn.innerHTML = '<i class="fas fa-plug"></i> Connect';
+        }
+    }
+    
+    /**
+     * Manual disconnect
+     */
+    manualDisconnect() {
+        console.log('🔌 Manual disconnect triggered by user');
+        
+        if (this.websocket) {
+            console.log('🔌 Closing WebSocket connection');
+            this.websocket.close();
+            this.websocket = null;
+        }
+        
+        this.state.connected = false;
+        this.updateConnectionStatus('disconnected', 'Manually disconnected');
+        this.disableControls();
+        console.log('✅ Manual disconnect completed');
+        this.showMessage('Disconnected from voice service', 'info');
+    }
+    
+    /**
+     * Force reload JavaScript
+     */
+    forceReload() {
+        console.log('🔄 Force reloading page to clear JavaScript cache');
+        this.showMessage('Reloading page...', 'info');
+        
+        // Small delay to show the message
+        setTimeout(() => {
+            window.location.reload(true);
+        }, 500);
+    }
+    
+    /**
+     * Show temporary message to user
+     */
+    showMessage(message, type = 'info') {
+        console.log(`📢 Message (${type}): ${message}`);
+        
+        // Create or update a temporary message element
+        let messageEl = document.getElementById('temp-message');
+        if (!messageEl) {
+            messageEl = document.createElement('div');
+            messageEl.id = 'temp-message';
+            messageEl.style.cssText = `
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                padding: 12px 20px;
+                border-radius: 6px;
+                color: white;
+                font-weight: 500;
+                z-index: 9999;
+                transition: opacity 0.3s ease;
+                max-width: 300px;
+            `;
+            document.body.appendChild(messageEl);
+        }
+        
+        // Set colors based on type
+        const colors = {
+            success: '#28a745',
+            error: '#dc3545',
+            warning: '#ffc107',
+            info: '#17a2b8'
+        };
+        
+        messageEl.style.backgroundColor = colors[type] || colors.info;
+        messageEl.textContent = message;
+        messageEl.style.opacity = '1';
+        
+        // Auto-hide after 3 seconds
+        setTimeout(() => {
+            if (messageEl) {
+                messageEl.style.opacity = '0';
+                setTimeout(() => {
+                    if (messageEl && messageEl.parentNode) {
+                        messageEl.parentNode.removeChild(messageEl);
+                    }
+                }, 300);
+            }
+        }, 3000);
+    }
+    
+    /**
+     * Update connection UI buttons
+     */
+    updateConnectionButtons(connected) {
+        if (connected) {
+            this.elements.manualConnectBtn.style.display = 'none';
+            this.elements.manualDisconnectBtn.style.display = 'flex';
+        } else {
+            this.elements.manualConnectBtn.style.display = 'flex';
+            this.elements.manualDisconnectBtn.style.display = 'none';
+        }
+    }
+    
+    /**
      * Connection status management
      */
     updateConnectionStatus(status, text) {
         this.elements.statusDot.className = `status-dot ${status}`;
         this.elements.statusText.textContent = text;
+        
+        // Update connection buttons based on status
+        const connected = status === 'connected';
+        this.updateConnectionButtons(connected);
     }
     
     /**

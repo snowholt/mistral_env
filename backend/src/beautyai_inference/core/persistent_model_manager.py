@@ -183,7 +183,7 @@ class PersistentModelManager:
             "preload_on_startup": True,
             "models": {
                 "whisper": {
-                    "model_id": "large-v3-turbo",
+                    "model_id": "whisper-large-v3-turbo",
                     "device": "cuda",
                     "compute_type": "float16",
                     "priority": 1

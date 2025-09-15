@@ -81,8 +81,26 @@ class SimpleVoiceWebSocketManager:
         self.persistent_model_manager = None
         self._persistent_models_initialized = False
         
-        # Voice session manager for conversation context
-        self.session_manager = get_voice_session_manager(persist_sessions=True)
+        # Voice session manager for conversation context  
+        # Use backend directory for session files to avoid duplication
+        # Find the backend directory more robustly
+        current_file = Path(__file__).resolve()
+        backend_dir = None
+        for parent in current_file.parents:
+            if parent.name == "backend":
+                backend_dir = parent
+                break
+        
+        if backend_dir:
+            backend_session_dir = backend_dir / "sessions" / "voice"
+        else:
+            # Fallback to the correct number of parents if backend dir not found
+            backend_session_dir = Path(__file__).parent.parent.parent.parent.parent / "sessions" / "voice"
+        
+        self.session_manager = get_voice_session_manager(
+            persist_sessions=True, 
+            session_dir=backend_session_dir
+        )
         
         # Background task for session cleanup
         self._cleanup_task = None
@@ -167,7 +185,7 @@ class SimpleVoiceWebSocketManager:
         logger.warning("⚠️ Falling back to CWD debug directory: %s", cwd_fallback)
         return cwd_fallback
 
-    def _maybe_convert_and_probe(self, webm_path: Path) -> Optional[Path]:  # type: ignore[name-defined]
+    async def _maybe_convert_and_probe(self, webm_path: Path) -> Optional[Path]:  # type: ignore[name-defined]
         """If BEAUTYAI_DEBUG_VOICE=1 convert WebM to 16k mono WAV and log metadata."""
         try:
             if os.environ.get("BEAUTYAI_DEBUG_VOICE") != "1":
@@ -178,7 +196,7 @@ class SimpleVoiceWebSocketManager:
             wav_path = webm_path.with_suffix(".wav")
             
             # Convert WebM to PCM using utility
-            pcm_data = asyncio.run(decoder.decode_file_to_numpy(webm_path, normalize=False))
+            pcm_data = await decoder.decode_file_to_numpy(webm_path, normalize=False)
             
             # Convert numpy array back to WAV for debugging
             import wave
@@ -217,7 +235,6 @@ class SimpleVoiceWebSocketManager:
             logger.info("Initializing persistent model manager...")
             try:
                 self.persistent_model_manager = PersistentModelManager()
-                await self.persistent_model_manager.initialize()
                 
                 # Start preloading models in background
                 logger.info("Starting model preloading...")
@@ -258,8 +275,11 @@ class SimpleVoiceWebSocketManager:
                 buffer_max_duration_ms=30000,  # 30 second max buffer
                 # Enable adaptive features
                 adaptive_threshold=True,
-                energy_threshold=0.01,  # Energy threshold for speech detection
-                language_specific_tuning=True
+                language_specific_thresholds={
+                    'ar': 0.45,
+                    'en': 0.5,
+                    'auto': 0.5
+                }
             )
             
             # Initialize global VAD service
@@ -528,12 +548,12 @@ class SimpleVoiceWebSocketManager:
                 logger.error(f"Error in session cleanup loop: {e}")
                 # Continue the loop even if there's an error
     
-    def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
+    async def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
         """Helper method to get connection data by original connection ID."""
         try:
             pool_connection_id = getattr(self, f"_pool_mapping_{connection_id}", None)
             if pool_connection_id:
-                pool = asyncio.run(self._get_connection_pool())
+                pool = await self._get_connection_pool()
                 return pool.get_connection(pool_connection_id)
             return None
         except Exception as e:
@@ -589,7 +609,7 @@ class SimpleVoiceWebSocketManager:
         audio_data: bytes
     ) -> Dict[str, Any]:
         """Process audio with SimpleVoiceService for maximum speed."""
-        connection_data = self._get_connection_data_by_original_id(connection_id)
+        connection_data = await self._get_connection_data_by_original_id(connection_id)
         if not connection_data or not connection_data.voice_session_data:
             return {"success": False, "error": "Connection not found"}
         
@@ -792,7 +812,7 @@ class SimpleVoiceWebSocketManager:
         - Only processes complete, decodable audio segments
         - Prevents infinite loop from failed individual chunk decoding
         """
-        connection_data = self._get_connection_data_by_original_id(connection_id)
+        connection_data = await self._get_connection_data_by_original_id(connection_id)
         if not connection_data or not connection_data.voice_session_data:
             return {"success": False, "error": "Connection not found"}
         
@@ -942,7 +962,7 @@ class SimpleVoiceWebSocketManager:
         This method handles audio processing using the optimized buffer system
         with adaptive sizing and memory pooling.
         """
-        connection_data = self._get_connection_data_by_original_id(connection_id)
+        connection_data = await self._get_connection_data_by_original_id(connection_id)
         if not connection_data or not connection_data.voice_session_data:
             return {"success": False, "error": "Connection not found"}
         
@@ -1074,7 +1094,7 @@ class SimpleVoiceWebSocketManager:
         This method handles the conversion of accumulated WebM chunks into
         a complete, decodable audio file for speech processing.
         """
-        connection_data = self._get_connection_data_by_original_id(connection_id)
+        connection_data = await self._get_connection_data_by_original_id(connection_id)
         if not connection_data or not connection_data.voice_session_data:
             return {"success": False, "error": "Connection not found"}
         
@@ -1108,7 +1128,7 @@ class SimpleVoiceWebSocketManager:
             # ------------------------------------------------------------
             # SILENCE / ENERGY CHECK (Prevent repeated unclear guidance)
             # ------------------------------------------------------------
-            def _compute_rms_and_dbfs(webm_bytes: bytes) -> tuple[float, float]:  # type: ignore
+            async def _compute_rms_and_dbfs(webm_bytes: bytes) -> tuple[float, float]:  # type: ignore
                 """Compute RMS and dBFS of a WebM audio buffer using WebMDecoder utility.
                 Returns (rms, dbfs). On failure returns (0.0, -100.0).
                 """
@@ -1125,7 +1145,7 @@ class SimpleVoiceWebSocketManager:
                     
                     try:
                         # Decode WebM to numpy array
-                        data = asyncio.run(decoder.decode_file_to_numpy(Path(src_path), normalize=True))
+                        data = await decoder.decode_file_to_numpy(Path(src_path), normalize=True)
                         
                         if data.size == 0:
                             return 0.0, -100.0
@@ -1153,7 +1173,7 @@ class SimpleVoiceWebSocketManager:
 
             # Only attempt energy check for webm (streaming) format and if sizable data
             if len(concatenated_audio) > 500:  # avoid tiny segments
-                rms, dbfs = _compute_rms_and_dbfs(concatenated_audio)
+                rms, dbfs = await _compute_rms_and_dbfs(concatenated_audio)
                 logger.info(f"🔊 Segment energy for {connection_id}: RMS={rms:.5f}, dBFS={dbfs:.1f}")
                 # Thresholds (tunable): treat as silence if below -45 dBFS OR rms < 0.008
                 silence = (dbfs < -45.0) or (rms < 0.008)
@@ -1233,7 +1253,7 @@ class SimpleVoiceWebSocketManager:
             logger.info(f"🔄 Turn complete for {connection_id}, processing complete audio...")
             
             # Check if connection still exists
-            connection_data = self._get_connection_data_by_original_id(connection_id)
+            connection_data = await self._get_connection_data_by_original_id(connection_id)
             if not connection_data or not connection_data.voice_session_data:
                 logger.warning(f"⚠️ Turn complete for disconnected connection {connection_id} - skipping")
                 try:
@@ -1291,7 +1311,7 @@ class SimpleVoiceWebSocketManager:
                 )
                 
                 # Double-check we're still the active turn (prevent race conditions)
-                current_connection_data = self._get_connection_data_by_original_id(connection_id)
+                current_connection_data = await self._get_connection_data_by_original_id(connection_id)
                 if not current_connection_data or not current_connection_data.voice_session_data:
                     logger.warning(f"⚠️ Connection {connection_id} disconnected during processing - aborting")
                     return
@@ -1351,7 +1371,7 @@ class SimpleVoiceWebSocketManager:
                     pass
                 
                 # Mark turn processing as complete and reset VAD state
-                connection_data = self._get_connection_data_by_original_id(connection_id)
+                connection_data = await self._get_connection_data_by_original_id(connection_id)
                 if connection_data and connection_data.voice_session_data:
                     connection_data.voice_session_data["processing_turn"] = False
                     # Reset VAD service turn processing state to allow new turns

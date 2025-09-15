@@ -10,28 +10,50 @@ import os
 # Environment detection
 ENVIRONMENT = os.getenv("BEAUTYAI_ENV", "development")
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+PRODUCTION = os.getenv("PRODUCTION", "false").lower() in ("true", "1", "yes")
 
 # Backend connection settings
 BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
 BACKEND_PORT = os.getenv("BACKEND_PORT", "8000")
 BACKEND_PROTOCOL = os.getenv("BACKEND_PROTOCOL", "http")
+
+# WebSocket configuration - critical for production deployment
+BACKEND_WS_HOST = os.getenv("BACKEND_WS_HOST", BACKEND_HOST)
 BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "ws")
+
+# Production overrides for WebSocket configuration
+if PRODUCTION or ENVIRONMENT == "production":
+    # In production, use WSS and the API domain for reliable connection
+    # This matches the logic in debug_pcm_upload.html that works correctly
+    BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "wss")
+    BACKEND_WS_HOST = os.getenv("BACKEND_WS_HOST", "api.gmai.sa")  # Use api.gmai.sa instead of dev.gmai.sa
+    BACKEND_WS_PORT = ""  # No port for standard WSS/HTTPS
+else:
+    # Development settings
+    BACKEND_WS_HOST = BACKEND_HOST
+    BACKEND_WS_PORT = f":{BACKEND_PORT}"
 
 # API configuration
 API_PREFIX = os.getenv("API_PREFIX", "/api/v1")
 API_TIMEOUT = int(os.getenv("API_TIMEOUT", "30"))
 
 # WebSocket endpoints
-WEBSOCKET_SIMPLE_VOICE_PATH = "/api/v1/ws/streaming-voice"
+WEBSOCKET_SIMPLE_VOICE_PATH = "/api/v1/ws/simple-voice-chat"
 WEBSOCKET_STREAMING_VOICE_PATH = "/api/v1/ws/streaming-voice"
 
 # Dynamic backend URLs
 BACKEND_BASE_URL = f"{BACKEND_PROTOCOL}://{BACKEND_HOST}:{BACKEND_PORT}"
 BACKEND_API_URL = f"{BACKEND_BASE_URL}{API_PREFIX}"
 
-# WebSocket URLs
-BACKEND_SIMPLE_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_HOST}:{BACKEND_PORT}{WEBSOCKET_SIMPLE_VOICE_PATH}"
-BACKEND_STREAMING_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_HOST}:{BACKEND_PORT}{WEBSOCKET_STREAMING_VOICE_PATH}"
+# WebSocket URLs - properly handle production vs development
+if PRODUCTION or ENVIRONMENT == "production":
+    # Production WebSocket URLs (no port for standard HTTPS/WSS)
+    BACKEND_SIMPLE_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}{WEBSOCKET_SIMPLE_VOICE_PATH}"
+    BACKEND_STREAMING_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}{WEBSOCKET_STREAMING_VOICE_PATH}"
+else:
+    # Development WebSocket URLs (with port)
+    BACKEND_SIMPLE_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}:{BACKEND_PORT}{WEBSOCKET_SIMPLE_VOICE_PATH}"
+    BACKEND_STREAMING_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}:{BACKEND_PORT}{WEBSOCKET_STREAMING_VOICE_PATH}"
 
 # Model configuration
 DEFAULT_MODEL = os.getenv("DEFAULT_MODEL", "qwen3-unsloth-q4ks")
@@ -63,14 +85,18 @@ RECONNECT_ATTEMPTS = int(os.getenv("RECONNECT_ATTEMPTS", "3"))
 RECONNECT_DELAY_MS = int(os.getenv("RECONNECT_DELAY_MS", "1000"))
 
 # Environment-specific overrides
-if ENVIRONMENT == "production":
+if ENVIRONMENT == "production" or PRODUCTION:
     # Production settings
     API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
     CONNECTION_TIMEOUT_MS = int(os.getenv("CONNECTION_TIMEOUT_MS", "10000"))
     RECONNECT_ATTEMPTS = int(os.getenv("RECONNECT_ATTEMPTS", "5"))
+    RECONNECT_DELAY_MS = int(os.getenv("RECONNECT_DELAY_MS", "2000"))
 elif ENVIRONMENT == "development":
     # Development settings
     DEBUG = True
+    CONNECTION_TIMEOUT_MS = int(os.getenv("CONNECTION_TIMEOUT_MS", "5000"))
+    RECONNECT_ATTEMPTS = int(os.getenv("RECONNECT_ATTEMPTS", "3"))
+    RECONNECT_DELAY_MS = int(os.getenv("RECONNECT_DELAY_MS", "1000"))
 elif ENVIRONMENT == "testing":
     # Testing settings
     BACKEND_HOST = "localhost"
@@ -103,6 +129,7 @@ validate_config()
 CONFIG_DICT = {
     "environment": ENVIRONMENT,
     "debug": DEBUG,
+    "production": PRODUCTION,
     "backend": {
         "host": BACKEND_HOST,
         "port": BACKEND_PORT,
@@ -110,6 +137,7 @@ CONFIG_DICT = {
         "base_url": BACKEND_BASE_URL,
         "api_url": BACKEND_API_URL,
         "ws_protocol": BACKEND_WS_PROTOCOL,
+        "ws_host": BACKEND_WS_HOST,
         "simple_voice_ws": BACKEND_SIMPLE_VOICE_WS,
         "streaming_voice_ws": BACKEND_STREAMING_VOICE_WS,
     },

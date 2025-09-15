@@ -34,8 +34,8 @@ session_service = SessionService()
 
 # Try to initialize PersistentModelManager for shared LLM access
 try:
-    from ...core.persistent_model_manager import PersistentModelManager
-    persistent_model_manager = PersistentModelManager.get_instance()
+    from ...core.persistent_model_manager import get_persistent_model_manager
+    persistent_model_manager = get_persistent_model_manager()
     logger.info("PersistentModelManager initialized for chat endpoint")
 except Exception as e:
     persistent_model_manager = None

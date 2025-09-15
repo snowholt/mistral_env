@@ -1,5 +1,14 @@
 from flask import Blueprint, render_template, session, request, abort
 import uuid
+import os
+from dotenv import load_dotenv
+
+# Load environment variables from .env.production if it exists
+if os.path.exists('/home/lumi/beautyai/.env.production'):
+    load_dotenv('/home/lumi/beautyai/.env.production')
+    print("✅ Loaded production environment variables")
+else:
+    print("⚠️ Production environment file not found")
 
 main_bp = Blueprint("main", __name__)
 
@@ -17,10 +26,18 @@ def voice():
     
     # Get configuration from app config or environment
     from config.constants import CONFIG_DICT
+    import time
+    
+    # Log configuration for debugging
+    print(f"🔧 Voice route config: {CONFIG_DICT.get('backend', {})}")
+    print(f"🌐 WebSocket URL: {CONFIG_DICT.get('backend', {}).get('simple_voice_ws', 'NOT SET')}")
+    print(f"🏭 Environment: {CONFIG_DICT.get('environment', 'unknown')}")
+    print(f"🔒 Production: {CONFIG_DICT.get('production', False)}")
     
     return render_template("simple_voice_ui.html", 
                          config=CONFIG_DICT,
-                         session_id=session["session_id"])
+                         session_id=session["session_id"],
+                         cache_buster=int(time.time()))
 
 @main_bp.route("/voice/debug")
 def voice_debug():
@@ -38,10 +55,12 @@ def voice_debug():
     #     abort(404)
     
     from config.constants import CONFIG_DICT
+    import time
     
     return render_template("debug_simple_voice.html",
                          config=CONFIG_DICT,
-                         session_id=session["session_id"])
+                         session_id=session["session_id"],
+                         cache_buster=int(time.time()))
 
 @main_bp.route("/chat")
 def chat():

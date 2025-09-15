@@ -12,7 +12,7 @@
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 </head>
 <body>
-    <div class="voice-container">
+    <div class="voice-container" id="voice-container">
         <!-- Header -->
         <header class="voice-header">
             <div class="header-content">
@@ -45,6 +45,20 @@
             <div class="status-indicator">
                 <span class="status-dot"></span>
                 <span class="status-text">Connecting...</span>
+                <div class="connection-controls">
+                                        <button id="manual-connect-btn" class="connection-btn connect-btn" type="button" 
+                            onclick="console.log('🔗 Connect button onclick fired!'); if(window.voiceClient) { console.log('📱 Voice client found, calling manualConnect'); window.voiceClient.manualConnect(); } else { console.error('❌ Voice client not found in window'); } window.testConnect();">
+                        Connect
+                    </button>
+                    <button id="manual-disconnect-btn" class="connection-btn disconnect-btn" type="button" 
+                            onclick="console.log('🔌 Disconnect button onclick fired!'); if(window.voiceClient) { console.log('📱 Voice client found, calling manualDisconnect'); window.voiceClient.manualDisconnect(); } else { console.error('❌ Voice client not found in window'); }">
+                        Disconnect
+                    </button>
+                    <button id="force-reload-btn" class="connection-btn reload-btn" type="button" 
+                            onclick="console.log('🔄 Reload button onclick fired!'); window.testReload();">
+                        Reload
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -202,25 +216,65 @@
         // Load configuration from JSON scripts
         window.BEAUTYAI_CONFIG = JSON.parse(document.getElementById('beautyai-config').textContent);
         window.SESSION_ID = JSON.parse(document.getElementById('beautyai-session').textContent);
+        
+        console.log('🔧 BeautyAI Config loaded:', window.BEAUTYAI_CONFIG);
+        console.log('🔑 Session ID:', window.SESSION_ID);
+        console.log('🌐 WebSocket URL:', window.BEAUTYAI_CONFIG?.backend?.simple_voice_ws);
     </script>
-    <script src="/static/js/audioUtils.js"></script>
-    <script src="/static/js/improvedVAD.js"></script>
-    <script src="/static/js/simpleVoiceClient.js"></script>
+    <script src="/static/js/audioUtils.js?v={{ cache_buster }}"></script>
+    <script src="/static/js/improvedVAD.js?v={{ cache_buster }}"></script>
+    <script src="/static/js/simpleVoiceClient.js?v={{ cache_buster }}"></script>
     
     <script>
         // Initialize the voice client when DOM is loaded
         document.addEventListener('DOMContentLoaded', function() {
-            const voiceClient = new SimpleVoiceClient({
-                containerId: 'voice-container',
-                websocketUrl: window.BEAUTYAI_CONFIG.backend.simple_voice_ws,
-                sessionId: window.SESSION_ID
+            console.log('🌟 DOM Content Loaded - Starting Voice Client Initialization');
+            
+            // Test if buttons are accessible
+            const connectBtn = document.getElementById('manual-connect-btn');
+            const reloadBtn = document.getElementById('force-reload-btn');
+            console.log('🔍 Button test:', {
+                connectBtn: !!connectBtn,
+                reloadBtn: !!reloadBtn,
+                connectBtnId: connectBtn?.id,
+                reloadBtnId: reloadBtn?.id
             });
             
-            voiceClient.initialize();
-            
-            // Global reference for debugging
-            window.voiceClient = voiceClient;
+            try {
+                const voiceClient = new SimpleVoiceClient({
+                    containerId: 'voice-container',
+                    websocketUrl: window.BEAUTYAI_CONFIG.backend.simple_voice_ws,
+                    sessionId: window.SESSION_ID
+                });
+                
+                console.log('📱 Voice client instance created, calling initialize...');
+                voiceClient.initialize().catch(error => {
+                    console.error('🚨 Voice client initialization failed:', error);
+                });
+                
+                // Global reference for debugging
+                window.voiceClient = voiceClient;
+                console.log('✅ Voice client reference stored in window.voiceClient');
+                
+            } catch (error) {
+                console.error('💥 Failed to create voice client instance:', error);
+            }
         });
+        
+        // Add direct test functions for debugging
+        window.testConnect = function() {
+            console.log('🧪 Test connect function called');
+            if (window.voiceClient) {
+                window.voiceClient.manualConnect();
+            } else {
+                console.error('❌ Voice client not available');
+            }
+        };
+        
+        window.testReload = function() {
+            console.log('🧪 Test reload function called');
+            window.location.reload(true);
+        };
     </script>
 </body>
 </html>
