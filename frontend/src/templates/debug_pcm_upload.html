@@ -44,19 +44,50 @@
           <label class="config-label">
             <i class="fas fa-file-audio"></i> Audio File
           </label>
-          <div class="file-upload-area" id="fileUploadArea">
+          <div class="modern-file-upload" id="fileUploadArea">
             <input type="file" id="audioFile" accept="audio/*,.pcm" hidden>
-            <div class="file-upload-content">
-              <i class="fas fa-cloud-upload-alt"></i>
-              <div class="file-upload-text">
-                <span id="fileLabel">Click to select audio file</span>
-                <div class="file-upload-hint">Supports WebM, WAV, MP3, PCM</div>
+            <div class="file-upload-zone" id="fileUploadZone">
+              <div class="upload-icon">
+                <i class="fas fa-cloud-upload-alt"></i>
+              </div>
+              <div class="upload-content">
+                <h3 class="upload-title" id="fileLabel">Drop audio files here</h3>
+                <p class="upload-subtitle">or click to browse</p>
+                <div class="supported-formats">
+                  <span class="format-badge">WebM</span>
+                  <span class="format-badge">WAV</span>
+                  <span class="format-badge">MP3</span>
+                  <span class="format-badge">PCM</span>
+                </div>
+              </div>
+              <button type="button" class="modern-upload-btn" id="selectFileBtn">
+                <i class="fas fa-folder-open"></i>
+                Choose File
+              </button>
+            </div>
+            <div class="file-preview" id="fileInfo" style="display: none;">
+              <div class="file-preview-content">
+                <div class="file-icon">
+                  <i class="fas fa-file-audio"></i>
+                </div>
+                <div class="file-details">
+                  <div class="file-name" id="fileName"></div>
+                  <div class="file-meta">
+                    <span class="file-size" id="fileSize"></span>
+                    <span class="file-type" id="fileType"></span>
+                  </div>
+                </div>
+                <button type="button" class="remove-file-btn" id="removeFileBtn">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div class="upload-progress" id="uploadProgress" style="display: none;">
+                <div class="progress-bar">
+                  <div class="progress-fill" id="progressFill"></div>
+                </div>
+                <span class="progress-text" id="progressText">0%</span>
               </div>
             </div>
-          </div>
-          <div class="file-info" id="fileInfo" style="display: none;">
-            <span id="fileName"></span>
-            <span id="fileSize"></span>
           </div>
         </div>
 
@@ -93,12 +124,43 @@
           </div>
         </div>
 
-        <!-- WebSocket URL -->
+        <!-- WebSocket URL Selection -->
         <div class="config-group full-width">
           <label class="config-label">
-            <i class="fas fa-plug"></i> WebSocket URL
+            <i class="fas fa-plug"></i> WebSocket Endpoint
           </label>
-          <input type="text" id="websocketUrl" class="config-input" readonly>
+          <div class="websocket-selector">
+            <select id="websocketUrl" class="config-select websocket-select">
+              <optgroup label="🌐 Production (WSS - Secure)">
+                <option value="wss://dev.gmai.sa/api/v1/ws/simple-voice-chat" selected>
+                  🎤 Simple Voice Chat - dev.gmai.sa
+                </option>
+                <option value="wss://dev.gmai.sa/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - dev.gmai.sa
+                </option>
+                <option value="wss://api.gmai.sa/api/v1/ws/simple-voice-chat">
+                  🎤 Simple Voice Chat - api.gmai.sa
+                </option>
+                <option value="wss://api.gmai.sa/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - api.gmai.sa
+                </option>
+              </optgroup>
+              <optgroup label="🏠 Development (WS - Local)">
+                <option value="ws://localhost:8000/api/v1/ws/simple-voice-chat">
+                  🎤 Simple Voice Chat - localhost
+                </option>
+                <option value="ws://localhost:8000/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - localhost
+                </option>
+              </optgroup>
+            </select>
+            <div class="websocket-info">
+              <span class="protocol-badge" id="protocolBadge">WSS</span>
+              <span class="endpoint-description" id="endpointDescription">
+                Secure WebSocket connection for simple voice chat
+              </span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -122,62 +184,143 @@
     <!-- Pipeline Status Panel -->
     <section class="debug-panel pipeline-panel">
       <div class="panel-header">
-        <h2><i class="fas fa-sitemap"></i> Pipeline Status</h2>
+        <h2><i class="fas fa-tachometer-alt"></i> Pipeline Dashboard</h2>
         <div class="performance-grade" id="performanceGrade">
           <span class="grade-label">Performance:</span>
           <span class="grade-value" id="gradeValue">-</span>
         </div>
       </div>
       
-      <div class="pipeline-stages">
-        <div class="stage" id="uploadStage">
-          <div class="stage-icon"><i class="fas fa-upload"></i></div>
-          <div class="stage-label">Upload</div>
-          <div class="stage-status">Ready</div>
-          <div class="stage-timing" id="uploadTiming">-</div>
-        </div>
-        
-        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
-        
-        <div class="stage" id="sttStage">
-          <div class="stage-icon"><i class="fas fa-microphone"></i></div>
-          <div class="stage-label">STT</div>
-          <div class="stage-status">Waiting</div>
-          <div class="stage-timing" id="sttTiming">-</div>
-        </div>
-        
-        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
-        
-        <div class="stage" id="llmStage">
-          <div class="stage-icon"><i class="fas fa-brain"></i></div>
-          <div class="stage-label">LLM</div>
-          <div class="stage-status">Waiting</div>
-          <div class="stage-timing" id="llmTiming">-</div>
-        </div>
-        
-        <div class="stage-arrow"><i class="fas fa-chevron-right"></i></div>
-        
-        <div class="stage" id="ttsStage">
-          <div class="stage-icon"><i class="fas fa-volume-high"></i></div>
-          <div class="stage-label">TTS</div>
-          <div class="stage-status">Waiting</div>
-          <div class="stage-timing" id="ttsTiming">-</div>
+      <!-- Pipeline Overview -->
+      <div class="pipeline-overview">
+        <div class="overview-stats">
+          <div class="stat-card total-time">
+            <div class="stat-icon"><i class="fas fa-clock"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Total Time</span>
+              <span class="stat-value" id="totalTime">-</span>
+            </div>
+          </div>
+          <div class="stat-card session-info">
+            <div class="stat-icon"><i class="fas fa-fingerprint"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Session ID</span>
+              <span class="stat-value" id="sessionId">-</span>
+            </div>
+          </div>
+          <div class="stat-card bottleneck">
+            <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Bottleneck</span>
+              <span class="stat-value" id="bottleneckStage">-</span>
+            </div>
+          </div>
         </div>
       </div>
-      
-      <div class="pipeline-metrics">
-        <div class="metric">
-          <span class="metric-label">Total Time:</span>
-          <span class="metric-value" id="totalTime">-</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Bottleneck:</span>
-          <span class="metric-value" id="bottleneckStage">-</span>
-        </div>
-        <div class="metric">
-          <span class="metric-label">Session ID:</span>
-          <span class="metric-value" id="sessionId">-</span>
-        </div>
+
+      <!-- Pipeline Stages Table -->
+      <div class="pipeline-table-container">
+        <table class="pipeline-table">
+          <thead>
+            <tr>
+              <th class="stage-col">Stage</th>
+              <th class="status-col">Status</th>
+              <th class="timing-col">Duration</th>
+              <th class="progress-col">Progress</th>
+              <th class="details-col">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="stage-row" id="uploadStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon upload"><i class="fas fa-upload"></i></div>
+                  <span class="stage-name">File Upload</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge ready" id="uploadStatus">Ready</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="uploadTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="uploadProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="uploadDetails">Waiting for file</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="sttStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon stt"><i class="fas fa-microphone"></i></div>
+                  <span class="stage-name">Speech-to-Text</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="sttStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="sttTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="sttProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="sttDetails">Pending upload</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="llmStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon llm"><i class="fas fa-brain"></i></div>
+                  <span class="stage-name">Language Model</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="llmStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="llmTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="llmProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="llmDetails">Pending STT</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="ttsStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon tts"><i class="fas fa-volume-high"></i></div>
+                  <span class="stage-name">Text-to-Speech</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="ttsStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="ttsTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="ttsProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="ttsDetails">Pending LLM</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
       </div>
     </section>
 

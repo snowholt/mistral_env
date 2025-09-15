@@ -46,8 +46,28 @@ class DebugWebSocketTester {
     this.cacheElements();
     this.bindEvents();
     this.updateStatus('disconnected');
+    this.initializeWebSocketSelector();
+    this.updateWebSocketInfo();
+    this.initializeDashboard();
     this.updateUI();
     this.logDebugEvent('SYSTEM', 'info', 'Debug WebSocket Tester initialized');
+  }
+
+  /**
+   * Initialize WebSocket selector with default values
+   */
+  initializeWebSocketSelector() {
+    if (!this.elements.websocketUrl) return;
+    
+    // Set default selection based on current environment
+    const isProduction = window.location.hostname !== 'localhost';
+    if (isProduction) {
+      // Default to WSS simple voice chat for production
+      this.elements.websocketUrl.value = 'wss://dev.gmai.sa/api/v1/ws/simple-voice-chat';
+    } else {
+      // Default to WS simple voice chat for local development
+      this.elements.websocketUrl.value = 'ws://localhost:8000/api/v1/ws/simple-voice-chat';
+    }
   }
 
   /**
@@ -56,8 +76,9 @@ class DebugWebSocketTester {
   cacheElements() {
     const elementIds = [
       'wsStatus', 'configLanguage', 'configFrameSize', 'configPacing', 'configAutoplay',
-      'configEndpointUrl', 'connectBtn', 'disconnectBtn', 'streamBtn', 'abortBtn',
-      'audioFileInput', 'fileLabel', 'selectFileBtn',
+      'websocketUrl', 'protocolBadge', 'endpointDescription', 'connectBtn', 'disconnectBtn', 'streamBtn', 'abortBtn',
+      'audioFile', 'fileLabel', 'selectFileBtn', 'fileUploadZone', 'removeFileBtn', 
+      'fileName', 'fileSize', 'fileType', 'fileInfo', 'uploadProgress', 'progressFill', 'progressText',
       'pipelineStatus', 'pipelineProgress', 'stageSTT', 'stageLLM', 'stageTTS',
       'stageSTTStatus', 'stageSTTTiming', 'stageSTTData',
       'stageLLMStatus', 'stageLLMTiming', 'stageLLMData',
@@ -85,16 +106,45 @@ class DebugWebSocketTester {
       this.elements.disconnectBtn.addEventListener('click', () => this.disconnect());
     }
 
-    // File handling
-    if (this.elements.selectFileBtn) {
-      this.elements.selectFileBtn.addEventListener('click', () => {
-        if (this.elements.audioFileInput) {
-          this.elements.audioFileInput.click();
-        }
-      });
+    // WebSocket URL selector
+    if (this.elements.websocketUrl) {
+      this.elements.websocketUrl.addEventListener('change', () => this.updateWebSocketInfo());
     }
-    if (this.elements.audioFileInput) {
-      this.elements.audioFileInput.addEventListener('change', (e) => this.handleFileSelect(e));
+
+    // Modern file upload handling
+    if (this.elements.selectFileBtn || this.elements.fileUploadZone) {
+      const clickHandler = () => {
+        if (this.elements.audioFile) {
+          this.elements.audioFile.click();
+        }
+      };
+      
+      if (this.elements.selectFileBtn) {
+        this.elements.selectFileBtn.addEventListener('click', clickHandler);
+      }
+      if (this.elements.fileUploadZone) {
+        this.elements.fileUploadZone.addEventListener('click', clickHandler);
+      }
+    }
+
+    // File input change
+    if (this.elements.audioFile) {
+      this.elements.audioFile.addEventListener('change', (e) => this.handleFileSelect(e));
+    }
+
+    // Remove file button
+    if (this.elements.removeFileBtn) {
+      this.elements.removeFileBtn.addEventListener('click', () => this.removeFile());
+    }
+
+    // Drag and drop support
+    if (this.elements.fileUploadZone) {
+      this.setupDragAndDrop();
+    }
+
+    // Language change updates WebSocket URL info
+    if (this.elements.configLanguage) {
+      this.elements.configLanguage.addEventListener('change', () => this.updateWebSocketInfo());
     }
 
     // Streaming controls
@@ -130,7 +180,104 @@ class DebugWebSocketTester {
 
     // Configuration changes
     if (this.elements.configLanguage) {
-      this.elements.configLanguage.addEventListener('change', () => this.updateEndpointUrl());
+      this.elements.configLanguage.addEventListener('change', () => this.updateWebSocketInfo());
+    }
+  }
+
+  /**
+   * Setup drag and drop functionality for file upload
+   */
+  setupDragAndDrop() {
+    const zone = this.elements.fileUploadZone;
+    if (!zone) return;
+
+    ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+      zone.addEventListener(eventName, this.preventDefaults, false);
+    });
+
+    ['dragenter', 'dragover'].forEach(eventName => {
+      zone.addEventListener(eventName, () => zone.classList.add('drag-over'), false);
+    });
+
+    ['dragleave', 'drop'].forEach(eventName => {
+      zone.addEventListener(eventName, () => zone.classList.remove('drag-over'), false);
+    });
+
+    zone.addEventListener('drop', (e) => this.handleDrop(e), false);
+  }
+
+  /**
+   * Prevent default drag behaviors
+   */
+  preventDefaults(e) {
+    e.preventDefault();
+    e.stopPropagation();
+  }
+
+  /**
+   * Handle file drop
+   */
+  handleDrop(e) {
+    const files = e.dataTransfer.files;
+    if (files.length > 0) {
+      this.elements.audioFile.files = files;
+      this.handleFileSelect({ target: { files: files } });
+    }
+  }
+
+  /**
+   * Remove the selected file
+   */
+  removeFile() {
+    if (this.elements.audioFile) {
+      this.elements.audioFile.value = '';
+    }
+    this.audioBuffer = null;
+    
+    // Hide file preview
+    if (this.elements.fileInfo) {
+      this.elements.fileInfo.style.display = 'none';
+    }
+    
+    // Reset file label
+    if (this.elements.fileLabel) {
+      this.elements.fileLabel.textContent = 'Drop audio files here';
+    }
+    
+    // Reset dashboard stages
+    this.updateStageStatus('Upload', 'ready');
+    this.updateStageStatus('STT', 'waiting');
+    this.updateStageStatus('LLM', 'waiting');
+    this.updateStageStatus('TTS', 'waiting');
+    
+    this.logDebugEvent('FILE', 'info', 'File removed');
+    this.updateUI();
+  }
+
+  /**
+   * Update WebSocket info display when selection changes
+   */
+  updateWebSocketInfo() {
+    if (!this.elements.websocketUrl) return;
+    
+    const selectedUrl = this.elements.websocketUrl.value;
+    const isSecure = selectedUrl.startsWith('wss://');
+    
+    // Update protocol badge
+    if (this.elements.protocolBadge) {
+      this.elements.protocolBadge.textContent = isSecure ? 'WSS' : 'WS';
+      this.elements.protocolBadge.className = `protocol-badge ${isSecure ? 'wss' : 'ws'}`;
+    }
+    
+    // Update description
+    if (this.elements.endpointDescription) {
+      let description = '';
+      if (selectedUrl.includes('simple-voice-chat')) {
+        description = isSecure ? 'Secure WebSocket for simple voice chat' : 'Local WebSocket for simple voice chat';
+      } else if (selectedUrl.includes('streaming-voice')) {
+        description = isSecure ? 'Secure WebSocket for streaming voice' : 'Local WebSocket for streaming voice';
+      }
+      this.elements.endpointDescription.textContent = description;
     }
   }
 
@@ -143,7 +290,7 @@ class DebugWebSocketTester {
       frameSize: parseInt(this.elements.configFrameSize?.value || '20'),
       pacing: this.elements.configPacing?.value || 'realtime',
       autoplay: this.elements.configAutoplay?.checked || false,
-      endpointUrl: this.elements.configEndpointUrl?.value || this.getDefaultEndpointUrl()
+      endpointUrl: this.elements.websocketUrl?.value || this.getDefaultEndpointUrl()
     };
   }
 
@@ -152,17 +299,35 @@ class DebugWebSocketTester {
    */
   getDefaultEndpointUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.BEAUTYAI_API_HOST || 'localhost:8000';
+    const host = window.location.hostname === 'localhost' ? 'localhost:8000' : 'dev.gmai.sa';
     const language = this.elements.configLanguage?.value || 'ar';
     return `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${encodeURIComponent(language)}&voice_type=female&debug=1`;
   }
 
   /**
-   * Update endpoint URL when language changes
+   * Update WebSocket info display when selection changes
    */
-  updateEndpointUrl() {
-    if (this.elements.configEndpointUrl) {
-      this.elements.configEndpointUrl.value = this.getDefaultEndpointUrl();
+  updateWebSocketInfo() {
+    if (!this.elements.websocketUrl) return;
+    
+    const selectedUrl = this.elements.websocketUrl.value;
+    const isSecure = selectedUrl.startsWith('wss://');
+    
+    // Update protocol badge
+    if (this.elements.protocolBadge) {
+      this.elements.protocolBadge.textContent = isSecure ? 'WSS' : 'WS';
+      this.elements.protocolBadge.className = `protocol-badge ${isSecure ? 'wss' : 'ws'}`;
+    }
+    
+    // Update description
+    if (this.elements.endpointDescription) {
+      let description = '';
+      if (selectedUrl.includes('simple-voice-chat')) {
+        description = isSecure ? 'Secure WebSocket for simple voice chat' : 'Local WebSocket for simple voice chat';
+      } else if (selectedUrl.includes('streaming-voice')) {
+        description = isSecure ? 'Secure WebSocket for streaming voice' : 'Local WebSocket for streaming voice';
+      }
+      this.elements.endpointDescription.textContent = description;
     }
   }
 
@@ -294,6 +459,11 @@ class DebugWebSocketTester {
     this.sessionData.sessionId = message.session_id;
     this.sessionData.connectionId = message.connection_id;
     this.sessionData.startTime = new Date().toISOString();
+    
+    // Update dashboard with session ID
+    this.updatePipelineMetrics({ 
+      sessionId: this.sessionData.sessionId 
+    });
     
     this.logDebugEvent('SESSION', 'info', 'Session ready', {
       sessionId: this.sessionData.sessionId,
@@ -464,16 +634,15 @@ class DebugWebSocketTester {
 
     try {
       this.updateStatus('processing');
+      this.updateStageStatus('Upload', 'processing');
       this.logDebugEvent('FILE', 'info', 'Processing audio file', { 
         name: file.name, 
         size: file.size, 
         type: file.type 
       });
 
-      // Update file label
-      if (this.elements.fileLabel) {
-        this.elements.fileLabel.textContent = file.name;
-      }
+      // Show file preview with modern UI
+      this.showFilePreview(file);
 
       // Decode audio file
       this.audioBuffer = await this.decodeAudioFile(file);
@@ -483,12 +652,53 @@ class DebugWebSocketTester {
         duration: (this.audioBuffer.length / 16000).toFixed(2) + 's'
       });
 
+      this.updateStatus('ready');
+      this.updateStageStatus('Upload', 'complete');
+      this.updateStageStatus('STT', 'ready');
       this.updateUI();
 
     } catch (error) {
       this.logDebugEvent('FILE', 'error', 'Failed to process audio file', { error: error.message });
       this.updateStatus('error');
+      this.updateStageStatus('Upload', 'error');
     }
+  }
+
+  /**
+   * Show file preview in modern UI
+   */
+  showFilePreview(file) {
+    // Update file details
+    if (this.elements.fileName) {
+      this.elements.fileName.textContent = file.name;
+    }
+    if (this.elements.fileSize) {
+      this.elements.fileSize.textContent = this.formatFileSize(file.size);
+    }
+    if (this.elements.fileType) {
+      this.elements.fileType.textContent = file.type || 'Unknown';
+    }
+
+    // Show file preview panel
+    if (this.elements.fileInfo) {
+      this.elements.fileInfo.style.display = 'block';
+    }
+
+    // Update main label
+    if (this.elements.fileLabel) {
+      this.elements.fileLabel.textContent = 'File selected';
+    }
+  }
+
+  /**
+   * Format file size for display
+   */
+  formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 
   /**
@@ -726,24 +936,176 @@ class DebugWebSocketTester {
   }
 
   /**
-   * Update stage status
+   * Update stage status in the dashboard table
    */
   updateStageStatus(stage, status) {
-    const stageElement = this.elements[`stage${stage}Status`];
-    if (stageElement) {
-      stageElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
-      stageElement.className = `stage-status ${status}`;
+    const stageMap = {
+      'Upload': 'upload',
+      'STT': 'stt', 
+      'LLM': 'llm',
+      'TTS': 'tts'
+    };
+    
+    const stageKey = stageMap[stage] || stage.toLowerCase();
+    
+    // Update status badge
+    const statusElement = document.getElementById(`${stageKey}Status`);
+    if (statusElement) {
+      statusElement.textContent = status.charAt(0).toUpperCase() + status.slice(1);
+      statusElement.className = `status-badge ${status}`;
+    }
+    
+    // Update stage row class
+    const rowElement = document.getElementById(`${stageKey}StageRow`);
+    if (rowElement) {
+      // Remove all status classes
+      rowElement.classList.remove('active', 'processing', 'complete', 'error');
+      
+      // Add appropriate class based on status
+      if (status === 'processing') {
+        rowElement.classList.add('processing');
+      } else if (status === 'complete') {
+        rowElement.classList.add('complete');
+      } else if (status === 'error') {
+        rowElement.classList.add('error');
+      } else if (status === 'ready' || status === 'streaming') {
+        rowElement.classList.add('active');
+      }
+    }
+    
+    // Update progress bar
+    const progressElement = document.getElementById(`${stageKey}Progress`);
+    if (progressElement) {
+      progressElement.className = 'progress-bar';
+      
+      if (status === 'processing') {
+        progressElement.classList.add('processing');
+        progressElement.style.width = '75%';
+      } else if (status === 'complete') {
+        progressElement.classList.add('complete');
+        progressElement.style.width = '100%';
+      } else if (status === 'error') {
+        progressElement.classList.add('error');
+        progressElement.style.width = '100%';
+      } else {
+        progressElement.style.width = '0%';
+      }
+    }
+    
+    // Update details text
+    const detailsElement = document.getElementById(`${stageKey}Details`);
+    if (detailsElement) {
+      const statusMessages = {
+        'ready': 'Ready to process',
+        'waiting': 'Waiting for previous stage',
+        'processing': 'Processing...',
+        'complete': 'Completed successfully',
+        'error': 'Processing failed',
+        'idle': 'Not started',
+        'streaming': 'Receiving data...'
+      };
+      
+      detailsElement.textContent = statusMessages[status] || status;
     }
   }
 
   /**
-   * Update stage data
+   * Update stage timing in the dashboard
    */
   updateStageData(stage, type, data) {
-    const dataElement = this.elements[`stage${stage}${type.charAt(0).toUpperCase() + type.slice(1)}`];
-    if (dataElement) {
-      dataElement.textContent = data;
+    const stageMap = {
+      'STT': 'stt',
+      'LLM': 'llm', 
+      'TTS': 'tts'
+    };
+    
+    const stageKey = stageMap[stage] || stage.toLowerCase();
+    
+    if (type === 'timing') {
+      const timingElement = document.getElementById(`${stageKey}Timing`);
+      
+      if (timingElement) {
+        if (data === '' || data === null || data === undefined) {
+          timingElement.textContent = '-';
+        } else {
+          timingElement.textContent = data;
+        }
+      }
+    } else if (type === 'data') {
+      // Update details text with stage data  
+      const detailsElement = document.getElementById(`${stageKey}Details`);
+      if (detailsElement && data) {
+        // Extract meaningful text from data for details
+        let detailText = data;
+        if (data.includes('Partial:')) {
+          detailText = 'Receiving partial results...';
+        } else if (data.includes('Final:')) {
+          detailText = 'Transcription complete';
+        } else if (data.includes('Response:')) {
+          detailText = 'Generated response';
+        } else if (data.includes('Generating speech')) {
+          detailText = 'Generating speech...';
+        } else if (data.includes('complete')) {
+          detailText = 'Processing complete';
+        }
+        detailsElement.textContent = detailText;
+      }
+    } else if (type === 'total') {
+      // Update total time in pipeline metrics
+      this.updatePipelineMetrics({ totalTime: data });
     }
+  }
+
+  /**
+   * Update pipeline metrics in the overview section
+   */
+  updatePipelineMetrics(metrics) {
+    if (metrics.totalTime !== undefined) {
+      const totalTimeElement = document.getElementById('totalTime');
+      if (totalTimeElement) {
+        totalTimeElement.textContent = metrics.totalTime || '-';
+      }
+    }
+    
+    if (metrics.sessionId !== undefined) {
+      const sessionIdElement = document.getElementById('sessionId');
+      if (sessionIdElement) {
+        sessionIdElement.textContent = metrics.sessionId || '-';
+      }
+    }
+    
+    if (metrics.bottleneckStage !== undefined) {
+      const bottleneckElement = document.getElementById('bottleneckStage');
+      if (bottleneckElement) {
+        bottleneckElement.textContent = metrics.bottleneckStage || '-';
+      }
+    }
+    
+    if (metrics.performanceGrade !== undefined) {
+      const gradeElement = document.getElementById('gradeValue');
+      if (gradeElement) {
+        gradeElement.textContent = metrics.performanceGrade || '-';
+      }
+    }
+  }
+
+  /**
+   * Initialize dashboard with default values
+   */
+  initializeDashboard() {
+    // Set initial stage statuses
+    this.updateStageStatus('Upload', 'ready');
+    this.updateStageStatus('STT', 'waiting');
+    this.updateStageStatus('LLM', 'waiting');
+    this.updateStageStatus('TTS', 'waiting');
+    
+    // Set initial metrics
+    this.updatePipelineMetrics({
+      totalTime: '-',
+      sessionId: '-',
+      bottleneckStage: '-',
+      performanceGrade: '-'
+    });
   }
 
   /**
@@ -762,9 +1124,17 @@ class DebugWebSocketTester {
    */
   clearStageData() {
     ['STT', 'LLM', 'TTS'].forEach(stage => {
-      this.updateStageStatus(stage, 'idle');
+      this.updateStageStatus(stage, 'waiting');
       this.updateStageData(stage, 'timing', '-');
-      this.updateStageData(stage, 'data', '');
+    });
+    
+    // Reset upload stage
+    this.updateStageStatus('Upload', 'ready');
+    
+    // Clear metrics
+    this.updatePipelineMetrics({
+      totalTime: '-',
+      bottleneckStage: '-'
     });
   }
 
