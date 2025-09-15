@@ -130,8 +130,8 @@ class BenchmarkStatistics:
     successful_requests: int
     failed_requests: int
     success_rate: float
-    total_tokens: Optional[int] = None
     total_time_ms: float
+    total_tokens: Optional[int] = None
 
 
 @dataclass

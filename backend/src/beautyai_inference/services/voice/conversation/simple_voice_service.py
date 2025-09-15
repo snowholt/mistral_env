@@ -15,12 +15,17 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List
+from typing import Dict, Any, Optional, Union, List, Callable
 from dataclasses import dataclass
+from datetime import datetime
 import edge_tts
 from ....services.voice.utils.text_cleaning import sanitize_tts_text
 
 from ....config.configuration_manager import ConfigurationManager
+from ....api.schemas.debug_schemas import (
+    PipelineDebugSummary, TranscriptionDebugData, LLMDebugData, TTSDebugData,
+    DebugEvent, PipelineStage, DebugLevel, AudioDebugInfo
+)
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -51,15 +56,23 @@ class SimpleVoiceService:
     - Error handling and recovery
     """
     
-    def __init__(self, config: Optional[Dict[str, Any]] = None):
+    def __init__(self, config: Optional[Dict[str, Any]] = None, debug_mode: bool = False):
         """
         Initialize the Simple Voice Conversation Service.
         
         Args:
             config: Optional configuration dictionary (deprecated, uses voice registry)
+            debug_mode: Enable debug mode for detailed metrics and logging
         """
         self.config = config or {}
         self.logger = logging.getLogger(__name__)
+        
+        # Debug configuration
+        self.debug_mode = debug_mode
+        self.debug_events: List[DebugEvent] = []
+        self.debug_callback: Optional[Callable] = None
+        self.current_debug_summary: Optional[PipelineDebugSummary] = None
+        self.stage_timings: Dict[PipelineStage, float] = {}
         
         # Use centralized voice configuration
         from ....config.voice_config_loader import get_voice_config
@@ -92,6 +105,97 @@ class SimpleVoiceService:
         self.audio_config = self.voice_config.get_audio_config()
         
         self.logger.info("SimpleVoiceService initialized with voice registry configuration")
+        
+        if self.debug_mode:
+            self.logger.info("🔍 Debug mode enabled for SimpleVoiceService")
+    
+    def set_debug_callback(self, callback: Callable[[DebugEvent], None]) -> None:
+        """Set callback function for real-time debug events."""
+        self.debug_callback = callback
+        if self.debug_mode:
+            self.logger.info("🔍 Debug callback registered")
+    
+    def _emit_debug_event(self, stage: PipelineStage, level: DebugLevel, message: str,
+                          data: Optional[Dict[str, Any]] = None, duration_ms: Optional[float] = None) -> None:
+        """Emit a debug event."""
+        if not self.debug_mode:
+            return
+
+        event = DebugEvent(
+            timestamp=datetime.utcnow().isoformat() + "Z",
+            stage=stage,
+            level=level,
+            message=message,
+            data=data or {}
+        )
+        
+        self.debug_events.append(event)
+        
+        # Keep only recent events to prevent memory issues
+        if len(self.debug_events) > 1000:
+            self.debug_events = self.debug_events[-800:]
+        
+        # Call debug callback if set
+        if self.debug_callback:
+            try:
+                self.debug_callback(event)
+            except Exception as e:
+                self.logger.warning(f"Debug callback error: {e}")
+        
+        # Log debug event
+        log_level = getattr(logging, level.upper(), logging.INFO)
+        self.logger.log(log_level, f"🔍 [{stage.upper()}] {message}")
+    
+    def _start_stage_timing(self, stage: PipelineStage) -> float:
+        """Start timing for a pipeline stage."""
+        start_time = time.time()
+        if self.debug_mode:
+            self._emit_debug_event(stage, DebugLevel.DEBUG, f"Starting {stage} stage")
+        return start_time
+    
+    def _end_stage_timing(self, stage: PipelineStage, start_time: float) -> float:
+        """End timing for a pipeline stage and return duration in ms."""
+        duration_ms = (time.time() - start_time) * 1000
+        self.stage_timings[stage] = duration_ms
+        
+        if self.debug_mode:
+            self._emit_debug_event(
+                stage, DebugLevel.INFO, 
+                f"Completed {stage} stage", 
+                {"duration_ms": duration_ms},
+                duration_ms
+            )
+        
+        return duration_ms
+    
+    def get_debug_summary(self, session_id: str = "", connection_id: str = "", turn_id: str = "") -> Optional[PipelineDebugSummary]:
+        """Get current debug summary."""
+        if not self.debug_mode or not self.current_debug_summary:
+            return None
+            
+        # Update summary with current session info
+        if session_id:
+            self.current_debug_summary.session_id = session_id
+        if connection_id:
+            self.current_debug_summary.connection_id = connection_id
+        if turn_id:
+            self.current_debug_summary.turn_id = turn_id
+            
+        return self.current_debug_summary
+    
+    def get_recent_debug_events(self, limit: int = 100) -> List[DebugEvent]:
+        """Get recent debug events."""
+        if not self.debug_mode:
+            return []
+        return self.debug_events[-limit:]
+    
+    def clear_debug_data(self) -> None:
+        """Clear accumulated debug data."""
+        self.debug_events.clear()
+        self.stage_timings.clear()
+        self.current_debug_summary = None
+        if self.debug_mode:
+            self.logger.info("🔍 Debug data cleared")
     
     def set_persistent_model_manager(self, persistent_model_manager):
         """
@@ -321,6 +425,90 @@ class SimpleVoiceService:
             for voice_key, mapping in self.voice_mappings.items()
         }
     
+    def _analyze_audio_debug_info(self, audio_data: bytes, audio_format: str) -> AudioDebugInfo:
+        """Analyze audio data for debug information."""
+        try:
+            import struct
+            import math
+            
+            size_bytes = len(audio_data)
+            
+            # Basic format detection
+            channels = 1  # Default assumption
+            sample_rate = 16000  # Default assumption
+            bit_depth = 16  # Default assumption
+            
+            # Try to extract more detailed info for WAV files
+            if audio_format.lower() == "wav" and len(audio_data) > 44:
+                try:
+                    # Parse WAV header
+                    if audio_data[:4] == b'RIFF' and audio_data[8:12] == b'WAVE':
+                        # Extract sample rate (bytes 24-27)
+                        sample_rate = struct.unpack('<I', audio_data[24:28])[0]
+                        # Extract channels (bytes 22-23)
+                        channels = struct.unpack('<H', audio_data[22:24])[0]
+                        # Extract bit depth (bytes 34-35)
+                        bit_depth = struct.unpack('<H', audio_data[34:36])[0]
+                except Exception as e:
+                    self.logger.debug(f"WAV header parsing failed: {e}")
+            
+            # Estimate duration
+            duration_ms = 0.0
+            if audio_format.lower() == "wav" and sample_rate > 0:
+                # For WAV: duration = data_size / (sample_rate * channels * bytes_per_sample)
+                data_size = max(0, size_bytes - 44)  # Subtract header size
+                bytes_per_sample = bit_depth // 8
+                if bytes_per_sample > 0:
+                    duration_ms = (data_size / (sample_rate * channels * bytes_per_sample)) * 1000
+            else:
+                # Rough estimation for other formats (WebM, MP3)
+                # Assume ~64kbps encoding
+                duration_ms = (size_bytes * 8) / (64 * 1000) * 1000
+            
+            # Basic RMS calculation for audio level (simplified)
+            rms_level = None
+            peak_level = None
+            
+            if audio_format.lower() == "wav" and len(audio_data) > 44:
+                try:
+                    # Extract audio samples from WAV data
+                    audio_samples = audio_data[44:]  # Skip header
+                    if len(audio_samples) >= 2:
+                        # Convert to 16-bit samples
+                        sample_count = len(audio_samples) // 2
+                        if sample_count > 0:
+                            samples = struct.unpack(f'<{sample_count}h', audio_samples[:sample_count*2])
+                            
+                            # Calculate RMS and peak
+                            sum_squares = sum(s*s for s in samples)
+                            rms_level = math.sqrt(sum_squares / len(samples)) / 32768.0  # Normalize to 0-1
+                            peak_level = max(abs(s) for s in samples) / 32768.0  # Normalize to 0-1
+                except Exception as e:
+                    self.logger.debug(f"Audio level calculation failed: {e}")
+            
+            return AudioDebugInfo(
+                format=audio_format,
+                duration_ms=duration_ms,
+                size_bytes=size_bytes,
+                sample_rate=sample_rate,
+                channels=channels,
+                bit_depth=bit_depth,
+                rms_level=rms_level,
+                peak_level=peak_level,
+                conversion_applied=False,
+                normalization_applied=False
+            )
+            
+        except Exception as e:
+            self.logger.warning(f"Audio analysis failed: {e}")
+            return AudioDebugInfo(
+                format=audio_format,
+                duration_ms=0.0,
+                size_bytes=len(audio_data),
+                sample_rate=16000,
+                channels=1
+            )
+    
     def _detect_language(self, text: str, fallback_language: str = "en") -> str:
         """
         Simple language detection for voice selection.
@@ -379,7 +567,8 @@ class SimpleVoiceService:
         voice_id: Optional[str] = None,
         language: Optional[str] = None,
         gender: str = "female",
-        conversation_context: Optional[str] = None  # Add conversation context
+        conversation_context: Optional[str] = None,  # Add conversation context
+        debug_context: Optional[Dict[str, Any]] = None  # Add debug context
     ) -> Dict[str, Any]:
         """
         Process voice message: transcribe audio -> generate response -> synthesize speech.
@@ -404,6 +593,29 @@ class SimpleVoiceService:
         import time
         start_time = time.time()
         
+        # Initialize debug tracking
+        if self.debug_mode:
+            self.current_debug_summary = PipelineDebugSummary(
+                total_processing_time_ms=0.0,
+                success=False,
+                debug_events=[],
+                stage_timings={},
+                completed_stages=[]
+            )
+            
+            self._emit_debug_event(
+                PipelineStage.UPLOAD, 
+                DebugLevel.INFO, 
+                f"Starting voice message processing",
+                {
+                    "audio_format": audio_format,
+                    "audio_size_bytes": len(audio_data),
+                    "language": language,
+                    "gender": gender,
+                    "chat_model": chat_model
+                }
+            )
+        
         try:
             self.logger.info(f"Processing voice message: format={audio_format}, language={language}, gender={gender}")
             
@@ -411,11 +623,47 @@ class SimpleVoiceService:
             audio_input_path = await self._save_audio_data(audio_data, audio_format)
             
             # Step 2: Transcribe audio to text with correct format and language specification
+            stt_start_time = self._start_stage_timing(PipelineStage.STT)
+            
+            # Analyze audio for debug info
+            audio_debug_info = None
+            if self.debug_mode:
+                audio_debug_info = self._analyze_audio_debug_info(audio_data, audio_format)
+            
             transcribed_text = await self._transcribe_audio(audio_data, audio_format, language)
+            stt_duration_ms = self._end_stage_timing(PipelineStage.STT, stt_start_time)
+            
+            # Create STT debug data
+            if self.debug_mode:
+                transcription_quality = "unclear" if any(marker in transcribed_text.lower() for marker in ["unclear audio", "صوت غير واضح"]) else "ok"
+                
+                stt_debug = TranscriptionDebugData(
+                    transcribed_text=transcribed_text,
+                    language_detected=None,  # Will be set later
+                    confidence_score=None,  # Could be added if available
+                    processing_time_ms=stt_duration_ms,
+                    model_used="whisper-large-v3-turbo",  # Default model
+                    audio_duration_ms=audio_debug_info.duration_ms if audio_debug_info else 0.0,
+                    audio_format=audio_format,
+                    audio_info=audio_debug_info,
+                    errors=[],
+                    warnings=[]
+                )
+                
+                self.current_debug_summary.transcription_data = stt_debug
+                self.current_debug_summary.completed_stages.append(PipelineStage.STT)
+            
             if transcribed_text.startswith("Sorry"):
                 # Handle transcription failure gracefully - use language-specific fallback
                 logger.warning("Transcription failed, using fallback response")
                 transcribed_text = "صوت غير واضح" if language == "ar" else "unclear audio"
+                
+                if self.debug_mode:
+                    self._emit_debug_event(
+                        PipelineStage.STT, 
+                        DebugLevel.WARNING, 
+                        "Transcription failed, using fallback"
+                    )
                 
             self.logger.info(f"Transcribed: {transcribed_text}")
 
@@ -445,11 +693,37 @@ class SimpleVoiceService:
                 self.logger.info(f"Using specified language: {detected_language}")
             
             # Step 4: Generate AI response using chat model with language specification and context
+            llm_start_time = self._start_stage_timing(PipelineStage.LLM)
+            
             response_text = await self._generate_chat_response(
                 transcribed_text, 
                 target_language=detected_language,
                 conversation_context=conversation_context
             )
+            
+            llm_duration_ms = self._end_stage_timing(PipelineStage.LLM, llm_start_time)
+            
+            # Create LLM debug data
+            if self.debug_mode:
+                # Calculate token estimates (rough)
+                input_tokens = len(transcribed_text.split()) + (len(conversation_context.split()) if conversation_context else 0)
+                output_tokens = len(response_text.split())
+                tokens_per_second = output_tokens / (llm_duration_ms / 1000) if llm_duration_ms > 0 else 0
+                
+                llm_debug = LLMDebugData(
+                    response_text=response_text,
+                    prompt_tokens=input_tokens,
+                    completion_tokens=output_tokens,
+                    processing_time_ms=llm_duration_ms,
+                    model_used=chat_model,
+                    temperature=0.3,  # Default from voice service
+                    thinking_mode=False,  # Disabled for voice
+                    errors=[],
+                    warnings=[]
+                )
+                
+                self.current_debug_summary.llm_data = llm_debug
+                self.current_debug_summary.completed_stages.append(PipelineStage.LLM)
             if response_text.startswith("عذراً") or response_text.startswith("Sorry"):
                 # Handle chat failure gracefully - provide language-appropriate default response
                 logger.warning("Chat generation failed, using fallback response")
@@ -464,13 +738,70 @@ class SimpleVoiceService:
             selected_voice = voice_id or self._select_voice(detected_language, gender)
             
             # Step 6: Synthesize speech using Edge TTS (WebM format for browser compatibility)
+            tts_start_time = self._start_stage_timing(PipelineStage.TTS)
+            
             audio_output_path = await self._synthesize_speech(response_text, selected_voice, output_format="webm")
+            
+            tts_duration_ms = self._end_stage_timing(PipelineStage.TTS, tts_start_time)
+            
+            # Create TTS debug data
+            if self.debug_mode:
+                audio_size_bytes = None
+                audio_duration_ms = None
+                
+                if audio_output_path and audio_output_path.exists():
+                    audio_size_bytes = audio_output_path.stat().st_size
+                    # Rough duration estimate for WebM (assume ~64kbps)
+                    audio_duration_ms = (audio_size_bytes * 8) / (64 * 1000) * 1000
+                
+                tts_debug = TTSDebugData(
+                    audio_length_ms=audio_duration_ms,
+                    voice_used=selected_voice,
+                    processing_time_ms=tts_duration_ms,
+                    output_format="webm",
+                    text_length=len(response_text),
+                    speech_rate="medium",  # Default
+                    errors=[],
+                    warnings=[]
+                )
+                
+                self.current_debug_summary.tts_data = tts_debug
+                self.current_debug_summary.completed_stages.append(PipelineStage.TTS)
             
             # Calculate processing time
             processing_time = time.time() - start_time
             
             # Clean up input file
             audio_input_path.unlink(missing_ok=True)
+            
+            # Finalize debug summary
+            if self.debug_mode:
+                total_processing_time_ms = (time.time() - start_time) * 1000
+                self.current_debug_summary.total_processing_time_ms = total_processing_time_ms
+                self.current_debug_summary.stage_timings = self.stage_timings.copy()
+                self.current_debug_summary.success = True
+                self.current_debug_summary.completed_stages.append(PipelineStage.COMPLETE)
+                
+                # Update detected language in STT debug if available
+                if self.current_debug_summary.transcription_data:
+                    self.current_debug_summary.transcription_data.language_detected = detected_language
+                
+                self._emit_debug_event(
+                    PipelineStage.COMPLETE, 
+                    DebugLevel.INFO, 
+                    "Voice processing completed successfully",
+                    {
+                        "total_time_ms": total_processing_time_ms,
+                        "stt_time_ms": self.stage_timings.get(PipelineStage.STT, 0),
+                        "llm_time_ms": self.stage_timings.get(PipelineStage.LLM, 0), 
+                        "tts_time_ms": self.stage_timings.get(PipelineStage.TTS, 0),
+                        "transcribed_text": transcribed_text,
+                        "response_text": response_text,
+                        "voice_used": selected_voice,
+                        "language_detected": detected_language
+                    },
+                    total_processing_time_ms
+                )
             
             result = {
                 "transcribed_text": transcribed_text,
@@ -479,13 +810,32 @@ class SimpleVoiceService:
                 "audio_file_path": str(audio_output_path),
                 "processing_time": processing_time,
                 "voice_used": selected_voice,
-                "language_detected": detected_language  # Use detected_language instead of language
+                "language_detected": detected_language,  # Use detected_language instead of language
+                "debug_summary": self.current_debug_summary if self.debug_mode else None
             }
             
             self.logger.info(f"Voice processing completed in {processing_time:.2f}s")
             return result
             
         except Exception as e:
+            # Handle debug error tracking
+            if self.debug_mode and self.current_debug_summary:
+                total_processing_time_ms = (time.time() - start_time) * 1000
+                self.current_debug_summary.total_processing_time_ms = total_processing_time_ms
+                self.current_debug_summary.stage_timings = self.stage_timings.copy()
+                self.current_debug_summary.success = False
+                self.current_debug_summary.error_message = str(e)
+                
+                # Log the error for debugging
+                self.logger.error(f"Pipeline processing failed: {str(e)}")
+                
+                self._emit_debug_event(
+                    self.current_debug_summary.failed_stage or PipelineStage.UPLOAD,
+                    DebugLevel.ERROR,
+                    f"Voice processing failed: {str(e)}",
+                    {"error": str(e), "total_time_ms": total_processing_time_ms}
+                )
+            
             self.logger.error(f"Error processing voice message: {e}")
             raise Exception(f"Voice processing failed: {e}")
     
@@ -808,7 +1158,8 @@ class SimpleVoiceService:
         text: str,
         voice_id: Optional[str] = None,
         language: Optional[str] = None,
-        gender: str = "female"
+        gender: str = "female",
+        debug_context: Optional[Dict[str, Any]] = None
     ) -> Path:
         """
         Convert text to speech using Edge TTS.
@@ -841,7 +1192,7 @@ class SimpleVoiceService:
         """Get processing statistics and health info."""
         temp_files = list(self.temp_dir.glob("*")) if self.temp_dir.exists() else []
         
-        return {
+        stats = {
             "service_name": "SimpleVoiceService",
             "edge_tts_available": True,  # We tested this during initialization
             "temp_directory": str(self.temp_dir),
@@ -849,5 +1200,17 @@ class SimpleVoiceService:
             "available_voices": len(self.voice_mappings),
             "default_arabic_voice": self.default_arabic_voice,
             "default_english_voice": self.default_english_voice,
-            "service_config": self.service_config.get("performance_config", {})
+            "debug_mode": self.debug_mode
         }
+        
+        # Add debug statistics if available
+        if self.debug_mode:
+            stats["debug_stats"] = {
+                "total_debug_events": len(self.debug_events),
+                "stage_timings": self.stage_timings.copy(),
+                "recent_events_count": len([e for e in self.debug_events if (datetime.utcnow() - e.timestamp).seconds < 300]),
+                "has_current_summary": self.current_debug_summary is not None,
+                "debug_callback_set": self.debug_callback is not None
+            }
+        
+        return stats

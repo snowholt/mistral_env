@@ -39,6 +39,9 @@ from ...core.buffer_integration import BufferIntegrationHelper, WebSocketBufferW
 from ..performance_integration import get_performance_monitoring_service
 from ...core.persistent_model_manager import PersistentModelManager
 from ...core.voice_session_manager import get_voice_session_manager, VoiceSessionManager
+from ...api.schemas.debug_schemas import (
+    WebSocketDebugMessage, PipelineDebugSummary, DebugEvent, PipelineStage, DebugLevel
+)
 
 logger = logging.getLogger(__name__)
 
@@ -62,9 +65,10 @@ class SimpleVoiceWebSocketManager:
     - Persistent model preloading for faster responses
     """
     
-    def __init__(self):
-        self.voice_service = SimpleVoiceService()
+    def __init__(self, debug_mode: bool = False):
+        self.voice_service = SimpleVoiceService(debug_mode=debug_mode)
         self._service_initialized = False
+        self.debug_mode = debug_mode
         
         # VAD service for real-time processing
         self.vad_service = None
@@ -258,6 +262,11 @@ class SimpleVoiceWebSocketManager:
                     self.voice_service.set_persistent_model_manager(self.persistent_model_manager)
                     logger.info("✅ Connected voice service to persistent model manager")
             
+            # Set up debug callback if in debug mode
+            if self.debug_mode:
+                self.voice_service.set_debug_callback(self._on_debug_event)
+                logger.info("🔍 Debug callback configured for real-time debug events")
+            
             await self.voice_service.initialize()
             self._service_initialized = True
             logger.info("✅ SimpleVoiceService initialized successfully")
@@ -302,7 +311,8 @@ class SimpleVoiceWebSocketManager:
         connection_id: str,
         language: str,
         voice_type: str,
-        session_id: str = None
+        session_id: str = None,
+        debug_mode: bool = False
     ) -> bool:
         """Accept connection with minimal setup using connection pool."""
         connect_start_time = time.time()
@@ -352,6 +362,7 @@ class SimpleVoiceWebSocketManager:
                     "voice_type": voice_type,
                     "message_count": 0,
                     "vad_enabled": self._vad_initialized,
+                    "debug_mode": debug_mode or self.debug_mode,
                     "audio_buffer": [],
                     "processing_turn": False,
                     "capture_file_path": None,
@@ -404,11 +415,13 @@ class SimpleVoiceWebSocketManager:
                 "timestamp": time.time(),
                 "message": "Simple voice chat WebSocket connected successfully",
                 "vad_enabled": self._vad_initialized,
+                "debug_mode": debug_mode or self.debug_mode,
                 "actual_language": language,
                 "config": {
                     "language": language,
                     "voice_type": voice_type,
                     "target_response_time": "< 2 seconds",
+                    "debug_enabled": debug_mode or self.debug_mode,
                     "vad_config": {
                         "chunk_size_ms": 30,
                         "silence_threshold_ms": 500
@@ -548,7 +561,41 @@ class SimpleVoiceWebSocketManager:
                 logger.error(f"Error in session cleanup loop: {e}")
                 # Continue the loop even if there's an error
     
-    async def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
+    async def _on_debug_event(self, debug_event: DebugEvent) -> None:
+        """Handle debug events from the voice service."""
+        if not self.debug_mode:
+            return
+            
+        try:
+            # Create debug message for WebSocket clients
+            debug_msg = WebSocketDebugMessage(
+                type="debug_event",
+                debug_mode=True,
+                timestamp=debug_event.timestamp,
+                connection_id="",  # Will be set per connection
+                events=[debug_event]
+            )
+            
+            # Send to all active debug-enabled connections
+            pool = await self._get_connection_pool()
+            for connection_data in pool.get_all_connections():
+                if (connection_data.voice_session_data and 
+                    connection_data.voice_session_data.get("debug_mode", False)):
+                    
+                    # Update connection ID in debug message
+                    debug_msg.connection_id = connection_data.connection_id
+                    
+                    # Send debug event to this connection
+                    await pool.send_to_connection(
+                        connection_data.connection_id, 
+                        debug_msg.dict(), 
+                        "json"
+                    )
+                    
+        except Exception as e:
+            logger.warning(f"Failed to send debug event: {e}")
+    
+    def _get_connection_data_by_original_id(self, connection_id: str) -> Optional[WebSocketConnectionData]:
         """Helper method to get connection data by original connection ID."""
         try:
             pool_connection_id = getattr(self, f"_pool_mapping_{connection_id}", None)
@@ -653,83 +700,100 @@ class SimpleVoiceWebSocketManager:
                 "message": "Processing your audio..."
             })
             
-            # Use SimpleVoiceService for fast processing
-            # Note: For now we'll use a simplified flow since the service has placeholders
-            # In a real implementation, this would call the full voice processing pipeline
+            # Prepare debug context
+            debug_context = {
+                "session_id": session_id,
+                "connection_id": connection_id,
+                "turn_id": f"turn_{voice_session['message_count']}_{int(time.time() * 1000)}"
+            } if voice_session.get("debug_mode", False) else None
             
-            # Detect audio format from the binary data
-            audio_format = self._detect_audio_format(audio_data)
-            logger.info(f"🎵 Detected audio format: {audio_format}")
+            # Process with SimpleVoiceService
+            # Use the real voice processing pipeline
             
-            # Save audio to temporary file for processing
-            file_extension = audio_format if audio_format in ["webm", "wav", "mp3"] else "webm"
-            with tempfile.NamedTemporaryFile(suffix=f".{file_extension}", delete=False) as temp_file:
-                temp_file.write(audio_data)
-                temp_audio_path = temp_file.name
+            # Process using SimpleVoiceService with correct audio format
+            result = await self.voice_service.process_voice_message(
+                audio_data=audio_data,
+                audio_format=audio_format,  # Pass the detected format
+                language=language,
+                gender=voice_type,
+                conversation_context=conversation_context,  # Add context for better responses
+                debug_context=debug_context  # Add debug context
+            )
             
-            try:
-                # Process with SimpleVoiceService
-                # Use the real voice processing pipeline
-                
-                # Process using SimpleVoiceService with correct audio format
-                result = await self.voice_service.process_voice_message(
-                    audio_data=audio_data,
-                    audio_format=audio_format,  # Pass the detected format
-                    language=language,
-                    gender=voice_type,
-                    conversation_context=conversation_context  # Add context for better responses
-                )
-                
-                processing_time = time.time() - start_time
-                
-                # Read audio file and encode to base64
-                audio_base64 = None
-                if result.get("audio_file_path"):
-                    audio_path = Path(result["audio_file_path"])
-                    if audio_path.exists():
-                        with open(audio_path, "rb") as audio_file:
-                            audio_bytes = audio_file.read()
-                        audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
-                        # Clean up the audio file
-                        audio_path.unlink()
-                
-                # Prepare response
-                transcribed_text = result.get("transcribed_text", "") or ""
-                unclear = any(marker in transcribed_text.lower() for marker in ["unclear audio", "صوت غير واضح"])
-                transcription_quality = "unclear" if unclear else "ok"
+            processing_time = time.time() - start_time
+            
+            # Get debug summary if available
+            debug_summary = result.get("debug_summary")
+            
+            # Read audio file and encode to base64
+            audio_base64 = None
+            if result.get("audio_file_path"):
+                audio_path = Path(result["audio_file_path"])
+                if audio_path.exists():
+                    with open(audio_path, "rb") as audio_file:
+                        audio_bytes = audio_file.read()
+                    audio_base64 = base64.b64encode(audio_bytes).decode("utf-8")
+                    # Clean up the audio file
+                    audio_path.unlink()
+            
+            # Prepare response
+            transcribed_text = result.get("transcribed_text", "") or ""
+            unclear = any(marker in transcribed_text.lower() for marker in ["unclear audio", "صوت غير واضح"])
+            transcription_quality = "unclear" if unclear else "ok"
 
-                if unclear and audio_base64 is None:
-                    # Send guidance-only message (prevents loops & auto-restart)
-                    guidance = result.get("response_text") or ("أعد المحاولة وتحدث بوضوح لمدة ثانيتين" if language == "ar" else "Please try again and speak clearly for 2 seconds")
-                    await self.send_message(connection_id, {
-                        "type": "guidance",
-                        "success": False,
-                        "guidance": guidance,
-                        "transcription": transcribed_text,
-                        "transcription_quality": transcription_quality,
-                        "language": result.get("language_detected", language),
-                        "voice_type": voice_type,
-                        "response_time_ms": int(processing_time * 1000),
-                        "session_id": session_id,
-                        "message_count": voice_session["message_count"],
-                        "timestamp": time.time()
-                    })
-                else:
-                    response_data = {
-                        "type": "voice_response",
-                        "success": True,
-                        "audio_base64": audio_base64,
-                        "transcription": transcribed_text,
-                        "response_text": result.get("response_text", ""),
-                        "language": result.get("language_detected", language),  # Use actual detected language
-                        "voice_type": voice_type,
-                        "response_time_ms": int(processing_time * 1000),
-                        "session_id": session_id,
-                        "message_count": voice_session["message_count"],
-                        "transcription_quality": transcription_quality,
-                        "timestamp": time.time()
-                    }
-                    await self.send_message(connection_id, response_data)
+            if unclear and audio_base64 is None:
+                # Send guidance-only message (prevents loops & auto-restart)
+                guidance = result.get("response_text") or ("أعد المحاولة وتحدث بوضوح لمدة ثانيتين" if language == "ar" else "Please try again and speak clearly for 2 seconds")
+                await self.send_message(connection_id, {
+                    "type": "guidance",
+                    "success": False,
+                    "guidance": guidance,
+                    "transcription": transcribed_text,
+                    "transcription_quality": transcription_quality,
+                    "language": result.get("language_detected", language),
+                    "voice_type": voice_type,
+                    "response_time_ms": int(processing_time * 1000),
+                    "session_id": session_id,
+                    "message_count": voice_session["message_count"],
+                    "timestamp": time.time()
+                })
+            else:
+                response_data = {
+                    "type": "voice_response",
+                    "success": True,
+                    "audio_base64": audio_base64,
+                    "transcription": transcribed_text,
+                    "response_text": result.get("response_text", ""),
+                    "language": result.get("language_detected", language),  # Use actual detected language
+                    "voice_type": voice_type,
+                    "response_time_ms": int(processing_time * 1000),
+                    "session_id": session_id,
+                    "message_count": voice_session["message_count"],
+                    "transcription_quality": transcription_quality,
+                    "timestamp": time.time()
+                }
+                
+                # Add debug data if available
+                if voice_session.get("debug_mode", False) and debug_summary:
+                    response_data["debug_summary"] = debug_summary.dict() if hasattr(debug_summary, 'dict') else debug_summary
+                    
+                    # Send detailed pipeline summary as separate message
+                    debug_msg = WebSocketDebugMessage(
+                        type="pipeline_complete",
+                        debug_mode=True,
+                        connection_id=connection_id,
+                        pipeline_summary=debug_summary,
+                        stage_update={
+                            "stage": "complete",
+                            "success": True,
+                            "total_time_ms": int(processing_time * 1000),
+                            "stage_timings": debug_summary.stage_timings if hasattr(debug_summary, 'stage_timings') else {}
+                        }
+                    )
+                    
+                    await self.send_message(connection_id, debug_msg.dict())
+                
+                await self.send_message(connection_id, response_data)
                 
                 # Record conversation turn in session
                 if voice_session_object:
@@ -761,13 +825,6 @@ class SimpleVoiceWebSocketManager:
                     )
                 
                 return {"success": True, "processing_time": processing_time}
-            
-            finally:
-                # Clean up temporary file
-                try:
-                    Path(temp_audio_path).unlink()
-                except Exception as cleanup_error:
-                    logger.warning(f"⚠️ Failed to cleanup temp file {temp_audio_path}: {cleanup_error}")
         
         except Exception as e:
             processing_time = time.time() - start_time
@@ -1392,7 +1449,20 @@ class SimpleVoiceWebSocketManager:
 
 
 # Global WebSocket manager instance
-simple_ws_manager = SimpleVoiceWebSocketManager()
+# Will be recreated with debug mode parameter in the endpoint
+simple_ws_manager = None
+
+
+def get_or_create_ws_manager(debug_mode: bool = False) -> SimpleVoiceWebSocketManager:
+    """Get or create WebSocket manager with specified debug mode."""
+    global simple_ws_manager
+    
+    # Create new manager if needed or debug mode changed
+    if simple_ws_manager is None or simple_ws_manager.debug_mode != debug_mode:
+        simple_ws_manager = SimpleVoiceWebSocketManager(debug_mode=debug_mode)
+        logger.info(f"🔧 Created WebSocket manager with debug_mode={debug_mode}")
+    
+    return simple_ws_manager
 
 
 @websocket_simple_voice_router.websocket("/simple-voice-chat")
@@ -1402,6 +1472,7 @@ async def websocket_simple_voice_chat(
     language: str = Query("ar", description="Language: ar (Arabic) or en (English)"),
     voice_type: str = Query("female", description="Voice type: male or female"),
     session_id: Optional[str] = Query(None, description="Optional session ID"),
+    debug_mode: bool = Query(False, description="Enable debug mode for detailed logging"),
 ):
     """
     🚀 Ultra-Fast Voice Chat WebSocket
@@ -1469,15 +1540,19 @@ async def websocket_simple_voice_chat(
     # Generate unique connection ID
     connection_id = str(uuid.uuid4())
     
-    logger.info(f"🎤 New simple voice WebSocket connection: {connection_id} (lang: {language}, voice: {voice_type})")
+    # Get or create WebSocket manager with debug mode
+    ws_manager = get_or_create_ws_manager(debug_mode)
+    
+    logger.info(f"🎤 New simple voice WebSocket connection: {connection_id} (lang: {language}, voice: {voice_type}, debug: {debug_mode})")
     
     # Establish connection
-    connected = await simple_ws_manager.connect(
+    connected = await ws_manager.connect(
         websocket, 
         connection_id, 
         language, 
         voice_type, 
-        session_id
+        session_id,
+        debug_mode
     )
     
     if not connected:
@@ -1504,9 +1579,9 @@ async def websocket_simple_voice_chat(
                         # Unified capture directory using helper for stability
                         try:
                             # Get connection data from pool
-                            pool_connection_id = getattr(simple_ws_manager, f"_pool_mapping_{connection_id}", None)
+                            pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
                             if pool_connection_id:
-                                pool = await simple_ws_manager._get_connection_pool()
+                                pool = await ws_manager._get_connection_pool()
                                 connection_data = pool.get_connection(pool_connection_id)
                                 
                                 if connection_data and connection_data.voice_session_data:
@@ -1514,7 +1589,7 @@ async def websocket_simple_voice_chat(
                                     
                                     # Lazy-init capture path
                                     if not voice_session.get("capture_file_path"):
-                                        debug_dir = simple_ws_manager._get_debug_audio_dir()
+                                        debug_dir = ws_manager._get_debug_audio_dir()
                                         capture_filename = f"ws_capture_{connection_id}_{int(time.time())}.webm"
                                         capture_path = debug_dir / capture_filename
                                         voice_session["capture_file_path"] = str(capture_path)
@@ -1552,9 +1627,9 @@ async def websocket_simple_voice_chat(
                         # ========================================================================
                         
                         # Check if we should use real-time VAD processing
-                        pool_connection_id = getattr(simple_ws_manager, f"_pool_mapping_{connection_id}", None)
+                        pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
                         if pool_connection_id:
-                            pool = await simple_ws_manager._get_connection_pool()
+                            pool = await ws_manager._get_connection_pool()
                             connection_data = pool.get_connection(pool_connection_id)
                             
                             if connection_data and connection_data.voice_session_data:
@@ -1562,13 +1637,13 @@ async def websocket_simple_voice_chat(
                                 
                                 if voice_session.get("vad_enabled", False) and not voice_session.get("processing_turn", False):
                                     # Use real-time VAD processing for smoother interaction
-                                    await simple_ws_manager.process_realtime_audio_chunk(
+                                    await ws_manager.process_realtime_audio_chunk(
                                         connection_id,
                                         audio_data
                                     )
                                 else:
                                     # Use traditional processing (complete audio at once)
-                                    await simple_ws_manager.process_audio_message(
+                                    await ws_manager.process_audio_message(
                                         connection_id,
                                         audio_data
                                     )
@@ -1586,7 +1661,7 @@ async def websocket_simple_voice_chat(
                         
                         if control_msg.get("type") == "ping":
                             # Respond to ping
-                            await simple_ws_manager.send_message(connection_id, {
+                            await ws_manager.send_message(connection_id, {
                                 "type": "pong",
                                 "timestamp": time.time()
                             })
@@ -1605,11 +1680,11 @@ async def websocket_simple_voice_chat(
     
     finally:
         # Clean up connection
-        await simple_ws_manager.disconnect(connection_id)
+        await ws_manager.disconnect(connection_id)
 
 
 @websocket_simple_voice_router.get("/simple-voice-chat/status")
-async def get_simple_voice_status():
+async def get_simple_voice_status(debug_info: bool = Query(False, description="Include debug information")):
     """Get simple voice service status."""
     try:
         # Get connection pool
@@ -1621,9 +1696,10 @@ async def get_simple_voice_status():
         
         # Get persistent model status
         persistent_model_status = {}
-        if simple_ws_manager.persistent_model_manager:
+        ws_manager = get_or_create_ws_manager(False)  # Get manager to check status
+        if ws_manager.persistent_model_manager:
             try:
-                persistent_model_status = await simple_ws_manager.persistent_model_manager.get_health_status()
+                persistent_model_status = await ws_manager.persistent_model_manager.get_health_status()
             except Exception as e:
                 logger.warning(f"Failed to get persistent model status: {e}")
                 persistent_model_status = {"error": str(e)}
@@ -1647,7 +1723,7 @@ async def get_simple_voice_status():
                     })
         
         # Get session manager statistics
-        session_stats = simple_ws_manager.session_manager.get_session_stats()
+        session_stats = ws_manager.session_manager.get_session_stats()
         
         result = {
             "service": "simple_voice_chat",
@@ -1656,6 +1732,7 @@ async def get_simple_voice_status():
             "connections": active_connections_info,
             "persistent_models": persistent_model_status,
             "session_management": session_stats,
+            "debug_mode": ws_manager.debug_mode,
             "pool_metrics": {
                 "total_connections": pool_metrics["pool"]["total_connections"],
                 "active_connections": pool_metrics["pool"]["active_connections"],
@@ -1669,8 +1746,9 @@ async def get_simple_voice_status():
                 "supported_languages": ["ar", "en"],
                 "voice_types": ["male", "female"],
                 "engine": "Edge TTS via SimpleVoiceService",
-                "persistent_models_enabled": simple_ws_manager._persistent_models_initialized,
-                "adaptive_vad_enabled": simple_ws_manager._vad_initialized
+                "persistent_models_enabled": ws_manager._persistent_models_initialized,
+                "adaptive_vad_enabled": ws_manager._vad_initialized,
+                "debug_mode_available": True
             },
             "features": [
                 "Ultra-fast voice responses",
@@ -1686,7 +1764,11 @@ async def get_simple_voice_status():
                 "Arabic and English only",
                 "Real-time VAD processing",
                 "Server-side turn-taking",
-                "Gemini Live / GPT Voice style interaction"
+                "Gemini Live / GPT Voice style interaction",
+                "Debug mode with detailed metrics",
+                "Real-time debug events",
+                "Pipeline stage tracking",
+                "Audio quality analysis"
             ],
             "audio_formats": {
                 "input": ["webm", "wav", "mp3"],
@@ -1695,13 +1777,14 @@ async def get_simple_voice_status():
             "comparison_with_advanced": {
                 "simple_endpoint": {
                     "route": "/ws/simple-voice-chat",
-                    "parameters": 3,
+                    "parameters": 4,  # Updated to include debug_mode
                     "response_time": "< 2 seconds",
                     "memory_usage": "< 50MB",
                     "languages": "ar, en only",
-                    "features": "Voice chat with persistent models",
+                    "features": "Voice chat with persistent models + debug mode",
                     "connection_management": "Pooled",
-                    "models": "Preloaded and cached"
+                    "models": "Preloaded and cached",
+                    "debug_capabilities": "Full pipeline debugging"
                 },
                 "advanced_endpoint": {
                     "route": "/ws/voice-conversation", 
@@ -1714,6 +1797,15 @@ async def get_simple_voice_status():
                 }
             }
         }
+        
+        # Add debug information if requested
+        if debug_info and ws_manager.debug_mode:
+            voice_service_stats = ws_manager.voice_service.get_processing_stats()
+            result["debug_info"] = {
+                "voice_service_debug_stats": voice_service_stats.get("debug_stats", {}),
+                "recent_debug_events": len(ws_manager.voice_service.get_recent_debug_events()),
+                "current_debug_summary_available": ws_manager.voice_service.current_debug_summary is not None
+            }
         
         # Add performance monitoring data if available
         perf_service = get_performance_monitoring_service()
