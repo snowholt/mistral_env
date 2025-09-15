@@ -241,9 +241,23 @@
             });
             
             try {
+                // Dynamic WebSocket URL detection based on current location
+                let websocketUrl = window.BEAUTYAI_CONFIG.backend.simple_voice_ws;
+                
+                // Override WebSocket URL for production domains
+                if (window.location.hostname === 'dev.gmai.sa') {
+                    websocketUrl = 'wss://dev.gmai.sa/api/v1/ws/simple-voice-chat';
+                    console.log('🌐 Production domain detected, using WebSocket URL:', websocketUrl);
+                } else if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
+                    websocketUrl = 'ws://localhost:8000/api/v1/ws/simple-voice-chat';
+                    console.log('🏠 Local development detected, using WebSocket URL:', websocketUrl);
+                } else {
+                    console.log('🔧 Using configured WebSocket URL:', websocketUrl);
+                }
+                
                 const voiceClient = new SimpleVoiceClient({
                     containerId: 'voice-container',
-                    websocketUrl: window.BEAUTYAI_CONFIG.backend.simple_voice_ws,
+                    websocketUrl: websocketUrl,
                     sessionId: window.SESSION_ID
                 });
                 

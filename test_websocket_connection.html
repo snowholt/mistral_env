@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Connection Test</title>
+</head>
+<body>
+    <h1>WebSocket Connection Test</h1>
+    <div id="status">Testing...</div>
+    <div id="log"></div>
+    
+    <script>
+        const log = document.getElementById('log');
+        const status = document.getElementById('status');
+        
+        function addLog(message) {
+            console.log(message);
+            log.innerHTML += message + '<br>';
+        }
+        
+        addLog('Starting WebSocket test...');
+        addLog('Current hostname: ' + window.location.hostname);
+        addLog('Current protocol: ' + window.location.protocol);
+        
+        // Test the WebSocket URL that should be used
+        const wsUrl = 'wss://dev.gmai.sa/api/v1/ws/simple-voice-chat?language=ar&voice_type=female';
+        addLog('Testing WebSocket URL: ' + wsUrl);
+        
+        try {
+            const ws = new WebSocket(wsUrl);
+            
+            ws.onopen = function() {
+                addLog('✅ WebSocket connected successfully!');
+                status.textContent = 'Connected!';
+                status.style.color = 'green';
+                ws.close();
+            };
+            
+            ws.onerror = function(error) {
+                addLog('❌ WebSocket error: ' + JSON.stringify(error));
+                status.textContent = 'Connection failed!';
+                status.style.color = 'red';
+            };
+            
+            ws.onclose = function(event) {
+                addLog('🔌 WebSocket closed: code=' + event.code + ', reason=' + event.reason + ', wasClean=' + event.wasClean);
+            };
+            
+        } catch (error) {
+            addLog('💥 Exception creating WebSocket: ' + error.message);
+            status.textContent = 'Exception: ' + error.message;
+            status.style.color = 'red';
+        }
+    </script>
+</body>
+</html>

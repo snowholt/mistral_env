@@ -156,8 +156,14 @@ class SimpleVoiceService:
             # Pre-load required models for faster response times
             await self._preload_required_models()
             
-            # Test Edge TTS availability with configured voice
-            await self._test_edge_tts()
+            # Test Edge TTS availability with configured voice (non-blocking)
+            try:
+                await self._test_edge_tts()
+            except Exception as e:
+                # Don't fail initialization if Edge TTS test fails
+                # TTS will be tested again during actual usage
+                self.logger.warning(f"Edge TTS test failed during initialization: {e}")
+                self.logger.info("Continuing initialization - Edge TTS will be tested during first use")
             
             self.logger.info("SimpleVoiceService initialized successfully")
             
@@ -176,7 +182,7 @@ class SimpleVoiceService:
                 
                 # Get preloaded Whisper model from persistent manager
                 try:
-                    whisper_engine = await self.persistent_model_manager.get_whisper_model()
+                    whisper_engine = self.persistent_model_manager.get_whisper_model()
                     if whisper_engine:
                         self.persistent_whisper_engine = whisper_engine
                         self.logger.info("✅ Using preloaded Whisper model from persistent manager")
@@ -187,7 +193,7 @@ class SimpleVoiceService:
                 
                 # Get preloaded LLM from persistent manager
                 try:
-                    llm_engine = await self.persistent_model_manager.get_llm_model()
+                    llm_engine = self.persistent_model_manager.get_llm_model()
                     if llm_engine and self.chat_service is None:
                         # Use the preloaded LLM for chat service
                         from beautyai_inference.services.inference.chat_service import ChatService
@@ -248,14 +254,31 @@ class SimpleVoiceService:
             communicate = edge_tts.Communicate("Test", self.default_arabic_voice)
             test_file = self.temp_dir / "test_edge_tts.wav"
             
-            await communicate.save(str(test_file))
+            # Add timeout and better error handling
+            import asyncio
             
-            if test_file.exists():
+            # Run with timeout to prevent hanging
+            await asyncio.wait_for(communicate.save(str(test_file)), timeout=10.0)
+            
+            # Give a brief moment for file system to sync
+            await asyncio.sleep(0.1)
+            
+            if test_file.exists() and test_file.stat().st_size > 0:
                 test_file.unlink()  # Clean up
                 self.logger.info(f"Edge TTS test successful with voice: {self.default_arabic_voice}")
             else:
-                raise Exception("Edge TTS test failed - no output file generated")
+                # More specific error information
+                if test_file.exists():
+                    size = test_file.stat().st_size
+                    self.logger.error(f"Edge TTS test failed - file exists but is empty (size: {size})")
+                    test_file.unlink()  # Clean up empty file
+                else:
+                    self.logger.error(f"Edge TTS test failed - no output file generated at: {test_file}")
+                raise Exception("Edge TTS test failed - no valid output file generated")
                 
+        except asyncio.TimeoutError:
+            self.logger.error("Edge TTS test failed: timeout after 10 seconds")
+            raise Exception("Edge TTS is not available: timeout during test")
         except Exception as e:
             self.logger.error(f"Edge TTS test failed: {e}")
             raise Exception(f"Edge TTS is not available: {e}")

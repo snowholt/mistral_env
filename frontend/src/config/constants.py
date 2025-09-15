@@ -7,10 +7,34 @@ and deployment contexts.
 
 import os
 
-# Environment detection
+# Environment detection - enhanced with domain-based detection
 ENVIRONMENT = os.getenv("BEAUTYAI_ENV", "development")
 DEBUG = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
 PRODUCTION = os.getenv("PRODUCTION", "false").lower() in ("true", "1", "yes")
+
+# Additional environment detection for production domain access
+# This helps when serving from dev.gmai.sa but environment variables aren't set correctly
+DOMAIN_BASED_PRODUCTION = False
+
+def detect_production_environment():
+    """Detect if we're running in production based on various indicators."""
+    global DOMAIN_BASED_PRODUCTION
+    
+    # Check if we're being accessed via production domain
+    server_name = os.getenv("SERVER_NAME", "")
+    http_host = os.getenv("HTTP_HOST", "")
+    
+    production_domains = ["dev.gmai.sa", "api.gmai.sa", "gmai.sa"]
+    
+    if any(domain in server_name for domain in production_domains) or \
+       any(domain in http_host for domain in production_domains):
+        DOMAIN_BASED_PRODUCTION = True
+        return True
+    
+    return PRODUCTION or ENVIRONMENT == "production"
+
+# Update production flag based on domain detection
+IS_PRODUCTION = detect_production_environment()
 
 # Backend connection settings
 BACKEND_HOST = os.getenv("BACKEND_HOST", "localhost")
@@ -22,11 +46,11 @@ BACKEND_WS_HOST = os.getenv("BACKEND_WS_HOST", BACKEND_HOST)
 BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "ws")
 
 # Production overrides for WebSocket configuration
-if PRODUCTION or ENVIRONMENT == "production":
-    # In production, use WSS and the API domain for reliable connection
-    # This matches the logic in debug_pcm_upload.html that works correctly
+if IS_PRODUCTION:
+    # In production, use WSS and the current domain for reliable connection
+    # This ensures WebSocket connections go through nginx proxy
     BACKEND_WS_PROTOCOL = os.getenv("BACKEND_WS_PROTOCOL", "wss")
-    BACKEND_WS_HOST = os.getenv("BACKEND_WS_HOST", "api.gmai.sa")  # Use api.gmai.sa instead of dev.gmai.sa
+    BACKEND_WS_HOST = os.getenv("BACKEND_WS_HOST", "dev.gmai.sa")  # Use dev.gmai.sa for production
     BACKEND_WS_PORT = ""  # No port for standard WSS/HTTPS
 else:
     # Development settings
@@ -46,7 +70,7 @@ BACKEND_BASE_URL = f"{BACKEND_PROTOCOL}://{BACKEND_HOST}:{BACKEND_PORT}"
 BACKEND_API_URL = f"{BACKEND_BASE_URL}{API_PREFIX}"
 
 # WebSocket URLs - properly handle production vs development
-if PRODUCTION or ENVIRONMENT == "production":
+if IS_PRODUCTION:
     # Production WebSocket URLs (no port for standard HTTPS/WSS)
     BACKEND_SIMPLE_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}{WEBSOCKET_SIMPLE_VOICE_PATH}"
     BACKEND_STREAMING_VOICE_WS = f"{BACKEND_WS_PROTOCOL}://{BACKEND_WS_HOST}{WEBSOCKET_STREAMING_VOICE_PATH}"
@@ -85,7 +109,7 @@ RECONNECT_ATTEMPTS = int(os.getenv("RECONNECT_ATTEMPTS", "3"))
 RECONNECT_DELAY_MS = int(os.getenv("RECONNECT_DELAY_MS", "1000"))
 
 # Environment-specific overrides
-if ENVIRONMENT == "production" or PRODUCTION:
+if IS_PRODUCTION:
     # Production settings
     API_TIMEOUT = int(os.getenv("API_TIMEOUT", "60"))
     CONNECTION_TIMEOUT_MS = int(os.getenv("CONNECTION_TIMEOUT_MS", "10000"))
@@ -129,7 +153,8 @@ validate_config()
 CONFIG_DICT = {
     "environment": ENVIRONMENT,
     "debug": DEBUG,
-    "production": PRODUCTION,
+    "production": IS_PRODUCTION,
+    "domain_based_production": DOMAIN_BASED_PRODUCTION,
     "backend": {
         "host": BACKEND_HOST,
         "port": BACKEND_PORT,

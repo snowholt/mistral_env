@@ -724,16 +724,10 @@ class SimpleVoiceClient {
             return;
         }
         
-        const message = {
-            type: 'audio_input',
-            audio_data: Array.from(new Uint8Array(pcmData)),
-            language: this.state.currentLanguage,
-            session_id: this.config.sessionId,
-            timestamp: Date.now()
-        };
-        
+        // Send audio as binary data directly (backend expects binary WebSocket messages)
         console.log('Sending audio data to backend...');
-        this.websocket.send(JSON.stringify(message));
+        console.log('Audio data size:', pcmData.byteLength, 'bytes');
+        this.websocket.send(pcmData);
         
         this.metrics.lastResponseTime = Date.now();
     }
