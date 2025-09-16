@@ -13,9 +13,24 @@
 </head>
 <body>
   <div class="debug-container">
-    <header class="debug-header">
-      <h1><i class="fas fa-microphone-lines"></i> Simple WebSocket Voice Debug Tool</h1>
-      <div class="subtitle">Test STT → LLM → TTS pipeline without microphone using file upload</div>
+    <header class="debug-header" style="position:relative;z-index:2;display:flex;flex-direction:column;gap:8px;margin-bottom:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+        <h1 style="margin:0;display:flex;align-items:center;gap:14px;font-size:clamp(1.6rem,2.2rem,2.6rem);font-weight:700;letter-spacing:.5px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:54px;height:54px;border-radius:18px;background:linear-gradient(135deg,var(--primary-color),var(--primary-accent));color:#fff;box-shadow:0 6px 18px -6px rgba(0,0,0,.35);"><i class="fas fa-microphone-lines" style="font-size:1.6rem;"></i></span>
+          <span>Simple Voice Debugger</span>
+        </h1>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <button id="themeToggleBtn" class="btn btn-outline" type="button" title="Toggle light/dark theme" style="padding:10px 18px;">
+            <i class="fas fa-moon"></i><span class="theme-label" style="font-size:.75rem;letter-spacing:.85px;">Dark</span>
+          </button>
+          <button id="clearLogsBtn" class="btn btn-outline" type="button" style="display:none;">
+            <i class="fas fa-trash"></i> Clear Logs
+          </button>
+        </div>
+      </div>
+      <div class="subtitle" style="font-size:.95rem;font-weight:500;color:var(--text-muted);max-width:980px;">
+        Test the complete <strong>STT → LLM → TTS</strong> pipeline using high‑fidelity file uploads. Monitor latency per stage, performance grade, and export structured session data.
+      </div>
     </header>
     
     <div class="note-banner">
@@ -165,17 +180,17 @@
       </div>
 
       <!-- Action Buttons -->
-      <div class="action-buttons">
-        <button id="connectBtn" class="btn btn-primary">
-          <i class="fas fa-plug"></i> Connect
+      <div class="action-buttons" style="display:flex;flex-wrap:wrap;gap:14px;margin:8px 4px 4px 4px;align-items:center;">
+        <button id="connectBtn" class="btn btn-primary" type="button" style="min-width:160px;">
+          <i class="fas fa-plug"></i> <span>Connect</span>
         </button>
-        <button id="disconnectBtn" class="btn btn-secondary" disabled>
-          <i class="fas fa-plug"></i> Disconnect
+        <button id="disconnectBtn" class="btn btn-secondary" type="button" disabled style="min-width:160px;">
+          <i class="fas fa-power-off"></i> <span>Disconnect</span>
         </button>
-        <button id="sendAudioBtn" class="btn btn-success" disabled>
-          <i class="fas fa-paper-plane"></i> Send Audio
+        <button id="sendAudioBtn" class="btn btn-success" type="button" disabled style="min-width:170px;">
+          <i class="fas fa-paper-plane"></i> <span>Send Audio</span>
         </button>
-        <button id="clearLogsBtn" class="btn btn-outline">
+        <button id="clearLogsBtn2" class="btn btn-outline" type="button">
           <i class="fas fa-trash"></i> Clear Logs
         </button>
       </div>
@@ -561,6 +576,44 @@
   <script src="{{ url_for('static', filename='js/debug_websocket_tester.js') }}"></script>
   
   <script>
+    // Theme toggle with localStorage persistence
+    (function(){
+      const body = document.body;
+      const stored = localStorage.getItem('beautyai-debug-theme');
+      if(stored === 'dark') body.classList.add('dark-theme');
+      function updateButton(){
+        const btn = document.getElementById('themeToggleBtn');
+        if(!btn) return; 
+        const icon = btn.querySelector('i');
+        const label = btn.querySelector('.theme-label');
+        const dark = body.classList.contains('dark-theme');
+        if(dark){
+          icon.classList.remove('fa-moon'); icon.classList.add('fa-sun');
+          label.textContent = 'Light';
+        } else {
+          icon.classList.remove('fa-sun'); icon.classList.add('fa-moon');
+          label.textContent = 'Dark';
+        }
+      }
+      document.addEventListener('DOMContentLoaded', ()=>{updateButton();});
+      document.addEventListener('click', (e)=>{
+        if(e.target.closest('#themeToggleBtn')){
+          body.classList.toggle('dark-theme');
+          localStorage.setItem('beautyai-debug-theme', body.classList.contains('dark-theme') ? 'dark':'light');
+          updateButton();
+        }
+      });
+    })();
+
+    // Mirror secondary Clear Logs button to existing one if script expects id clearLogsBtn
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const alt = document.getElementById('clearLogsBtn2');
+      const original = document.getElementById('clearLogsBtn');
+      if(alt && original){
+        alt.addEventListener('click', ()=> original.click());
+      }
+    });
+
     // Initialize the debug interface when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🔧 Initializing Simple WebSocket Debug Interface...');

@@ -54,20 +54,42 @@ class DebugWebSocketTester {
   }
 
   /**
+   * Update WebSocket URL with current configuration parameters
+   */
+  updateWebSocketUrl() {
+    if (!this.elements.websocketUrl) return;
+    
+    // Get current language and voice type settings from the actual form elements
+    const language = this.elements.languageSelect?.value || this.elements.configLanguage?.value || 'ar';
+    const voiceType = this.elements.voiceTypeSelect?.value || 'female';
+    const debugMode = this.elements.debugModeToggle?.checked ? 'true' : 'false';
+    
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const isProduction = window.location.hostname !== 'localhost';
+    const host = isProduction ? 'dev.gmai.sa' : 'localhost:8000';
+    
+    // Construct URL with required parameters - use debug_mode, not debug
+    const url = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${encodeURIComponent(language)}&voice_type=${voiceType}&debug_mode=${debugMode}`;
+    
+    this.elements.websocketUrl.value = url;
+    this.updateWebSocketInfo();
+    
+    this.logDebugEvent('CONFIG', 'info', 'WebSocket URL updated', { 
+      url, 
+      language, 
+      voiceType, 
+      debugMode: debugMode === 'true' 
+    });
+  }
+
+  /**
    * Initialize WebSocket selector with default values
    */
   initializeWebSocketSelector() {
     if (!this.elements.websocketUrl) return;
     
-    // Set default selection based on current environment
-    const isProduction = window.location.hostname !== 'localhost';
-    if (isProduction) {
-      // Default to WSS simple voice chat for production
-      this.elements.websocketUrl.value = 'wss://dev.gmai.sa/api/v1/ws/simple-voice-chat';
-    } else {
-      // Default to WS simple voice chat for local development
-      this.elements.websocketUrl.value = 'ws://localhost:8000/api/v1/ws/simple-voice-chat';
-    }
+    // Use the proper URL construction method that includes parameters
+    this.updateWebSocketUrl();
   }
 
   /**
@@ -86,7 +108,9 @@ class DebugWebSocketTester {
       'responseTranscript', 'responseAssistant', 'responseAudio', 'responsePlayBtn',
       'debugEventsLog', 'showInfoEvents', 'showWarningEvents', 'showErrorEvents', 'showDebugEvents',
       'exportLogsBtn', 'exportSessionBtn', 'exportDebugBtn', 'exportFormat',
-      'sessionCount', 'avgResponseTime', 'successRate'
+      'sessionCount', 'avgResponseTime', 'successRate',
+      // Add the actual form element IDs from the HTML
+      'languageSelect', 'voiceTypeSelect', 'debugModeToggle', 'sendAudioBtn'
     ];
 
     elementIds.forEach(id => {
@@ -142,12 +166,41 @@ class DebugWebSocketTester {
       this.setupDragAndDrop();
     }
 
-    // Language change updates WebSocket URL info
+    // Language and voice type changes update WebSocket URL
+    if (this.elements.languageSelect) {
+      this.elements.languageSelect.addEventListener('change', () => {
+        this.updateWebSocketUrl();
+        this.updateWebSocketInfo();
+      });
+    }
+    
+    if (this.elements.voiceTypeSelect) {
+      this.elements.voiceTypeSelect.addEventListener('change', () => {
+        this.updateWebSocketUrl();
+        this.updateWebSocketInfo();
+      });
+    }
+    
+    if (this.elements.debugModeToggle) {
+      this.elements.debugModeToggle.addEventListener('change', () => {
+        this.updateWebSocketUrl();
+        this.updateWebSocketInfo();
+      });
+    }
+
+    // Legacy support for configLanguage if it exists
     if (this.elements.configLanguage) {
-      this.elements.configLanguage.addEventListener('change', () => this.updateWebSocketInfo());
+      this.elements.configLanguage.addEventListener('change', () => {
+        this.updateWebSocketUrl();
+        this.updateWebSocketInfo();
+      });
     }
 
     // Streaming controls
+    if (this.elements.sendAudioBtn) {
+      this.elements.sendAudioBtn.addEventListener('click', () => this.startStreaming());
+    }
+    // Legacy support
     if (this.elements.streamBtn) {
       this.elements.streamBtn.addEventListener('click', () => this.startStreaming());
     }
@@ -180,7 +233,10 @@ class DebugWebSocketTester {
 
     // Configuration changes
     if (this.elements.configLanguage) {
-      this.elements.configLanguage.addEventListener('change', () => this.updateWebSocketInfo());
+      this.elements.configLanguage.addEventListener('change', () => {
+        this.updateWebSocketUrl();
+        this.updateWebSocketInfo();
+      });
     }
   }
 
@@ -286,7 +342,9 @@ class DebugWebSocketTester {
    */
   updateConfig() {
     this.config = {
-      language: this.elements.configLanguage?.value || 'ar',
+      language: this.elements.languageSelect?.value || this.elements.configLanguage?.value || 'ar',
+      voiceType: this.elements.voiceTypeSelect?.value || 'female',
+      debugMode: this.elements.debugModeToggle?.checked || false,
       frameSize: parseInt(this.elements.configFrameSize?.value || '20'),
       pacing: this.elements.configPacing?.value || 'realtime',
       autoplay: this.elements.configAutoplay?.checked || false,
@@ -299,9 +357,13 @@ class DebugWebSocketTester {
    */
   getDefaultEndpointUrl() {
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const host = window.location.hostname === 'localhost' ? 'localhost:8000' : 'dev.gmai.sa';
-    const language = this.elements.configLanguage?.value || 'ar';
-    return `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${encodeURIComponent(language)}&voice_type=female&debug=1`;
+    const isProduction = window.location.hostname !== 'localhost';
+    const host = isProduction ? 'dev.gmai.sa' : 'localhost:8000';
+    const language = this.elements.languageSelect?.value || this.elements.configLanguage?.value || 'ar';
+    const voiceType = this.elements.voiceTypeSelect?.value || 'female';
+    const debugMode = this.elements.debugModeToggle?.checked ? 'true' : 'false';
+    
+    return `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${encodeURIComponent(language)}&voice_type=${voiceType}&debug_mode=${debugMode}`;
   }
 
   /**
@@ -345,11 +407,32 @@ class DebugWebSocketTester {
     this.resetSession();
 
     try {
-      this.ws = new WebSocket(this.config.endpointUrl);
+      // Use the URL from the selector, which should have proper parameters
+      let wsUrl = this.config.endpointUrl;
+      
+      // If the URL doesn't have parameters, use the default URL constructor
+      if (!wsUrl.includes('language=') || !wsUrl.includes('voice_type=')) {
+        wsUrl = this.getDefaultEndpointUrl();
+        // Update the selector to show the proper URL
+        if (this.elements.websocketUrl) {
+          this.elements.websocketUrl.value = wsUrl;
+        }
+      }
+      
+      // Ensure we're using debug_mode parameter format
+      if (wsUrl.includes('debug=')) {
+        wsUrl = wsUrl.replace(/debug=([^&]+)/, 'debug_mode=$1');
+        if (this.elements.websocketUrl) {
+          this.elements.websocketUrl.value = wsUrl;
+        }
+      }
+      
+      this.logDebugEvent('CONNECTION', 'info', 'Connecting to WebSocket', { url: wsUrl });
+      this.ws = new WebSocket(wsUrl);
       
       this.ws.onopen = () => {
         this.updateStatus('connected');
-        this.logDebugEvent('CONNECTION', 'info', 'WebSocket connected', { url: this.config.endpointUrl });
+        this.logDebugEvent('CONNECTION', 'info', 'WebSocket connected', { url: wsUrl });
         this.updateUI();
       };
 
@@ -364,7 +447,7 @@ class DebugWebSocketTester {
       };
 
       this.ws.onerror = (error) => {
-        this.logDebugEvent('CONNECTION', 'error', 'WebSocket error', { error: error.message });
+        this.logDebugEvent('CONNECTION', 'error', 'WebSocket error', { error: error });
         this.sessionData.stats.errors++;
       };
 
@@ -1415,9 +1498,16 @@ class DebugWebSocketTester {
     if (this.elements.disconnectBtn) {
       this.elements.disconnectBtn.disabled = !isConnected;
     }
-    if (this.elements.streamBtn) {
-      this.elements.streamBtn.disabled = !isConnected || !hasAudio || isStreaming;
+    
+    // Update both streaming button IDs
+    const streamingDisabled = !isConnected || !hasAudio || isStreaming;
+    if (this.elements.sendAudioBtn) {
+      this.elements.sendAudioBtn.disabled = streamingDisabled;
     }
+    if (this.elements.streamBtn) {
+      this.elements.streamBtn.disabled = streamingDisabled;
+    }
+    
     if (this.elements.abortBtn) {
       this.elements.abortBtn.disabled = !isStreaming;
     }
