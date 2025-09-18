@@ -263,7 +263,7 @@ def create_transcription_service() -> TranscriptionServiceProtocol:
 - **Format:** Raw PCM streaming (Float32 → Int16)
 - **Transport:** Direct WebSocket binary frames
 
-**File Upload Interface:** `debug_pcm_upload.html`
+**File Upload Interface:** `debug_voice_websocket_tester.html`
 - **Support:** Various audio formats via browser decode
 - **Processing:** Client-side format conversion to PCM
 

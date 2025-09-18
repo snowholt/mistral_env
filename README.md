@@ -34,7 +34,7 @@ beautyai system status
 | Tool | URL (example deployment) | Purpose |
 |------|--------------------------|---------|
 | Live Streaming Console | https://dev.gmai.sa/debug/streaming-live | Real mic → streaming transcription + model replies |
-| PCM Upload Simulator | https://dev.gmai.sa/debug/pcm-upload | Replay files frame-by-frame, latency metrics |
+| Voice WebSocket Tester | https://dev.gmai.sa/debug/voice-websocket-tester | Test voice websockets with various audio files, frame-by-frame replay, latency metrics |
 
 ## ✅ Latest Weekly Progress (Aug 16–22, 2025)
 Short summary (full details in backend & frontend READMEs):

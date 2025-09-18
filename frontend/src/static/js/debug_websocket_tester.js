@@ -152,7 +152,7 @@ class DebugWebSocketTester {
       'stageTTSStatus', 'stageTTSTiming', 'stageTTSData',
       'responseTranscript', 'responseAssistant', 'responseAudio', 'responsePlayBtn',
       'debugEventsLog', 'showInfoEvents', 'showWarningEvents', 'showErrorEvents', 'showDebugEvents',
-      'exportLogsBtn', 'exportSessionBtn', 'exportDebugBtn', 'exportFormat',
+      'exportDataBtn', 'exportDataBtn2',
       'sessionCount', 'avgResponseTime', 'successRate',
       // Add the actual form element IDs from the HTML
       'languageSelect', 'voiceTypeSelect', 'debugModeToggle', 'sendAudioBtn'
@@ -259,14 +259,11 @@ class DebugWebSocketTester {
     }
 
     // Export controls
-    if (this.elements.exportLogsBtn) {
-      this.elements.exportLogsBtn.addEventListener('click', () => this.exportLogs());
+    if (this.elements.exportDataBtn) {
+      this.elements.exportDataBtn.addEventListener('click', () => this.exportDebugData());
     }
-    if (this.elements.exportSessionBtn) {
-      this.elements.exportSessionBtn.addEventListener('click', () => this.exportSession());
-    }
-    if (this.elements.exportDebugBtn) {
-      this.elements.exportDebugBtn.addEventListener('click', () => this.exportDebugData());
+    if (this.elements.exportDataBtn2) {
+      this.elements.exportDataBtn2.addEventListener('click', () => this.exportDebugData());
     }
 
     // Log filtering
@@ -1523,94 +1520,25 @@ class DebugWebSocketTester {
   }
 
   /**
-   * Export logs
-   */
-  exportLogs() {
-    const exportData = {
-      session: this.sessionData,
-      config: this.config,
-      events: this.debugEvents,
-      exportTime: new Date().toISOString()
-    };
-
-    const format = this.elements.exportFormat?.value || 'json';
-    const filename = `beautyai-debug-logs-${Date.now()}`;
-
-    switch (format) {
-      case 'json':
-        this.downloadJson(exportData, `${filename}.json`);
-        break;
-      case 'csv':
-        this.downloadCsv(this.debugEvents, `${filename}.csv`);
-        break;
-      case 'markdown':
-        this.downloadMarkdown(exportData, `${filename}.md`);
-        break;
-    }
-
-    this.logDebugEvent('EXPORT', 'info', 'Logs exported', { format, filename });
-  }
-
-  /**
-   * Export session data
-   */
-  exportSession() {
-    const sessionData = {
-      ...this.sessionData,
-      config: this.config,
-      exportTime: new Date().toISOString()
-    };
-
-    this.downloadJson(sessionData, `beautyai-session-${Date.now()}.json`);
-    this.logDebugEvent('EXPORT', 'info', 'Session data exported');
-  }
-
-  /**
-   * Export debug data
+   * Export complete debug data as downloadable JSON file
    */
   exportDebugData() {
     const debugData = {
-      events: this.debugEvents.filter(e => e.level === 'debug'),
       session: this.sessionData,
+      events: this.debugEvents,
+      config: this.config,
       exportTime: new Date().toISOString()
     };
 
-    // Auto-save to reports/logs/ if possible (via fetch to server endpoint)
-    this.autoSaveDebugData(debugData);
-    
-    // Also download locally
-    this.downloadJson(debugData, `beautyai-voice-file-debug-data-${Date.now()}.json`);
-    this.logDebugEvent('EXPORT', 'info', 'Debug data exported and auto-saved');
+    // Download directly to user's machine
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+    const filename = `beautyai-debug-data-${timestamp}.json`;
+    this.downloadJson(debugData, filename);
+    this.logDebugEvent('EXPORT', 'info', 'Debug data exported as download', { filename });
   }
 
   /**
-   * Attempt to auto-save debug data to server
-   */
-  async autoSaveDebugData(debugData) {
-    try {
-      const response = await fetch('/api/debug/save-data', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({
-          filename: 'beautyai-voice-file-debug-data.json',
-          data: debugData
-        })
-      });
-      
-      if (response.ok) {
-        this.logDebugEvent('EXPORT', 'info', 'Debug data auto-saved to server reports/logs/');
-      } else {
-        this.logDebugEvent('EXPORT', 'warning', 'Auto-save to server failed, only local download available');
-      }
-    } catch (error) {
-      this.logDebugEvent('EXPORT', 'debug', 'Auto-save endpoint not available, using local download only');
-    }
-  }
-
-  /**
-   * Download JSON data
+   * Download JSON data as file to user's machine
    */
   downloadJson(data, filename) {
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });

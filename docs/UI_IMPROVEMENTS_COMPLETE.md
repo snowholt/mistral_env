@@ -76,7 +76,7 @@
 ## **Files Modified**
 
 ### **Frontend Templates:**
-- ✅ `/frontend/src/templates/debug_pcm_upload.html` - Main HTML structure
+- ✅ `/frontend/src/templates/debug_voice_websocket_tester.html` - Main HTML structure
 
 ### **Stylesheets:**
 - ✅ `/frontend/src/static/css/debug_simple_websocket.css` - Modern UI styles
@@ -111,4 +111,4 @@ The interface is now **production-ready** with:
 - ✅ **User-Friendly**: Intuitive interface with clear visual feedback
 - ✅ **Developer-Friendly**: Easy testing and debugging capabilities
 
-**Ready for use at:** `https://dev.gmai.sa/debug/pcm-upload`
+**Ready for use at:** `https://dev.gmai.sa/debug/voice-websocket-tester`

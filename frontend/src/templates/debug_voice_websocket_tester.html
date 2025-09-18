@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+        <title>BeautyAI Debug - Voice WebSocket Tester</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <!-- Debug Interface Styles -->
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/debug_simple_websocket.css') }}">
+</head>
+<body>
+  <div class="debug-container">
+    <header class="debug-header" style="position:relative;z-index:2;display:flex;flex-direction:column;gap:8px;margin-bottom:28px;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:24px;flex-wrap:wrap;">
+        <h1 style="margin:0;display:flex;align-items:center;gap:14px;font-size:clamp(1.6rem,2.2rem,2.6rem);font-weight:700;letter-spacing:.5px;">
+          <span style="display:inline-flex;align-items:center;justify-content:center;width:54px;height:54px;border-radius:18px;background:linear-gradient(135deg,var(--primary-color),var(--primary-accent));color:#fff;box-shadow:0 6px 18px -6px rgba(0,0,0,.35);"><i class="fas fa-microphone-lines" style="font-size:1.6rem;"></i></span>
+          <span>Voice WebSocket Tester</span>
+        </h1>
+        <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+          <button id="themeToggleBtn" class="btn btn-outline" type="button" title="Toggle light/dark theme" style="padding:10px 18px;">
+            <i class="fas fa-moon"></i><span class="theme-label" style="font-size:.75rem;letter-spacing:.85px;">Dark</span>
+          </button>
+          <button id="clearLogsBtn" class="btn btn-outline" type="button" style="display:none;">
+            <i class="fas fa-trash"></i> Clear Logs
+          </button>
+        </div>
+      </div>
+      <div class="subtitle" style="font-size:.95rem;font-weight:500;color:var(--text-muted);max-width:980px;">
+        Test the complete <strong>STT → LLM → TTS</strong> pipeline using high‑fidelity file uploads. Monitor latency per stage, performance grade, and export structured session data.
+      </div>
+    </header>
+    
+    <div class="note-banner">
+      <i class="fas fa-info-circle"></i>
+      <div>
+        <strong>Debug the Simple WebSocket Voice Pipeline:</strong><br>
+        Upload audio files (WebM, WAV, MP3, PCM) to test the complete STT → LLM → TTS pipeline via 
+        <code>/api/ws/simple-voice-chat</code> endpoint with debug mode enabled. 
+        Monitor each stage with detailed metrics and logs.
+      </div>
+    </div>
+
+    <!-- Configuration Panel -->
+    <section class="debug-panel config-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-cogs"></i> Configuration</h2>
+        <div class="connection-status" id="connectionStatus">
+          <span class="status-indicator" id="statusIndicator"></span>
+          <span class="status-text" id="statusText">Disconnected</span>
+        </div>
+      </div>
+      
+      <!-- Compact Configuration Row -->
+      <div class="config-row-compact">
+        <!-- Audio File Upload - Compact -->
+        <div class="config-item file-upload-compact">
+          <label class="config-label">
+            <i class="fas fa-file-audio"></i> Audio File
+          </label>
+          <div class="compact-file-upload" id="fileUploadArea">
+            <input type="file" id="audioFile" accept="audio/*,.pcm" hidden>
+            <div class="file-upload-button" id="fileUploadZone">
+              <button type="button" class="upload-btn" id="selectFileBtn">
+                <i class="fas fa-cloud-upload-alt"></i>
+                <span class="upload-text" id="fileLabel">Choose Audio File</span>
+              </button>
+              <div class="supported-formats-compact">
+                <small>WebM, WAV, MP3, PCM</small>
+              </div>
+            </div>
+            <div class="file-preview-compact" id="fileInfo" style="display: none;">
+              <div class="file-details-compact">
+                <i class="fas fa-file-audio file-icon-compact"></i>
+                <div class="file-info-text">
+                  <div class="file-name-compact" id="fileName"></div>
+                  <div class="file-meta-compact">
+                    <span id="fileSize"></span> • <span id="fileType"></span>
+                  </div>
+                </div>
+                <button type="button" class="remove-file-btn-compact" id="removeFileBtn" title="Remove file">
+                  <i class="fas fa-times"></i>
+                </button>
+              </div>
+              <div class="upload-progress-compact" id="uploadProgress" style="display: none;">
+                <div class="progress-bar-compact">
+                  <div class="progress-fill-compact" id="progressFill"></div>
+                </div>
+                <span class="progress-text-compact" id="progressText">0%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Language Selection -->
+        <div class="config-item">
+          <label class="config-label">
+            <i class="fas fa-language"></i> Language
+          </label>
+          <select id="languageSelect" class="config-select">
+            <option value="ar" selected>Arabic (العربية)</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+
+        <!-- Voice Type -->
+        <div class="config-item">
+          <label class="config-label">
+            <i class="fas fa-user"></i> Voice Type
+          </label>
+          <select id="voiceTypeSelect" class="config-select">
+            <option value="female" selected>Female</option>
+            <option value="male">Male</option>
+          </select>
+        </div>
+
+        <!-- Debug Mode -->
+        <div class="config-item">
+          <label class="config-label">
+            <i class="fas fa-bug"></i> Debug Mode
+          </label>
+          <div class="toggle-switch">
+            <input type="checkbox" id="debugModeToggle" checked>
+            <label for="debugModeToggle" class="toggle-label"></label>
+          </div>
+        </div>
+
+        <!-- WebSocket URL Selection -->
+        <div class="config-item websocket-item">
+          <label class="config-label">
+            <i class="fas fa-plug"></i> WebSocket Endpoint
+          </label>
+          <div class="websocket-selector-compact">
+            <select id="websocketUrl" class="config-select websocket-select">
+              <optgroup label="🌐 Production (WSS - Secure)">
+                <option value="wss://dev.gmai.sa/api/v1/ws/simple-voice-chat" selected>
+                  🎤 Simple Voice Chat - dev.gmai.sa
+                </option>
+                <option value="wss://dev.gmai.sa/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - dev.gmai.sa
+                </option>
+                <option value="wss://api.gmai.sa/api/v1/ws/simple-voice-chat">
+                  🎤 Simple Voice Chat - api.gmai.sa
+                </option>
+                <option value="wss://api.gmai.sa/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - api.gmai.sa
+                </option>
+              </optgroup>
+              <optgroup label="🏠 Development (WS - Local)">
+                <option value="ws://localhost:8000/api/v1/ws/simple-voice-chat">
+                  🎤 Simple Voice Chat - localhost
+                </option>
+                <option value="ws://localhost:8000/api/v1/ws/streaming-voice">
+                  🌊 Streaming Voice - localhost
+                </option>
+              </optgroup>
+            </select>
+            <div class="websocket-info-compact">
+              <span class="protocol-badge" id="protocolBadge">WSS</span>
+              <small class="endpoint-description-compact" id="endpointDescription">
+                Secure WebSocket connection
+              </small>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Action Buttons -->
+      <div class="action-buttons" style="display:flex;flex-wrap:wrap;gap:14px;margin:8px 4px 4px 4px;align-items:center;">
+        <button id="connectBtn" class="btn btn-primary" type="button" style="min-width:160px;">
+          <i class="fas fa-plug"></i> <span>Connect</span>
+        </button>
+        <button id="disconnectBtn" class="btn btn-secondary" type="button" disabled style="min-width:160px;">
+          <i class="fas fa-power-off"></i> <span>Disconnect</span>
+        </button>
+        <button id="sendAudioBtn" class="btn btn-success" type="button" disabled style="min-width:170px;">
+          <i class="fas fa-paper-plane"></i> <span>Send Audio</span>
+        </button>
+        <button id="clearLogsBtn2" class="btn btn-outline" type="button">
+          <i class="fas fa-trash"></i> Clear Logs
+        </button>
+      </div>
+    </section>
+
+    <!-- Pipeline Status Panel -->
+    <section class="debug-panel pipeline-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-tachometer-alt"></i> Pipeline Dashboard</h2>
+        <div class="performance-grade" id="performanceGrade">
+          <span class="grade-label">Performance:</span>
+          <span class="grade-value" id="gradeValue">-</span>
+        </div>
+      </div>
+      
+      <!-- Pipeline Overview -->
+      <div class="pipeline-overview">
+        <div class="overview-stats">
+          <div class="stat-card total-time">
+            <div class="stat-icon"><i class="fas fa-clock"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Total Time</span>
+              <span class="stat-value" id="totalTime">-</span>
+            </div>
+          </div>
+          <div class="stat-card session-info">
+            <div class="stat-icon"><i class="fas fa-fingerprint"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Session ID</span>
+              <span class="stat-value" id="sessionId">-</span>
+            </div>
+          </div>
+          <div class="stat-card bottleneck">
+            <div class="stat-icon"><i class="fas fa-exclamation-triangle"></i></div>
+            <div class="stat-info">
+              <span class="stat-label">Bottleneck</span>
+              <span class="stat-value" id="bottleneckStage">-</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Pipeline Stages Table -->
+      <div class="pipeline-table-container">
+        <table class="pipeline-table">
+          <thead>
+            <tr>
+              <th class="stage-col">Stage</th>
+              <th class="status-col">Status</th>
+              <th class="timing-col">Duration</th>
+              <th class="progress-col">Progress</th>
+              <th class="details-col">Details</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr class="stage-row" id="uploadStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon upload"><i class="fas fa-upload"></i></div>
+                  <span class="stage-name">File Upload</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge ready" id="uploadStatus">Ready</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="uploadTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="uploadProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="uploadDetails">Waiting for file</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="sttStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon stt"><i class="fas fa-microphone"></i></div>
+                  <span class="stage-name">Speech-to-Text</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="sttStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="sttTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="sttProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="sttDetails">Pending upload</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="llmStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon llm"><i class="fas fa-brain"></i></div>
+                  <span class="stage-name">Language Model</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="llmStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="llmTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="llmProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="llmDetails">Pending STT</span>
+              </td>
+            </tr>
+            <tr class="stage-row" id="ttsStageRow">
+              <td class="stage-cell">
+                <div class="stage-info">
+                  <div class="stage-icon tts"><i class="fas fa-volume-high"></i></div>
+                  <span class="stage-name">Text-to-Speech</span>
+                </div>
+              </td>
+              <td class="status-cell">
+                <span class="status-badge waiting" id="ttsStatus">Waiting</span>
+              </td>
+              <td class="timing-cell">
+                <span class="timing-value" id="ttsTiming">-</span>
+              </td>
+              <td class="progress-cell">
+                <div class="progress-bar-container">
+                  <div class="progress-bar" id="ttsProgress"></div>
+                </div>
+              </td>
+              <td class="details-cell">
+                <span class="details-text" id="ttsDetails">Pending LLM</span>
+              </td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- Response & Playback Panel - MOVED UP -->
+    <section class="debug-panel response-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-play-circle"></i> Response & Playback</h2>
+      </div>
+      
+      <div class="response-content">
+        <div class="chat-container" id="chatContainer">
+          <!-- Chat messages will be dynamically inserted here -->
+          <div class="empty-state">
+            <i class="fas fa-comments"></i>
+            <p>No conversation yet. Upload an audio file to start testing.</p>
+          </div>
+        </div>
+        
+        <div class="audio-player-section">
+          <div class="audio-controls">
+            <div class="audio-info">
+              <span class="audio-label">TTS Audio:</span>
+              <span class="audio-duration" id="audioDuration">-</span>
+            </div>
+            <audio id="ttsAudio" controls preload="none">
+              <source type="audio/webm">
+              Your browser does not support the audio element.
+            </audio>
+            <button id="downloadAudioBtn" class="btn btn-outline" disabled>
+              <i class="fas fa-download"></i> Download
+            </button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Combined Debug Panel (Stage Details + Logs + Export) -->
+    <section class="debug-panel combined-panel">
+      <div class="panel-header">
+        <h2><i class="fas fa-chart-line"></i> Debug Analytics</h2>
+      </div>
+      
+      <div class="combined-tabs">
+        <button class="tab-button active" data-tab="stage-details">
+          <i class="fas fa-chart-line"></i> Stage Details
+        </button>
+        <button class="tab-button" data-tab="debug-logs">
+          <i class="fas fa-list-alt"></i> Debug Logs
+        </button>
+        <button class="tab-button" data-tab="export-data">
+          <i class="fas fa-download"></i> Export Data
+        </button>
+      </div>
+      
+      <div class="combined-content">
+        <!-- Stage Details Tab -->
+        <div class="tab-content active" id="stageDetailsTab">
+          <div class="stage-details-enhanced">
+            <div class="details-tabs">
+              <button class="stage-tab-button active" data-stage="stt">
+                <i class="fas fa-microphone"></i> STT
+              </button>
+              <button class="stage-tab-button" data-stage="llm">
+                <i class="fas fa-brain"></i> LLM
+              </button>
+              <button class="stage-tab-button" data-stage="tts">
+                <i class="fas fa-volume-high"></i> TTS
+              </button>
+            </div>
+            
+            <div class="stage-content">
+              <!-- STT Details -->
+              <div class="stage-tab-content active" id="sttStageContent">
+                <div class="metrics-grid">
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Processing Time</span>
+                      <div class="progress-ring" id="sttTimeRing">
+                        <div class="progress-ring-value" id="sttProcessingTime">-</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Confidence Score</span>
+                      <div class="confidence-meter" id="sttConfidenceMeter">
+                        <div class="confidence-fill" id="sttConfidenceFill"></div>
+                        <span class="confidence-value" id="sttConfidence">-</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="detail-group">
+                  <div class="detail-row">
+                    <span class="detail-label">Transcribed Text:</span>
+                    <span class="detail-value" id="sttTranscribedText">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Language Detected:</span>
+                    <span class="detail-value" id="sttLanguage">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Model Used:</span>
+                    <span class="detail-value" id="sttModel">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Audio Duration:</span>
+                    <span class="detail-value" id="sttAudioDuration">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Audio Format:</span>
+                    <span class="detail-value" id="sttAudioFormat">-</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- LLM Details -->
+              <div class="stage-tab-content" id="llmStageContent">
+                <div class="metrics-grid">
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Processing Time</span>
+                      <div class="progress-ring" id="llmTimeRing">
+                        <div class="progress-ring-value" id="llmProcessingTime">-</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Token Usage</span>
+                      <div class="token-meter">
+                        <div class="token-bar">
+                          <div class="token-segment prompt" id="promptTokenBar"></div>
+                          <div class="token-segment completion" id="completionTokenBar"></div>
+                        </div>
+                        <div class="token-labels">
+                          <span class="prompt-tokens" id="llmPromptTokens">-</span>
+                          <span class="completion-tokens" id="llmCompletionTokens">-</span>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="detail-group">
+                  <div class="detail-row">
+                    <span class="detail-label">Response Text:</span>
+                    <span class="detail-value" id="llmResponseText">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Model Used:</span>
+                    <span class="detail-value" id="llmModel">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Temperature:</span>
+                    <span class="detail-value" id="llmTemperature">-</span>
+                  </div>
+                </div>
+              </div>
+              
+              <!-- TTS Details -->
+              <div class="stage-tab-content" id="ttsStageContent">
+                <div class="metrics-grid">
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Processing Time</span>
+                      <div class="progress-ring" id="ttsTimeRing">
+                        <div class="progress-ring-value" id="ttsProcessingTime">-</div>
+                      </div>
+                    </div>
+                  </div>
+                  <div class="metric-card">
+                    <div class="metric-header">
+                      <span class="metric-label">Audio Quality</span>
+                      <div class="quality-indicator" id="ttsQualityIndicator">
+                        <div class="quality-bars">
+                          <div class="quality-bar"></div>
+                          <div class="quality-bar"></div>
+                          <div class="quality-bar"></div>
+                          <div class="quality-bar"></div>
+                          <div class="quality-bar"></div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+                
+                <div class="detail-group">
+                  <div class="detail-row">
+                    <span class="detail-label">Audio Length:</span>
+                    <span class="detail-value" id="ttsAudioLength">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Voice Used:</span>
+                    <span class="detail-value" id="ttsVoice">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Output Format:</span>
+                    <span class="detail-value" id="ttsOutputFormat">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Text Length:</span>
+                    <span class="detail-value" id="ttsTextLength">-</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Speech Rate:</span>
+                    <span class="detail-value" id="ttsSpeechRate">-</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Debug Logs Tab -->
+        <div class="tab-content" id="debugLogsTab">
+          <div class="log-controls">
+            <div class="log-filters">
+              <label class="filter-checkbox">
+                <input type="checkbox" id="showInfoEvents" checked>
+                <span>Info</span>
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" id="showWarningEvents" checked>
+                <span>Warning</span>
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" id="showErrorEvents" checked>
+                <span>Error</span>
+              </label>
+              <label class="filter-checkbox">
+                <input type="checkbox" id="showDebugEvents">
+                <span>Debug</span>
+              </label>
+            </div>
+          </div>
+          
+          <div class="log-content">
+            <div id="debugEventsLog" class="debug-log">
+              <div class="log-entry initial">
+                <span class="log-timestamp">00:00:00</span>
+                <span class="log-level info">INFO</span>
+                <span class="log-stage">SYSTEM</span>
+                <span class="log-message">Debug interface ready. Upload an audio file to begin testing.</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Export Data Tab -->
+        <div class="tab-content" id="exportDataTab">
+          <div class="export-content">
+            <div class="export-info">
+              <p>Export all debug data including session information, events log, timing metrics, and configuration to a JSON file downloaded to your local machine.</p>
+              <div class="export-path">
+                <strong>Download Format:</strong> <code>beautyai-debug-data-YYYY-MM-DD-HH-MM-SS.json</code><br>
+                <small>File will be downloaded to your browser's default download folder.</small>
+              </div>
+            </div>
+            
+            <div class="export-actions">
+              <button id="exportDataBtn2" class="btn btn-primary">
+                <i class="fas fa-download"></i> Download Debug Data as JSON
+              </button>
+            </div>
+            
+            <div class="session-stats">
+              <div class="stat-item">
+                <span class="stat-label">Sessions:</span>
+                <span class="stat-value" id="sessionCount">0</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Avg Response Time:</span>
+                <span class="stat-value" id="avgResponseTime">-</span>
+              </div>
+              <div class="stat-item">
+                <span class="stat-label">Success Rate:</span>
+                <span class="stat-value" id="successRate">-</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+  </div>
+
+  <!-- Scripts -->
+  <script src="{{ url_for('static', filename='js/debug_websocket_tester.js') }}"></script>
+  <script>
+    // Theme toggle with localStorage persistence
+    (function(){
+      const body = document.body;
+      const stored = localStorage.getItem('beautyai-debug-theme');
+      if(stored === 'dark') body.classList.add('dark-theme');
+      function updateButton(){
+        const btn = document.getElementById('themeToggleBtn');
+        if(!btn) return; 
+        const icon = btn.querySelector('i');
+        const label = btn.querySelector('.theme-label');
+        const dark = body.classList.contains('dark-theme');
+        if(dark){
+          icon.classList.remove('fa-moon'); icon.classList.add('fa-sun');
+          label.textContent = 'Light';
+        } else {
+          icon.classList.remove('fa-sun'); icon.classList.add('fa-moon');
+          label.textContent = 'Dark';
+        }
+      }
+      document.addEventListener('DOMContentLoaded', ()=>{updateButton();});
+      document.addEventListener('click', (e)=>{
+        if(e.target.closest('#themeToggleBtn')){
+          body.classList.toggle('dark-theme');
+          localStorage.setItem('beautyai-debug-theme', body.classList.contains('dark-theme') ? 'dark':'light');
+          updateButton();
+        }
+      });
+    })();
+
+    // Enhanced Tab Management for Combined Panel
+    document.addEventListener('DOMContentLoaded', function() {
+      // Combined panel tabs
+      const combinedTabs = document.querySelectorAll('.combined-tabs .tab-button');
+      const combinedContents = document.querySelectorAll('.combined-content .tab-content');
+      
+      combinedTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const targetTab = tab.dataset.tab;
+          
+          // Update tab buttons
+          combinedTabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          
+          // Update content
+          combinedContents.forEach(content => {
+            content.classList.remove('active');
+            if (content.id === targetTab + 'Tab') {
+              content.classList.add('active');
+            }
+          });
+        });
+      });
+      
+      // Stage detail tabs within the Stage Details tab
+      const stageTabs = document.querySelectorAll('.stage-tab-button');
+      const stageContents = document.querySelectorAll('.stage-tab-content');
+      
+      stageTabs.forEach(tab => {
+        tab.addEventListener('click', () => {
+          const targetStage = tab.dataset.stage;
+          
+          // Update stage tab buttons
+          stageTabs.forEach(t => t.classList.remove('active'));
+          tab.classList.add('active');
+          
+          // Update stage content
+          stageContents.forEach(content => {
+            content.classList.remove('active');
+            if (content.id === targetStage + 'StageContent') {
+              content.classList.add('active');
+            }
+          });
+        });
+      });
+    });
+
+    // Enhanced Chat Interface Functions
+    function addChatMessage(type, content, timestamp = null) {
+      const chatContainer = document.getElementById('chatContainer');
+      const emptyState = chatContainer.querySelector('.empty-state');
+      
+      // Remove empty state if it exists
+      if (emptyState) {
+        emptyState.remove();
+      }
+      
+      const messageDiv = document.createElement('div');
+      messageDiv.className = `chat-message ${type}`;
+      
+      const currentTime = timestamp || new Date().toLocaleTimeString();
+      
+      messageDiv.innerHTML = `
+        <div class="message-bubble">
+          <div class="message-type">${type === 'user' ? 'Transcription' : 'AI Response'}</div>
+          <div class="message-content">${content}</div>
+          <div class="message-timestamp">${currentTime}</div>
+        </div>
+      `;
+      
+      chatContainer.appendChild(messageDiv);
+      chatContainer.scrollTop = chatContainer.scrollHeight;
+    }
+
+    // Enhanced Metrics Functions
+    function updateProgressRing(elementId, percentage) {
+      const ring = document.getElementById(elementId);
+      if (ring) {
+        const degrees = (percentage / 100) * 360;
+        ring.style.background = `conic-gradient(
+          var(--primary-color) 0deg,
+          var(--primary-accent) ${degrees}deg,
+          var(--border-color) ${degrees}deg,
+          var(--border-color) 360deg
+        )`;
+      }
+    }
+
+    function updateConfidenceMeter(elementId, confidence) {
+      const meter = document.getElementById(elementId + 'Fill');
+      const value = document.getElementById(elementId.replace('Meter', ''));
+      
+      if (meter && value) {
+        meter.style.width = `${confidence}%`;
+        value.textContent = `${confidence}%`;
+      }
+    }
+
+    function updateTokenMeter(promptTokens, completionTokens) {
+      const total = promptTokens + completionTokens;
+      const promptBar = document.getElementById('promptTokenBar');
+      const completionBar = document.getElementById('completionTokenBar');
+      const promptLabel = document.getElementById('llmPromptTokens');
+      const completionLabel = document.getElementById('llmCompletionTokens');
+      
+      if (promptBar && completionBar && total > 0) {
+        promptBar.style.width = `${(promptTokens / total) * 100}%`;
+        completionBar.style.width = `${(completionTokens / total) * 100}%`;
+        promptLabel.textContent = promptTokens;
+        completionLabel.textContent = completionTokens;
+      }
+    }
+
+    function updateQualityIndicator(quality) {
+      const indicator = document.getElementById('ttsQualityIndicator');
+      if (indicator) {
+        indicator.className = 'quality-indicator';
+        if (quality >= 80) {
+          indicator.classList.add('high');
+        } else if (quality >= 50) {
+          indicator.classList.add('medium');
+        } else {
+          indicator.classList.add('low');
+        }
+      }
+    }
+
+    // Mirror secondary Clear Logs button to existing one if script expects id clearLogsBtn
+    document.addEventListener('DOMContentLoaded', ()=>{
+      const alt = document.getElementById('clearLogsBtn2');
+      const original = document.getElementById('clearLogsBtn');
+      if(alt && original){
+        alt.addEventListener('click', ()=> original.click());
+      }
+    });
+
+    // Initialize the debug interface when page loads
+    document.addEventListener('DOMContentLoaded', function() {
+      console.log('🔧 Initializing Enhanced WebSocket Debug Interface...');
+      
+      // Initialize the debug WebSocket client
+      if (typeof DebugWebSocketTester !== 'undefined') {
+        window.debugClient = new DebugWebSocketTester();
+        window.debugClient.initialize();
+        
+        // Extend the client with enhanced UI functions
+        window.debugClient.addChatMessage = addChatMessage;
+        window.debugClient.updateProgressRing = updateProgressRing;
+        window.debugClient.updateConfidenceMeter = updateConfidenceMeter;
+        window.debugClient.updateTokenMeter = updateTokenMeter;
+        window.debugClient.updateQualityIndicator = updateQualityIndicator;
+        
+        console.log('✅ Enhanced Debug WebSocket Tester initialized');
+      } else {
+        console.error('❌ DebugWebSocketTester not found - check if debug_websocket_tester.js is loaded');
+      }
+    });
+  </script>
+</body>
+</html>

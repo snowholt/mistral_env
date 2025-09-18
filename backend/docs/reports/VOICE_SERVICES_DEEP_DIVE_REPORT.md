@@ -158,7 +158,7 @@ state.ffmpeg_proc = await asyncio.create_subprocess_exec(
 - **Audio Capture**: Web Audio API with `createScriptProcessor`
 - **Format**: Raw PCM streaming (Float32 → Int16 conversion)
 - **Transport**: Direct WebSocket binary frames
-- **File Upload**: `debug_pcm_upload.html` supports various formats via browser decode
+- **File Upload**: `debug_voice_websocket_tester.html` supports various formats via browser decode
 
 **Missing:**
 - MediaRecorder API for WebM/Opus streaming

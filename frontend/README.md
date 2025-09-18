@@ -7,7 +7,7 @@ Added two advanced debugging & QA tools (accessible in deployed env):
 | Tool | Path | Purpose |
 |------|------|---------|
 | Live Streaming Debug Console | `/debug/streaming-live` | Real mic capture, auto speech detection, real-time STT + model replies, latency metrics, export session data |
-| PCM Upload Debug Tool | `/debug/pcm-upload` | Frame-by-frame simulation of audio files (PCM/WAV/WebM/etc.), metrics & event logging, replay vs fast modes |
+| Voice WebSocket Debug Tool | `/debug/voice-websocket-tester` | Frame-by-frame simulation of audio files (PCM/WAV/WebM/etc.), metrics & event logging, replay vs fast modes |
 
 Key Frontend Achievements:
 - AudioWorklet-based ultra-low latency capture (5–10ms) with fallback to ScriptProcessor where unsupported.

@@ -1,7 +1,7 @@
 # Voice Streaming `/no_think` Fix
 
 ## Problem
-The streaming voice websocket (`https://dev.gmai.sa/debug/pcm-upload`) was generating nonsensical responses to Arabic users because the LLM was running in thinking mode, which adds verbose reasoning that interferes with direct voice responses.
+The streaming voice websocket (`https://dev.gmai.sa/debug/voice-websocket-tester`) was generating nonsensical responses to Arabic users because the LLM was running in thinking mode, which adds verbose reasoning that interferes with direct voice responses.
 
 ## Root Cause
 Unlike the simple voice service which automatically appends `/no_think` to transcriptions, the streaming voice websocket was passing raw transcription text directly to the LLM without disabling thinking mode.
@@ -56,4 +56,4 @@ Added note to `_process_final_transcript` function documenting that text should 
 
 ## Related
 - Simple voice service implementation: `/home/lumi/beautyai/backend/src/beautyai_inference/services/voice/conversation/simple_voice_service.py` (lines 453-459)
-- Issue URL: `https://dev.gmai.sa/debug/pcm-upload`
+- Issue URL: `https://dev.gmai.sa/debug/voice-websocket-tester`
