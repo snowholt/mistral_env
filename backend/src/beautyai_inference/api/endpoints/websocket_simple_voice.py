@@ -615,24 +615,95 @@ class SimpleVoiceWebSocketManager:
             audio_data: Raw audio bytes
             
         Returns:
-            Detected format as string (webm, wav, mp3, or webm as default)
+            Detected format as string (pcm, webm, wav, mp3, or webm as default)
         """
         if len(audio_data) < 12:
             return "webm"  # Default for short data
         
         # Check for common audio format signatures
         if audio_data.startswith(b'RIFF') and b'WAVE' in audio_data[:12]:
+            logger.info(f"🎵 Detected WAV format from headers")
             return "wav"
         elif audio_data.startswith(b'\x1aEG') or audio_data.startswith(b'\x1a\x45\xdf\xa3'):
+            logger.info(f"🌐 Detected WebM/Matroska format from headers")
             return "webm"  # WebM/Matroska header
         elif audio_data.startswith(b'ID3') or audio_data.startswith(b'\xff\xfb') or audio_data.startswith(b'\xff\xf3'):
+            logger.info(f"🎵 Detected MP3 format from headers")
             return "mp3"
         elif audio_data.startswith(b'OggS'):
+            logger.info(f"🎵 Detected OGG format from headers")
             return "ogg"
         else:
+            # Check if this looks like raw PCM data
+            # PCM data typically has no header and consists of audio samples
+            # We can detect it by checking if the data looks like audio samples (not text/binary format headers)
+            # Raw PCM from client-side decoder will be Int16 samples
+            if self._is_likely_pcm(audio_data):
+                logger.info(f"🎵 Detected raw PCM data from client (likely from browser audio decoding)")
+                return "pcm"
+            
+            # Check first 16 bytes for debugging
+            first_bytes_hex = audio_data[:16].hex() if len(audio_data) >= 16 else audio_data.hex()
+            logger.warning(f"🤔 Unknown audio format, defaulting to webm. First 16 bytes: {first_bytes_hex}")
+            
+            # For debugging: log more info about unrecognized format
+            logger.debug(f"Audio data analysis: length={len(audio_data)}, "
+                        f"starts_with_zeros={audio_data[:4] == b'\\x00\\x00\\x00\\x00'}, "
+                        f"even_length={len(audio_data) % 2 == 0}")
+            
             # Default to webm for WebSocket streaming (most common for real-time)
-            logger.debug(f"Unknown audio format, defaulting to webm. First 16 bytes: {audio_data[:16].hex()}")
             return "webm"
+    
+    def _is_likely_pcm(self, audio_data: bytes) -> bool:
+        """
+        Check if audio data is likely raw PCM samples.
+        
+        Raw PCM from browser decoding typically has these characteristics:
+        - No file headers/magic bytes
+        - Data consists of audio samples (int16 values)
+        - Length is divisible by 2 (16-bit samples)
+        - Contains audio-like signal patterns
+        """
+        # Must have some data and be even length for int16 samples
+        if len(audio_data) < 64 or len(audio_data) % 2 != 0:
+            return False
+            
+        # Check if first 64 bytes look like typical known format headers
+        first_bytes = audio_data[:64]
+        
+        # If it starts with known format headers, it's not raw PCM
+        known_headers = [
+            b'RIFF',  # WAV
+            b'\x1a\x45\xdf\xa3',  # WebM/Matroska
+            b'ID3',   # MP3
+            b'\xff\xfb', b'\xff\xf3',  # MP3
+            b'OggS',  # OGG
+            b'fLaC',  # FLAC
+        ]
+        
+        for header in known_headers:
+            if first_bytes.startswith(header):
+                return False
+        
+        # Check if the data contains mostly zeros (empty/silence)
+        # PCM data should have some variation
+        zero_count = first_bytes.count(0)
+        if zero_count > len(first_bytes) * 0.8:  # More than 80% zeros
+            return False
+        
+        # Additional heuristic: Check if data looks like audio samples
+        # Convert first few bytes to int16 and check for reasonable audio range
+        try:
+            import struct
+            sample_count = min(32, len(audio_data) // 2)  # Check first 32 samples
+            samples = struct.unpack(f'<{sample_count}h', audio_data[:sample_count * 2])
+            
+            # Check if samples are in reasonable audio range
+            reasonable_samples = sum(1 for s in samples if -32768 <= s <= 32767)
+            return reasonable_samples == len(samples)  # All samples in valid range
+            
+        except struct.error:
+            return False
     
     async def send_message(self, connection_id: str, message: Dict[str, Any]) -> bool:
         """Send a message to a specific WebSocket connection."""
@@ -641,13 +712,67 @@ class SimpleVoiceWebSocketManager:
             if not pool_connection_id:
                 logger.warning(f"⚠️ No pool mapping found for connection: {connection_id}")
                 return False
-            
+
             pool = await self._get_connection_pool()
-            return await pool.send_to_connection(pool_connection_id, message, "json")
-            
+
+            # First attempt to send
+            sent = await pool.send_to_connection(pool_connection_id, message, "json")
+            if sent:
+                return True
+
+            # If send returned False, provide more diagnostics and attempt one retry
+            logger.warning(
+                "⚠️ send_to_connection returned False for original=%s pool_id=%s; attempting refresh and retry",
+                connection_id, pool_connection_id
+            )
+
+            # Refresh pool reference and try to get connection data for debugging
+            pool = await self._get_connection_pool()
+            try:
+                connection_data = pool.get_connection(pool_connection_id)
+            except Exception:
+                connection_data = None
+
+            if connection_data is None:
+                logger.warning(
+                    "⚠️ Pool connection missing for pool_id=%s (original=%s). Connection likely destroyed by health check or became stale",
+                    pool_connection_id, connection_id
+                )
+            else:
+                ws_state = getattr(connection_data.websocket, 'client_state', 'unknown')
+                logger.warning(
+                    "⚠️ Pool connection exists but send failed: pool_id=%s original=%s websocket_state=%s queue_size=%s",
+                    pool_connection_id, connection_id, ws_state, connection_data.get_queue_size()
+                )
+
+            # Retry once more in case of transient issue
+            try:
+                sent_retry = await pool.send_to_connection(pool_connection_id, message, "json")
+                if sent_retry:
+                    logger.info("ℹ️ send_message retry succeeded for %s (pool_id=%s)", connection_id, pool_connection_id)
+                    return True
+            except Exception as retry_exc:
+                logger.debug(f"Retry send_to_connection raised: {retry_exc}")
+
+            # If still failing, cleanup mapping and disconnect to ensure consistent state
+            logger.error(
+                "❌ send_message failed for %s after retry; cleaning up mapping and disconnecting",
+                connection_id
+            )
+            # Best-effort disconnect to remove stale mappings and free resources
+            try:
+                await self.disconnect(connection_id)
+            except Exception as disc_err:
+                logger.debug(f"Error during disconnect cleanup for {connection_id}: {disc_err}")
+
+            return False
+
         except Exception as e:
             logger.error(f"❌ Failed to send message to connection {connection_id}: {e}")
-            await self.disconnect(connection_id)
+            try:
+                await self.disconnect(connection_id)
+            except Exception:
+                pass
             return False
     
     async def process_audio_message(
@@ -706,6 +831,23 @@ class SimpleVoiceWebSocketManager:
                 "connection_id": connection_id,
                 "turn_id": f"turn_{voice_session['message_count']}_{int(time.time() * 1000)}"
             } if voice_session.get("debug_mode", False) else None
+            
+            # Detect audio format from the received data
+            audio_format = self._detect_audio_format(audio_data)
+            logger.info(f"🔍 Detected audio format: {audio_format} for {connection_id} (data length: {len(audio_data)} bytes)")
+            
+            # Log first few bytes for debugging
+            if voice_session.get("debug_mode", False):
+                first_bytes_hex = audio_data[:16].hex() if len(audio_data) >= 16 else audio_data.hex()
+                logger.debug(f"🔍 First 16 bytes of audio data: {first_bytes_hex}")
+                
+                # Add format-specific debug info
+                if audio_format == "pcm":
+                    logger.info(f"🎵 Processing raw PCM data from client-side decoding")
+                elif audio_format == "webm":
+                    logger.info(f"🌐 Processing WebM audio stream")
+                else:
+                    logger.info(f"🎧 Processing {audio_format.upper()} audio format")
             
             # Process with SimpleVoiceService
             # Use the real voice processing pipeline
@@ -830,18 +972,74 @@ class SimpleVoiceWebSocketManager:
             processing_time = time.time() - start_time
             logger.error(f"❌ Error processing simple voice message for {connection_id}: {e}")
             
+            # Get audio format for error context
+            audio_format = "unknown"
+            try:
+                audio_format = self._detect_audio_format(audio_data)
+            except Exception:
+                pass
+            
+            # Enhanced error categorization and logging for better debugging
+            error_str = str(e).lower()
+            if "ffmpeg" in error_str or "conversion failed" in error_str:
+                logger.error(f"🔧 Audio format processing error - Format: {audio_format}, Data length: {len(audio_data)}, Error: {e}")
+                if len(audio_data) >= 16:
+                    logger.error(f"🔍 First 16 bytes: {audio_data[:16].hex()}")
+                
+                # Specific error messaging for EBML/WebM issues
+                if "ebml" in error_str or "invalid data found" in error_str:
+                    error_message = "Audio format issue: The uploaded file appears to be corrupted or contains invalid WebM data. This often happens when PCM data is sent instead of WebM format."
+                    error_code = "WEBM_FORMAT_MISMATCH"
+                else:
+                    error_message = "Audio format processing failed. Please try uploading a different audio file."
+                    error_code = "AUDIO_FORMAT_ERROR"
+            elif "pcm" in error_str or "wav" in error_str:
+                error_message = "Audio file processing failed. Please check your audio format."
+                error_code = "AUDIO_PROCESSING_ERROR"
+            elif "webm" in error_str and "decoder" in error_str:
+                error_message = "WebM decoding failed. The audio data may be incomplete or corrupted."
+                error_code = "WEBM_DECODER_ERROR"
+            else:
+                error_message = f"Processing error: {str(e)}"
+                error_code = "INTERNAL_ERROR"
+            
+            # Send detailed error response
+            await self.send_message(connection_id, {
+                "type": "error",
+                "success": False,
+                "error_code": error_code,
+                "message": error_message,
+                "technical_details": str(e),
+                "audio_format_detected": audio_format,
+                "retry_suggested": True,
+                "response_time_ms": int(processing_time * 1000),
+                "timestamp": time.time(),
+                "connection_id": connection_id
+            })
+            
             # Add error performance metric
             if perf_service.is_enabled():
                 await perf_service.add_custom_metric(
                     "websocket_simple_voice_processing_errors_total", 
                     1, 
-                    {"language": language, "voice_type": voice_type, "error_type": "processing_error"}
+                    {"language": language, "voice_type": voice_type, "error_type": "processing_error", "audio_format": audio_format}
                 )
+            
+            # Send user-friendly error message based on error type
+            error_message = "Sorry, I couldn't process your audio. Please try again."
+            error_code = "INTERNAL_ERROR"
+            
+            if "FFmpeg" in str(e) or "conversion failed" in str(e):
+                error_message = "Audio format processing failed. Please try uploading a different audio file."
+                error_code = "AUDIO_FORMAT_ERROR"
+            elif "PCM" in str(e) or "wav" in str(e).lower():
+                error_message = "Audio file processing failed. Please check your audio format."
+                error_code = "AUDIO_PROCESSING_ERROR"
             
             await self.send_message(connection_id, {
                 "type": "error",
                 "success": False,
-                "error_code": "INTERNAL_ERROR",
+                "error_code": error_code,
                 "message": f"Processing error: {str(e)}",
                 "retry_suggested": True,
                 "response_time_ms": int(processing_time * 1000),
@@ -1562,18 +1760,53 @@ async def websocket_simple_voice_chat(
     try:
         while True:
             # Wait for message from client
+            logger.info(f"🔄 Waiting for message from {connection_id}")
             message = await websocket.receive()
+            logger.info(f"📨 Received message type: {message.get('type')} from {connection_id}")
             
             if message["type"] == "websocket.disconnect":
+                logger.info(f"🔌 WebSocket disconnect received for {connection_id}")
                 break
             
             elif message["type"] == "websocket.receive":
+                logger.info(f"📥 Processing websocket.receive for {connection_id}")
                 if "bytes" in message:
                     # Audio data received
                     audio_data = message["bytes"]
+                    logger.info(f"🎵 Received audio data: {len(audio_data)} bytes from {connection_id}")
                     
                     if len(audio_data) > 0:
-                        logger.info(f"🎵 Received audio data: {len(audio_data)} bytes from {connection_id}")
+                        # 🔧 CRITICAL FIX: Detect single large WebM uploads and process immediately
+                        # This prevents the "no response" issue when users upload complete WebM files
+                        # instead of sending MediaRecorder-style chunk streams
+                        
+                        # Check if this is a single large WebM file (>10KB and looks like WebM)
+                        if (len(audio_data) > 10240 and  # >10KB suggests complete file, not chunk
+                            self._detect_audio_format(audio_data) == "webm"):
+                            
+                            # Check connection data
+                            pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
+                            if pool_connection_id:
+                                pool = await ws_manager._get_connection_pool()
+                                connection_data = pool.get_connection(pool_connection_id)
+                                
+                                if connection_data and connection_data.voice_session_data:
+                                    voice_session = connection_data.voice_session_data
+                                    
+                                    # Only process if not already processing and no chunks buffered
+                                    if (not voice_session.get("processing_turn", False) and 
+                                        len(voice_session.get("chunk_buffer", [])) == 0):
+                                        
+                                        logger.info(f"🎯 Detected single large WebM upload ({len(audio_data)} bytes) - processing immediately")
+                                        
+                                        # Process directly without chunk accumulation
+                                        await ws_manager.process_audio_message(
+                                            connection_id,
+                                            audio_data
+                                        )
+                                        
+                                        # Skip the rest of chunk processing logic
+                                        continue
 
                         # ================= TEST AUDIO CAPTURE (Raw WebM stream) =================
                         # Unified capture directory using helper for stability

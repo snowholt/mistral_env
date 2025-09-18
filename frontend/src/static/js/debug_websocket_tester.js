@@ -30,6 +30,8 @@ class DebugWebSocketTester {
     };
     this.debugEvents = [];
     this.audioBuffer = null;
+    this.originalFileData = null;  // Store original file data for WebM files
+    this.fileFormat = null;        // Track file format ('webm', 'pcm', 'decoded')
     this.streamOffset = 0;
     this.frameTimer = null;
     this.isStreaming = false;
@@ -37,6 +39,49 @@ class DebugWebSocketTester {
     // DOM elements cache
     this.elements = {};
     this.config = {};
+  }
+
+  /**
+   * Handle voice_response messages from the backend
+   */
+  handleVoiceResponse(message, timestamp) {
+    try {
+      // Update stats
+      this.sessionData.stats.responses++;
+
+      // Update transcript and assistant panels
+      if (message.transcription) {
+        this.updateResponsePanel('transcript', message.transcription, 'final');
+      }
+      if (message.response_text) {
+        this.updateResponsePanel('assistant', message.response_text, 'complete');
+      }
+
+      // Handle audio if present
+      if (message.audio_base64 && this.elements.responseAudio) {
+        try {
+          const audioBlob = this.base64ToBlob(message.audio_base64, 'audio/wav');
+          const audioUrl = URL.createObjectURL(audioBlob);
+          this.elements.responseAudio.src = audioUrl;
+          if (this.config.autoplay) {
+            this.elements.responseAudio.play().catch(e => {
+              this.logDebugEvent('AUDIO', 'warning', 'Auto-play failed', { error: e.message });
+            });
+          }
+        } catch (err) {
+          this.logDebugEvent('AUDIO', 'error', 'Failed to decode response audio', { error: err.message });
+        }
+      }
+
+      // Pipeline complete
+      this.updateStageStatus('LLM', 'complete');
+      this.updateStageStatus('TTS', 'complete');
+      this.updatePipelineStatus('complete', 'Pipeline completed');
+      this.logDebugEvent('SERVER', 'info', 'Voice response received', { message });
+
+    } catch (err) {
+      this.logDebugEvent('SERVER', 'error', 'handleVoiceResponse failed', { error: err.message });
+    }
   }
 
   /**
@@ -451,8 +496,43 @@ class DebugWebSocketTester {
         this.sessionData.stats.errors++;
       };
 
+      // Robust onmessage handler: support string, Blob, and ArrayBuffer payloads
       this.ws.onmessage = (event) => {
-        this.handleServerMessage(event.data);
+        try {
+          // If the server sent a string (JSON), handle directly
+          if (typeof event.data === 'string') {
+            this.handleServerMessage(event.data);
+            return;
+          }
+
+          // If it's a Blob (binary), try to convert to text first (many servers send JSON as Blob)
+          if (event.data instanceof Blob) {
+            event.data.text().then(text => {
+              this.handleServerMessage(text);
+            }).catch(() => {
+              // Can't interpret as text - ignore binary payloads here
+              this.logDebugEvent('SERVER', 'debug', 'Received binary message (Blob) - ignored by debug client');
+            });
+            return;
+          }
+
+          // If it's an ArrayBuffer, attempt to decode as UTF-8 JSON text
+          if (event.data instanceof ArrayBuffer) {
+            try {
+              const text = new TextDecoder().decode(new Uint8Array(event.data));
+              this.handleServerMessage(text);
+            } catch (err) {
+              this.logDebugEvent('SERVER', 'debug', 'Received binary message (ArrayBuffer) - ignored by debug client');
+            }
+            return;
+          }
+
+          // Fallback: try to stringify and pass through
+          this.handleServerMessage(String(event.data));
+
+        } catch (err) {
+          this.logDebugEvent('SERVER', 'error', 'onmessage handler failed', { error: err.message });
+        }
       };
 
     } catch (error) {
@@ -487,8 +567,19 @@ class DebugWebSocketTester {
       this.logDebugEvent('SERVER', 'debug', 'Received message', { type: message.type, data: message });
 
       switch (message.type) {
+        // Backwards-compatible: server may send 'connection_established' or 'ready'
         case 'ready':
           this.handleReadyMessage(message);
+          break;
+
+        case 'connection_established':
+          // Map server's connection_established to client-ready handling
+          this.handleReadyMessage(message);
+          break;
+
+        case 'processing_started':
+          this.logDebugEvent('SERVER', 'info', 'Server started processing audio', { message });
+          this.updatePipelineStatus('processing', 'Server started processing audio...');
           break;
 
         case 'partial_transcript':
@@ -501,6 +592,11 @@ class DebugWebSocketTester {
 
         case 'assistant_response':
           this.handleAssistantResponse(message, now);
+          break;
+
+        case 'voice_response':
+          // Newer backend message type: contains audio_base64, transcription, response_text
+          this.handleVoiceResponse(message, now);
           break;
 
         case 'tts_start':
@@ -698,7 +794,36 @@ class DebugWebSocketTester {
   handleError(message) {
     this.sessionData.stats.errors++;
     this.updatePipelineStatus('error', `Error: ${message.message}`);
-    this.logDebugEvent('ERROR', 'error', message.message, message);
+    
+    // Enhanced error handling with specific guidance
+    let userGuidance = '';
+    const errorCode = message.error_code || 'UNKNOWN_ERROR';
+    
+    switch (errorCode) {
+      case 'WEBM_FORMAT_MISMATCH':
+        userGuidance = '💡 **Tip**: This usually happens when using the PCM debug tool with WebM files. The tool now automatically handles this by sending original WebM data instead of converted PCM.';
+        break;
+      case 'AUDIO_FORMAT_ERROR':
+        userGuidance = '💡 **Tip**: Try uploading a different audio file format (WebM, WAV, MP3) or check if the file is corrupted.';
+        break;
+      case 'WEBM_DECODER_ERROR':
+        userGuidance = '💡 **Tip**: The WebM file may be incomplete or corrupted. Try re-uploading the original file.';
+        break;
+      case 'AUDIO_PROCESSING_ERROR':
+        userGuidance = '💡 **Tip**: Check your audio file format and ensure it\'s a valid audio file.';
+        break;
+      default:
+        userGuidance = '💡 **Tip**: Please check the technical details below and try uploading a different audio file.';
+    }
+    
+    // Log detailed error information
+    this.logDebugEvent('ERROR', 'error', message.message, {
+      error_code: errorCode,
+      audio_format_detected: message.audio_format_detected,
+      technical_details: message.technical_details,
+      user_guidance: userGuidance,
+      retry_suggested: message.retry_suggested
+    });
   }
 
   /**
@@ -727,13 +852,31 @@ class DebugWebSocketTester {
       // Show file preview with modern UI
       this.showFilePreview(file);
 
-      // Decode audio file
-      this.audioBuffer = await this.decodeAudioFile(file);
-      
-      this.logDebugEvent('FILE', 'info', 'Audio file decoded', { 
-        samples: this.audioBuffer.length,
-        duration: (this.audioBuffer.length / 16000).toFixed(2) + 's'
-      });
+      // Store original file for WebM files, decode for PCM files
+      if (file.name.toLowerCase().endsWith('.webm') || file.type === 'video/webm') {
+        // For WebM files, keep the original file data to preserve container format
+        this.originalFileData = await file.arrayBuffer();
+        
+        // Also decode for display purposes but don't use for transmission
+        this.audioBuffer = await this.decodeAudioFile(file);
+        this.fileFormat = 'webm';
+        
+        this.logDebugEvent('FILE', 'info', 'WebM file loaded (original format preserved)', { 
+          originalSize: this.originalFileData.byteLength,
+          decodedSamples: this.audioBuffer.length,
+          duration: (this.audioBuffer.length / 16000).toFixed(2) + 's'
+        });
+      } else {
+        // For other formats, decode to PCM
+        this.audioBuffer = await this.decodeAudioFile(file);
+        this.originalFileData = null;
+        this.fileFormat = file.name.toLowerCase().endsWith('.pcm') ? 'pcm' : 'decoded';
+        
+        this.logDebugEvent('FILE', 'info', 'Audio file decoded to PCM', { 
+          samples: this.audioBuffer.length,
+          duration: (this.audioBuffer.length / 16000).toFixed(2) + 's'
+        });
+      }
 
       this.updateStatus('ready');
       this.updateStageStatus('Upload', 'complete');
@@ -836,7 +979,7 @@ class DebugWebSocketTester {
       return;
     }
 
-    if (!this.audioBuffer) {
+    if (!this.audioBuffer && !this.originalFileData) {
       this.logDebugEvent('STREAM', 'error', 'No audio file loaded');
       return;
     }
@@ -858,13 +1001,77 @@ class DebugWebSocketTester {
     this.updateStageStatus('TTS', 'waiting');
     this.updatePipelineStatus('streaming', 'Streaming audio data...');
 
-    this.logDebugEvent('STREAM', 'info', 'Started streaming', {
-      totalSamples: this.audioBuffer.length,
-      frameSize: this.config.frameSize,
-      pacing: this.config.pacing
-    });
+    // Handle different file formats appropriately
+    if (this.fileFormat === 'webm' && this.originalFileData) {
+      // Send original WebM file data directly for WebM files
+      this.logDebugEvent('STREAM', 'info', 'Streaming WebM file data', {
+        fileSize: this.originalFileData.byteLength,
+        format: 'webm',
+        method: 'single_send'
+      });
+      
+      try {
+        // Split into multiple chunks to simulate MediaRecorder chunked stream
+        const desiredChunks = 40; // Ensure server's accumulation threshold (>=30) is reached
+        const totalBytes = this.originalFileData.byteLength;
+        const chunkSize = Math.max(1024 * 4, Math.ceil(totalBytes / desiredChunks));
+        const view = new Uint8Array(this.originalFileData);
+        let offset = 0;
+        let chunksSent = 0;
 
-    this.scheduleNextFrame();
+        const sendChunk = () => {
+          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
+            this.logDebugEvent('STREAM', 'error', 'WebSocket closed while streaming WebM');
+            this.isStreaming = false;
+            return;
+          }
+
+          const end = Math.min(totalBytes, offset + chunkSize);
+          const slice = view.subarray(offset, end);
+          try {
+            this.ws.send(slice.buffer);
+            chunksSent++;
+            this.sessionData.stats.framesSent++;
+            this.sessionData.stats.bytesSent += slice.length;
+          } catch (err) {
+            this.logDebugEvent('STREAM', 'error', 'Failed to send WebM chunk', { error: err.message });
+            this.isStreaming = false;
+            return;
+          }
+
+          offset = end;
+          if (offset < totalBytes) {
+            // Schedule next chunk very quickly
+            setTimeout(sendChunk, 2);
+          } else {
+            // All chunks sent
+            this.logDebugEvent('STREAM', 'info', 'All WebM chunks sent', { chunksSent, totalBytes });
+            // Give server a small moment to acknowledge and start processing
+            setTimeout(() => this.completeStreaming(), 200);
+          }
+        };
+
+        // Initialize counters
+        this.sessionData.stats.framesSent = 0;
+        this.sessionData.stats.bytesSent = 0;
+        sendChunk();
+      } catch (error) {
+        this.logDebugEvent('STREAM', 'error', 'Failed to send WebM data', { error: error.message });
+        this.isStreaming = false;
+        this.updateUI();
+      }
+    } else {
+      // Send PCM data in frames for other formats
+      this.logDebugEvent('STREAM', 'info', 'Started PCM streaming', {
+        totalSamples: this.audioBuffer.length,
+        frameSize: this.config.frameSize,
+        pacing: this.config.pacing,
+        format: this.fileFormat
+      });
+
+      this.scheduleNextFrame();
+    }
+    
     this.updateUI();
   }
 
@@ -1368,8 +1575,38 @@ class DebugWebSocketTester {
       exportTime: new Date().toISOString()
     };
 
-    this.downloadJson(debugData, `beautyai-debug-data-${Date.now()}.json`);
-    this.logDebugEvent('EXPORT', 'info', 'Debug data exported');
+    // Auto-save to reports/logs/ if possible (via fetch to server endpoint)
+    this.autoSaveDebugData(debugData);
+    
+    // Also download locally
+    this.downloadJson(debugData, `beautyai-voice-file-debug-data-${Date.now()}.json`);
+    this.logDebugEvent('EXPORT', 'info', 'Debug data exported and auto-saved');
+  }
+
+  /**
+   * Attempt to auto-save debug data to server
+   */
+  async autoSaveDebugData(debugData) {
+    try {
+      const response = await fetch('/api/debug/save-data', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          filename: 'beautyai-voice-file-debug-data.json',
+          data: debugData
+        })
+      });
+      
+      if (response.ok) {
+        this.logDebugEvent('EXPORT', 'info', 'Debug data auto-saved to server reports/logs/');
+      } else {
+        this.logDebugEvent('EXPORT', 'warning', 'Auto-save to server failed, only local download available');
+      }
+    } catch (error) {
+      this.logDebugEvent('EXPORT', 'debug', 'Auto-save endpoint not available, using local download only');
+    }
   }
 
   /**

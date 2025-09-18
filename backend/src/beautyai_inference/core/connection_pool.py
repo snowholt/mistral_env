@@ -397,6 +397,7 @@ class ConnectionPool(ABC):
         connection_data = self._connections.get(connection_id)
         if not connection_data:
             return
+        logger.info(f"Destroying connection {connection_id} (cleanup triggered)")
         
         try:
             await self._destroy_connection(connection_id, connection_data['connection'])
@@ -459,6 +460,7 @@ class ConnectionPool(ABC):
                     
                     if not is_healthy:
                         metrics.state = ConnectionState.UNHEALTHY
+                        logger.warning(f"Marking connection {connection_id} UNHEALTHY during health check (idle_time={metrics.get_idle_time_seconds():.1f}s)")
                         unhealthy_connections.append(connection_id)
                     elif metrics.state == ConnectionState.UNHEALTHY:
                         # Connection recovered

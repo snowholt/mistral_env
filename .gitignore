@@ -48,6 +48,14 @@ Thumbs.db
 reports/
 logs/
 
+# Audio test files and debug captures
+*.webm
+*.wav
+*.mp3
+*.pcm
+vad_testting_temp/
+backend/vad_testting_temp/
+
 # Model state files
 **/loaded_models_state.json
 
