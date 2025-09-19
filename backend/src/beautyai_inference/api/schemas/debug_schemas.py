@@ -102,11 +102,17 @@ class PipelineDebugSummary(BaseModel):
 class WebSocketDebugMessage(BaseModel):
     """Debug message sent via WebSocket during processing."""
     type: str
-    stage: str
-    level: str
-    message: str
-    timestamp: str
+    debug_mode: Optional[bool] = False
+    connection_id: Optional[str] = None
+    timestamp: Optional[str] = None
+    stage: Optional[str] = None
+    level: Optional[str] = None
+    message: Optional[str] = None
     data: Optional[Dict[str, Any]] = None
+    # Extended fields for complex debug messages
+    pipeline_summary: Optional[Dict[str, Any]] = None
+    stage_update: Optional[Dict[str, Any]] = None
+    events: Optional[List[Dict[str, Any]]] = None
 
 
 class ModelHealthStatus(BaseModel):

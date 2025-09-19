@@ -188,12 +188,23 @@ class WebSocketConnectionPool(ConnectionPool):
                 logger.warning(f"Connection {connection_id} has oversized queue ({connection.get_queue_size()})")
                 return False
             
-            # Optional: Send ping frame to verify connection
+            # For newer connections (< 60 seconds), skip ping check to avoid premature disconnects
+            connection_age = time.time() - connection.metrics.created_at
+            if connection_age < 60:
+                logger.debug(f"Connection {connection_id} is new ({connection_age:.1f}s), skipping ping check")
+                return True
+            
+            # Optional: Send ping frame to verify connection (only for older connections)
             try:
                 await connection.websocket.ping()
                 return True
-            except Exception:
-                return False
+            except Exception as ping_error:
+                logger.debug(f"Ping failed for {connection_id}: {ping_error} - but connection may still be valid")
+                # Don't immediately mark as unhealthy on ping failure - could be temporary
+                # Only mark unhealthy if connection is also idle for a significant time
+                if idle_time > 300:  # 5 minutes of idle time + ping failure = unhealthy
+                    return False
+                return True  # Give benefit of doubt for active connections
                 
         except Exception as e:
             logger.warning(f"Health check failed for WebSocket connection {connection_id}: {e}")

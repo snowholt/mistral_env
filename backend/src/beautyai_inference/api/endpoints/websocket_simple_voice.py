@@ -1782,7 +1782,7 @@ async def websocket_simple_voice_chat(
                         
                         # Check if this is a single large WebM file (>10KB and looks like WebM)
                         if (len(audio_data) > 10240 and  # >10KB suggests complete file, not chunk
-                            self._detect_audio_format(audio_data) == "webm"):
+                            ws_manager._detect_audio_format(audio_data) == "webm"):
                             
                             # Check connection data
                             pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)

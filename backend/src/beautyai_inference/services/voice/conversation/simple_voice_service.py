@@ -138,7 +138,21 @@ class SimpleVoiceService:
         # Call debug callback if set
         if self.debug_callback:
             try:
-                self.debug_callback(event)
+                import asyncio
+                import inspect
+                
+                # Check if callback is a coroutine function
+                if inspect.iscoroutinefunction(self.debug_callback):
+                    # Create a task to run async callback without awaiting
+                    try:
+                        loop = asyncio.get_running_loop()
+                        loop.create_task(self.debug_callback(event))
+                    except RuntimeError:
+                        # No event loop running, skip async callback
+                        self.logger.debug("No event loop running, skipping async debug callback")
+                else:
+                    # Regular function call
+                    self.debug_callback(event)
             except Exception as e:
                 self.logger.warning(f"Debug callback error: {e}")
         
