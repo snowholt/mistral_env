@@ -23,9 +23,6 @@
           <button id="themeToggleBtn" class="btn btn-outline" type="button" title="Toggle light/dark theme" style="padding:10px 18px;">
             <i class="fas fa-moon"></i><span class="theme-label" style="font-size:.75rem;letter-spacing:.85px;">Dark</span>
           </button>
-          <button id="clearLogsBtn" class="btn btn-outline" type="button" style="display:none;">
-            <i class="fas fa-trash"></i> Clear Logs
-          </button>
         </div>
       </div>
       <div class="subtitle" style="font-size:.95rem;font-weight:500;color:var(--text-muted);max-width:980px;">
@@ -47,10 +44,6 @@
     <section class="debug-panel config-panel">
       <div class="panel-header">
         <h2><i class="fas fa-cogs"></i> Configuration</h2>
-        <div class="connection-status" id="connectionStatus">
-          <span class="status-indicator" id="statusIndicator"></span>
-          <span class="status-text" id="statusText">Disconnected</span>
-        </div>
       </div>
       
       <!-- Compact Configuration Row -->
@@ -135,13 +128,7 @@
           <div class="websocket-selector-compact">
             <select id="websocketUrl" class="config-select websocket-select">
               <optgroup label="🌐 Production (WSS - Secure)">
-                <option value="wss://dev.gmai.sa/api/v1/ws/simple-voice-chat" selected>
-                  🎤 Simple Voice Chat - dev.gmai.sa
-                </option>
-                <option value="wss://dev.gmai.sa/api/v1/ws/streaming-voice">
-                  🌊 Streaming Voice - dev.gmai.sa
-                </option>
-                <option value="wss://api.gmai.sa/api/v1/ws/simple-voice-chat">
+                <option value="wss://api.gmai.sa/api/v1/ws/simple-voice-chat" selected>
                   🎤 Simple Voice Chat - api.gmai.sa
                 </option>
                 <option value="wss://api.gmai.sa/api/v1/ws/streaming-voice">
@@ -159,6 +146,10 @@
             </select>
             <div class="websocket-info-compact">
               <span class="protocol-badge" id="protocolBadge">WSS</span>
+              <span class="endpoint-status" id="endpointStatus">
+                <i class="fas fa-circle status-dot disconnected"></i>
+                <span id="selectedEndpoint">api.gmai.sa - Simple Voice Chat</span>
+              </span>
               <small class="endpoint-description-compact" id="endpointDescription">
                 Secure WebSocket connection
               </small>
@@ -168,19 +159,28 @@
       </div>
 
       <!-- Action Buttons -->
-      <div class="action-buttons" style="display:flex;flex-wrap:wrap;gap:14px;margin:8px 4px 4px 4px;align-items:center;">
-        <button id="connectBtn" class="btn btn-primary" type="button" style="min-width:160px;">
-          <i class="fas fa-plug"></i> <span>Connect</span>
-        </button>
-        <button id="disconnectBtn" class="btn btn-secondary" type="button" disabled style="min-width:160px;">
-          <i class="fas fa-power-off"></i> <span>Disconnect</span>
-        </button>
-        <button id="sendAudioBtn" class="btn btn-success" type="button" disabled style="min-width:170px;">
-          <i class="fas fa-paper-plane"></i> <span>Send Audio</span>
-        </button>
-        <button id="clearLogsBtn2" class="btn btn-outline" type="button">
-          <i class="fas fa-trash"></i> Clear Logs
-        </button>
+      <div class="action-buttons" style="display:flex;flex-wrap:wrap;gap:14px;margin:8px 4px 4px 4px;align-items:center;justify-content:space-between;">
+        <div class="button-group" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
+          <button id="connectBtn" class="btn btn-primary" type="button" style="min-width:160px;">
+            <i class="fas fa-plug"></i> <span>Connect</span>
+          </button>
+          <button id="disconnectBtn" class="btn btn-secondary" type="button" disabled style="min-width:160px;">
+            <i class="fas fa-power-off"></i> <span>Disconnect</span>
+          </button>
+          <button id="sendAudioBtn" class="btn btn-success" type="button" disabled style="min-width:170px;">
+            <i class="fas fa-paper-plane"></i> <span>Send Audio</span>
+          </button>
+        </div>
+        
+        <div class="status-and-actions" style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">
+          <div class="connection-status" id="connectionStatus">
+            <span class="status-indicator" id="statusIndicator"></span>
+            <span class="status-text" id="statusText">Disconnected</span>
+          </div>
+          <button id="refreshPageBtn" class="btn btn-outline" type="button" title="Refresh the entire page">
+            <i class="fas fa-refresh"></i> Refresh Page
+          </button>
+        </div>
       </div>
     </section>
 
@@ -380,7 +380,7 @@
       
       <div class="combined-content">
         <!-- Stage Details Tab -->
-        <div class="tab-content active" id="stageDetailsTab">
+        <div class="tab-content active" id="stage-detailsTab">
           <div class="stage-details-enhanced">
             <div class="details-tabs">
               <button class="stage-tab-button active" data-stage="stt">
@@ -540,7 +540,7 @@
         </div>
         
         <!-- Debug Logs Tab -->
-        <div class="tab-content" id="debugLogsTab">
+        <div class="tab-content" id="debug-logsTab">
           <div class="log-controls">
             <div class="log-filters">
               <label class="filter-checkbox">
@@ -575,7 +575,7 @@
         </div>
         
         <!-- Export Data Tab -->
-        <div class="tab-content" id="exportDataTab">
+        <div class="tab-content" id="export-dataTab">
           <div class="export-content">
             <div class="export-info">
               <p>Export all debug data including session information, events log, timing metrics, and configuration to a JSON file downloaded to your local machine.</p>
@@ -656,7 +656,7 @@
           combinedTabs.forEach(t => t.classList.remove('active'));
           tab.classList.add('active');
           
-          // Update content
+          // Update content - fix the ID matching
           combinedContents.forEach(content => {
             content.classList.remove('active');
             if (content.id === targetTab + 'Tab') {
@@ -687,7 +687,67 @@
           });
         });
       });
+      
+      // WebSocket endpoint selection handler
+      const websocketSelect = document.getElementById('websocketUrl');
+      const protocolBadge = document.getElementById('protocolBadge');
+      const selectedEndpoint = document.getElementById('selectedEndpoint');
+      const endpointDescription = document.getElementById('endpointDescription');
+      
+      if (websocketSelect) {
+        websocketSelect.addEventListener('change', function() {
+          const selectedValue = this.value;
+          const selectedOption = this.options[this.selectedIndex];
+          
+          // Update protocol badge
+          if (selectedValue.startsWith('wss://')) {
+            protocolBadge.textContent = 'WSS';
+            protocolBadge.className = 'protocol-badge wss';
+            endpointDescription.textContent = 'Secure WebSocket connection';
+          } else {
+            protocolBadge.textContent = 'WS';
+            protocolBadge.className = 'protocol-badge ws';
+            endpointDescription.textContent = 'Local development connection';
+          }
+          
+          // Update selected endpoint display
+          const optionText = selectedOption.textContent.trim();
+          const cleanText = optionText.replace(/🎤|🌊/g, '').trim();
+          if (selectedEndpoint) {
+            selectedEndpoint.innerHTML = `<span>${cleanText}</span>`;
+          }
+          
+          console.log('WebSocket endpoint changed to:', selectedValue);
+        });
+        
+        // Trigger initial update
+        websocketSelect.dispatchEvent(new Event('change'));
+      }
+      
+      // Refresh page button handler
+      const refreshBtn = document.getElementById('refreshPageBtn');
+      if (refreshBtn) {
+        refreshBtn.addEventListener('click', function() {
+          window.location.reload();
+        });
+      }
     });
+
+    // Enhanced status update functions
+    function updateConnectionStatus(status, message = '') {
+      const statusIndicator = document.getElementById('statusIndicator');
+      const statusText = document.getElementById('statusText');
+      const statusDot = document.querySelector('.status-dot');
+      
+      if (statusIndicator && statusText) {
+        statusIndicator.className = `status-indicator ${status}`;
+        statusText.textContent = message || status.charAt(0).toUpperCase() + status.slice(1);
+      }
+      
+      if (statusDot) {
+        statusDot.className = `fas fa-circle status-dot ${status}`;
+      }
+    }
 
     // Enhanced Chat Interface Functions
     function addChatMessage(type, content, timestamp = null) {
@@ -769,15 +829,6 @@
       }
     }
 
-    // Mirror secondary Clear Logs button to existing one if script expects id clearLogsBtn
-    document.addEventListener('DOMContentLoaded', ()=>{
-      const alt = document.getElementById('clearLogsBtn2');
-      const original = document.getElementById('clearLogsBtn');
-      if(alt && original){
-        alt.addEventListener('click', ()=> original.click());
-      }
-    });
-
     // Initialize the debug interface when page loads
     document.addEventListener('DOMContentLoaded', function() {
       console.log('🔧 Initializing Enhanced WebSocket Debug Interface...');
@@ -793,6 +844,7 @@
         window.debugClient.updateConfidenceMeter = updateConfidenceMeter;
         window.debugClient.updateTokenMeter = updateTokenMeter;
         window.debugClient.updateQualityIndicator = updateQualityIndicator;
+        window.debugClient.updateConnectionStatus = updateConnectionStatus;
         
         console.log('✅ Enhanced Debug WebSocket Tester initialized');
       } else {
