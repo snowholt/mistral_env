@@ -49,25 +49,99 @@ class DebugWebSocketTester {
       // Update stats
       this.sessionData.stats.responses++;
 
-      // Update transcript and assistant panels
-      if (message.transcription) {
-        this.updateResponsePanel('transcript', message.transcription, 'final');
+      // Extract nested data - could be at message.data or directly in message
+      const responseData = message.data || message;
+
+      // Calculate and display detailed timing metrics
+      const totalTime = timestamp - this.sessionData.timing.streamStart;
+      if (totalTime > 0) {
+        this.updatePipelineMetrics({ 
+          totalTime: `${totalTime.toFixed(1)}ms`,
+          performanceGrade: this.calculatePerformanceGrade(totalTime)
+        });
+        
+        // Update individual stage details with comprehensive metrics
+        this.updateStageDetailsData('tts', {
+          processingTime: `${totalTime.toFixed(1)}ms`,
+          audioLength: responseData.audio_base64 ? `${(responseData.audio_base64.length / 1024).toFixed(1)}KB` : '-',
+          voice: this.config.voiceType || 'female',
+          outputFormat: 'WAV',
+          textLength: responseData.response_text ? `${responseData.response_text.length} chars` : '-',
+          speechRate: totalTime > 0 && responseData.response_text ? 
+            `${(responseData.response_text.length / (totalTime / 1000) * 60).toFixed(0)} chars/min` : '-'
+        });
+        
+        if (responseData.transcription) {
+          this.updateStageDetailsData('stt', {
+            processingTime: this.sessionData.timing.firstFinal ? `${this.sessionData.timing.firstFinal.toFixed(1)}ms` : '-',
+            confidence: '95%', // Could be extracted from responseData if available
+            transcribedText: responseData.transcription,
+            language: responseData.language || this.config.language,
+            model: 'Whisper', // Default model name
+            audioDuration: this.audioBuffer ? `${(this.audioBuffer.length / 16000).toFixed(2)}s` : '-',
+            audioFormat: this.fileFormat || 'Unknown'
+          });
+        }
+        
+        if (responseData.response_text) {
+          this.updateStageDetailsData('llm', {
+            processingTime: this.sessionData.timing.firstAssistant ? `${this.sessionData.timing.firstAssistant.toFixed(1)}ms` : '-',
+            responseText: responseData.response_text,
+            model: 'Qwen2.5', // Default model name
+            temperature: '0.7', // Default temperature
+            promptTokens: Math.ceil(responseData.transcription?.length / 4) || 0,
+            completionTokens: Math.ceil(responseData.response_text?.length / 4) || 0
+          });
+        }
       }
-      if (message.response_text) {
-        this.updateResponsePanel('assistant', message.response_text, 'complete');
+
+      // Update transcript and assistant panels using correct data location
+      if (responseData.transcription) {
+        this.updateResponsePanel('transcript', responseData.transcription, 'final');
+        // ✅ FIX: Add transcription to chat interface
+        if (this.addChatMessage) {
+          this.addChatMessage('user', responseData.transcription, timestamp);
+        }
+      }
+      if (responseData.response_text) {
+        this.updateResponsePanel('assistant', responseData.response_text, 'complete');
+        // ✅ FIX: Add AI response to chat interface
+        if (this.addChatMessage) {
+          this.addChatMessage('assistant', responseData.response_text, timestamp);
+        }
       }
 
       // Handle audio if present
-      if (message.audio_base64 && this.elements.responseAudio) {
+      if (responseData.audio_base64 && this.elements.ttsAudio) {
         try {
-          const audioBlob = this.base64ToBlob(message.audio_base64, 'audio/wav');
+          const audioBlob = this.base64ToBlob(responseData.audio_base64, 'audio/wav');
           const audioUrl = URL.createObjectURL(audioBlob);
-          this.elements.responseAudio.src = audioUrl;
+          this.elements.ttsAudio.src = audioUrl;
+          
+          // Enable download button
+          const downloadBtn = document.getElementById('downloadAudioBtn');
+          if (downloadBtn) {
+            downloadBtn.disabled = false;
+            downloadBtn.onclick = () => {
+              const a = document.createElement('a');
+              a.href = audioUrl;
+              a.download = `tts-audio-${Date.now()}.wav`;
+              a.click();
+            };
+          }
+          
+          // Auto-play if enabled
           if (this.config.autoplay) {
-            this.elements.responseAudio.play().catch(e => {
+            this.elements.ttsAudio.play().catch(e => {
               this.logDebugEvent('AUDIO', 'warning', 'Auto-play failed', { error: e.message });
             });
           }
+          
+          this.logDebugEvent('AUDIO', 'info', 'Audio loaded', { 
+            size: responseData.audio_base64.length,
+            autoplay: this.config.autoplay 
+          });
+          
         } catch (err) {
           this.logDebugEvent('AUDIO', 'error', 'Failed to decode response audio', { error: err.message });
         }
@@ -77,7 +151,7 @@ class DebugWebSocketTester {
       this.updateStageStatus('LLM', 'complete');
       this.updateStageStatus('TTS', 'complete');
       this.updatePipelineStatus('complete', 'Pipeline completed');
-      this.logDebugEvent('SERVER', 'info', 'Voice response received', { message });
+      this.logDebugEvent('SERVER', 'info', 'Voice response received', { message: responseData });
 
     } catch (err) {
       this.logDebugEvent('SERVER', 'error', 'handleVoiceResponse failed', { error: err.message });
@@ -94,6 +168,7 @@ class DebugWebSocketTester {
     this.initializeWebSocketSelector();
     this.updateWebSocketInfo();
     this.initializeDashboard();
+    this.updateAudioDuration(); // Add audio event listeners
     this.updateUI();
     this.logDebugEvent('SYSTEM', 'info', 'Debug WebSocket Tester initialized');
   }
@@ -150,9 +225,9 @@ class DebugWebSocketTester {
       'stageSTTStatus', 'stageSTTTiming', 'stageSTTData',
       'stageLLMStatus', 'stageLLMTiming', 'stageLLMData',
       'stageTTSStatus', 'stageTTSTiming', 'stageTTSData',
-      'responseTranscript', 'responseAssistant', 'responseAudio', 'responsePlayBtn',
+      'responseTranscript', 'responseAssistant', 'ttsAudio', 'responsePlayBtn',
       'debugEventsLog', 'showInfoEvents', 'showWarningEvents', 'showErrorEvents', 'showDebugEvents',
-      'exportDataBtn', 'exportDataBtn2',
+      'exportDataBtn', 'exportDataBtn2', 'downloadAudioBtn',
       'sessionCount', 'avgResponseTime', 'successRate',
       // Add the actual form element IDs from the HTML
       'languageSelect', 'voiceTypeSelect', 'debugModeToggle', 'sendAudioBtn'
@@ -180,20 +255,27 @@ class DebugWebSocketTester {
       this.elements.websocketUrl.addEventListener('change', () => this.updateWebSocketInfo());
     }
 
-    // Modern file upload handling
-    if (this.elements.selectFileBtn || this.elements.fileUploadZone) {
-      const clickHandler = () => {
-        if (this.elements.audioFile) {
-          this.elements.audioFile.click();
+    // Modern file upload handling - unified click handler to prevent duplicates
+    if (this.elements.selectFileBtn && this.elements.audioFile) {
+      this.elements.selectFileBtn.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.elements.audioFile.click();
+      });
+    }
+
+    // Separate drag and drop handler for the upload zone
+    if (this.elements.fileUploadZone) {
+      this.elements.fileUploadZone.addEventListener('click', (e) => {
+        // Only trigger if clicking directly on the zone, not on the button
+        if (e.target === this.elements.fileUploadZone || e.target.closest('#selectFileBtn') === null) {
+          e.preventDefault();
+          e.stopPropagation();
+          if (this.elements.audioFile) {
+            this.elements.audioFile.click();
+          }
         }
-      };
-      
-      if (this.elements.selectFileBtn) {
-        this.elements.selectFileBtn.addEventListener('click', clickHandler);
-      }
-      if (this.elements.fileUploadZone) {
-        this.elements.fileUploadZone.addEventListener('click', clickHandler);
-      }
+      });
     }
 
     // File input change
@@ -389,7 +471,7 @@ class DebugWebSocketTester {
       debugMode: this.elements.debugModeToggle?.checked || false,
       frameSize: parseInt(this.elements.configFrameSize?.value || '20'),
       pacing: this.elements.configPacing?.value || 'realtime',
-      autoplay: this.elements.configAutoplay?.checked || false,
+      autoplay: this.elements.configAutoplay?.checked !== false, // Default to true for better UX
       endpointUrl: this.elements.websocketUrl?.value || this.getDefaultEndpointUrl()
     };
   }
@@ -738,15 +820,27 @@ class DebugWebSocketTester {
    * Handle TTS audio
    */
   handleTTSAudio(message) {
-    if (message.audio && this.elements.responseAudio) {
+    if (message.audio && this.elements.ttsAudio) {
       try {
         const audioBlob = this.base64ToBlob(message.audio, 'audio/wav');
         const audioUrl = URL.createObjectURL(audioBlob);
-        this.elements.responseAudio.src = audioUrl;
+        this.elements.ttsAudio.src = audioUrl;
+        
+        // Enable download button
+        const downloadBtn = document.getElementById('downloadAudioBtn');
+        if (downloadBtn) {
+          downloadBtn.disabled = false;
+          downloadBtn.onclick = () => {
+            const a = document.createElement('a');
+            a.href = audioUrl;
+            a.download = `tts-audio-${Date.now()}.wav`;
+            a.click();
+          };
+        }
         
         // Auto-play if enabled
         if (this.config.autoplay) {
-          this.elements.responseAudio.play().catch(e => {
+          this.elements.ttsAudio.play().catch(e => {
             this.logDebugEvent('TTS', 'warning', 'Auto-play failed', { error: e.message });
           });
         }
@@ -1431,17 +1525,29 @@ class DebugWebSocketTester {
   clearResponsePanels() {
     if (this.elements.responseTranscript) this.elements.responseTranscript.textContent = '';
     if (this.elements.responseAssistant) this.elements.responseAssistant.textContent = '';
-    if (this.elements.responseAudio) this.elements.responseAudio.src = '';
+    if (this.elements.ttsAudio) {
+      this.elements.ttsAudio.src = '';
+      this.elements.ttsAudio.pause();
+    }
+    
+    // Disable download button
+    const downloadBtn = document.getElementById('downloadAudioBtn');
+    if (downloadBtn) {
+      downloadBtn.disabled = true;
+      downloadBtn.onclick = null;
+    }
   }
 
   /**
    * Play response audio
    */
   playResponseAudio() {
-    if (this.elements.responseAudio && this.elements.responseAudio.src) {
-      this.elements.responseAudio.play().catch(error => {
+    if (this.elements.ttsAudio && this.elements.ttsAudio.src) {
+      this.elements.ttsAudio.play().catch(error => {
         this.logDebugEvent('AUDIO', 'error', 'Failed to play audio', { error: error.message });
       });
+    } else {
+      this.logDebugEvent('AUDIO', 'warning', 'No audio available to play', {});
     }
   }
 
@@ -1640,12 +1746,50 @@ class DebugWebSocketTester {
    * Convert base64 to blob
    */
   base64ToBlob(base64, mimeType) {
-    const binaryString = atob(base64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
+    try {
+      const binaryString = atob(base64);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      return new Blob([bytes], { type: mimeType });
+    } catch (error) {
+      this.logDebugEvent('AUDIO', 'error', 'Failed to decode base64 audio', { error: error.message });
+      throw new Error(`Failed to decode audio: ${error.message}`);
     }
-    return new Blob([bytes], { type: mimeType });
+  }
+
+  /**
+   * Update audio duration display when audio loads
+   */
+  updateAudioDuration() {
+    if (this.elements.ttsAudio) {
+      this.elements.ttsAudio.addEventListener('loadedmetadata', () => {
+        const duration = this.elements.ttsAudio.duration;
+        const durationElement = document.getElementById('audioDuration');
+        if (durationElement && !isNaN(duration)) {
+          const minutes = Math.floor(duration / 60);
+          const seconds = Math.floor(duration % 60);
+          durationElement.textContent = `${minutes}:${seconds.toString().padStart(2, '0')}`;
+        }
+      });
+
+      // Add error handling for audio playback
+      this.elements.ttsAudio.addEventListener('error', (e) => {
+        this.logDebugEvent('AUDIO', 'error', 'Audio playback error', { 
+          error: e.target.error ? e.target.error.message : 'Unknown audio error' 
+        });
+      });
+
+      // Add play/pause event logging
+      this.elements.ttsAudio.addEventListener('play', () => {
+        this.logDebugEvent('AUDIO', 'info', 'Audio playback started', {});
+      });
+
+      this.elements.ttsAudio.addEventListener('ended', () => {
+        this.logDebugEvent('AUDIO', 'info', 'Audio playback completed', {});
+      });
+    }
   }
 
   /**
@@ -1711,6 +1855,83 @@ class DebugWebSocketTester {
         const rate = (this.sessionData.stats.responses / total * 100).toFixed(1);
         this.elements.successRate.textContent = `${rate}%`;
       }
+    }
+  }
+
+  /**
+   * Calculate performance grade based on total response time
+   */
+  calculatePerformanceGrade(totalTime) {
+    if (totalTime < 1000) return 'A+';
+    if (totalTime < 2000) return 'A';
+    if (totalTime < 3000) return 'B+';
+    if (totalTime < 4000) return 'B';
+    if (totalTime < 5000) return 'C+';
+    if (totalTime < 6000) return 'C';
+    return 'D';
+  }
+
+  /**
+   * Update stage details data in the debug tabs
+   */
+  updateStageDetailsData(stage, data) {
+    const stageElements = {
+      'stt': {
+        processingTime: 'sttProcessingTime',
+        confidence: 'sttConfidence',
+        transcribedText: 'sttTranscribedText',
+        language: 'sttLanguage',
+        model: 'sttModel',
+        audioDuration: 'sttAudioDuration',
+        audioFormat: 'sttAudioFormat'
+      },
+      'llm': {
+        processingTime: 'llmProcessingTime',
+        responseText: 'llmResponseText',
+        model: 'llmModel',
+        temperature: 'llmTemperature',
+        promptTokens: 'llmPromptTokens',
+        completionTokens: 'llmCompletionTokens'
+      },
+      'tts': {
+        processingTime: 'ttsProcessingTime',
+        audioLength: 'ttsAudioLength',
+        voice: 'ttsVoice',
+        outputFormat: 'ttsOutputFormat',
+        textLength: 'ttsTextLength',
+        speechRate: 'ttsSpeechRate'
+      }
+    };
+
+    const elementMap = stageElements[stage];
+    if (!elementMap) return;
+
+    Object.entries(data).forEach(([key, value]) => {
+      const elementId = elementMap[key];
+      if (elementId) {
+        const element = document.getElementById(elementId);
+        if (element) {
+          element.textContent = value || '-';
+        }
+      }
+    });
+
+    // Update token meter for LLM stage
+    if (stage === 'llm' && data.promptTokens && data.completionTokens) {
+      this.updateTokenMeter(data.promptTokens, data.completionTokens);
+    }
+
+    // Update confidence meter for STT stage
+    if (stage === 'stt' && data.confidence) {
+      const confidenceValue = parseInt(data.confidence.replace('%', ''));
+      this.updateConfidenceMeter('sttConfidenceMeter', confidenceValue);
+    }
+
+    // Update progress rings
+    if (data.processingTime) {
+      const timeValue = parseFloat(data.processingTime.replace('ms', ''));
+      const percentage = Math.min((timeValue / 5000) * 100, 100); // Scale to 5 seconds max
+      this.updateProgressRing(`${stage}TimeRing`, percentage);
     }
   }
 }

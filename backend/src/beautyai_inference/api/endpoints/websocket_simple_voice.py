@@ -573,7 +573,7 @@ class SimpleVoiceWebSocketManager:
                 debug_mode=True,
                 timestamp=debug_event.timestamp,
                 connection_id="",  # Will be set per connection
-                events=[debug_event]
+                events=[debug_event.dict()]  # Convert DebugEvent object to dict
             )
             
             # Send to all active debug-enabled connections
@@ -924,7 +924,7 @@ class SimpleVoiceWebSocketManager:
                         type="pipeline_complete",
                         debug_mode=True,
                         connection_id=connection_id,
-                        pipeline_summary=debug_summary,
+                        pipeline_summary=debug_summary.dict() if debug_summary and hasattr(debug_summary, 'dict') else None,  # Convert PipelineDebugSummary to dict
                         stage_update={
                             "stage": "complete",
                             "success": True,
