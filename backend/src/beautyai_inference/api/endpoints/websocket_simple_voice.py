@@ -20,6 +20,7 @@ import json
 import logging
 import time
 import uuid
+import hashlib
 from typing import Dict, Any, Optional
 from pathlib import Path
 import base64
@@ -27,6 +28,7 @@ import tempfile
 import os
 import subprocess
 import shlex
+from enum import Enum
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Query
 from starlette.websockets import WebSocketState
@@ -44,6 +46,16 @@ from ...api.schemas.debug_schemas import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+class ProcessingState(Enum):
+    """Enhanced processing states for granular turn management."""
+    IDLE = "idle"
+    BUFFERING = "buffering"
+    TRANSCRIBING = "transcribing"
+    GENERATING = "generating"
+    SYNTHESIZING = "synthesizing"
+    COMPLETED = "completed"
 
 websocket_simple_voice_router = APIRouter(prefix="/ws", tags=["simple-voice"])
 
@@ -365,6 +377,10 @@ class SimpleVoiceWebSocketManager:
                     "debug_mode": debug_mode or self.debug_mode,
                     "audio_buffer": [],
                     "processing_turn": False,
+                    "processing_state": ProcessingState.IDLE.value,
+                    "current_turn_id": None,
+                    "pipeline_lock": asyncio.Lock(),  # Solution 1: Pipeline execution lock
+                    "processed_requests": set(),  # Solution 4: Request deduplication tracking
                     "capture_file_path": None,
                     "chunk_buffer": [],
                     "first_chunk_received": False,
@@ -1047,6 +1063,110 @@ class SimpleVoiceWebSocketManager:
             })
             return {"success": False, "error": str(e)}
     
+    def _generate_request_id(self, audio_data: bytes) -> str:
+        """Solution 4: Generate unique request ID from audio content hash."""
+        return hashlib.md5(audio_data).hexdigest()[:16]
+    
+    async def process_audio_unified(self, connection_id: str, audio_data: bytes) -> Dict[str, Any]:
+        """Solution 2: Unified processing entry point with pipeline coordination.
+        
+        This method consolidates all audio processing paths and implements:
+        - Solution 1: Pipeline execution locks
+        - Solution 2: Unified processing paths  
+        - Solution 3: Enhanced state management
+        - Solution 4: Request deduplication
+        - Solution 5: VAD callback coordination
+        """
+        connection_data = await self._get_connection_data_by_original_id(connection_id)
+        if not connection_data or not connection_data.voice_session_data:
+            logger.warning(f"⚠️ No connection data for {connection_id}")
+            return {"success": False, "error": "Connection not found"}
+        
+        voice_session = connection_data.voice_session_data
+        
+        # Solution 4: Request deduplication check
+        request_id = self._generate_request_id(audio_data)
+        if request_id in voice_session.get("processed_requests", set()):
+            logger.warning(f"🚫 Duplicate request ignored for {connection_id} (request_id: {request_id})")
+            return {"success": True, "status": "duplicate_request_ignored"}
+        
+        # Solution 1: Acquire pipeline execution lock
+        pipeline_lock = voice_session.get("pipeline_lock")
+        if not pipeline_lock:
+            logger.error(f"❌ No pipeline lock for {connection_id}")
+            return {"success": False, "error": "No pipeline lock"}
+        
+        # Non-blocking lock check to prevent queuing
+        if pipeline_lock.locked():
+            logger.warning(f"🚫 Pipeline busy for {connection_id} - request dropped")
+            return {"success": True, "status": "pipeline_busy"}
+        
+        async with pipeline_lock:
+            try:
+                # Solution 3: Set enhanced processing state
+                voice_session["processing_state"] = ProcessingState.BUFFERING.value
+                voice_session["processing_turn"] = True
+                
+                # Generate unique turn ID
+                turn_id = f"unified_turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
+                voice_session["current_turn_id"] = turn_id
+                
+                # Solution 4: Mark request as processed
+                voice_session["processed_requests"].add(request_id)
+                
+                # Cleanup old processed requests (keep last 100)
+                if len(voice_session["processed_requests"]) > 100:
+                    # Remove oldest half
+                    old_requests = list(voice_session["processed_requests"])[:50]
+                    for old_req in old_requests:
+                        voice_session["processed_requests"].discard(old_req)
+                
+                logger.info(f"🎯 Unified processing started for {connection_id} (turn: {turn_id}, request: {request_id})")
+                
+                # Detect audio format and processing strategy
+                audio_format = self._detect_audio_format(audio_data)
+                is_large_file = len(audio_data) > 10240  # >10KB suggests complete file
+                is_webm = audio_format == "webm"
+                
+                logger.info(f"🔍 Audio analysis: format={audio_format}, size={len(audio_data)}, large_file={is_large_file}")
+                
+                # Determine processing strategy
+                if is_large_file and is_webm:
+                    # Large WebM file - process immediately as complete audio
+                    logger.info(f"📁 Processing large WebM file directly ({len(audio_data)} bytes)")
+                    voice_session["processing_state"] = ProcessingState.TRANSCRIBING.value
+                    result = await self.process_audio_message(connection_id, audio_data)
+                    
+                elif is_webm and not is_large_file:
+                    # Small WebM chunk - use chunked accumulation
+                    logger.info(f"📦 Processing WebM chunk via accumulation ({len(audio_data)} bytes)")
+                    result = await self.process_realtime_audio_chunk(connection_id, audio_data)
+                    
+                else:
+                    # Non-WebM or other formats - direct processing
+                    logger.info(f"🎵 Processing {audio_format} audio directly ({len(audio_data)} bytes)")
+                    voice_session["processing_state"] = ProcessingState.TRANSCRIBING.value
+                    result = await self.process_audio_message(connection_id, audio_data)
+                
+                # Update final state
+                if result.get("success", False):
+                    voice_session["processing_state"] = ProcessingState.COMPLETED.value
+                    logger.info(f"✅ Unified processing completed for {connection_id} (turn: {turn_id})")
+                else:
+                    logger.warning(f"⚠️ Unified processing failed for {connection_id} (turn: {turn_id})")
+                
+                return result
+                
+            except Exception as e:
+                logger.error(f"❌ Unified processing error for {connection_id}: {e}")
+                return {"success": False, "error": f"Unified processing failed: {str(e)}"}
+            
+            finally:
+                # Always reset processing state
+                voice_session["processing_turn"] = False
+                voice_session["processing_state"] = ProcessingState.IDLE.value
+                voice_session["current_turn_id"] = None
+    
     async def process_realtime_audio_chunk(
         self,
         connection_id: str,
@@ -1073,9 +1193,11 @@ class SimpleVoiceWebSocketManager:
         
         voice_session = connection_data.voice_session_data
         
-        # 🛡️ CRITICAL: Ignore chunks during turn processing
-        if voice_session.get("processing_turn", False):
-            logger.debug(f"🚫 BLOCKED: Ignoring chunk during processing for {connection_id}")
+        # 🛡️ Enhanced state checking with pipeline coordination
+        processing_state = voice_session.get("processing_state", ProcessingState.IDLE.value)
+        if (voice_session.get("processing_turn", False) or 
+            processing_state not in [ProcessingState.IDLE.value, ProcessingState.BUFFERING.value]):
+            logger.debug(f"🚫 BLOCKED: Ignoring chunk during processing for {connection_id} (state: {processing_state})")
             return {"success": True, "status": "ignored_during_processing"}
 
         # Try to use optimized buffer wrapper if available
@@ -1230,8 +1352,9 @@ class SimpleVoiceWebSocketManager:
         
         # Mark as processing to prevent new chunks
         voice_session["processing_turn"] = True
-        last_turn_id = f"turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
-        voice_session["last_turn_id"] = last_turn_id
+        voice_session["processing_state"] = ProcessingState.TRANSCRIBING.value
+        last_turn_id = f"optimized_turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
+        voice_session["current_turn_id"] = last_turn_id
         
         available_data = optimized_buffer.get_available_data()
         logger.info(f"🚀 Processing optimized buffer for {connection_id}: {available_data} bytes (turn: {last_turn_id})")
@@ -1361,8 +1484,9 @@ class SimpleVoiceWebSocketManager:
         
         # Mark as processing to prevent new chunks
         voice_session["processing_turn"] = True
-        last_turn_id = f"turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
-        voice_session["last_turn_id"] = last_turn_id
+        voice_session["processing_state"] = ProcessingState.TRANSCRIBING.value
+        last_turn_id = f"buffered_turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
+        voice_session["current_turn_id"] = last_turn_id
         
         logger.info(f"🎯 Processing {len(voice_session['chunk_buffer'])} buffered chunks for {connection_id} (turn: {last_turn_id})")
         
@@ -1477,6 +1601,8 @@ class SimpleVoiceWebSocketManager:
             # Always reset processing state
             if connection_data and connection_data.voice_session_data:
                 connection_data.voice_session_data["processing_turn"] = False
+                connection_data.voice_session_data["processing_state"] = ProcessingState.IDLE.value
+                connection_data.voice_session_data["current_turn_id"] = None
     
     async def _setup_vad_callbacks(self, connection_id: str):
         """Setup VAD callbacks for a specific connection.
@@ -1504,8 +1630,8 @@ class SimpleVoiceWebSocketManager:
             })
         
         async def on_turn_complete(audio_file_path: str, audio_data):
-            """Called when a complete turn is ready for processing."""
-            logger.info(f"🔄 Turn complete for {connection_id}, processing complete audio...")
+            """Solution 5: Coordinated VAD callback that respects pipeline execution state."""
+            logger.info(f"🔄 VAD turn complete for {connection_id}, checking pipeline state...")
             
             # Check if connection still exists
             connection_data = await self._get_connection_data_by_original_id(connection_id)
@@ -1519,9 +1645,21 @@ class SimpleVoiceWebSocketManager:
             
             voice_session = connection_data.voice_session_data
             
-            # 🛡️ Prevent duplicate turn processing
-            if voice_session.get("processing_turn", False):
-                logger.warning(f"🚫 Turn already being processed for {connection_id} - ignoring duplicate turn complete")
+            # 🛡️ Solution 5: Respect main processing state and pipeline lock
+            processing_state = voice_session.get("processing_state", ProcessingState.IDLE.value)
+            if (voice_session.get("processing_turn", False) or 
+                processing_state != ProcessingState.IDLE.value):
+                logger.warning(f"🚫 VAD turn complete ignored - main pipeline active for {connection_id} (state: {processing_state})")
+                try:
+                    Path(audio_file_path).unlink()
+                except Exception:
+                    pass
+                return
+            
+            # Try to acquire pipeline lock (non-blocking)
+            pipeline_lock = voice_session.get("pipeline_lock")
+            if pipeline_lock and pipeline_lock.locked():
+                logger.warning(f"🚫 VAD turn complete ignored - pipeline lock held for {connection_id}")
                 try:
                     Path(audio_file_path).unlink()
                 except Exception:
@@ -1530,8 +1668,9 @@ class SimpleVoiceWebSocketManager:
             
             # Mark connection as processing a turn immediately
             voice_session["processing_turn"] = True
-            last_turn_id = f"turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
-            voice_session["last_turn_id"] = last_turn_id
+            voice_session["processing_state"] = ProcessingState.TRANSCRIBING.value
+            last_turn_id = f"vad_turn_{voice_session['message_count'] + 1}_{int(time.time() * 1000)}"
+            voice_session["current_turn_id"] = last_turn_id
             
             logger.info(f"🎯 Processing turn {last_turn_id} for {connection_id}")
             
@@ -1629,10 +1768,12 @@ class SimpleVoiceWebSocketManager:
                 connection_data = await self._get_connection_data_by_original_id(connection_id)
                 if connection_data and connection_data.voice_session_data:
                     connection_data.voice_session_data["processing_turn"] = False
+                    connection_data.voice_session_data["processing_state"] = ProcessingState.IDLE.value
+                    connection_data.voice_session_data["current_turn_id"] = None
                     # Reset VAD service turn processing state to allow new turns
                     if self.vad_service:
                         self.vad_service.reset_turn_processing()
-                    logger.info(f"🏁 Turn processing completed for {connection_id} (turn: {last_turn_id})")
+                    logger.info(f"🏁 VAD turn processing completed for {connection_id} (turn: {last_turn_id})")
         
         # Set the callbacks (ensure consistent indentation / spaces only)
         if self.vad_service:
@@ -1776,114 +1917,11 @@ async def websocket_simple_voice_chat(
                     logger.info(f"🎵 Received audio data: {len(audio_data)} bytes from {connection_id}")
                     
                     if len(audio_data) > 0:
-                        # 🔧 CRITICAL FIX: Detect single large WebM uploads and process immediately
-                        # This prevents the "no response" issue when users upload complete WebM files
-                        # instead of sending MediaRecorder-style chunk streams
-                        
-                        # Check if this is a single large WebM file (>10KB and looks like WebM)
-                        if (len(audio_data) > 10240 and  # >10KB suggests complete file, not chunk
-                            ws_manager._detect_audio_format(audio_data) == "webm"):
-                            
-                            # Check connection data
-                            pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
-                            if pool_connection_id:
-                                pool = await ws_manager._get_connection_pool()
-                                connection_data = pool.get_connection(pool_connection_id)
-                                
-                                if connection_data and connection_data.voice_session_data:
-                                    voice_session = connection_data.voice_session_data
-                                    
-                                    # Only process if not already processing and no chunks buffered
-                                    if (not voice_session.get("processing_turn", False) and 
-                                        len(voice_session.get("chunk_buffer", [])) == 0):
-                                        
-                                        logger.info(f"🎯 Detected single large WebM upload ({len(audio_data)} bytes) - processing immediately")
-                                        
-                                        # Process directly without chunk accumulation
-                                        await ws_manager.process_audio_message(
-                                            connection_id,
-                                            audio_data
-                                        )
-                                        
-                                        # Skip the rest of chunk processing logic
-                                        continue
-
-                        # ================= TEST AUDIO CAPTURE (Raw WebM stream) =================
-                        # Unified capture directory using helper for stability
-                        try:
-                            # Get connection data from pool
-                            pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
-                            if pool_connection_id:
-                                pool = await ws_manager._get_connection_pool()
-                                connection_data = pool.get_connection(pool_connection_id)
-                                
-                                if connection_data and connection_data.voice_session_data:
-                                    voice_session = connection_data.voice_session_data
-                                    
-                                    # Lazy-init capture path
-                                    if not voice_session.get("capture_file_path"):
-                                        debug_dir = ws_manager._get_debug_audio_dir()
-                                        capture_filename = f"ws_capture_{connection_id}_{int(time.time())}.webm"
-                                        capture_path = debug_dir / capture_filename
-                                        voice_session["capture_file_path"] = str(capture_path)
-                                        logger.info(
-                                            "💾 Initiated raw audio capture for %s -> %s", connection_id, capture_path
-                                        )
-                                    
-                                    try:
-                                        with open(voice_session["capture_file_path"], "ab") as cap_f:
-                                            cap_f.write(audio_data)
-                                    except OSError as primary_err:
-                                        # Handle read-only filesystem (errno 30) or permission errors gracefully
-                                        if getattr(primary_err, "errno", None) in (30, 13):  # 30=Read-only FS, 13=Permission
-                                            fallback_dir = Path("/tmp/beautyai_vad_debug")
-                                            try:
-                                                fallback_dir.mkdir(parents=True, exist_ok=True)
-                                                if not voice_session.get("_capture_fallback_switched"):
-                                                    logger.warning(
-                                                        "⚠️ Primary capture path unwritable (%s). Switching to fallback %s", 
-                                                        primary_err, fallback_dir
-                                                    )
-                                                fallback_path = fallback_dir / Path(voice_session["capture_file_path"]).name
-                                                voice_session["capture_file_path"] = str(fallback_path)
-                                                voice_session["_capture_fallback_switched"] = True
-                                                with open(fallback_path, "ab") as cap_f2:
-                                                    cap_f2.write(audio_data)
-                                            except Exception as fb_err:
-                                                logger.warning(
-                                                    "⚠️ Fallback capture also failed for %s: %s", connection_id, fb_err
-                                                )
-                                        else:
-                                            raise
-                        except Exception as cap_err:
-                            logger.warning("⚠️ Failed to capture raw audio chunk for %s: %s", connection_id, cap_err)
-                        # ========================================================================
-                        
-                        # Check if we should use real-time VAD processing
-                        pool_connection_id = getattr(ws_manager, f"_pool_mapping_{connection_id}", None)
-                        if pool_connection_id:
-                            pool = await ws_manager._get_connection_pool()
-                            connection_data = pool.get_connection(pool_connection_id)
-                            
-                            if connection_data and connection_data.voice_session_data:
-                                voice_session = connection_data.voice_session_data
-                                
-                                if voice_session.get("vad_enabled", False) and not voice_session.get("processing_turn", False):
-                                    # Use real-time VAD processing for smoother interaction
-                                    await ws_manager.process_realtime_audio_chunk(
-                                        connection_id,
-                                        audio_data
-                                    )
-                                else:
-                                    # Use traditional processing (complete audio at once)
-                                    await ws_manager.process_audio_message(
-                                        connection_id,
-                                        audio_data
-                                    )
-                            else:
-                                logger.warning(f"⚠️ No voice session data found for {connection_id}")
-                        else:
-                            logger.warning(f"⚠️ No pool mapping found for {connection_id}")
+                        # Solution 2: Unified Processing Path - single entry point with proper coordination
+                        await ws_manager.process_audio_unified(
+                            connection_id,
+                            audio_data
+                        )
                     else:
                         logger.warning(f"⚠️ Received empty audio data from {connection_id}")
                 
