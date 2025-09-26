@@ -1102,50 +1102,20 @@ class DebugWebSocketTester {
       });
       
       try {
-        // Split into multiple chunks to simulate MediaRecorder chunked stream
-        const desiredChunks = 40; // Ensure server's accumulation threshold (>=30) is reached
-        const totalBytes = this.originalFileData.byteLength;
-        const chunkSize = Math.max(1024 * 4, Math.ceil(totalBytes / desiredChunks));
-        const view = new Uint8Array(this.originalFileData);
-        let offset = 0;
-        let chunksSent = 0;
-
-        const sendChunk = () => {
-          if (!this.ws || this.ws.readyState !== WebSocket.OPEN) {
-            this.logDebugEvent('STREAM', 'error', 'WebSocket closed while streaming WebM');
-            this.isStreaming = false;
-            return;
-          }
-
-          const end = Math.min(totalBytes, offset + chunkSize);
-          const slice = view.subarray(offset, end);
-          try {
-            this.ws.send(slice.buffer);
-            chunksSent++;
-            this.sessionData.stats.framesSent++;
-            this.sessionData.stats.bytesSent += slice.length;
-          } catch (err) {
-            this.logDebugEvent('STREAM', 'error', 'Failed to send WebM chunk', { error: err.message });
-            this.isStreaming = false;
-            return;
-          }
-
-          offset = end;
-          if (offset < totalBytes) {
-            // Schedule next chunk very quickly
-            setTimeout(sendChunk, 2);
-          } else {
-            // All chunks sent
-            this.logDebugEvent('STREAM', 'info', 'All WebM chunks sent', { chunksSent, totalBytes });
-            // Give server a small moment to acknowledge and start processing
-            setTimeout(() => this.completeStreaming(), 200);
-          }
-        };
-
-        // Initialize counters
-        this.sessionData.stats.framesSent = 0;
-        this.sessionData.stats.bytesSent = 0;
-        sendChunk();
+        // Send entire WebM file as a single chunk (eliminates duplicate request issues)
+        this.ws.send(this.originalFileData);
+        
+        // Update stats
+        this.sessionData.stats.framesSent = 1;
+        this.sessionData.stats.bytesSent = this.originalFileData.byteLength;
+        
+        this.logDebugEvent('STREAM', 'info', 'WebM file sent as single chunk', { 
+          totalBytes: this.originalFileData.byteLength,
+          method: 'single_send'
+        });
+        
+        // Complete streaming immediately
+        setTimeout(() => this.completeStreaming(), 100);
       } catch (error) {
         this.logDebugEvent('STREAM', 'error', 'Failed to send WebM data', { error: error.message });
         this.isStreaming = false;

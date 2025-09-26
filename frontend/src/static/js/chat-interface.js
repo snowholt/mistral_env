@@ -724,8 +724,8 @@ class BeautyAIChat {
             // Use dynamic API URL based on current host
             const apiHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
                 ? 'http://localhost:8000' 
-                : 'https://api.gmai.sa';
-            const apiUrl = `${apiHost}/inference/chat`;
+                : `${window.location.protocol}//${window.location.host}`;
+            const apiUrl = `${apiHost}${window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' ? '' : '/api'}/inference/chat`;
             console.log('💬 Sending chat request to:', apiUrl);
             const response = await fetch(apiUrl, {
                 method: 'POST',
@@ -823,7 +823,7 @@ class BeautyAIChat {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
                 ? 'localhost:8000' 
-                : 'api.gmai.sa';
+                : window.location.host;
             const wsUrl = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${language}&voice_type=${voiceType}`;
             console.log('🔗 Connecting to WebSocket:', wsUrl);
             this.ws = new WebSocket(wsUrl);
@@ -1507,7 +1507,7 @@ class BeautyAIChat {
             const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
             const host = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1' 
                 ? 'localhost:8000' 
-                : 'api.gmai.sa';
+                : window.location.host;
             const wsUrl = `${protocol}//${host}/api/v1/ws/simple-voice-chat?language=${language}&voice_type=${voiceType}`;
             console.log('🎤 Connecting to Overlay WebSocket (legacy simple-voice):', wsUrl);
             this.overlayWebSocket = new WebSocket(wsUrl);

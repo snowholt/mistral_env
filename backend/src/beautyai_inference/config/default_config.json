@@ -1,17 +1,17 @@
 {
   "model": {
-    "model_id": "Qwen/Qwen3-14B",
-    "engine_type": "transformers",
-    "quantization": "4bit",
+    "model_id": "unsloth/Qwen3-14B-GGUF",
+    "engine_type": "llama.cpp",
+    "quantization": "Q4_K_S",
     "dtype": "float16",
-    "max_new_tokens": 5000,
-    "temperature": 0,
+    "max_new_tokens": 200,
+    "temperature": 0.0,
     "top_p": 0.95,
-    "do_sample": true,
-    "gpu_memory_utilization": 0.9,
-    "tensor_parallel_size": 1,
-    "name": "qwen3-model",
-    "description": "Qwen3 14B model (4-bit quantized)"
+    "do_sample": false,
+    "n_gpu_layers": -1,
+    "n_ctx": 4096,
+    "name": "qwen3-unsloth-q4ks",
+    "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine - ULTRA SPEED OPTIMIZED"
   },
   "cache_dir": null,
   "log_level": "INFO",

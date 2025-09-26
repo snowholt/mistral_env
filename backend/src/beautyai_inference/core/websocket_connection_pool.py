@@ -275,6 +275,10 @@ class WebSocketConnectionPool(ConnectionPool):
         """Get connection ID for a session."""
         return self._session_connections.get(session_id)
 
+    def get_all_connections(self) -> List[WebSocketConnectionData]:
+        """Get all connection data objects."""
+        return list(self._connection_data.values())
+
     async def send_to_connection(
         self, 
         connection_id: str, 

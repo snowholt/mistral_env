@@ -1,4 +1,5 @@
 {
+  "default_model": "qwen3-unsloth-q4ks",
   "models": {
     "qwen3-model": {
       "model_id": "Qwen/Qwen3-14B",
