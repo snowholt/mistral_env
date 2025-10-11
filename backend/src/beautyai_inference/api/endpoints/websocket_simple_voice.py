@@ -1264,11 +1264,11 @@ class SimpleVoiceWebSocketManager:
             
             # Use time-based segmentation for WebM (no VAD)
             # Process when we have accumulated sufficient chunks for a meaningful segment
-            if len(voice_session["chunk_buffer"]) >= 30:  # ~3 seconds worth of data
+            if len(voice_session["chunk_buffer"]) >= 1:  # CHANGED: Single chunk processing for testing
                 logger.info(f"🕒 WebM time-based segment complete for {connection_id} ({len(voice_session['chunk_buffer'])} chunks) - processing buffered audio")
                 return await self._process_buffered_chunks(connection_id)
             else:
-                logger.debug(f"📦 WebM accumulating: {len(voice_session['chunk_buffer'])}/30 chunks for {connection_id}")
+                logger.debug(f"📦 WebM accumulating: {len(voice_session['chunk_buffer'])}/1 chunks for {connection_id}")
                 return {"success": True, "status": "buffering", "chunks_buffered": len(voice_session["chunk_buffer"])}
         
         # For non-WebM formats, we can try VAD if available

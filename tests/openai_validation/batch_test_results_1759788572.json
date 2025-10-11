@@ -1,0 +1,1373 @@
+{
+  "summary": {
+    "total_tests": 40,
+    "passed": 40,
+    "failed": 0,
+    "total_time": 91.17215895652771,
+    "avg_processing_time": 0.9257816970348358,
+    "avg_quality_score": 0
+  },
+  "results": [
+    {
+      "test_number": 1,
+      "file": "1.webm",
+      "file_size_kb": 24.8603515625,
+      "timestamp": 1759788481.737462,
+      "success": true,
+      "connect_time": 4.050073862075806,
+      "upload_time": 0.0010128021240234375,
+      "response_time": 1.2945787906646729,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "57723f5e-a87f-4cde-9d03-7ce70af17960",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_57723f5e-a87f-4cde-9d03-7ce70af17960",
+        "timestamp": 1759788487.0828278,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.2955915927886963
+    },
+    {
+      "test_number": 2,
+      "file": "10.webm",
+      "file_size_kb": 34.2607421875,
+      "timestamp": 1759788489.3055162,
+      "success": true,
+      "connect_time": 0.0023877620697021484,
+      "upload_time": 0.002269744873046875,
+      "response_time": 5.1021575927734375e-05,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "6dde706f-d656-4045-b2ca-29230be48a11",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_6dde706f-d656-4045-b2ca-29230be48a11",
+        "timestamp": 1759788489.3081346,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.0023207664489746094
+    },
+    {
+      "test_number": 3,
+      "file": "11.webm",
+      "file_size_kb": 28.2255859375,
+      "timestamp": 1759788490.3117156,
+      "success": true,
+      "connect_time": 0.25716257095336914,
+      "upload_time": 0.0013768672943115234,
+      "response_time": 0.899632453918457,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "7658e320-797c-41b6-b71d-f581c7f88090",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_7658e320-797c-41b6-b71d-f581c7f88090",
+        "timestamp": 1759788491.4696543,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9010093212127686
+    },
+    {
+      "test_number": 4,
+      "file": "12.webm",
+      "file_size_kb": 24.046875,
+      "timestamp": 1759788492.6891882,
+      "success": true,
+      "connect_time": 0.015396595001220703,
+      "upload_time": 0.0009999275207519531,
+      "response_time": 1.1751985549926758,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "db07bfec-18b8-4268-86c1-0fefda409117",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_db07bfec-18b8-4268-86c1-0fefda409117",
+        "timestamp": 1759788493.8805056,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.1761984825134277
+    },
+    {
+      "test_number": 5,
+      "file": "13.webm",
+      "file_size_kb": 34.4736328125,
+      "timestamp": 1759788495.0960164,
+      "success": true,
+      "connect_time": 0.014055013656616211,
+      "upload_time": 0.0013391971588134766,
+      "response_time": 0.7331876754760742,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "f525af6f-e78a-4dd4-8b7c-e6648ad9cee2",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_f525af6f-e78a-4dd4-8b7c-e6648ad9cee2",
+        "timestamp": 1759788495.8443708,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7345268726348877
+    },
+    {
+      "test_number": 6,
+      "file": "14.webm",
+      "file_size_kb": 29.1513671875,
+      "timestamp": 1759788497.1763778,
+      "success": true,
+      "connect_time": 0.012000083923339844,
+      "upload_time": 0.0013968944549560547,
+      "response_time": 0.9658231735229492,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "6a87c8f2-4f1d-489e-bcee-6dbde00ff736",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_6a87c8f2-4f1d-489e-bcee-6dbde00ff736",
+        "timestamp": 1759788498.1553495,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9672200679779053
+    },
+    {
+      "test_number": 7,
+      "file": "15.webm",
+      "file_size_kb": 29.2548828125,
+      "timestamp": 1759788499.4071653,
+      "success": true,
+      "connect_time": 0.01249074935913086,
+      "upload_time": 0.001178741455078125,
+      "response_time": 0.8517873287200928,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "5497d750-fcba-4533-8b01-bc023e6acd15",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_5497d750-fcba-4533-8b01-bc023e6acd15",
+        "timestamp": 1759788500.2723808,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.8529660701751709
+    },
+    {
+      "test_number": 8,
+      "file": "16.webm",
+      "file_size_kb": 29.7158203125,
+      "timestamp": 1759788501.4997158,
+      "success": true,
+      "connect_time": 0.01221013069152832,
+      "upload_time": 0.0011103153228759766,
+      "response_time": 0.935781717300415,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "eb848c15-b9bd-4d9f-97b9-e8d17e568037",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_eb848c15-b9bd-4d9f-97b9-e8d17e568037",
+        "timestamp": 1759788502.4485724,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.936892032623291
+    },
+    {
+      "test_number": 9,
+      "file": "17.webm",
+      "file_size_kb": 26.7080078125,
+      "timestamp": 1759788503.6881201,
+      "success": true,
+      "connect_time": 0.015345335006713867,
+      "upload_time": 0.0009191036224365234,
+      "response_time": 1.2814154624938965,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "6093d3df-b221-4880-a2e3-5f2724ec2eeb",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_6093d3df-b221-4880-a2e3-5f2724ec2eeb",
+        "timestamp": 1759788504.9855375,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.282334566116333
+    },
+    {
+      "test_number": 10,
+      "file": "18.webm",
+      "file_size_kb": 34.85546875,
+      "timestamp": 1759788506.2057962,
+      "success": true,
+      "connect_time": 0.08296823501586914,
+      "upload_time": 0.0013954639434814453,
+      "response_time": 0.8680143356323242,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "d44a80c5-6211-4cc9-9d72-f2c6cdd4aa14",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_d44a80c5-6211-4cc9-9d72-f2c6cdd4aa14",
+        "timestamp": 1759788507.1579504,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.8694097995758057
+    },
+    {
+      "test_number": 11,
+      "file": "19.webm",
+      "file_size_kb": 28.3837890625,
+      "timestamp": 1759788508.3870516,
+      "success": true,
+      "connect_time": 0.01561427116394043,
+      "upload_time": 0.001230001449584961,
+      "response_time": 0.7103943824768066,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "71dad031-2cab-480c-b75b-c6080b23b890",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_71dad031-2cab-480c-b75b-c6080b23b890",
+        "timestamp": 1759788509.1140554,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7116243839263916
+    },
+    {
+      "test_number": 12,
+      "file": "2.webm",
+      "file_size_kb": 23.994140625,
+      "timestamp": 1759788510.3455472,
+      "success": true,
+      "connect_time": 0.018161535263061523,
+      "upload_time": 0.0010290145874023438,
+      "response_time": 0.6826317310333252,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "f5f77d04-2012-4bfd-9713-f30f4a80b4f2",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_f5f77d04-2012-4bfd-9713-f30f4a80b4f2",
+        "timestamp": 1759788511.0471509,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.6836607456207275
+    },
+    {
+      "test_number": 13,
+      "file": "20.webm",
+      "file_size_kb": 24.9033203125,
+      "timestamp": 1759788512.284947,
+      "success": true,
+      "connect_time": 0.013234376907348633,
+      "upload_time": 0.0010037422180175781,
+      "response_time": 0.7916991710662842,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "2000d2cc-73c0-4db3-bd7b-ce0ad998cebe",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_2000d2cc-73c0-4db3-bd7b-ce0ad998cebe",
+        "timestamp": 1759788513.09063,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7927029132843018
+    },
+    {
+      "test_number": 14,
+      "file": "21.webm",
+      "file_size_kb": 25.783203125,
+      "timestamp": 1759788514.3072271,
+      "success": true,
+      "connect_time": 0.012584447860717773,
+      "upload_time": 0.0012521743774414062,
+      "response_time": 0.7540428638458252,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "aa0b9ce5-d944-4788-ab69-aa8b3b1b5307",
+        "pool_connection_id": "e07a5ba1-c06a-483a-b016-8f5923deff89",
+        "session_id": "simple_aa0b9ce5-d944-4788-ab69-aa8b3b1b5307",
+        "timestamp": 1759788515.0748525,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7552950382232666
+    },
+    {
+      "test_number": 15,
+      "file": "22.webm",
+      "file_size_kb": 27.5205078125,
+      "timestamp": 1759788516.3054948,
+      "success": true,
+      "connect_time": 0.08588242530822754,
+      "upload_time": 0.0010530948638916016,
+      "response_time": 1.0903356075286865,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "e5f339a1-d418-46c2-bb46-503903c09e56",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_e5f339a1-d418-46c2-bb46-503903c09e56",
+        "timestamp": 1759788517.482521,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.0913887023925781
+    },
+    {
+      "test_number": 16,
+      "file": "23.webm",
+      "file_size_kb": 27.4287109375,
+      "timestamp": 1759788518.7081354,
+      "success": true,
+      "connect_time": 0.016498565673828125,
+      "upload_time": 0.001140594482421875,
+      "response_time": 0.9750642776489258,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "a88a81f8-422e-4142-b28b-7bee5e724343",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_a88a81f8-422e-4142-b28b-7bee5e724343",
+        "timestamp": 1759788519.7005742,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9762048721313477
+    },
+    {
+      "test_number": 17,
+      "file": "24.webm",
+      "file_size_kb": 27.3623046875,
+      "timestamp": 1759788520.9326868,
+      "success": true,
+      "connect_time": 0.014613866806030273,
+      "upload_time": 0.0011653900146484375,
+      "response_time": 1.150015115737915,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "e55a9626-3ed0-4169-ab53-df9e3e51bae9",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_e55a9626-3ed0-4169-ab53-df9e3e51bae9",
+        "timestamp": 1759788522.0981913,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.1511805057525635
+    },
+    {
+      "test_number": 18,
+      "file": "25.webm",
+      "file_size_kb": 27.6787109375,
+      "timestamp": 1759788523.3631184,
+      "success": true,
+      "connect_time": 0.015323162078857422,
+      "upload_time": 0.0011749267578125,
+      "response_time": 1.3219542503356934,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "a40be35e-8870-4800-99c1-ca2aa4fc3962",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_a40be35e-8870-4800-99c1-ca2aa4fc3962",
+        "timestamp": 1759788524.7013237,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.3231291770935059
+    },
+    {
+      "test_number": 19,
+      "file": "26.webm",
+      "file_size_kb": 30.63671875,
+      "timestamp": 1759788525.930885,
+      "success": true,
+      "connect_time": 0.015155792236328125,
+      "upload_time": 0.0014646053314208984,
+      "response_time": 0.7562954425811768,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "4b903f55-3649-4848-b2ae-1e582d377571",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_4b903f55-3649-4848-b2ae-1e582d377571",
+        "timestamp": 1759788526.7035568,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7577600479125977
+    },
+    {
+      "test_number": 20,
+      "file": "27.webm",
+      "file_size_kb": 26.4560546875,
+      "timestamp": 1759788527.9378173,
+      "success": true,
+      "connect_time": 0.01502680778503418,
+      "upload_time": 0.0011577606201171875,
+      "response_time": 1.0067391395568848,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "988627f8-fa7a-471e-87e7-2e3425d7d3d1",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_988627f8-fa7a-471e-87e7-2e3425d7d3d1",
+        "timestamp": 1759788528.960489,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.007896900177002
+    },
+    {
+      "test_number": 21,
+      "file": "28.webm",
+      "file_size_kb": 20.423828125,
+      "timestamp": 1759788530.1852534,
+      "success": true,
+      "connect_time": 0.014045953750610352,
+      "upload_time": 0.0009360313415527344,
+      "response_time": 0.8866724967956543,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "7b95338d-0405-4812-a041-aa405b0c88cd",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_7b95338d-0405-4812-a041-aa405b0c88cd",
+        "timestamp": 1759788531.0866623,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.887608528137207
+    },
+    {
+      "test_number": 22,
+      "file": "29.webm",
+      "file_size_kb": 27.3408203125,
+      "timestamp": 1759788532.30706,
+      "success": true,
+      "connect_time": 0.012277841567993164,
+      "upload_time": 0.0013546943664550781,
+      "response_time": 1.109205722808838,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "ed41f715-7a9d-4a74-b486-39fdb985a79d",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_ed41f715-7a9d-4a74-b486-39fdb985a79d",
+        "timestamp": 1759788533.4296498,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.110560417175293
+    },
+    {
+      "test_number": 23,
+      "file": "3.webm",
+      "file_size_kb": 21.9482421875,
+      "timestamp": 1759788534.6537373,
+      "success": true,
+      "connect_time": 0.012654781341552734,
+      "upload_time": 0.0010762214660644531,
+      "response_time": 0.900444746017456,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "cbc38662-464e-4413-9bba-bb5c189e1a52",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_cbc38662-464e-4413-9bba-bb5c189e1a52",
+        "timestamp": 1759788535.5676866,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9015209674835205
+    },
+    {
+      "test_number": 24,
+      "file": "30.webm",
+      "file_size_kb": 24.1533203125,
+      "timestamp": 1759788536.781799,
+      "success": true,
+      "connect_time": 0.012233257293701172,
+      "upload_time": 0.0009007453918457031,
+      "response_time": 0.6729741096496582,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "3240c24e-4ff2-4ede-b2a4-35744dc1031a",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_3240c24e-4ff2-4ede-b2a4-35744dc1031a",
+        "timestamp": 1759788537.4676783,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.6738748550415039
+    },
+    {
+      "test_number": 25,
+      "file": "4.webm",
+      "file_size_kb": 29.990234375,
+      "timestamp": 1759788538.7091131,
+      "success": true,
+      "connect_time": 0.011522531509399414,
+      "upload_time": 0.0014748573303222656,
+      "response_time": 0.9265172481536865,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "700fea18-57c5-4fa0-ba4f-14cb31c0c5c6",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_700fea18-57c5-4fa0-ba4f-14cb31c0c5c6",
+        "timestamp": 1759788539.6483738,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9279921054840088
+    },
+    {
+      "test_number": 26,
+      "file": "5.webm",
+      "file_size_kb": 29.041015625,
+      "timestamp": 1759788540.8921628,
+      "success": true,
+      "connect_time": 0.012197732925415039,
+      "upload_time": 0.0009400844573974609,
+      "response_time": 1.214435338973999,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "1f8de2f7-1c83-4373-8b87-f8e5d6243f76",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_1f8de2f7-1c83-4373-8b87-f8e5d6243f76",
+        "timestamp": 1759788542.1194553,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.2153754234313965
+    },
+    {
+      "test_number": 27,
+      "file": "6.webm",
+      "file_size_kb": 24.7939453125,
+      "timestamp": 1759788543.3501272,
+      "success": true,
+      "connect_time": 0.012061834335327148,
+      "upload_time": 0.0009238719940185547,
+      "response_time": 1.3833978176116943,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "9c896c3e-772b-487e-a993-cd5f60225d11",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_9c896c3e-772b-487e-a993-cd5f60225d11",
+        "timestamp": 1759788544.746257,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.384321689605713
+    },
+    {
+      "test_number": 28,
+      "file": "7.webm",
+      "file_size_kb": 18.2236328125,
+      "timestamp": 1759788545.9687324,
+      "success": true,
+      "connect_time": 0.012116670608520508,
+      "upload_time": 0.0006482601165771484,
+      "response_time": 0.9119353294372559,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "1b53e2c0-5784-408f-943c-5d4c02620aff",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_1b53e2c0-5784-408f-943c-5d4c02620aff",
+        "timestamp": 1759788546.8932083,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.912583589553833
+    },
+    {
+      "test_number": 29,
+      "file": "8.webm",
+      "file_size_kb": 20.8232421875,
+      "timestamp": 1759788548.09342,
+      "success": true,
+      "connect_time": 0.012091636657714844,
+      "upload_time": 0.0007312297821044922,
+      "response_time": 0.808927059173584,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "cfd63cec-b25b-40a4-9536-4a78258e8405",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_cfd63cec-b25b-40a4-9536-4a78258e8405",
+        "timestamp": 1759788548.914939,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.8096582889556885
+    },
+    {
+      "test_number": 30,
+      "file": "9.webm",
+      "file_size_kb": 23.0166015625,
+      "timestamp": 1759788550.13812,
+      "success": true,
+      "connect_time": 0.011565208435058594,
+      "upload_time": 0.0009341239929199219,
+      "response_time": 0.7374258041381836,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "f2965f2f-153f-41d2-872b-8d2c7ef41b7f",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_f2965f2f-153f-41d2-872b-8d2c7ef41b7f",
+        "timestamp": 1759788550.8876936,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.7383599281311035
+    },
+    {
+      "test_number": 31,
+      "file": "q1.webm",
+      "file_size_kb": 19.048828125,
+      "timestamp": 1759788552.1079853,
+      "success": true,
+      "connect_time": 0.012144088745117188,
+      "upload_time": 0.00093841552734375,
+      "response_time": 0.9906659126281738,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "b3da79ff-1de4-40bd-a478-c01b1a0e4f8b",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_b3da79ff-1de4-40bd-a478-c01b1a0e4f8b",
+        "timestamp": 1759788553.1114798,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9916043281555176
+    },
+    {
+      "test_number": 32,
+      "file": "q10.webm",
+      "file_size_kb": 47.2587890625,
+      "timestamp": 1759788554.3207421,
+      "success": true,
+      "connect_time": 0.01221156120300293,
+      "upload_time": 0.0020341873168945312,
+      "response_time": 0.6876237392425537,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "cd5a0df7-723a-44e3-9c77-bea192fe00ad",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_cd5a0df7-723a-44e3-9c77-bea192fe00ad",
+        "timestamp": 1759788555.0223708,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.6896579265594482
+    },
+    {
+      "test_number": 33,
+      "file": "q2.webm",
+      "file_size_kb": 22.0234375,
+      "timestamp": 1759788556.3010454,
+      "success": true,
+      "connect_time": 0.0122222900390625,
+      "upload_time": 0.0009732246398925781,
+      "response_time": 1.125849723815918,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "23c4ee8f-cf73-4da2-a21c-166a44c7c695",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_23c4ee8f-cf73-4da2-a21c-166a44c7c695",
+        "timestamp": 1759788557.4398327,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.1268229484558105
+    },
+    {
+      "test_number": 34,
+      "file": "q3.webm",
+      "file_size_kb": 20.619140625,
+      "timestamp": 1759788558.6587896,
+      "success": true,
+      "connect_time": 0.01177978515625,
+      "upload_time": 0.0008971691131591797,
+      "response_time": 0.8559572696685791,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "f9bf3fdd-36d2-4724-ae29-6cf9a699815d",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_f9bf3fdd-36d2-4724-ae29-6cf9a699815d",
+        "timestamp": 1759788559.5271711,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.8568544387817383
+    },
+    {
+      "test_number": 35,
+      "file": "q4.webm",
+      "file_size_kb": 38.8583984375,
+      "timestamp": 1759788560.742387,
+      "success": true,
+      "connect_time": 0.01217794418334961,
+      "upload_time": 0.0016207695007324219,
+      "response_time": 0.9993269443511963,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "225924e4-8712-491c-b5ff-1de3c8fe3dac",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_225924e4-8712-491c-b5ff-1de3c8fe3dac",
+        "timestamp": 1759788561.7552397,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.0009477138519287
+    },
+    {
+      "test_number": 36,
+      "file": "q5.webm",
+      "file_size_kb": 18.7724609375,
+      "timestamp": 1759788563.0042768,
+      "success": true,
+      "connect_time": 0.012080192565917969,
+      "upload_time": 0.0008859634399414062,
+      "response_time": 0.912341833114624,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "4a7da534-0f59-4ed7-a07d-145b0d2c3ceb",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_4a7da534-0f59-4ed7-a07d-145b0d2c3ceb",
+        "timestamp": 1759788563.9293704,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.9132277965545654
+    },
+    {
+      "test_number": 37,
+      "file": "q6.webm",
+      "file_size_kb": 32.931640625,
+      "timestamp": 1759788565.1303008,
+      "success": true,
+      "connect_time": 0.011921167373657227,
+      "upload_time": 0.0011374950408935547,
+      "response_time": 0.6668684482574463,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "5d1a828b-b2e4-47fb-aa2b-f433c486c6e1",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_5d1a828b-b2e4-47fb-aa2b-f433c486c6e1",
+        "timestamp": 1759788565.809967,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.6680059432983398
+    },
+    {
+      "test_number": 38,
+      "file": "q7.webm",
+      "file_size_kb": 43.78125,
+      "timestamp": 1759788567.0650585,
+      "success": true,
+      "connect_time": 0.011851072311401367,
+      "upload_time": 0.0019075870513916016,
+      "response_time": 0.6827731132507324,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "b5d28c20-a95f-4aa2-9c61-6551353a3fa0",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_b5d28c20-a95f-4aa2-9c61-6551353a3fa0",
+        "timestamp": 1759788567.7613218,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 0.684680700302124
+    },
+    {
+      "test_number": 39,
+      "file": "q8.webm",
+      "file_size_kb": 50.646484375,
+      "timestamp": 1759788569.0500054,
+      "success": true,
+      "connect_time": 0.012227058410644531,
+      "upload_time": 0.0020792484283447266,
+      "response_time": 1.1633408069610596,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "ffb88660-026c-49c2-87c3-3d06157ccc75",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_ffb88660-026c-49c2-87c3-3d06157ccc75",
+        "timestamp": 1759788570.2273817,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.1654200553894043
+    },
+    {
+      "test_number": 40,
+      "file": "q9.webm",
+      "file_size_kb": 45.279296875,
+      "timestamp": 1759788571.5199244,
+      "success": true,
+      "connect_time": 0.011880636215209961,
+      "upload_time": 0.0020813941955566406,
+      "response_time": 1.1007959842681885,
+      "response_type": "json",
+      "response_data": {
+        "type": "connection_established",
+        "success": true,
+        "connection_id": "ec2f6cb9-ea2a-4e1f-aeb6-15dbf7c72cd9",
+        "pool_connection_id": "5f883710-2bd0-4534-968c-5f43e55ac675",
+        "session_id": "simple_ec2f6cb9-ea2a-4e1f-aeb6-15dbf7c72cd9",
+        "timestamp": 1759788572.6344354,
+        "message": "Simple voice chat WebSocket connected successfully",
+        "vad_enabled": true,
+        "debug_mode": false,
+        "actual_language": "ar",
+        "config": {
+          "language": "ar",
+          "voice_type": "female",
+          "target_response_time": "< 2 seconds",
+          "debug_enabled": false,
+          "vad_config": {
+            "chunk_size_ms": 30,
+            "silence_threshold_ms": 500
+          }
+        }
+      },
+      "total_processing_time": 1.1028773784637451
+    }
+  ],
+  "timestamp": "2025-10-06T22:09:32.909826"
+}
