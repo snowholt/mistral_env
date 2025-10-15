@@ -1,0 +1,1127 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>BeautyAI WebRTC - Voice-to-Voice Test Interface</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  
+  <!-- Font Awesome for icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+  
+  <style>
+    :root {
+      --primary-color: #7c3aed;
+      --primary-accent: #a78bfa;
+      --success-color: #10b981;
+      --warning-color: #f59e0b;
+      --danger-color: #ef4444;
+      --info-color: #3b82f6;
+      --bg-primary: #ffffff;
+      --bg-secondary: #f9fafb;
+      --bg-tertiary: #f3f4f6;
+      --text-primary: #111827;
+      --text-secondary: #6b7280;
+      --text-muted: #9ca3af;
+      --border-color: #e5e7eb;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.05);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.1);
+    }
+
+    [data-theme="dark"] {
+      --bg-primary: #111827;
+      --bg-secondary: #1f2937;
+      --bg-tertiary: #374151;
+      --text-primary: #f9fafb;
+      --text-secondary: #d1d5db;
+      --text-muted: #9ca3af;
+      --border-color: #374151;
+      --shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+      --shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4);
+      --shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      line-height: 1.6;
+      transition: background-color 0.3s ease, color 0.3s ease;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    .header {
+      background: var(--bg-primary);
+      border-radius: 12px;
+      padding: 2rem;
+      margin-bottom: 2rem;
+      box-shadow: var(--shadow-md);
+      border: 1px solid var(--border-color);
+    }
+
+    .header-top {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 1rem;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+    }
+
+    .header-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-accent));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: white;
+      font-size: 1.5rem;
+    }
+
+    h1 {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .header-subtitle {
+      color: var(--text-secondary);
+      font-size: 0.95rem;
+      max-width: 800px;
+    }
+
+    .controls {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .btn {
+      padding: 0.625rem 1.25rem;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--primary-color), var(--primary-accent));
+      color: white;
+      box-shadow: var(--shadow-sm);
+    }
+
+    .btn-primary:hover:not(:disabled) {
+      transform: translateY(-1px);
+      box-shadow: var(--shadow-md);
+    }
+
+    .btn-secondary {
+      background: var(--bg-tertiary);
+      color: var(--text-primary);
+      border: 1px solid var(--border-color);
+    }
+
+    .btn-secondary:hover:not(:disabled) {
+      background: var(--border-color);
+    }
+
+    .btn-danger {
+      background: var(--danger-color);
+      color: white;
+    }
+
+    .btn-success {
+      background: var(--success-color);
+      color: white;
+    }
+
+    .btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+      gap: 1.5rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--bg-primary);
+      border-radius: 12px;
+      padding: 1.5rem;
+      border: 1px solid var(--border-color);
+      box-shadow: var(--shadow-sm);
+    }
+
+    .card-header {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding-bottom: 1rem;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .card-header i {
+      font-size: 1.25rem;
+      color: var(--primary-color);
+    }
+
+    .card-title {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-primary);
+    }
+
+    .form-group {
+      margin-bottom: 1rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: var(--text-primary);
+      margin-bottom: 0.5rem;
+    }
+
+    select, input {
+      width: 100%;
+      padding: 0.625rem;
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      background: var(--bg-secondary);
+      color: var(--text-primary);
+      font-size: 0.875rem;
+    }
+
+    select:focus, input:focus {
+      outline: none;
+      border-color: var(--primary-color);
+      box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.1);
+    }
+
+    .status-indicator {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.375rem 0.75rem;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .status-disconnected {
+      background: rgba(239, 68, 68, 0.1);
+      color: var(--danger-color);
+    }
+
+    .status-connecting {
+      background: rgba(245, 158, 11, 0.1);
+      color: var(--warning-color);
+    }
+
+    .status-connected {
+      background: rgba(16, 185, 129, 0.1);
+      color: var(--success-color);
+    }
+
+    .status-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: currentColor;
+      animation: pulse 2s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50% { opacity: 0.5; }
+    }
+
+    .log-container {
+      background: var(--bg-secondary);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      height: 400px;
+      overflow-y: auto;
+      padding: 1rem;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.75rem;
+      line-height: 1.5;
+    }
+
+    .log-entry {
+      margin-bottom: 0.5rem;
+      padding: 0.375rem 0.625rem;
+      border-radius: 4px;
+      display: flex;
+      gap: 0.75rem;
+      align-items: flex-start;
+    }
+
+    .log-timestamp {
+      color: var(--text-muted);
+      min-width: 80px;
+      flex-shrink: 0;
+    }
+
+    .log-level {
+      font-weight: 600;
+      min-width: 60px;
+      flex-shrink: 0;
+      text-transform: uppercase;
+    }
+
+    .log-message {
+      flex: 1;
+      word-break: break-word;
+    }
+
+    .log-info { background: rgba(59, 130, 246, 0.05); }
+    .log-info .log-level { color: var(--info-color); }
+
+    .log-success { background: rgba(16, 185, 129, 0.05); }
+    .log-success .log-level { color: var(--success-color); }
+
+    .log-warning { background: rgba(245, 158, 11, 0.05); }
+    .log-warning .log-level { color: var(--warning-color); }
+
+    .log-error { background: rgba(239, 68, 68, 0.05); }
+    .log-error .log-level { color: var(--danger-color); }
+
+    .metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+      gap: 1rem;
+    }
+
+    .metric {
+      text-align: center;
+    }
+
+    .metric-value {
+      font-size: 1.875rem;
+      font-weight: 700;
+      color: var(--primary-color);
+      margin-bottom: 0.25rem;
+    }
+
+    .metric-label {
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.25rem;
+      border-bottom: 1px solid var(--border-color);
+      margin-bottom: 1rem;
+    }
+
+    .tab {
+      padding: 0.75rem 1.25rem;
+      background: transparent;
+      border: none;
+      border-bottom: 2px solid transparent;
+      color: var(--text-secondary);
+      font-weight: 600;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+
+    .tab:hover {
+      color: var(--text-primary);
+    }
+
+    .tab.active {
+      color: var(--primary-color);
+      border-bottom-color: var(--primary-color);
+    }
+
+    .tab-content {
+      display: none;
+    }
+
+    .tab-content.active {
+      display: block;
+    }
+
+    .info-banner {
+      background: linear-gradient(135deg, rgba(124, 58, 237, 0.1), rgba(167, 139, 250, 0.1));
+      border: 1px solid rgba(124, 58, 237, 0.2);
+      border-radius: 8px;
+      padding: 1rem;
+      margin-bottom: 1.5rem;
+      display: flex;
+      align-items: start;
+      gap: 0.75rem;
+    }
+
+    .info-banner i {
+      color: var(--primary-color);
+      font-size: 1.25rem;
+      flex-shrink: 0;
+    }
+
+    .info-banner-content {
+      flex: 1;
+    }
+
+    .info-banner strong {
+      color: var(--text-primary);
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .info-banner small {
+      color: var(--text-secondary);
+      font-size: 0.875rem;
+    }
+
+    #audioVisualizer {
+      width: 100%;
+      height: 100px;
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      background: var(--bg-secondary);
+    }
+
+    .ice-candidate {
+      background: var(--bg-tertiary);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 0.75rem;
+      margin-bottom: 0.5rem;
+      font-family: 'Monaco', 'Menlo', 'Ubuntu Mono', monospace;
+      font-size: 0.75rem;
+      word-break: break-all;
+    }
+
+    .stats-table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    .stats-table th,
+    .stats-table td {
+      padding: 0.625rem;
+      text-align: left;
+      border-bottom: 1px solid var(--border-color);
+      font-size: 0.875rem;
+    }
+
+    .stats-table th {
+      font-weight: 600;
+      color: var(--text-secondary);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-size: 0.75rem;
+    }
+
+    @media (max-width: 768px) {
+      .container {
+        padding: 1rem;
+      }
+
+      .header {
+        padding: 1rem;
+      }
+
+      h1 {
+        font-size: 1.5rem;
+      }
+
+      .grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body data-theme="dark">
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <div class="header-top">
+        <div class="header-title">
+          <div class="header-icon">
+            <i class="fas fa-video"></i>
+          </div>
+          <div>
+            <h1>WebRTC Voice-to-Voice Test Interface</h1>
+            <p class="header-subtitle">Test real-time voice communication with full debugging capabilities</p>
+          </div>
+        </div>
+        <div class="controls">
+          <button class="btn btn-secondary" id="themeToggle">
+            <i class="fas fa-moon"></i>
+            <span id="themeLabel">Light</span>
+          </button>
+          <button class="btn btn-success" id="exportLogs">
+            <i class="fas fa-download"></i>
+            Export Logs
+          </button>
+        </div>
+      </div>
+      <div style="margin-top: 1rem;">
+        <span class="status-indicator status-disconnected" id="connectionStatus">
+          <span class="status-dot"></span>
+          Disconnected
+        </span>
+      </div>
+    </div>
+
+    <!-- Info Banner -->
+    <div class="info-banner">
+      <i class="fas fa-info-circle"></i>
+      <div class="info-banner-content">
+        <strong>WebRTC Voice-to-Voice Testing</strong>
+        <small>Connect to the WebRTC signaling server and test real-time voice conversation with speech-to-speech capabilities. Supports Simple, Advanced, and Debug modes with full logging and metrics.</small>
+      </div>
+    </div>
+
+    <!-- Configuration and Connection -->
+    <div class="grid">
+      <!-- Configuration Card -->
+      <div class="card">
+        <div class="card-header">
+          <i class="fas fa-cog"></i>
+          <span class="card-title">Configuration</span>
+        </div>
+        <div class="form-group">
+          <label>Server URL</label>
+          <select id="serverUrlPreset" onchange="updateServerUrl()" style="margin-bottom: 0.5rem;">
+            <option value="local">Local IP (Internal Testing - Bypasses SSL Issue)</option>
+            <option value="domain">Domain (External Access - Requires SSL Fix)</option>
+            <option value="custom">Custom URL</option>
+          </select>
+          <input type="text" id="serverUrl" value="https://192.168.100.39/api/v1/webrtc/voice" placeholder="https://server:port/path">
+          <small style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; display: block;">
+            <i class="fas fa-info-circle"></i> Use HTTPS for signaling endpoints (not WSS)
+          </small>
+        </div>
+        <div class="form-group">
+          <label>Language</label>
+          <select id="language">
+            <option value="ar" selected>Arabic (العربية)</option>
+            <option value="en">English</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Voice Gender</label>
+          <select id="voiceGender">
+            <option value="female" selected>Female</option>
+            <option value="male">Male</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>Test Mode</label>
+          <select id="testMode">
+            <option value="simple">Simple - Basic Testing</option>
+            <option value="advanced" selected>Advanced - Detailed Stats</option>
+            <option value="debug">Debug - Full Logging</option>
+          </select>
+        </div>
+        <button class="btn btn-primary" id="connectBtn" style="width: 100%; justify-content: center;">
+          <i class="fas fa-plug"></i>
+          Connect to Server
+        </button>
+      </div>
+
+      <!-- Voice Control Card -->
+      <div class="card">
+        <div class="card-header">
+          <i class="fas fa-microphone"></i>
+          <span class="card-title">Voice Control</span>
+        </div>
+        <div style="text-align: center; margin-bottom: 1rem;">
+          <canvas id="audioVisualizer"></canvas>
+        </div>
+        <button class="btn btn-primary" id="startVoiceBtn" style="width: 100%; justify-content: center; margin-bottom: 0.75rem;" disabled>
+          <i class="fas fa-microphone"></i>
+          Start Voice Conversation
+        </button>
+        <button class="btn btn-danger" id="stopVoiceBtn" style="width: 100%; justify-content: center; display: none;">
+          <i class="fas fa-stop"></i>
+          Stop Voice Conversation
+        </button>
+        <div class="form-group" style="margin-top: 1rem;">
+          <label>Input Device</label>
+          <select id="audioInputDevice">
+            <option>Default Microphone</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Connection Metrics Card -->
+      <div class="card">
+        <div class="card-header">
+          <i class="fas fa-chart-line"></i>
+          <span class="card-title">Connection Metrics</span>
+        </div>
+        <div class="metrics-grid">
+          <div class="metric">
+            <div class="metric-value" id="latency">-</div>
+            <div class="metric-label">Latency (ms)</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="packetLoss">-</div>
+            <div class="metric-label">Packet Loss</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="jitter">-</div>
+            <div class="metric-label">Jitter (ms)</div>
+          </div>
+          <div class="metric">
+            <div class="metric-value" id="bitrate">-</div>
+            <div class="metric-label">Bitrate (kbps)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabbed Content -->
+    <div class="card">
+      <div class="tabs">
+        <button class="tab active" data-tab="logs">
+          <i class="fas fa-list"></i> Logs
+        </button>
+        <button class="tab" data-tab="ice">
+          <i class="fas fa-network-wired"></i> ICE Candidates
+        </button>
+        <button class="tab" data-tab="stats">
+          <i class="fas fa-chart-bar"></i> WebRTC Stats
+        </button>
+        <button class="tab" data-tab="sdp">
+          <i class="fas fa-code"></i> SDP
+        </button>
+      </div>
+
+      <!-- Logs Tab -->
+      <div class="tab-content active" id="logsTab">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary" id="clearLogs">
+              <i class="fas fa-trash"></i>
+              Clear Logs
+            </button>
+            <button class="btn btn-secondary" id="autoScrollToggle">
+              <i class="fas fa-arrow-down"></i>
+              <span>Auto-scroll: ON</span>
+            </button>
+          </div>
+          <div>
+            <small style="color: var(--text-muted);">Total: <span id="logCount">0</span> entries</small>
+          </div>
+        </div>
+        <div class="log-container" id="logContainer"></div>
+      </div>
+
+      <!-- ICE Candidates Tab -->
+      <div class="tab-content" id="iceTab">
+        <div id="iceCandidates"></div>
+      </div>
+
+      <!-- WebRTC Stats Tab -->
+      <div class="tab-content" id="statsTab">
+        <table class="stats-table" id="statsTable">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>Value</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+
+      <!-- SDP Tab -->
+      <div class="tab-content" id="sdpTab">
+        <h3 style="margin-bottom: 1rem; font-size: 1rem;">Local Offer</h3>
+        <pre id="localSdp" style="background: var(--bg-secondary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.75rem; margin-bottom: 1.5rem;">No SDP generated yet</pre>
+        
+        <h3 style="margin-bottom: 1rem; font-size: 1rem;">Remote Answer</h3>
+        <pre id="remoteSdp" style="background: var(--bg-secondary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.75rem;">No SDP received yet</pre>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ===== Global State =====
+    let peerConnection = null;
+    let dataChannel = null;
+    let audioStream = null;
+    let isConnected = false;
+    let autoScroll = true;
+    let logCounter = 0;
+    let testMode = 'advanced';
+    let sessionLogs = [];
+    let audioContext = null;
+    let analyser = null;
+    let visualizerAnimationId = null;
+
+    // ===== Utility Functions =====
+    function log(message, level = 'info') {
+      const timestamp = new Date().toLocaleTimeString('en-US', { hour12: false, fractionalSecondDigits: 3 });
+      const entry = { timestamp, level, message };
+      sessionLogs.push(entry);
+      logCounter++;
+
+      const container = document.getElementById('logContainer');
+      const logEntry = document.createElement('div');
+      logEntry.className = `log-entry log-${level}`;
+      logEntry.innerHTML = `
+        <span class="log-timestamp">${timestamp}</span>
+        <span class="log-level">${level}</span>
+        <span class="log-message">${message}</span>
+      `;
+      container.appendChild(logEntry);
+
+      document.getElementById('logCount').textContent = logCounter;
+
+      if (autoScroll) {
+        container.scrollTop = container.scrollHeight;
+      }
+    }
+
+    function updateConnectionStatus(status) {
+      const statusEl = document.getElementById('connectionStatus');
+      statusEl.className = `status-indicator status-${status}`;
+      
+      const statusText = {
+        'disconnected': 'Disconnected',
+        'connecting': 'Connecting...',
+        'connected': 'Connected'
+      };
+
+      statusEl.innerHTML = `
+        <span class="status-dot"></span>
+        ${statusText[status] || status}
+      `;
+
+      isConnected = (status === 'connected');
+      document.getElementById('startVoiceBtn').disabled = !isConnected;
+    }
+
+    function exportLogs() {
+      const data = {
+        timestamp: new Date().toISOString(),
+        testMode,
+        configuration: {
+          serverUrl: document.getElementById('serverUrl').value,
+          language: document.getElementById('language').value,
+          voiceGender: document.getElementById('voiceGender').value
+        },
+        logs: sessionLogs,
+        metrics: {
+          latency: document.getElementById('latency').textContent,
+          packetLoss: document.getElementById('packetLoss').textContent,
+          jitter: document.getElementById('jitter').textContent,
+          bitrate: document.getElementById('bitrate').textContent
+        }
+      };
+
+      const filename = `webrtc_test_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename;
+      a.click();
+      URL.revokeObjectURL(url);
+
+      log(`Logs exported to ${filename}`, 'success');
+    }
+
+    function addIceCandidate(candidate, type) {
+      const container = document.getElementById('iceCandidates');
+      const div = document.createElement('div');
+      div.className = 'ice-candidate';
+      div.innerHTML = `
+        <strong>${type}:</strong><br>
+        ${JSON.stringify(candidate, null, 2)}
+      `;
+      container.appendChild(div);
+    }
+
+    function updateStats(stats) {
+      const tbody = document.querySelector('#statsTable tbody');
+      tbody.innerHTML = '';
+      
+      for (const [key, value] of Object.entries(stats)) {
+        const row = tbody.insertRow();
+        row.insertCell(0).textContent = key;
+        row.insertCell(1).textContent = typeof value === 'object' ? JSON.stringify(value) : value;
+      }
+    }
+
+    // ===== Audio Visualizer =====
+    function initAudioVisualizer() {
+      const canvas = document.getElementById('audioVisualizer');
+      const ctx = canvas.getContext('2d');
+      canvas.width = canvas.offsetWidth;
+      canvas.height = 100;
+
+      function draw() {
+        if (!analyser) {
+          ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-secondary');
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          return;
+        }
+
+        const bufferLength = analyser.frequencyBinCount;
+        const dataArray = new Uint8Array(bufferLength);
+        analyser.getByteFrequencyData(dataArray);
+
+        ctx.fillStyle = getComputedStyle(document.body).getPropertyValue('--bg-secondary');
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+        const barWidth = (canvas.width / bufferLength) * 2.5;
+        let barHeight;
+        let x = 0;
+
+        for (let i = 0; i < bufferLength; i++) {
+          barHeight = (dataArray[i] / 255) * canvas.height;
+
+          const gradient = ctx.createLinearGradient(0, canvas.height - barHeight, 0, canvas.height);
+          gradient.addColorStop(0, '#7c3aed');
+          gradient.addColorStop(1, '#a78bfa');
+          ctx.fillStyle = gradient;
+
+          ctx.fillRect(x, canvas.height - barHeight, barWidth, barHeight);
+
+          x += barWidth + 1;
+        }
+
+        visualizerAnimationId = requestAnimationFrame(draw);
+      }
+
+      draw();
+    }
+
+    // ===== WebRTC Functions =====
+    async function connect() {
+      try {
+        updateConnectionStatus('connecting');
+        log('Initializing WebRTC connection...', 'info');
+
+        // Create peer connection
+        const configuration = {
+          iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' }
+          ]
+        };
+
+        peerConnection = new RTCPeerConnection(configuration);
+        log('RTCPeerConnection created', 'success');
+
+        // Set up event listeners
+        peerConnection.onicecandidate = (event) => {
+          if (event.candidate) {
+            log(`ICE Candidate: ${event.candidate.candidate}`, 'info');
+            addIceCandidate(event.candidate, 'Local');
+            // Send ICE candidate to server
+            sendToServer({
+              type: 'ice',
+              candidate: event.candidate
+            });
+          }
+        };
+
+        peerConnection.oniceconnectionstatechange = () => {
+          log(`ICE connection state: ${peerConnection.iceConnectionState}`, 'info');
+          if (peerConnection.iceConnectionState === 'connected') {
+            updateConnectionStatus('connected');
+          } else if (peerConnection.iceConnectionState === 'disconnected' || 
+                     peerConnection.iceConnectionState === 'failed') {
+            updateConnectionStatus('disconnected');
+          }
+        };
+
+        peerConnection.ontrack = (event) => {
+          log('Received remote audio track', 'success');
+          const remoteAudio = new Audio();
+          remoteAudio.srcObject = event.streams[0];
+          remoteAudio.play();
+        };
+
+        // Get user media
+        audioStream = await navigator.mediaDevices.getUserMedia({ 
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true
+          } 
+        });
+        log('Microphone access granted', 'success');
+
+        // Add audio track to peer connection
+        audioStream.getTracks().forEach(track => {
+          peerConnection.addTrack(track, audioStream);
+        });
+
+        // Set up audio visualizer
+        audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const source = audioContext.createMediaStreamSource(audioStream);
+        analyser = audioContext.createAnalyser();
+        analyser.fftSize = 256;
+        source.connect(analyser);
+
+        // Create offer
+        const offer = await peerConnection.createOffer();
+        await peerConnection.setLocalDescription(offer);
+        document.getElementById('localSdp').textContent = offer.sdp;
+        log('Created and set local description (offer)', 'success');
+
+        // Send offer to server
+        sendToServer({
+          type: 'offer',
+          sdp: offer.sdp,
+          language: document.getElementById('language').value,
+          voiceGender: document.getElementById('voiceGender').value
+        });
+
+        log('Sent offer to signaling server', 'info');
+
+      } catch (error) {
+        log(`Connection error: ${error.message}`, 'error');
+        updateConnectionStatus('disconnected');
+      }
+    }
+
+    async function sendToServer(message) {
+      const serverUrl = document.getElementById('serverUrl').value;
+      const endpoint = message.type === 'offer' ? '/offer' : '/ice';
+      
+      try {
+        const response = await fetch(serverUrl + endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(message)
+        });
+
+        const data = await response.json();
+        
+        if (message.type === 'offer' && data.answer) {
+          // Set remote description
+          await peerConnection.setRemoteDescription({
+            type: 'answer',
+            sdp: data.answer
+          });
+          document.getElementById('remoteSdp').textContent = data.answer;
+          log('Received and set remote description (answer)', 'success');
+        }
+
+        log(`Server response: ${JSON.stringify(data)}`, testMode === 'debug' ? 'info' : null);
+      } catch (error) {
+        log(`Failed to send to server: ${error.message}`, 'error');
+      }
+    }
+
+    function disconnect() {
+      if (peerConnection) {
+        peerConnection.close();
+        peerConnection = null;
+      }
+
+      if (audioStream) {
+        audioStream.getTracks().forEach(track => track.stop());
+        audioStream = null;
+      }
+
+      if (audioContext) {
+        audioContext.close();
+        audioContext = null;
+      }
+
+      analyser = null;
+
+      if (visualizerAnimationId) {
+        cancelAnimationFrame(visualizerAnimationId);
+        visualizerAnimationId = null;
+      }
+
+      updateConnectionStatus('disconnected');
+      log('Disconnected from WebRTC session', 'info');
+    }
+
+    async function getStats() {
+      if (!peerConnection) return;
+
+      const stats = await peerConnection.getStats();
+      const statsData = {};
+
+      stats.forEach(report => {
+        if (report.type === 'inbound-rtp' || report.type === 'outbound-rtp') {
+          if (testMode === 'advanced' || testMode === 'debug') {
+            updateStats(report);
+          }
+
+          // Update metrics
+          if (report.roundTripTime) {
+            document.getElementById('latency').textContent = Math.round(report.roundTripTime * 1000);
+          }
+          if (report.packetsLost !== undefined && report.packetsReceived !== undefined) {
+            const loss = (report.packetsLost / (report.packetsLost + report.packetsReceived) * 100).toFixed(2);
+            document.getElementById('packetLoss').textContent = loss + '%';
+          }
+          if (report.jitter) {
+            document.getElementById('jitter').textContent = Math.round(report.jitter * 1000);
+          }
+          if (report.bytesReceived) {
+            const kbps = Math.round((report.bytesReceived * 8) / 1000);
+            document.getElementById('bitrate').textContent = kbps;
+          }
+        }
+      });
+    }
+
+    // ===== Event Listeners =====
+    document.getElementById('connectBtn').addEventListener('click', () => {
+      if (isConnected) {
+        disconnect();
+        document.getElementById('connectBtn').innerHTML = '<i class="fas fa-plug"></i> Connect to Server';
+      } else {
+        connect();
+        document.getElementById('connectBtn').innerHTML = '<i class="fas fa-times"></i> Disconnect';
+      }
+    });
+
+    document.getElementById('startVoiceBtn').addEventListener('click', () => {
+      document.getElementById('startVoiceBtn').style.display = 'none';
+      document.getElementById('stopVoiceBtn').style.display = 'block';
+      log('Voice conversation started', 'success');
+    });
+
+    document.getElementById('stopVoiceBtn').addEventListener('click', () => {
+      document.getElementById('startVoiceBtn').style.display = 'block';
+      document.getElementById('stopVoiceBtn').style.display = 'none';
+      log('Voice conversation stopped', 'info');
+    });
+
+    document.getElementById('themeToggle').addEventListener('click', () => {
+      const body = document.body;
+      const currentTheme = body.getAttribute('data-theme');
+      const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
+      body.setAttribute('data-theme', newTheme);
+      document.getElementById('themeLabel').textContent = newTheme === 'dark' ? 'Light' : 'Dark';
+      log(`Theme changed to ${newTheme} mode`, 'info');
+    });
+
+    document.getElementById('exportLogs').addEventListener('click', exportLogs);
+
+    document.getElementById('clearLogs').addEventListener('click', () => {
+      document.getElementById('logContainer').innerHTML = '';
+      sessionLogs = [];
+      logCounter = 0;
+      document.getElementById('logCount').textContent = '0';
+      log('Logs cleared', 'info');
+    });
+
+    document.getElementById('autoScrollToggle').addEventListener('click', () => {
+      autoScroll = !autoScroll;
+      const btn = document.getElementById('autoScrollToggle');
+      btn.querySelector('span').textContent = `Auto-scroll: ${autoScroll ? 'ON' : 'OFF'}`;
+      log(`Auto-scroll ${autoScroll ? 'enabled' : 'disabled'}`, 'info');
+    });
+
+    document.getElementById('testMode').addEventListener('change', (e) => {
+      testMode = e.target.value;
+      log(`Test mode changed to: ${testMode}`, 'info');
+    });
+
+    // Tab switching
+    document.querySelectorAll('.tab').forEach(tab => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        tab.classList.add('active');
+        const tabId = tab.getAttribute('data-tab') + 'Tab';
+        document.getElementById(tabId).classList.add('active');
+      });
+    });
+
+    // Get audio input devices
+    navigator.mediaDevices.enumerateDevices().then(devices => {
+      const select = document.getElementById('audioInputDevice');
+      select.innerHTML = '';
+      devices.filter(d => d.kind === 'audioinput').forEach(device => {
+        const option = document.createElement('option');
+        option.value = device.deviceId;
+        option.textContent = device.label || `Microphone ${select.options.length + 1}`;
+        select.appendChild(option);
+      });
+    });
+
+    // ===== URL Preset Switcher =====
+    function updateServerUrl() {
+      const preset = document.getElementById('serverUrlPreset').value;
+      const urlInput = document.getElementById('serverUrl');
+      
+      if (preset === 'local') {
+        urlInput.value = 'https://192.168.100.39/api/v1/webrtc/voice';
+        urlInput.readOnly = true;
+        urlInput.style.backgroundColor = 'var(--bg-tertiary)';
+      } else if (preset === 'domain') {
+        urlInput.value = 'https://dev.gmai.sa/api/v1/webrtc/voice';
+        urlInput.readOnly = true;
+        urlInput.style.backgroundColor = 'var(--bg-tertiary)';
+      } else {
+        urlInput.readOnly = false;
+        urlInput.style.backgroundColor = '';
+      }
+      
+      log(`Server URL changed to: ${urlInput.value}`, 'info');
+    }
+    
+    // Initialize URL on load
+    updateServerUrl();
+
+    // ===== Initialize =====
+    initAudioVisualizer();
+    log('WebRTC Test Interface initialized', 'success');
+    log('Ready to connect to WebRTC signaling server', 'info');
+
+    // Periodic stats update
+    setInterval(() => {
+      if (isConnected) {
+        getStats();
+      }
+    }, 1000);
+  </script>
+</body>
+</html>

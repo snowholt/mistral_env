@@ -546,4 +546,434 @@ sudo -u beautyai python -c "import json; print(json.load(open('/etc/beautyai/mod
 
 ---
 
+## 🌐 WebRTC TURN Server Setup (Post-MVP Enhancement)
+
+**Status**: 📝 **Optional - Not required for MVP**  
+**When to Deploy**: When users report connectivity issues behind restrictive NAT/firewalls
+
+### Overview
+
+The BeautyAI WebRTC voice system uses **STUN-only** for the MVP deployment, leveraging Google's public STUN server (`stun:stun.l.google.com:19302`). This works for most users in typical network environments.
+
+**TURN servers are needed when**:
+- Users are behind symmetric NAT
+- Corporate firewalls block UDP traffic
+- Direct peer-to-peer connection fails
+- Connection success rate drops below 95%
+
+### TURN Server Architecture
+
+```
+┌─────────────┐         ┌──────────────┐         ┌─────────────┐
+│   Browser   │ ──ICE──>│ TURN Server  │ ──RTP──>│   Backend   │
+│  (Client)   │ <─Media─│  (Relay)     │ <─Media─│  (aiortc)   │
+└─────────────┘         └──────────────┘         └─────────────┘
+                              │
+                              ↓
+                        Port forwarding
+                        STUN/TURN auth
+                        Bandwidth relay
+```
+
+### Installation: Coturn (Recommended)
+
+#### 1. Install Coturn Package
+```bash
+# Ubuntu/Debian
+sudo apt update
+sudo apt install -y coturn
+
+# RHEL/CentOS
+sudo yum install -y epel-release
+sudo yum install -y coturn
+
+# Enable coturn service
+sudo systemctl enable coturn
+```
+
+#### 2. Configure Coturn
+```bash
+# Backup default config
+sudo cp /etc/turnserver.conf /etc/turnserver.conf.backup
+
+# Create new configuration
+sudo tee /etc/turnserver.conf > /dev/null << 'EOF'
+# ================================================================
+# BeautyAI TURN Server Configuration (Coturn)
+# ================================================================
+
+# Listening interfaces
+listening-ip=0.0.0.0
+relay-ip=YOUR_SERVER_PUBLIC_IP
+
+# External IP (for NAT traversal)
+external-ip=YOUR_SERVER_PUBLIC_IP
+
+# TURN server ports
+listening-port=3478
+tls-listening-port=5349
+
+# Relay ports range (for media streams)
+min-port=49152
+max-port=65535
+
+# Realm for authentication
+realm=gmai.sa
+
+# Static user credentials (generate secure credentials!)
+# Format: username:password
+user=beautyai:CHANGE_THIS_PASSWORD_SECURE_RANDOM
+
+# Use long-term credentials
+lt-cred-mech
+
+# Fingerprint for WebRTC
+fingerprint
+
+# Logging
+log-file=/var/log/turnserver.log
+verbose
+
+# Security settings
+no-multicast-peers
+no-cli
+no-loopback-peers
+no-stdout-log
+
+# TLS certificate (for TURNS - secure TURN)
+# Reuse Let's Encrypt certificates
+cert=/etc/letsencrypt/live/api.gmai.sa/fullchain.pem
+pkey=/etc/letsencrypt/live/api.gmai.sa/privkey.pem
+
+# Cipher list for TLS
+cipher-list="ECDHE-RSA-AES128-GCM-SHA256:ECDHE-ECDSA-AES128-GCM-SHA256"
+
+# Deny peers from private network ranges (security)
+denied-peer-ip=10.0.0.0-10.255.255.255
+denied-peer-ip=172.16.0.0-172.31.255.255
+denied-peer-ip=192.168.0.0-192.168.255.255
+
+# Quota management (optional)
+# Max bps per session
+max-bps=1000000
+
+# Total quota (bytes) per allocation
+total-quota=100
+
+# Lifetime for allocations (seconds)
+user-quota=100
+bps-capacity=0
+
+EOF
+```
+
+#### 3. Generate Secure Credentials
+```bash
+# Generate random password for TURN authentication
+TURN_PASSWORD=$(openssl rand -base64 32)
+echo "TURN Username: beautyai"
+echo "TURN Password: $TURN_PASSWORD"
+
+# Update turnserver.conf with secure password
+sudo sed -i "s/user=beautyai:CHANGE_THIS_PASSWORD_SECURE_RANDOM/user=beautyai:$TURN_PASSWORD/" /etc/turnserver.conf
+
+# Store credentials securely
+echo "beautyai:$TURN_PASSWORD" | sudo tee /etc/beautyai/turn_credentials.txt
+sudo chmod 600 /etc/beautyai/turn_credentials.txt
+```
+
+#### 4. Configure Firewall Rules
+```bash
+# UFW (Ubuntu)
+sudo ufw allow 3478/tcp    # TURN server
+sudo ufw allow 3478/udp    # TURN server
+sudo ufw allow 5349/tcp    # TURNS (TLS)
+sudo ufw allow 49152:65535/udp  # RTP media relay ports
+
+# Firewalld (RHEL/CentOS)
+sudo firewall-cmd --permanent --add-port=3478/tcp
+sudo firewall-cmd --permanent --add-port=3478/udp
+sudo firewall-cmd --permanent --add-port=5349/tcp
+sudo firewall-cmd --permanent --add-port=49152-65535/udp
+sudo firewall-cmd --reload
+```
+
+#### 5. Start TURN Server
+```bash
+# Start coturn service
+sudo systemctl start coturn
+sudo systemctl status coturn
+
+# Check logs
+sudo tail -f /var/log/turnserver.log
+
+# Test TURN connectivity
+turnutils_uclient -v -u beautyai -w $TURN_PASSWORD YOUR_SERVER_PUBLIC_IP
+```
+
+### Backend Integration
+
+#### Update Backend Configuration
+```bash
+# Edit backend configuration (config/config.yaml)
+cat >> /home/lumi/beautyai/config/config.yaml << 'EOF'
+
+# WebRTC TURN Server Configuration (Post-MVP)
+webrtc:
+  stun_servers:
+    - "stun:stun.l.google.com:19302"  # Primary (Google public)
+    - "stun:YOUR_SERVER_PUBLIC_IP:3478"  # Backup (self-hosted)
+  
+  turn_servers:
+    - url: "turn:YOUR_SERVER_PUBLIC_IP:3478"
+      username: "beautyai"
+      credential: "TURN_PASSWORD_FROM_STEP_3"
+    - url: "turns:YOUR_SERVER_PUBLIC_IP:5349"  # Secure TURN (TLS)
+      username: "beautyai"
+      credential: "TURN_PASSWORD_FROM_STEP_3"
+  
+  # Enable TURN usage (0 = STUN only, 1 = STUN+TURN)
+  enable_turn: 1
+EOF
+```
+
+#### Update Systemd Service
+```bash
+# Add TURN environment variables to beautyai-api.service
+sudo tee -a /etc/systemd/system/beautyai-api.service > /dev/null << 'EOF'
+
+# TURN server configuration
+Environment=WEBRTC_TURN_ENABLED=1
+Environment=WEBRTC_TURN_SERVER=turn:YOUR_SERVER_PUBLIC_IP:3478
+Environment=WEBRTC_TURN_USERNAME=beautyai
+Environment=WEBRTC_TURN_CREDENTIAL=TURN_PASSWORD_FROM_STEP_3
+
+EOF
+
+# Reload systemd and restart service
+sudo systemctl daemon-reload
+sudo systemctl restart beautyai-api
+```
+
+### Frontend Configuration
+
+#### Update WebRTC Client
+```javascript
+// frontend/src/config/webrtc.config.js
+// Add TURN server configuration
+
+const webrtcConfig = {
+  // ... existing config ...
+  
+  // ICE servers (STUN + TURN)
+  iceServers: [
+    // Google public STUN (primary)
+    { urls: 'stun:stun.l.google.com:19302' },
+    
+    // Self-hosted TURN (fallback)
+    {
+      urls: 'turn:YOUR_SERVER_PUBLIC_IP:3478',
+      username: 'beautyai',
+      credential: 'TURN_PASSWORD_FROM_STEP_3'
+    },
+    
+    // Secure TURN (TLS)
+    {
+      urls: 'turns:YOUR_SERVER_PUBLIC_IP:5349',
+      username: 'beautyai',
+      credential: 'TURN_PASSWORD_FROM_STEP_3'
+    }
+  ],
+  
+  // ICE transport policy
+  // 'all' = try STUN first, fallback to TURN
+  // 'relay' = force TURN only (for testing)
+  iceTransportPolicy: 'all'
+};
+```
+
+### Monitoring TURN Usage
+
+#### Check Active Sessions
+```bash
+# View active TURN sessions
+sudo turnutils_uclient -v -t -u beautyai -w TURN_PASSWORD YOUR_SERVER_PUBLIC_IP
+
+# Monitor coturn logs
+sudo tail -f /var/log/turnserver.log | grep -E 'allocation|session'
+
+# Check coturn process stats
+sudo lsof -i :3478
+sudo lsof -i :5349
+sudo netstat -anp | grep coturn
+```
+
+#### Resource Monitoring
+```bash
+# Monitor bandwidth usage
+sudo iftop -i eth0
+
+# Monitor connection count
+sudo ss -tuln | grep -E '3478|5349' | wc -l
+
+# Check coturn CPU/memory
+top -p $(pgrep turnserver)
+```
+
+### Cost Estimation
+
+**Bandwidth costs for TURN relay**:
+- WebRTC audio: ~40 KB/s bidirectional = 2.4 MB/minute
+- Typical session: 5 minutes = ~12 MB per session
+- TURN overhead: ~20% (firewall traversal)
+- **Total per session**: ~15 MB when using TURN relay
+
+**When to scale**:
+- 100 concurrent TURN sessions = ~150 Mbps bandwidth
+- Monitor relay percentage: aim for < 20% TURN usage
+- Most users should connect via STUN (direct P2P)
+
+### Security Best Practices
+
+#### 1. Credential Rotation
+```bash
+# Rotate TURN credentials monthly
+NEW_PASSWORD=$(openssl rand -base64 32)
+sudo sed -i "s/user=beautyai:.*/user=beautyai:$NEW_PASSWORD/" /etc/turnserver.conf
+sudo systemctl restart coturn
+
+# Update backend config
+# Update frontend config
+```
+
+#### 2. Rate Limiting
+```bash
+# Add to /etc/turnserver.conf
+max-allocate-lifetime=3600
+max-allocate-timeout=60
+stale-nonce=600
+
+# Restart coturn
+sudo systemctl restart coturn
+```
+
+#### 3. IP Whitelisting (Optional)
+```bash
+# Restrict TURN access to specific IPs
+# Add to /etc/turnserver.conf
+allowed-peer-ip=YOUR_BACKEND_IP
+allowed-peer-ip=YOUR_FRONTEND_IP
+
+# Restart coturn
+sudo systemctl restart coturn
+```
+
+### Testing TURN Connectivity
+
+#### Manual Test
+```bash
+# Test TURN server from client machine
+turnutils_uclient -v -u beautyai -w TURN_PASSWORD YOUR_SERVER_PUBLIC_IP
+
+# Expected output:
+# 0: Total connect time is 0
+# 0: start_mclient: tot_send_msgs=0, tot_recv_msgs=0
+# 0: Total loss packet 0 (0.000000%)
+```
+
+#### Browser Test
+```javascript
+// Test TURN connectivity from browser console
+const pc = new RTCPeerConnection({
+  iceServers: [
+    {
+      urls: 'turn:YOUR_SERVER_PUBLIC_IP:3478',
+      username: 'beautyai',
+      credential: 'TURN_PASSWORD'
+    }
+  ]
+});
+
+pc.createDataChannel('test');
+pc.createOffer().then(offer => pc.setLocalDescription(offer));
+pc.onicecandidate = e => {
+  if (e.candidate) {
+    console.log('ICE Candidate:', e.candidate);
+    if (e.candidate.type === 'relay') {
+      console.log('✅ TURN relay working!');
+    }
+  }
+};
+```
+
+### Troubleshooting TURN Issues
+
+#### Common Problems
+
+**1. Connection Timeout**
+```bash
+# Check firewall rules
+sudo ufw status | grep -E '3478|5349|49152'
+
+# Check coturn is running
+sudo systemctl status coturn
+
+# Test port connectivity
+telnet YOUR_SERVER_PUBLIC_IP 3478
+```
+
+**2. Authentication Failure**
+```bash
+# Verify credentials
+cat /etc/beautyai/turn_credentials.txt
+
+# Check turnserver.conf
+sudo grep 'user=' /etc/turnserver.conf
+
+# Test authentication
+turnutils_uclient -v -u beautyai -w TURN_PASSWORD YOUR_SERVER_PUBLIC_IP
+```
+
+**3. Certificate Errors (TURNS)**
+```bash
+# Check certificate validity
+sudo openssl x509 -in /etc/letsencrypt/live/api.gmai.sa/fullchain.pem -noout -dates
+
+# Test TURNS connectivity
+openssl s_client -connect YOUR_SERVER_PUBLIC_IP:5349
+```
+
+**4. Bandwidth Issues**
+```bash
+# Check network throughput
+iperf3 -s -p 3478  # On server
+iperf3 -c YOUR_SERVER_PUBLIC_IP -p 3478  # On client
+
+# Monitor real-time bandwidth
+sudo iftop -i eth0
+```
+
+### When to Deploy TURN
+
+**✅ Deploy TURN if**:
+- WebRTC connection success rate < 95%
+- Users report connectivity issues from corporate networks
+- Monitoring shows frequent ICE connection failures
+- Logs show "ICE connection failed" errors
+
+**❌ Skip TURN if**:
+- STUN-only connection success rate > 99%
+- No user complaints about connectivity
+- MVP phase (defer to post-MVP)
+- Limited bandwidth/infrastructure resources
+
+### Additional Resources
+
+- [Coturn Documentation](https://github.com/coturn/coturn)
+- [WebRTC ICE/STUN/TURN Guide](https://webrtc.org/getting-started/turn-server)
+- [RFC 5766: TURN Protocol](https://tools.ietf.org/html/rfc5766)
+- [Testing TURN Servers](https://webrtc.github.io/samples/src/content/peerconnection/trickle-ice/)
+
+---
+
 **Next**: [Monitoring Guide](MONITORING.md) | [Backup Guide](BACKUP.md)

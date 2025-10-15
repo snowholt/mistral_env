@@ -288,12 +288,12 @@ async def handle_sdp_offer(
         
         logger.info(f"[WebRTC] Handling SDP offer for peer_id={peer_id}, language={request.language}")
         
-        # Get WebRTC configuration
-        config_manager = get_config_manager()
-        webrtc_config = config_manager.get_value('webrtc', {})
+        # Get WebRTC configuration from environment
+        import os
+        webrtc_enabled = os.getenv('WEBRTC_ENABLED', '1') == '1'
         
         # Check if WebRTC is enabled
-        if not webrtc_config.get('enabled', False):
+        if not webrtc_enabled:
             raise HTTPException(
                 status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
                 detail="WebRTC voice service is currently disabled. Please enable it in configuration."
@@ -576,14 +576,15 @@ async def webrtc_health_check(
         Health status including active connections count
     """
     try:
-        config_manager = get_config_manager()
-        webrtc_config = config_manager.get_value('webrtc', {})
+        # Get WebRTC configuration from environment
+        import os
+        webrtc_enabled = os.getenv('WEBRTC_ENABLED', '1') == '1'
         
         pool_stats = await connection_pool.get_pool_stats()
         
         return {
             "status": "healthy",
-            "enabled": webrtc_config.get('enabled', False),
+            "enabled": webrtc_enabled,
             "active_connections": pool_stats.get('active_connections', 0),
             "total_connections": pool_stats.get('total_connections', 0),
             "timestamp": time.time()

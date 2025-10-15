@@ -9,3 +9,7 @@ def voice_websocket_tester():
 @debug_bp.route("/streaming-live")
 def streaming_live():
     return render_template("debug_streaming_live.html")
+
+@debug_bp.route("/test-webrtc")
+def test_webrtc():
+    return render_template("webrtc_test.html")

@@ -252,9 +252,9 @@ class WebRTCConnectionPool:
             if len(self._connections) >= self.max_connections:
                 raise ValueError(f"Maximum connections reached ({self.max_connections})")
             
-            # Get WebRTC configuration
-            config_manager = get_config_manager()
-            webrtc_config = config_manager.get_value('webrtc', {})
+            # Get STUN server from environment
+            import os
+            stun_server = os.getenv('WEBRTC_STUN_SERVER', 'stun:stun.l.google.com:19302')
             
             # Create RTCPeerConnection
             try:
@@ -301,9 +301,10 @@ class WebRTCConnectionPool:
                         self._user_connections[user_id] = set()
                     self._user_connections[user_id].add(peer_id)
                 
-                # Get ICE servers configuration
+                # Get ICE servers configuration (use Google STUN servers as default)
                 ice_servers = [
-                    {"urls": url} for url in webrtc_config.get('stun_servers', [])
+                    {"urls": "stun:stun.l.google.com:19302"},
+                    {"urls": "stun:stun1.l.google.com:19302"}
                 ]
                 
                 logger.info(f"[WebRTC] Created peer connection: peer_id={peer_id}, user_id={user_id}")
@@ -493,21 +494,24 @@ _webrtc_pool: Optional[WebRTCConnectionPool] = None
 
 def get_webrtc_pool() -> WebRTCConnectionPool:
     """
-    Get or create WebRTC connection pool singleton.
+    Get the global WebRTC connection pool (singleton).
     
     Returns:
-        WebRTCConnectionPool instance
+        The global WebRTC connection pool instance
     """
     global _webrtc_pool
     
     if _webrtc_pool is None:
-        config_manager = get_config_manager()
-        connection_config = config_manager.get_value('connection_pool', {})
+        # Use environment variables for configuration
+        import os
+        max_connections = int(os.getenv('WEBRTC_MAX_CONNECTIONS', '100'))
+        connection_timeout = int(os.getenv('WEBRTC_CONNECTION_TIMEOUT', '600'))
+        enable_metrics = os.getenv('WEBRTC_ENABLE_METRICS', '1') == '1'
         
         _webrtc_pool = WebRTCConnectionPool(
-            max_connections=connection_config.get('max_pool_size', 100),
-            connection_timeout_seconds=connection_config.get('max_idle_time_seconds', 600),
-            enable_metrics=connection_config.get('enable_metrics', True)
+            max_connections=max_connections,
+            connection_timeout_seconds=connection_timeout,
+            enable_metrics=enable_metrics
         )
         
         # Start the pool (will be managed by application lifecycle)

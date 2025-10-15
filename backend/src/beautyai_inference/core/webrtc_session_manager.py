@@ -182,10 +182,9 @@ class WebRTCSessionManager:
             session_metadata['peer_id'] = peer_id
             session_metadata['transport'] = 'webrtc'
             
-            # Get voice type from config or default
-            config_manager = get_config_manager()
-            duplex_config = config_manager.get_value('duplex', {})
-            voice_type = duplex_config.get('tts_voice', 'ar-SA-ZariyahNeural')
+            # Get voice type from config or environment
+            import os
+            voice_type = os.getenv('TTS_VOICE', 'ar-SA-ZariyahNeural')
             
             # Create voice session
             self.voice_session_manager.create_session(
