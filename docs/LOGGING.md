@@ -26,6 +26,19 @@ logs/
 | BEAUTYAI_LOG_RETENTION | 7 | Daily rotation backup count (TimedRotatingFileHandler) |
 | BEAUTYAI_LOG_STREAM_FILE | (auto) | Override streaming voice log path |
 | VOICE_STREAMING_METRICS_JSON | 0 | When 1, emits structured metrics snapshots |
+| VOICE_WEBRTC_DEBUG | 0 | Enable aiortc debug logging (Phase A - WebRTC) |
+
+## Log Categories (Phase A - WebRTC Migration)
+
+### WebRTC Specific Logs
+When `VOICE_WEBRTC_DEBUG=1` is enabled, the following aiortc components will emit debug logs:
+- `aiortc.rtcpeerconnection` - Peer connection lifecycle
+- `aiortc.rtcdatachannel` - Data channel events
+- `aiortc.rtcicetransport` - ICE negotiation and candidates
+- `aiortc.rtcdtlstransport` - DTLS handshake
+- `aiortc.mediastreams` - Audio/video track events
+
+Logs will be written to `logs/api/webrtc_voice.jsonl` when WebRTC mode is active.
 
 ## Handlers
 

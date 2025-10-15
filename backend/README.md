@@ -19,6 +19,14 @@ python3 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
+# System dependencies (required for WebRTC support - Phase A)
+# Ubuntu/Debian:
+sudo apt-get update
+sudo apt-get install -y libopus0 libopus-dev libvpx7 libvpx-dev libsrtp2-1 libsrtp2-dev libssl-dev
+
+# CentOS/RHEL:
+# sudo yum install -y opus opus-devel libvpx libvpx-devel libsrtp libsrtp-devel openssl-devel
+
 # Start the API server
 python run_server.py
 ```

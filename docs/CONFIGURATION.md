@@ -227,6 +227,115 @@ beautyai run chat --preset speed_optimized
 # - Use modern browser with WebRTC support
 ```
 
+## 🎙️ WebRTC Voice Configuration (Phase A)
+
+### Environment Variables
+
+**Backend (`config/config.yaml` or environment)**:
+```yaml
+webrtc:
+  enabled: false  # Set to true to enable WebRTC mode
+  max_utterance_sec: 10  # Maximum utterance duration (1-60 seconds)
+  signaling_path: "/api/v1/webrtc/voice"
+  
+  # ICE Servers
+  stun_servers:
+    - "stun:stun.l.google.com:19302"
+  turn_servers: []  # Add for production NAT traversal
+  
+  # VAD Configuration
+  vad_webrtc_sensitivity: 3  # 0-3 (3 = most aggressive)
+  vad_silero_sensitivity: 0.45  # English threshold (0-1)
+  vad_silero_sensitivity_arabic: 0.5  # Arabic threshold (0-1)
+  
+  # Buffer Configuration
+  buffer_pre_roll_ms: 300  # Pre-recording buffer
+  buffer_post_roll_ms: 300  # Post-recording buffer
+  
+  # LLM Integration
+  auto_no_think_prefix: true  # Auto-inject /no_think prefix
+  
+  # Debugging
+  debug_logging: false  # Enable aiortc debug logs
+```
+
+**Frontend (`.env.webrtc.example`)**:
+```bash
+# Feature Toggle
+REACT_APP_VOICE_WEBRTC_ENABLED=false
+
+# Utterance Configuration
+REACT_APP_VOICE_WEBRTC_MAX_UTTERANCE_SEC=10
+
+# Debug Options
+REACT_APP_VOICE_WEBRTC_DEBUG=false
+```
+
+### System Dependencies
+
+WebRTC requires system libraries for audio/video codec support:
+
+**Ubuntu/Debian**:
+```bash
+sudo apt-get update
+sudo apt-get install -y libopus0 libopus-dev \
+                        libvpx7 libvpx-dev \
+                        libsrtp2-1 libsrtp2-dev \
+                        libssl-dev
+```
+
+**CentOS/RHEL**:
+```bash
+sudo yum install -y opus opus-devel \
+                    libvpx libvpx-devel \
+                    libsrtp libsrtp-devel \
+                    openssl-devel
+```
+
+**macOS** (via Homebrew):
+```bash
+brew install opus libvpx srtp openssl
+```
+
+### Configuration Validation
+
+```bash
+# Check WebRTC configuration
+python -c "from beautyai_inference.config import load_config; \
+           cfg = load_config(); \
+           print('WebRTC enabled:', cfg.get('webrtc', {}).get('enabled', False))"
+
+# Verify system dependencies
+python -c "import aiortc; print('aiortc version:', aiortc.__version__)"
+```
+
+### Enabling WebRTC Mode
+
+1. **Install system dependencies** (see above)
+2. **Update backend configuration**:
+   ```bash
+   # Edit config/config.yaml
+   webrtc:
+     enabled: true
+     max_utterance_sec: 10
+   ```
+3. **Update frontend configuration**:
+   ```bash
+   # Create/edit frontend/.env.local
+   echo "REACT_APP_VOICE_WEBRTC_ENABLED=true" >> frontend/.env.local
+   ```
+4. **Restart services**:
+   ```bash
+   ./backend/unitTests_scripts/shell_scripts/manage-api-service.sh restart
+   ```
+
+### Fallback Behavior
+
+If WebRTC is not supported by the browser or fails to negotiate:
+- Frontend automatically falls back to WebSocket mode
+- Check browser console for: `[WebRTC] Browser does not support WebRTC, falling back to WebSocket`
+- Monitor logs: `tail -f logs/api/webrtc_voice.jsonl`
+
 ## 🐛 Configuration Troubleshooting
 
 ### Common Issues

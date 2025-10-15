@@ -22,6 +22,21 @@
     "max_concurrent_sessions": 10,
     "session_timeout_ms": 300000
   },
+  "webrtc": {
+    "enabled": false,
+    "max_utterance_sec": 10,
+    "signaling_path": "/api/v1/webrtc/voice",
+    "stun_servers": ["stun:stun.l.google.com:19302"],
+    "turn_servers": [],
+    "ice_transport_policy": "all",
+    "vad_webrtc_sensitivity": 3,
+    "vad_silero_sensitivity": 0.45,
+    "vad_silero_sensitivity_arabic": 0.5,
+    "buffer_pre_roll_ms": 300,
+    "buffer_post_roll_ms": 300,
+    "auto_no_think_prefix": true,
+    "debug_logging": false
+  },
   "system": {
     "gpu_enabled": true,
     "gpu_memory_fraction": 0.8,

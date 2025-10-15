@@ -35,6 +35,38 @@ duplex:
   max_concurrent_sessions: 10
   session_timeout_ms: 300000  # 5 minutes
 
+# WebRTC Voice Configuration (Phase A - WebRTC Migration)
+webrtc:
+  # Feature Toggle
+  enabled: false  # Set to true to enable WebRTC mode
+  
+  # Utterance Limits
+  max_utterance_sec: 10  # Maximum utterance duration in seconds
+  
+  # Signaling
+  signaling_path: "/api/v1/webrtc/voice"  # FastAPI endpoint prefix
+  
+  # ICE Configuration
+  stun_servers:
+    - "stun:stun.l.google.com:19302"  # Google public STUN
+  turn_servers: []  # Add TURN servers for production
+  ice_transport_policy: "all"  # all, relay
+  
+  # VAD Configuration
+  vad_webrtc_sensitivity: 3  # 0-3 (0=least aggressive, 3=most aggressive)
+  vad_silero_sensitivity: 0.45  # 0-1 threshold for English
+  vad_silero_sensitivity_arabic: 0.5  # 0-1 threshold for Arabic
+  
+  # Buffer Configuration
+  buffer_pre_roll_ms: 300  # Pre-recording buffer (ms)
+  buffer_post_roll_ms: 300  # Post-recording buffer (ms)
+  
+  # LLM Integration
+  auto_no_think_prefix: true  # Automatically inject /no_think prefix
+  
+  # Debugging
+  debug_logging: false  # Enable aiortc debug logs
+
 system:
   # GPU Configuration
   gpu_enabled: true
