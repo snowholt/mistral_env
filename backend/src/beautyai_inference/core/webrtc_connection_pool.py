@@ -355,9 +355,30 @@ class WebRTCConnectionPool:
                 raise ValueError(f"No peer connection for {peer_id}")
             
             try:
-                # Create ICE candidate
+                # Parse ICE candidate string into components
+                # Expected format: "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host"
+                parts = candidate.split()
+                if len(parts) < 7 or not parts[0].startswith('candidate:'):
+                    raise ValueError(f"Invalid candidate format: {candidate}")
+                
+                foundation = parts[0][10:]  # Remove "candidate:" prefix
+                component = int(parts[1])
+                protocol = parts[2].upper()
+                priority = int(parts[3])
+                ip = parts[4]
+                port = int(parts[5])
+                typ_idx = parts.index('typ')
+                candidate_type = parts[typ_idx + 1]
+                
+                # Create ICE candidate with parsed components
                 ice_candidate = RTCIceCandidate(
-                    candidate=candidate,
+                    component=component,
+                    foundation=foundation,
+                    ip=ip,
+                    port=port,
+                    priority=priority,
+                    protocol=protocol,
+                    type=candidate_type,
                     sdpMid=sdp_mid,
                     sdpMLineIndex=sdp_m_line_index
                 )

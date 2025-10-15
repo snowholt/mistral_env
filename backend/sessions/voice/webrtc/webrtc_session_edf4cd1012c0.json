@@ -1,0 +1,17 @@
+{
+  "session_id": "webrtc_session_edf4cd1012c0",
+  "connection_id": "peer_adc19ce853ef",
+  "user_id": null,
+  "language": "ar",
+  "voice_type": "ar-SA-ZariyahNeural",
+  "created_at": 1760554385.4298186,
+  "last_activity": 1760554385.4298186,
+  "turn_count": 0,
+  "conversation_history": [],
+  "context_summary": "",
+  "session_metadata": {},
+  "total_processing_time_ms": 0,
+  "average_response_time_ms": 0.0,
+  "transcription_success_rate": 1.0,
+  "unclear_transcriptions": 0
+}

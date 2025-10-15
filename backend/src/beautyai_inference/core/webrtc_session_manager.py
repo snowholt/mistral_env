@@ -186,14 +186,13 @@ class WebRTCSessionManager:
             import os
             voice_type = os.getenv('TTS_VOICE', 'ar-SA-ZariyahNeural')
             
-            # Create voice session
-            self.voice_session_manager.create_session(
+            # Create voice session (note: VoiceSessionManager doesn't accept metadata parameter)
+            await self.voice_session_manager.create_session(
                 session_id=session_id,
                 connection_id=peer_id,  # Use peer_id as connection_id
                 user_id=user_id,
                 language=language,
-                voice_type=voice_type,
-                metadata=session_metadata
+                voice_type=voice_type
             )
             
             # Create WebRTC metadata
@@ -402,7 +401,7 @@ class WebRTCSessionManager:
             session_id = self._peer_to_session[peer_id]
             
             # End voice session
-            self.voice_session_manager.end_session(session_id)
+            await self.voice_session_manager.close_session(session_id)
             
             # Remove WebRTC metadata
             if session_id in self._webrtc_metadata:

@@ -1,0 +1,17 @@
+{
+  "session_id": "webrtc_session_2d958f744acc",
+  "connection_id": "peer_b97825b15b47",
+  "user_id": "user_1760554623011",
+  "language": "en",
+  "voice_type": "ar-SA-ZariyahNeural",
+  "created_at": 1760554623.9567595,
+  "last_activity": 1760554623.9567597,
+  "turn_count": 0,
+  "conversation_history": [],
+  "context_summary": "",
+  "session_metadata": {},
+  "total_processing_time_ms": 0,
+  "average_response_time_ms": 0.0,
+  "transcription_success_rate": 1.0,
+  "unclear_transcriptions": 0
+}
