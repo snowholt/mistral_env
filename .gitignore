@@ -63,6 +63,10 @@ backend/vad_testting_temp/
 # Model state files
 **/loaded_models_state.json
 
+# WebRTC session files
+backend/sessions/voice/webrtc/webrtc_session_*.json
+**/webrtc_session_*.json
+
 # Additional project-specific ignores
 venv/bin/activate
 prompts/

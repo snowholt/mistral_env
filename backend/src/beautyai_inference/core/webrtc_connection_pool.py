@@ -356,10 +356,11 @@ class WebRTCConnectionPool:
             
             try:
                 # Parse ICE candidate string into components
-                # Expected format: "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host"
+                # Browser format: "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host generation 0 ufrag abc network-cost 999"
+                # Minimum format: "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host"
                 parts = candidate.split()
-                if len(parts) < 7 or not parts[0].startswith('candidate:'):
-                    raise ValueError(f"Invalid candidate format: {candidate}")
+                if len(parts) < 8 or not parts[0].startswith('candidate:'):
+                    raise ValueError(f"Invalid candidate format (need at least 8 parts): {candidate}")
                 
                 foundation = parts[0][10:]  # Remove "candidate:" prefix
                 component = int(parts[1])
@@ -367,7 +368,15 @@ class WebRTCConnectionPool:
                 priority = int(parts[3])
                 ip = parts[4]
                 port = int(parts[5])
+                
+                # Find 'typ' keyword (can be at different positions due to extra fields)
+                if 'typ' not in parts:
+                    raise ValueError(f"Missing 'typ' keyword in candidate: {candidate}")
+                
                 typ_idx = parts.index('typ')
+                if typ_idx + 1 >= len(parts):
+                    raise ValueError(f"Missing candidate type after 'typ' in: {candidate}")
+                
                 candidate_type = parts[typ_idx + 1]
                 
                 # Create ICE candidate with parsed components

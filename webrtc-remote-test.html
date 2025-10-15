@@ -116,17 +116,18 @@
             <div class="form-group">
                 <label>Server Connection</label>
                 <select id="serverPreset" onchange="updateServerUrl()">
+                    <option value="ssh-tunnel">SSH Tunnel (localhost:8443) - RECOMMENDED</option>
                     <option value="external-domain">External Domain (dev.gmai.sa)</option>
                     <option value="external-ip">Direct IP External (188.52.249.185)</option>
                     <option value="internal-ip">Internal IP (192.168.100.39) - VPN/SSH only</option>
                     <option value="custom">Custom URL</option>
                 </select>
-                <div class="preset-hint" id="presetHint">Using external domain with SSL</div>
+                <div class="preset-hint" id="presetHint">SSH tunnel bypasses SSL certificate issues - best option for remote testing</div>
             </div>
 
             <div class="form-group">
                 <label>Server URL</label>
-                <input type="text" id="serverUrl" value="https://dev.gmai.sa/api/v1/webrtc/voice" readonly>
+                <input type="text" id="serverUrl" value="http://localhost:8443/api/v1/webrtc/voice" readonly>
             </div>
 
             <div class="form-group">
@@ -158,6 +159,7 @@
         let peerConnection = null;
         let localStream = null;
         let isConnected = false;
+        let currentPeerId = null;
 
         // Update server URL based on preset
         function updateServerUrl() {
@@ -166,6 +168,11 @@
             const hint = document.getElementById('presetHint');
             
             switch(preset) {
+                case 'ssh-tunnel':
+                    urlInput.value = 'http://localhost:8443/api/v1/webrtc/voice';
+                    urlInput.readOnly = true;
+                    hint.textContent = 'SSH tunnel with HTTP - bypasses SSL issues completely';
+                    break;
                 case 'external-domain':
                     urlInput.value = 'https://dev.gmai.sa/api/v1/webrtc/voice';
                     urlInput.readOnly = true;
@@ -177,9 +184,9 @@
                     hint.textContent = 'Direct connection to external IP - bypasses DNS';
                     break;
                 case 'internal-ip':
-                    urlInput.value = 'https://192.168.100.39/api/v1/webrtc/voice';
+                    urlInput.value = 'https://192.168.100.39:8000/api/v1/webrtc/voice';
                     urlInput.readOnly = true;
-                    hint.textContent = 'Internal IP - only works with VPN or SSH tunnel';
+                    hint.textContent = 'Internal IP - only works with VPN or SSH tunnel (note port 8000)';
                     break;
                 case 'custom':
                     urlInput.readOnly = false;
@@ -314,6 +321,10 @@
 
                 const data = await response.json();
                 log('Received SDP answer from server', 'success');
+                
+                // Store peer_id for ICE candidates
+                currentPeerId = data.peer_id;
+                log(`Peer ID: ${currentPeerId}`, 'info');
 
                 // Set remote description
                 await peerConnection.setRemoteDescription({
@@ -333,6 +344,12 @@
         async function sendIceCandidate(candidate) {
             const serverUrl = document.getElementById('serverUrl').value;
             
+            // Wait for peer_id from offer response
+            if (!currentPeerId) {
+                log('Waiting for peer ID before sending ICE candidate...', 'warning');
+                return;
+            }
+            
             try {
                 const response = await fetch(`${serverUrl}/ice`, {
                     method: 'POST',
@@ -340,6 +357,7 @@
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
+                        peer_id: currentPeerId,
                         candidate: candidate.candidate,
                         sdp_mid: candidate.sdpMid,
                         sdp_m_line_index: candidate.sdpMLineIndex
@@ -372,6 +390,7 @@
             }
 
             isConnected = false;
+            currentPeerId = null;
             updateStatus('Disconnected', 'info');
             document.getElementById('connectBtn').disabled = false;
             document.getElementById('disconnectBtn').disabled = true;

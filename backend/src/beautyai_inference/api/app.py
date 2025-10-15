@@ -118,6 +118,15 @@ app = FastAPI(
 
 from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelationMiddleware
 
+# Add CORS middleware for WebRTC and cross-origin requests
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # In production, specify exact origins
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    allow_headers=["*"],
+)
+
 # Correlation / request ID injection
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(WebSocketCorrelationMiddleware)
