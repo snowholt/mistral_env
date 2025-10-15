@@ -16,6 +16,14 @@ from .endpoints import health_router, models_router, inference_router, config_ro
 from .endpoints.debug_router import debug_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 
+# Import WebRTC voice router (Phase B - WebRTC Migration)
+try:
+    from .endpoints.webrtc_voice import webrtc_voice_router
+    webrtc_router_available = True
+except ImportError:
+    webrtc_router_available = False
+    logger.warning("WebRTC voice router not available - WebRTC features disabled")
+
 # Import performance dashboard router
 try:
     from .endpoints.performance_dashboard import performance_router
@@ -34,6 +42,12 @@ tags_metadata = [
         "description": "🏎️ **Simple Voice Chat** - Ultra-fast voice conversations with Edge TTS. "
                       "Perfect for real-time chat with <2 second response times. "
                       "Arabic and English support only."
+    },
+    {
+        "name": "webrtc-voice",
+        "description": "🌐 **WebRTC Voice** - Browser-based WebRTC voice-to-voice signaling endpoints. "
+                      "Supports SDP offer/answer exchange, ICE candidates, and peer connection management. "
+                      "Enables high-quality, low-latency voice communication with built-in audio processing."
     },
     {
         "name": "health",
@@ -140,6 +154,16 @@ app.include_router(
     prefix="/api/v1",
     tags=["simple-voice"]
 )
+
+# Include WebRTC voice router if available (Phase B - WebRTC Migration)
+if webrtc_router_available:
+    app.include_router(
+        webrtc_voice_router,
+        tags=["webrtc-voice"]
+    )
+    logger.info("WebRTC voice endpoints registered at /api/v1/webrtc/voice")
+else:
+    logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
     try:
@@ -211,6 +235,16 @@ async def startup_event():
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
     
+    # Initialize WebRTC connection pool if available (Phase B - WebRTC Migration)
+    if webrtc_router_available:
+        try:
+            from ..core.webrtc_connection_pool import initialize_webrtc_pool
+            await initialize_webrtc_pool()
+            logger.info("🌐 WebRTC connection pool initialized successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize WebRTC connection pool: {e}")
+            logger.info("🌐 Continuing without WebRTC support")
+    
     # Initialize performance monitoring system
     try:
         from ..api.performance_integration import initialize_performance_monitoring
@@ -255,6 +289,15 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("🛑 BeautyAI Inference API shutting down...")
+    
+    # Shutdown WebRTC connection pool if available (Phase B - WebRTC Migration)
+    if webrtc_router_available:
+        try:
+            from ..core.webrtc_connection_pool import shutdown_webrtc_pool
+            await shutdown_webrtc_pool()
+            logger.info("🌐 WebRTC connection pool shut down successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Error shutting down WebRTC connection pool: {e}")
     
     # Shutdown performance monitoring system
     try:
