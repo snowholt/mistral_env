@@ -34,7 +34,15 @@ class ServiceAnalyzer:
             "memory_usage": None,
             "cpu_usage": None,
             "issues": [],
-            "recommendations": []
+            "recommendations": [],
+            "webrtc_stats": {
+                "connections_total": 0,
+                "connections_active": 0,
+                "connections_failed": 0,
+                "ice_negotiations": [],
+                "sdp_exchanges": [],
+                "audio_quality_issues": []
+            }
         }
         
         lines = log_content.split('\n')
@@ -99,6 +107,52 @@ class ServiceAnalyzer:
                 analysis["issues"].append("Out of memory condition")
             if "config system not available" in line.lower():
                 analysis["issues"].append("Configuration system unavailable")
+            
+            # Detect WebRTC-specific patterns
+            if "webrtc" in line.lower():
+                # Connection tracking
+                if "connection established" in line.lower():
+                    analysis["webrtc_stats"]["connections_total"] += 1
+                    analysis["webrtc_stats"]["connections_active"] += 1
+                elif "connection failed" in line.lower():
+                    analysis["webrtc_stats"]["connections_failed"] += 1
+                elif "connection closed" in line.lower() or "disconnected" in line.lower():
+                    if analysis["webrtc_stats"]["connections_active"] > 0:
+                        analysis["webrtc_stats"]["connections_active"] -= 1
+                
+                # ICE negotiation tracking
+                if "ice" in line.lower():
+                    if "negotiation" in line.lower() or "candidate" in line.lower():
+                        analysis["webrtc_stats"]["ice_negotiations"].append({
+                            "timestamp": line.split()[0:2],
+                            "status": "completed" if "completed" in line.lower() else "in_progress"
+                        })
+                    if "failed" in line.lower():
+                        analysis["issues"].append("WebRTC ICE negotiation failure detected")
+                
+                # SDP exchange tracking
+                if "sdp" in line.lower():
+                    if "offer" in line.lower():
+                        analysis["webrtc_stats"]["sdp_exchanges"].append({
+                            "type": "offer",
+                            "timestamp": line.split()[0:2]
+                        })
+                    elif "answer" in line.lower():
+                        analysis["webrtc_stats"]["sdp_exchanges"].append({
+                            "type": "answer",
+                            "timestamp": line.split()[0:2]
+                        })
+                
+                # Audio quality issues
+                if "packet loss" in line.lower() or "jitter" in line.lower():
+                    analysis["webrtc_stats"]["audio_quality_issues"].append({
+                        "issue": "high_packet_loss" if "packet loss" in line.lower() else "high_jitter",
+                        "timestamp": line.split()[0:2]
+                    })
+                
+                # VAD-related issues
+                if "vad" in line.lower() and ("false positive" in line.lower() or "failed" in line.lower()):
+                    analysis["issues"].append("WebRTC VAD detection issues")
                 
         # Generate recommendations
         if analysis["issues"]:
@@ -108,6 +162,19 @@ class ServiceAnalyzer:
                 analysis["recommendations"].append("Service may not be shutting down gracefully - check application shutdown handlers")
             if "Configuration system unavailable" in analysis["issues"]:
                 analysis["recommendations"].append("Check WebSocket pool configuration and dependencies")
+            if "WebRTC ICE negotiation failure detected" in analysis["issues"]:
+                analysis["recommendations"].append("Check STUN/TURN server configuration and network connectivity")
+            if "WebRTC VAD detection issues" in analysis["issues"]:
+                analysis["recommendations"].append("Review VAD thresholds and consider language-specific tuning")
+        
+        # WebRTC-specific recommendations
+        if analysis["webrtc_stats"]["connections_failed"] > 0:
+            failure_rate = analysis["webrtc_stats"]["connections_failed"] / max(analysis["webrtc_stats"]["connections_total"], 1)
+            if failure_rate > 0.1:  # > 10% failure rate
+                analysis["recommendations"].append(f"High WebRTC connection failure rate ({failure_rate:.1%}) - investigate network/signaling issues")
+        
+        if len(analysis["webrtc_stats"]["audio_quality_issues"]) > 3:
+            analysis["recommendations"].append("Multiple audio quality issues detected - check network bandwidth and latency")
                 
         return analysis
         
@@ -186,6 +253,25 @@ class ServiceAnalyzer:
             print(f"\n💡 RECOMMENDATIONS:")
             for rec in analysis['recommendations']:
                 print(f"   • {rec}")
+        
+        # WebRTC Statistics
+        if analysis.get('webrtc_stats'):
+            webrtc = analysis['webrtc_stats']
+            if (webrtc['connections_total'] > 0 or 
+                len(webrtc['ice_negotiations']) > 0 or 
+                len(webrtc['sdp_exchanges']) > 0):
+                print(f"\n🌐 WEBRTC STATISTICS:")
+                print(f"   Connections Total: {webrtc['connections_total']}")
+                print(f"   Connections Active: {webrtc['connections_active']}")
+                print(f"   Connections Failed: {webrtc['connections_failed']}")
+                if webrtc['connections_total'] > 0:
+                    success_rate = ((webrtc['connections_total'] - webrtc['connections_failed']) / 
+                                  webrtc['connections_total'] * 100)
+                    print(f"   Connection Success Rate: {success_rate:.1f}%")
+                print(f"   ICE Negotiations: {len(webrtc['ice_negotiations'])}")
+                print(f"   SDP Exchanges: {len(webrtc['sdp_exchanges'])}")
+                if webrtc['audio_quality_issues']:
+                    print(f"   Audio Quality Issues: {len(webrtc['audio_quality_issues'])}")
                 
         print("="*60)
 

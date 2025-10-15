@@ -271,6 +271,135 @@ class MetricsCollector:
         
         return metrics
     
+    async def collect_webrtc_metrics(self) -> List[MetricPoint]:
+        """Collect metrics from WebRTC connections and sessions."""
+        metrics = []
+        current_time = time.time()
+        
+        try:
+            # Import WebRTC components
+            from ..core.webrtc_connection_pool import webrtc_connection_pool
+            from ..core.webrtc_session_manager import webrtc_session_manager
+            
+            if webrtc_connection_pool is None or webrtc_session_manager is None:
+                return []
+            
+            # Get connection pool metrics
+            pool_stats = webrtc_connection_pool.get_statistics()
+            
+            metrics.extend([
+                MetricPoint(
+                    name="webrtc_connections_total",
+                    value=pool_stats.get("total_connections", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.GAUGE,
+                    labels={"component": "connection_pool"}
+                ),
+                MetricPoint(
+                    name="webrtc_connections_active",
+                    value=pool_stats.get("active_connections", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.GAUGE,
+                    labels={"component": "connection_pool"}
+                ),
+                MetricPoint(
+                    name="webrtc_connections_failed",
+                    value=pool_stats.get("failed_connections", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.COUNTER,
+                    labels={"component": "connection_pool"}
+                ),
+                MetricPoint(
+                    name="webrtc_ice_negotiation_duration_ms",
+                    value=pool_stats.get("avg_ice_negotiation_ms", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.GAUGE,
+                    labels={"component": "connection_pool"}
+                )
+            ])
+            
+            # Get session manager metrics
+            session_stats = webrtc_session_manager.get_statistics()
+            
+            metrics.extend([
+                MetricPoint(
+                    name="webrtc_sessions_total",
+                    value=session_stats.get("total_sessions", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.GAUGE,
+                    labels={"component": "session_manager"}
+                ),
+                MetricPoint(
+                    name="webrtc_sessions_active",
+                    value=session_stats.get("active_sessions", 0),
+                    timestamp=current_time,
+                    metric_type=MetricType.GAUGE,
+                    labels={"component": "session_manager"}
+                )
+            ])
+            
+            # Collect per-session metrics
+            for peer_id, session_data in session_stats.get("sessions", {}).items():
+                session_labels = {
+                    "peer_id": peer_id[:8],  # Truncate for label
+                    "language": session_data.get("language", "unknown")
+                }
+                
+                # Voice latency metric
+                if "latency_ms" in session_data:
+                    metrics.append(MetricPoint(
+                        name="webrtc_voice_latency_ms",
+                        value=session_data["latency_ms"],
+                        timestamp=current_time,
+                        metric_type=MetricType.GAUGE,
+                        labels=session_labels
+                    ))
+                
+                # VAD false positive count
+                if "vad_false_positives" in session_data:
+                    metrics.append(MetricPoint(
+                        name="webrtc_voice_vad_false_positive_count",
+                        value=session_data["vad_false_positives"],
+                        timestamp=current_time,
+                        metric_type=MetricType.COUNTER,
+                        labels=session_labels
+                    ))
+                
+                # Audio quality metrics
+                if "audio_quality" in session_data:
+                    quality = session_data["audio_quality"]
+                    metrics.extend([
+                        MetricPoint(
+                            name="webrtc_audio_packet_loss_rate",
+                            value=quality.get("packet_loss_rate", 0),
+                            timestamp=current_time,
+                            metric_type=MetricType.GAUGE,
+                            labels=session_labels
+                        ),
+                        MetricPoint(
+                            name="webrtc_audio_jitter_ms",
+                            value=quality.get("jitter_ms", 0),
+                            timestamp=current_time,
+                            metric_type=MetricType.GAUGE,
+                            labels=session_labels
+                        ),
+                        MetricPoint(
+                            name="webrtc_audio_bitrate_kbps",
+                            value=quality.get("bitrate_kbps", 0),
+                            timestamp=current_time,
+                            metric_type=MetricType.GAUGE,
+                            labels=session_labels
+                        )
+                    ])
+                
+        except ImportError:
+            # WebRTC components not available
+            pass
+        except Exception as e:
+            logger.error(f"Error collecting WebRTC metrics: {e}")
+        
+        return metrics
+    
     async def collect_connection_pool_metrics(self) -> List[MetricPoint]:
         """Collect metrics from connection pools."""
         if not self.config.connection_pool_monitoring:
@@ -386,6 +515,10 @@ class MetricsCollector:
         # Collect connection pool metrics
         pool_metrics = await self.collect_connection_pool_metrics()
         all_metrics.extend(pool_metrics)
+        
+        # Collect WebRTC metrics
+        webrtc_metrics = await self.collect_webrtc_metrics()
+        all_metrics.extend(webrtc_metrics)
         
         # Add custom metrics
         custom_metrics = await self.get_custom_metrics()

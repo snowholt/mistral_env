@@ -532,6 +532,436 @@ print(f"Peak memory usage: {peak / 1024 / 1024:.1f} MB")
 tracemalloc.stop()
 ```
 
+## 🌐 WebRTC Voice Issues
+
+### WebRTC Connection Problems
+
+#### Issue: "WebRTC connection failed" or stuck on "Connecting..."
+
+**Possible Causes:**
+- Network firewall blocking WebRTC traffic
+- STUN server unreachable
+- Browser permissions not granted
+- Backend WebRTC endpoints not responding
+
+**Solutions:**
+
+1. **Check Browser Support:**
+```javascript
+// Run in browser console
+console.log('RTCPeerConnection:', typeof RTCPeerConnection !== 'undefined');
+console.log('getUserMedia:', navigator.mediaDevices && typeof navigator.mediaDevices.getUserMedia === 'function');
+```
+
+2. **Verify Backend Health:**
+```bash
+# Check WebRTC health endpoint
+curl https://dev.gmai.sa/api/v1/webrtc/voice/health
+
+# Expected response:
+# {"status": "healthy", "webrtc_available": true}
+```
+
+3. **Test Signaling Endpoints:**
+```bash
+# Use WebRTC signaling probe tool
+python tools/webrtc_signaling_probe.py --url https://dev.gmai.sa --verbose
+
+# This will test:
+# - Health check
+# - SDP offer/answer exchange
+# - ICE candidate exchange
+# - Connection status
+# - Cleanup
+```
+
+4. **Check Firewall Rules:**
+```bash
+# WebRTC typically uses UDP ports for media
+# Ensure UDP traffic is not blocked
+
+# Check if STUN server is reachable
+nc -zvu stun.l.google.com 19302
+
+# Check if API endpoints are accessible
+curl -I https://dev.gmai.sa/api/v1/webrtc/voice/offer
+```
+
+5. **Review Backend Logs:**
+```bash
+# Search for WebRTC-related errors
+sudo journalctl -u beautyai-api | grep -i webrtc | tail -50
+
+# Use enhanced service analyzer
+python tools/service_analyzer.py --analyze --lines 500
+```
+
+#### Issue: ICE Negotiation Timeout
+
+**Symptoms:** Connection gets stuck at "checking" or "gathering" state
+
+**Solutions:**
+
+1. **Check ICE Connection State:**
+```javascript
+// Enable debug overlay (add ?debug=1 to URL)
+// Or run in browser console:
+const stats = await webrtcClient.getConnectionStats();
+console.log('ICE Connection State:', stats.connection.iceState);
+console.log('ICE Gathering State:', stats.connection.gatheringState);
+```
+
+2. **Verify STUN Server Configuration:**
+```yaml
+# config/config.yaml
+webrtc:
+  stun_servers:
+    - "stun:stun.l.google.com:19302"
+    - "stun:stun1.l.google.com:19302"  # Backup STUN server
+```
+
+3. **Consider TURN Server (for restrictive networks):**
+```yaml
+# config/config.yaml
+webrtc:
+  turn_servers:
+    - url: "turn:your-turn-server.com:3478"
+      username: "your_username"
+      credential: "your_password"
+```
+
+**Note:** TURN server setup is documented in `docs/DEPLOYMENT.md` (coturn installation).
+
+#### Issue: No Audio Playback (TTS Silent)
+
+**Symptoms:** Connection succeeds, but no TTS audio is heard
+
+**Solutions:**
+
+1. **Check Browser Audio:**
+```javascript
+// Run in browser console
+const audioElement = document.getElementById('webrtc-remote-audio');
+console.log('Audio element:', audioElement);
+console.log('Audio source:', audioElement?.srcObject);
+console.log('Audio volume:', audioElement?.volume);
+console.log('Audio muted:', audioElement?.muted);
+```
+
+2. **Verify Remote Track Reception:**
+```javascript
+// Check for 'ontrack' event in browser console logs
+// Should see: "[WebRTC] 🎵 Remote track received: audio"
+
+// Check if remote stream has active tracks
+console.log('Remote stream tracks:', webrtcClient.remoteStream?.getTracks());
+```
+
+3. **Check chrome://webrtc-internals:**
+- Open new tab: `chrome://webrtc-internals`
+- Look for "inbound-rtp" stats with `kind: audio`
+- Verify `packetsReceived` is increasing
+- Check `bytesReceived` is non-zero
+
+4. **Test with WebSocket Mode:**
+```javascript
+// Switch to WebSocket mode to isolate WebRTC issue
+// Use mode toggle in UI or set default mode in config
+```
+
+### WebRTC Audio Quality Issues
+
+#### Issue: Choppy or Distorted Audio
+
+**Possible Causes:**
+- High packet loss
+- Network jitter
+- Insufficient bandwidth
+- CPU overload
+
+**Diagnostics:**
+
+1. **Enable Debug Overlay:**
+```
+Add ?debug=1 to URL: https://dev.gmai.sa?debug=1
+```
+
+The debug overlay shows real-time stats:
+- Packet loss rate (should be < 1%)
+- Jitter (should be < 30ms)
+- Bitrate (should be 32-48 kbps for Opus)
+
+2. **Check Network Stats:**
+```bash
+# Check network latency
+ping dev.gmai.sa
+
+# Check bandwidth
+speedtest-cli
+
+# Monitor network during WebRTC session
+iftop  # or nethogs
+```
+
+3. **Review Audio Processor Logs:**
+```bash
+# Search for audio quality warnings
+sudo journalctl -u beautyai-api | grep -E "packet loss|jitter|bitrate" | tail -20
+```
+
+**Solutions:**
+
+1. **Reduce Network Congestion:**
+- Close bandwidth-intensive applications
+- Use wired connection instead of WiFi
+- Reduce number of concurrent WebRTC sessions
+
+2. **Adjust Audio Constraints (if needed):**
+```javascript
+// In webrtc.config.js, adjust sample rate
+audioConstraints: {
+    sampleRate: 16000,  // Reduce from 48000 for lower bandwidth
+    // ... other constraints
+}
+```
+
+3. **Enable Adaptive Bitrate (future enhancement):**
+Currently not implemented, tracked for Phase E+.
+
+#### Issue: Echo or Feedback
+
+**Note:** WebRTC uses browser's built-in AEC (Acoustic Echo Cancellation)
+
+**Verify AEC is Enabled:**
+```javascript
+// In webrtc.config.js
+audioConstraints: {
+    echoCancellation: true,      // Must be true
+    noiseSuppression: true,
+    autoGainControl: true,
+    // ...
+}
+```
+
+**If Echo Persists:**
+1. Use headphones instead of speakers
+2. Reduce speaker volume
+3. Check browser audio settings
+4. Try different browser (Safari AEC differs from Chrome)
+
+### WebRTC VAD (Voice Activity Detection) Issues
+
+#### Issue: Speech Not Detected or False Positives
+
+**Symptoms:**
+- User speaks but no transcription happens
+- Silent audio triggers transcription (false positives)
+
+**Solutions:**
+
+1. **Check VAD Thresholds:**
+```yaml
+# config/config.yaml
+webrtc:
+  vad:
+    silero_threshold_arabic: 0.45  # Lower = more sensitive
+    silero_threshold_english: 0.50
+    webrtc_vad_aggressiveness: 2   # 0-3, higher = less sensitive
+```
+
+2. **Enable VAD Debug Logging:**
+```yaml
+# config/config.yaml
+logging:
+  level: DEBUG
+  
+webrtc:
+  debug_logging: true
+```
+
+3. **Test with Different Microphones:**
+- Built-in laptop mic vs external USB mic
+- Different mic sensitivity settings
+- Check mic permissions in browser
+
+4. **Review VAD Statistics:**
+```bash
+# Check for VAD false positive count
+python tools/service_analyzer.py --analyze | grep -A 5 "WEBRTC STATISTICS"
+```
+
+### WebRTC Debug Tools
+
+#### Browser-Based Debugging
+
+1. **Enable Debug Overlay:**
+```
+URL: https://dev.gmai.sa?debug=1
+```
+
+Features:
+- Real-time connection state
+- Audio bitrate, packets, jitter, packet loss
+- ICE candidate information
+- Performance metrics
+- Quick access to chrome://webrtc-internals
+
+2. **chrome://webrtc-internals (Chrome/Edge):**
+```
+Open in new tab: chrome://webrtc-internals
+```
+
+Provides:
+- Complete WebRTC statistics
+- ICE candidate negotiations
+- Audio/video codec information
+- Graphs for bitrate, packet loss, etc.
+
+3. **about:webrtc (Firefox):**
+```
+Open in new tab: about:webrtc
+```
+
+Similar to Chrome's webrtc-internals.
+
+#### Server-Side Debugging
+
+1. **WebRTC Signaling Probe:**
+```bash
+# Test all endpoints
+python tools/webrtc_signaling_probe.py --url https://dev.gmai.sa
+
+# Test specific endpoint
+python tools/webrtc_signaling_probe.py --url https://dev.gmai.sa --test offer
+
+# Verbose mode
+python tools/webrtc_signaling_probe.py --url https://dev.gmai.sa --verbose
+```
+
+2. **Service Analyzer (Enhanced with WebRTC Stats):**
+```bash
+# Quick summary
+python tools/service_analyzer.py --summary
+
+# Detailed analysis with WebRTC stats
+python tools/service_analyzer.py --analyze --lines 500
+```
+
+3. **Backend Logs:**
+```bash
+# Follow WebRTC-specific logs
+sudo journalctl -u beautyai-api -f | grep -i "webrtc\|ice\|sdp"
+
+# Export WebRTC logs
+sudo journalctl -u beautyai-api --since="1 hour ago" | grep -i webrtc > webrtc_debug.log
+```
+
+### WebRTC Performance Tuning
+
+#### Latency Optimization
+
+**Target SLOs (90th percentile):**
+- Round-trip: ≤ 6 seconds
+- STT: ≤ 2 seconds
+- LLM: ≤ 3 seconds (with `/no_think` prefix)
+- TTS: ≤ 1 second
+
+**Measure Current Latency:**
+```javascript
+// Use debug overlay (?debug=1) to view real-time latency
+
+// Or export stats for analysis
+// Click "Export Stats" in debug overlay
+```
+
+**Optimization Strategies:**
+
+1. **Enable `/no_think` Prefix (Automatic):**
+Already enabled in Phase C, reduces LLM latency by 40-60%.
+
+2. **Use Quantized Models:**
+```yaml
+# config/config.yaml
+models:
+  qwen3_14b_instruct:
+    quantization:
+      enabled: true
+      type: "4bit"  # Balance quality and speed
+```
+
+3. **Optimize TTS Voice Caching:**
+```yaml
+# config/config.yaml
+tts:
+  enable_voice_caching: true
+  cache_size_mb: 500
+```
+
+4. **Monitor Processing Overhead:**
+```bash
+# Use performance monitor
+python tools/service_analyzer.py --analyze
+```
+
+#### Memory Optimization
+
+**Expected Memory Footprint per WebRTC Session:** ~40 MB
+
+**Monitor Memory Usage:**
+```bash
+# Check backend memory
+ps aux | grep "python.*beautyai" | awk '{print $6/1024 " MB"}'
+
+# Detailed memory analysis
+python -c "
+import psutil
+import os
+process = psutil.Process(os.getpid())
+print(f'Memory: {process.memory_info().rss / 1024 / 1024:.1f} MB')
+"
+```
+
+**If Memory Usage Excessive:**
+1. Check for memory leaks in logs
+2. Restart service periodically
+3. Reduce concurrent session limit
+4. Enable aggressive garbage collection
+
+### Common Error Messages
+
+#### "aiortc not available"
+```bash
+# Install aiortc dependencies
+pip install aiortc>=1.5.0
+
+# If compilation fails, install system dependencies:
+sudo apt-get update
+sudo apt-get install -y libopus-dev libvpx-dev libsrtp2-dev
+
+# Verify installation
+python -c "import aiortc; print(aiortc.__version__)"
+```
+
+#### "WebRTC not enabled in configuration"
+```yaml
+# config/config.yaml
+webrtc:
+  enabled: true
+```
+
+#### "STUN server timeout"
+```bash
+# Test STUN connectivity
+nc -zvu stun.l.google.com 19302
+
+# If blocked, configure alternative STUN or use TURN
+```
+
+#### "Peer connection not found"
+Backend cleaned up the peer connection (idle timeout or manual cleanup).
+
+**Solution:** Reconnect from client.
+
 ## 📞 Getting Help
 
 ### Log Collection
