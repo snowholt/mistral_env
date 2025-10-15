@@ -1,5 +1,5 @@
 [Unit]
-Description=BeautyAI Inference API Server (Production)
+Description=BeautyAI Inference API Server (Production with WebRTC)
 After=network.target
 Wants=network.target
 
@@ -33,6 +33,36 @@ Environment=VOICE_STREAMING_LENIENT_FINAL_DELAY_SEC=0.8
 Environment=VOICE_STREAMING_FORCE_FINAL_AFTER_SEC=12
 Environment=VOICE_STREAMING_LOW_LATENCY_PRESET=1
 Environment=UVICORN_RELOAD=0
+
+# ================================================================
+# WebRTC Configuration (Phase F - Added Oct 15, 2025)
+# ================================================================
+# Maximum utterance duration in seconds (client-side: 10s, server-side: 10s)
+Environment=VOICE_WEBRTC_MAX_UTTERANCE_SEC=10
+
+# Enable aiortc debug logging for troubleshooting WebRTC issues
+# Set to 1 for verbose WebRTC logs, 0 for production (less verbose)
+Environment=VOICE_WEBRTC_DEBUG=0
+
+# aiortc log level: DEBUG, INFO, WARNING, ERROR
+# Use DEBUG for initial deployment, switch to WARNING for production
+Environment=AIORTC_LOG_LEVEL=WARNING
+
+# STUN server configuration (Google public STUN for MVP)
+Environment=WEBRTC_STUN_SERVER=stun:stun.l.google.com:19302
+
+# Enable WebRTC feature flag (1 = enabled, 0 = WebSocket fallback only)
+Environment=WEBRTC_ENABLED=1
+
+# WebRTC connection timeout settings
+Environment=WEBRTC_ICE_GATHERING_TIMEOUT=30
+Environment=WEBRTC_CONNECTION_TIMEOUT=10
+
+# WebRTC audio processing settings (inherited from Phase C config)
+Environment=WEBRTC_AUDIO_SAMPLE_RATE=16000
+Environment=WEBRTC_VAD_THRESHOLD_AR=0.45
+Environment=WEBRTC_VAD_THRESHOLD_EN=0.50
+# ================================================================
 
 ExecStart=/home/lumi/beautyai/backend/venv/bin/python /home/lumi/beautyai/backend/run_server.py
 ExecReload=/bin/kill -HUP $MAINPID
