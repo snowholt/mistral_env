@@ -91,6 +91,11 @@ class WebRTCConnectionData:
     # Metadata
     client_info: Dict[str, Any] = field(default_factory=dict)
     
+    # Session metadata (for voice pipeline)
+    session_id: Optional[str] = None
+    language: str = "en"
+    voice_adapter: Optional[Any] = None  # WebRTCVoiceServiceAdapter instance
+    
     def update_activity(self):
         """Update last activity timestamp."""
         self.last_activity = time.time()
@@ -226,7 +231,9 @@ class WebRTCConnectionPool:
         self,
         peer_id: str,
         offer_sdp: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        session_id: Optional[str] = None,
+        language: str = "en"
     ) -> tuple[str, List[Dict[str, Any]]]:
         """
         Create a new RTCPeerConnection and process SDP offer.
@@ -235,6 +242,8 @@ class WebRTCConnectionPool:
             peer_id: Unique peer identifier
             offer_sdp: SDP offer from client
             user_id: Optional user identifier
+            session_id: Voice session identifier
+            language: Conversation language (ar, en)
             
         Returns:
             Tuple of (answer_sdp, ice_servers)
@@ -276,6 +285,64 @@ class WebRTCConnectionPool:
                     if peer_id in self._connections:
                         self._connections[peer_id].update_ice_gathering_state(pc.iceGatheringState)
                 
+                @pc.on("track")
+                async def on_track(track):
+                    """
+                    Handle incoming audio track from client.
+                    This starts the voice processing pipeline.
+                    """
+                    logger.info(f"[WebRTC] Audio track received for peer {peer_id}, kind={track.kind}")
+                    
+                    if track.kind != "audio":
+                        logger.warning(f"[WebRTC] Ignoring non-audio track: {track.kind}")
+                        return
+                    
+                    try:
+                        # Get connection data
+                        if peer_id not in self._connections:
+                            logger.error(f"[WebRTC] Connection data not found for peer {peer_id}")
+                            return
+                        
+                        connection_data = self._connections[peer_id]
+                        
+                        # Import here to avoid circular dependency
+                        from ..services.voice.webrtc_voice_service_adapter import WebRTCVoiceServiceAdapter
+                        from ..services.voice.simple_voice_service import SimpleVoiceService
+                        
+                        # Get voice service instance (singleton)
+                        voice_service = SimpleVoiceService.get_instance()
+                        
+                        # Create voice adapter
+                        logger.info(
+                            f"[WebRTC] Creating voice adapter for peer {peer_id}, "
+                            f"session {connection_data.session_id}, language {connection_data.language}"
+                        )
+                        
+                        voice_adapter = WebRTCVoiceServiceAdapter(
+                            peer_id=peer_id,
+                            session_id=connection_data.session_id or f"webrtc_session_{uuid.uuid4().hex[:12]}",
+                            language=connection_data.language,
+                            voice_service=voice_service
+                        )
+                        
+                        # Initialize voice adapter
+                        if not await voice_adapter.initialize():
+                            logger.error(f"[WebRTC] Failed to initialize voice adapter for peer {peer_id}")
+                            return
+                        
+                        # Start voice session with audio track
+                        if not await voice_adapter.start_voice_session(track):
+                            logger.error(f"[WebRTC] Failed to start voice session for peer {peer_id}")
+                            return
+                        
+                        # Store adapter reference for cleanup
+                        connection_data.voice_adapter = voice_adapter
+                        
+                        logger.info(f"[WebRTC] Voice pipeline started successfully for peer {peer_id}")
+                        
+                    except Exception as e:
+                        logger.error(f"[WebRTC] Error starting voice pipeline for peer {peer_id}: {e}", exc_info=True)
+                
                 # Process offer
                 offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
                 await pc.setRemoteDescription(offer)
@@ -290,7 +357,9 @@ class WebRTCConnectionPool:
                     peer_connection=pc,
                     user_id=user_id,
                     local_sdp=pc.localDescription.sdp,
-                    remote_sdp=offer_sdp
+                    remote_sdp=offer_sdp,
+                    session_id=session_id,
+                    language=language
                 )
                 
                 self._connections[peer_id] = connection_data
@@ -451,6 +520,14 @@ class WebRTCConnectionPool:
         connection_data = self._connections[peer_id]
         
         try:
+            # Stop voice adapter if exists
+            if connection_data.voice_adapter:
+                logger.info(f"[WebRTC] Stopping voice adapter for peer {peer_id}")
+                try:
+                    await connection_data.voice_adapter.stop_voice_session()
+                except Exception as e:
+                    logger.error(f"[WebRTC] Error stopping voice adapter for peer {peer_id}: {e}")
+            
             # Close peer connection
             if connection_data.peer_connection:
                 await connection_data.peer_connection.close()

@@ -141,13 +141,17 @@ for origin in allowed_origins:
         filtered_origins.append(origin)
         seen_origins.add(origin)
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=filtered_origins,
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
-)
+proxy_handles_cors = os.getenv("PROXY_HANDLES_CORS", "0") == "1"
+if proxy_handles_cors:
+    logger.info("Skipping FastAPI CORS middleware (proxy handles CORS headers)")
+else:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=filtered_origins,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_headers=["*"],
+    )
 
 # Correlation / request ID injection
 app.add_middleware(CorrelationIdMiddleware)

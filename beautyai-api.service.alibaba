@@ -65,6 +65,9 @@ Environment=WEBRTC_VAD_THRESHOLD_AR=0.45
 Environment=WEBRTC_VAD_THRESHOLD_EN=0.50
 # ================================================================
 
+# CORS handled by FastAPI CORSMiddleware (nginx CORS headers disabled)
+# Environment=PROXY_HANDLES_CORS=1
+
 ExecStart=/home/geniusai/geniusAI/mistral_env/backend/venv/bin/python /home/geniusai/geniusAI/mistral_env/backend/run_server.py
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed

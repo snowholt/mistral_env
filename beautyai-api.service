@@ -64,6 +64,9 @@ Environment=WEBRTC_VAD_THRESHOLD_AR=0.45
 Environment=WEBRTC_VAD_THRESHOLD_EN=0.50
 # ================================================================
 
+# Allow the Nginx proxy to emit the lone CORS header in production
+Environment=PROXY_HANDLES_CORS=1
+
 ExecStart=/home/lumi/beautyai/backend/venv/bin/python /home/lumi/beautyai/backend/run_server.py
 ExecReload=/bin/kill -HUP $MAINPID
 KillMode=mixed

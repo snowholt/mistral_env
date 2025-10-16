@@ -299,21 +299,7 @@ async def handle_sdp_offer(
                 detail="WebRTC voice service is currently disabled. Please enable it in configuration."
             )
         
-        # Create RTCPeerConnection and process offer
-        try:
-            answer_sdp, ice_servers = await connection_pool.create_peer_connection(
-                peer_id=peer_id,
-                offer_sdp=request.sdp,
-                user_id=request.user_id
-            )
-        except Exception as e:
-            logger.error(f"[WebRTC] Failed to create peer connection for {peer_id}: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to process SDP offer: {str(e)}"
-            )
-        
-        # Create voice session
+        # Create voice session first to get session_id
         try:
             session_id = await session_manager.create_session(
                 peer_id=peer_id,
@@ -323,11 +309,27 @@ async def handle_sdp_offer(
             )
         except Exception as e:
             logger.error(f"[WebRTC] Failed to create voice session for {peer_id}: {e}", exc_info=True)
-            # Clean up peer connection on session failure
-            await connection_pool.remove_peer_connection(peer_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to create voice session: {str(e)}"
+            )
+        
+        # Create RTCPeerConnection and process offer
+        try:
+            answer_sdp, ice_servers = await connection_pool.create_peer_connection(
+                peer_id=peer_id,
+                offer_sdp=request.sdp,
+                user_id=request.user_id,
+                session_id=session_id,
+                language=request.language or "ar"
+            )
+        except Exception as e:
+            logger.error(f"[WebRTC] Failed to create peer connection for {peer_id}: {e}", exc_info=True)
+            # Clean up session on connection failure
+            await session_manager.end_session(peer_id)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail=f"Failed to process SDP offer: {str(e)}"
             )
         
         logger.info(f"[WebRTC] Successfully created peer connection and session: peer_id={peer_id}, session_id={session_id}")
