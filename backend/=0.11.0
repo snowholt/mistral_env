@@ -1,0 +1,18 @@
+Looking in indexes: http://mirrors.cloud.aliyuncs.com/pypi/simple/
+Collecting pystun
+  Downloading http://mirrors.cloud.aliyuncs.com/pypi/packages/a9/72/0b6a4f8ad71f72ed3b3946a21084a8b3c17de10ddc5fc0dfec43c48fc768/pystun-0.1.0.tar.gz (6.3 kB)
+  Preparing metadata (setup.py): started
+  Preparing metadata (setup.py): finished with status 'done'
+Collecting asyncio-mqtt
+  Downloading http://mirrors.cloud.aliyuncs.com/pypi/packages/2a/64/c8a8c2ed51f3c1f4b8d2f244424d3bad3fbd4333eb01589c6b00a6dd2c04/asyncio_mqtt-0.16.2-py3-none-any.whl (17 kB)
+Collecting paho-mqtt>=1.6.0
+  Downloading http://mirrors.cloud.aliyuncs.com/pypi/packages/c4/cb/00451c3cf31790287768bb12c6bec834f5d292eaf3022afc88e14b8afc94/paho_mqtt-2.1.0-py3-none-any.whl (67 kB)
+     ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 67.2/67.2 KB 14.4 MB/s eta 0:00:00
+Building wheels for collected packages: pystun
+  Building wheel for pystun (setup.py): started
+  Building wheel for pystun (setup.py): finished with status 'done'
+  Created wheel for pystun: filename=pystun-0.1.0-py3-none-any.whl size=6481 sha256=572b98d064ea14deee1e6a612d8a969fbafdfe71dec35809f8d0fdb656004052
+  Stored in directory: /root/.cache/pip/wheels/91/35/7a/7c40057cdd3026042ac75fab85e06df4b43973bbb4c1b62b63
+Successfully built pystun
+Installing collected packages: pystun, paho-mqtt, asyncio-mqtt
+Successfully installed asyncio-mqtt-0.16.2 paho-mqtt-2.1.0 pystun-0.1.0

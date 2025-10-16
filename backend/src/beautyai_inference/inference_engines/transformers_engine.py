@@ -9,6 +9,16 @@ from threading import Thread
 from typing import List, Dict, Any, Optional, Union, Tuple
 import os
 
+# Torch 2.1 exposes the pytree registration helper under a private name.
+# The latest transformers expects the public alias, so create it if needed.
+try:
+    import torch.utils._pytree as _torch_pytree
+
+    if not hasattr(_torch_pytree, "register_pytree_node") and hasattr(_torch_pytree, "_register_pytree_node"):
+        _torch_pytree.register_pytree_node = _torch_pytree._register_pytree_node  # type: ignore[attr-defined]
+except ImportError:
+    pass
+
 from transformers import (
     AutoModelForCausalLM,
     AutoModelForSeq2SeqLM,

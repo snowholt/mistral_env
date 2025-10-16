@@ -119,9 +119,31 @@ app = FastAPI(
 from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelationMiddleware
 
 # Add CORS middleware for WebRTC and cross-origin requests
+default_cors_origins = [
+    "https://web.lumidev.ca",
+    "https://api.lumidev.ca",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+]
+
+allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
+if allowed_origins_env:
+    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
+else:
+    allowed_origins = default_cors_origins
+
+# Deduplicate while preserving order
+seen_origins = set()
+filtered_origins = []
+for origin in allowed_origins:
+    if origin not in seen_origins:
+        filtered_origins.append(origin)
+        seen_origins.add(origin)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # In production, specify exact origins
+    allow_origins=filtered_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],

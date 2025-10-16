@@ -219,7 +219,7 @@ class WebRTCSessionManager:
         Returns:
             VoiceSessionState or None if not found
         """
-        return self.voice_session_manager.get_session(session_id)
+        return await self.voice_session_manager.get_session(session_id)
     
     async def get_session_by_peer(self, peer_id: str) -> Optional[Dict[str, Any]]:
         """
@@ -236,7 +236,7 @@ class WebRTCSessionManager:
                 return None
             
             session_id = self._peer_to_session[peer_id]
-            session_state = self.voice_session_manager.get_session(session_id)
+            session_state = await self.voice_session_manager.get_session(session_id)
             
             if not session_state:
                 return None
@@ -275,7 +275,7 @@ class WebRTCSessionManager:
             audio_duration_ms: Duration of user's audio
             transcription_quality: Quality indicator
         """
-        session_state = self.voice_session_manager.get_session(session_id)
+        session_state = await self.voice_session_manager.get_session(session_id)
         
         if not session_state:
             logger.warning(f"[WebRTC] Session not found: {session_id}")
@@ -379,7 +379,7 @@ class WebRTCSessionManager:
         Returns:
             Formatted context string
         """
-        session_state = self.voice_session_manager.get_session(session_id)
+        session_state = await self.voice_session_manager.get_session(session_id)
         
         if not session_state:
             return ""
@@ -424,7 +424,7 @@ class WebRTCSessionManager:
         Returns:
             Dictionary with session statistics
         """
-        session_state = self.voice_session_manager.get_session(session_id)
+        session_state = await self.voice_session_manager.get_session(session_id)
         
         if not session_state:
             return None

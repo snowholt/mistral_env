@@ -10,7 +10,7 @@ setup(
     url="https://github.com/lumiai/beautyai-inference",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
-    python_requires=">=3.11,<3.13",
+    python_requires=">=3.10,<3.13",
     install_requires=[
         "torch>=2.0.0",
         "transformers>=4.36.0",

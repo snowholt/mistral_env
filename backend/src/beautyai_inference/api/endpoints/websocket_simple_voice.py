@@ -663,8 +663,9 @@ class SimpleVoiceWebSocketManager:
             logger.warning(f"🤔 Unknown audio format, defaulting to webm. First 16 bytes: {first_bytes_hex}")
             
             # For debugging: log more info about unrecognized format
+            zeros_check = audio_data[:4] == b'\x00\x00\x00\x00'
             logger.debug(f"Audio data analysis: length={len(audio_data)}, "
-                        f"starts_with_zeros={audio_data[:4] == b'\\x00\\x00\\x00\\x00'}, "
+                        f"starts_with_zeros={zeros_check}, "
                         f"even_length={len(audio_data) % 2 == 0}")
             
             # Default to webm for WebSocket streaming (most common for real-time)

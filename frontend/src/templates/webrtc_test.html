@@ -523,11 +523,11 @@
         <div class="form-group">
           <label>Server URL</label>
           <select id="serverUrlPreset" onchange="updateServerUrl()" style="margin-bottom: 0.5rem;">
-            <option value="local">Local IP (Internal Testing - Bypasses SSL Issue)</option>
-            <option value="domain">Domain (External Access - Requires SSL Fix)</option>
+            <option value="frontend" selected>Frontend Proxy (web.lumidev.ca)</option>
+            <option value="api">Direct API (api.lumidev.ca)</option>
             <option value="custom">Custom URL</option>
           </select>
-          <input type="text" id="serverUrl" value="https://192.168.100.39/api/v1/webrtc/voice" placeholder="https://server:port/path">
+          <input type="text" id="serverUrl" value="https://web.lumidev.ca/api/v1/webrtc/voice" placeholder="https://server:port/path">
           <small style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; display: block;">
             <i class="fas fa-info-circle"></i> Use HTTPS for signaling endpoints (not WSS)
           </small>
@@ -680,17 +680,24 @@
 
   <script>
     // ===== Global State =====
-    let peerConnection = null;
-    let dataChannel = null;
-    let audioStream = null;
-    let isConnected = false;
-    let autoScroll = true;
-    let logCounter = 0;
-    let testMode = 'advanced';
-    let sessionLogs = [];
-    let audioContext = null;
-    let analyser = null;
-    let visualizerAnimationId = null;
+  let peerConnection = null;
+  let dataChannel = null;
+  let audioStream = null;
+  let isConnected = false;
+  let autoScroll = true;
+  let logCounter = 0;
+  let testMode = 'advanced';
+  let sessionLogs = [];
+  let audioContext = null;
+  let analyser = null;
+  let visualizerAnimationId = null;
+  let currentPeerId = null;
+  let currentSessionId = null;
+  let connectionStatusInterval = null;
+  let lastConnectionStatus = null;
+  let isConnecting = false;
+  let pendingIceCandidates = [];
+  const STATUS_POLL_INTERVAL_MS = 3000;
 
     // ===== Utility Functions =====
     function log(message, level = 'info') {
@@ -733,6 +740,13 @@
 
       isConnected = (status === 'connected');
       document.getElementById('startVoiceBtn').disabled = !isConnected;
+
+      const connectBtn = document.getElementById('connectBtn');
+      if (status === 'connected') {
+        connectBtn.innerHTML = '<i class="fas fa-times"></i> Disconnect';
+      } else if (status === 'disconnected') {
+        connectBtn.innerHTML = '<i class="fas fa-plug"></i> Connect to Server';
+      }
     }
 
     function exportLogs() {
@@ -787,6 +801,49 @@
       }
     }
 
+    function getServerBaseUrl() {
+      const rawUrl = document.getElementById('serverUrl').value || '';
+      return rawUrl.replace(/\/$/, '');
+    }
+
+    function startConnectionStatusPolling() {
+      stopConnectionStatusPolling();
+      if (!currentPeerId) {
+        return;
+      }
+
+      connectionStatusInterval = setInterval(() => {
+        fetchConnectionStatus();
+      }, STATUS_POLL_INTERVAL_MS);
+
+      fetchConnectionStatus();
+    }
+
+    function stopConnectionStatusPolling() {
+      if (connectionStatusInterval) {
+        clearInterval(connectionStatusInterval);
+        connectionStatusInterval = null;
+      }
+    }
+
+    function flushPendingIceCandidates() {
+      if (!currentPeerId || pendingIceCandidates.length === 0) {
+        return;
+      }
+
+      const queued = [...pendingIceCandidates];
+      pendingIceCandidates = [];
+
+      queued.forEach(candidate => {
+        sendToServer({
+          type: 'ice',
+          candidate
+        }).catch(error => {
+          log(`Failed to deliver queued ICE candidate: ${error.message}`, 'warning');
+        });
+      });
+    }
+
     // ===== Audio Visualizer =====
     function initAudioVisualizer() {
       const canvas = document.getElementById('audioVisualizer');
@@ -834,6 +891,11 @@
     // ===== WebRTC Functions =====
     async function connect() {
       try {
+        isConnecting = true;
+        currentPeerId = null;
+        currentSessionId = null;
+        lastConnectionStatus = null;
+        stopConnectionStatusPolling();
         updateConnectionStatus('connecting');
         log('Initializing WebRTC connection...', 'info');
 
@@ -854,9 +916,17 @@
             log(`ICE Candidate: ${event.candidate.candidate}`, 'info');
             addIceCandidate(event.candidate, 'Local');
             // Send ICE candidate to server
+            if (!currentPeerId) {
+              pendingIceCandidates.push(event.candidate);
+              log('Queued ICE candidate until peer_id assigned', 'warning');
+              return;
+            }
+
             sendToServer({
               type: 'ice',
               candidate: event.candidate
+            }).catch(error => {
+              log(`Failed to deliver ICE candidate: ${error.message}`, 'warning');
             });
           }
         };
@@ -907,7 +977,7 @@
         log('Created and set local description (offer)', 'success');
 
         // Send offer to server
-        sendToServer({
+        await sendToServer({
           type: 'offer',
           sdp: offer.sdp,
           language: document.getElementById('language').value,
@@ -919,40 +989,188 @@
       } catch (error) {
         log(`Connection error: ${error.message}`, 'error');
         updateConnectionStatus('disconnected');
+        await disconnect();
+        throw error;
+      } finally {
+        isConnecting = false;
       }
     }
 
     async function sendToServer(message) {
-      const serverUrl = document.getElementById('serverUrl').value;
+      const serverUrl = getServerBaseUrl();
+      if (!serverUrl) {
+        const error = new Error('Server URL is not configured');
+        log(error.message, 'error');
+        throw error;
+      }
       const endpoint = message.type === 'offer' ? '/offer' : '/ice';
-      
+
+      let payload = message;
+
+      if (message.type === 'offer') {
+        const metadata = {};
+        if (message.voiceGender) {
+          metadata.voice_gender = message.voiceGender;
+        }
+
+        payload = {
+          sdp: message.sdp,
+          type: 'offer',
+          language: message.language
+        };
+
+        if (Object.keys(metadata).length > 0) {
+          payload.session_metadata = metadata;
+        }
+      } else if (message.type === 'ice') {
+        if (!currentPeerId) {
+          log('Skipping ICE candidate: peer_id not assigned yet', 'warning');
+          return;
+        }
+
+        const candidate = message.candidate || {};
+        if (!candidate.candidate) {
+          log('Skipping ICE candidate: candidate string empty', 'warning');
+          return;
+        }
+        payload = {
+          peer_id: currentPeerId,
+          candidate: candidate.candidate || '',
+          sdp_mid: candidate.sdpMid ?? null,
+          sdp_m_line_index: candidate.sdpMLineIndex ?? null
+        };
+      }
+
       try {
-        const response = await fetch(serverUrl + endpoint, {
+  const response = await fetch(serverUrl + endpoint, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(message)
+          body: JSON.stringify(payload)
         });
 
         const data = await response.json();
-        
-        if (message.type === 'offer' && data.answer) {
-          // Set remote description
-          await peerConnection.setRemoteDescription({
-            type: 'answer',
-            sdp: data.answer
-          });
-          document.getElementById('remoteSdp').textContent = data.answer;
-          log('Received and set remote description (answer)', 'success');
+
+        if (!response.ok) {
+          throw new Error(`Status ${response.status}: ${JSON.stringify(data)}`);
         }
 
-        log(`Server response: ${JSON.stringify(data)}`, testMode === 'debug' ? 'info' : null);
+        if (message.type === 'offer') {
+          if (data.peer_id) {
+            currentPeerId = data.peer_id;
+            currentSessionId = data.session_id || null;
+            log(`Assigned peer_id=${currentPeerId}`, 'success');
+            if (currentSessionId) {
+              log(`Session established (session_id=${currentSessionId})`, 'info');
+            }
+            startConnectionStatusPolling();
+            flushPendingIceCandidates();
+          }
+
+          const answerSdp = data.sdp || data.answer;
+          if (answerSdp) {
+            await peerConnection.setRemoteDescription({ type: 'answer', sdp: answerSdp });
+            document.getElementById('remoteSdp').textContent = answerSdp;
+            log('Received and set remote description (answer)', 'success');
+          }
+
+          if (Array.isArray(data.ice_servers) && data.ice_servers.length > 0) {
+            log(`ICE servers provided: ${data.ice_servers.map(s => s.urls).join(', ')}`, 'info');
+            if (peerConnection && typeof peerConnection.setConfiguration === 'function') {
+              const currentConfig = typeof peerConnection.getConfiguration === 'function'
+                ? peerConnection.getConfiguration()
+                : {};
+              peerConnection.setConfiguration({
+                ...currentConfig,
+                iceServers: data.ice_servers
+              });
+              log('RTCPeerConnection configuration updated with server ICE list', 'info');
+            }
+          }
+        } else if (message.type === 'ice') {
+          const index = data?.candidate_index ?? 'n/a';
+          log(`ICE candidate accepted (index=${index})`, 'success');
+        }
+
+        if (testMode === 'debug') {
+          log(`Server response: ${JSON.stringify(data)}`, 'info');
+        }
+
+        return data;
       } catch (error) {
         log(`Failed to send to server: ${error.message}`, 'error');
+        throw error;
       }
     }
 
-    function disconnect() {
+    async function fetchConnectionStatus() {
+      if (!currentPeerId) {
+        return;
+      }
+
+      const baseUrl = getServerBaseUrl();
+      if (!baseUrl) {
+        if (testMode === 'debug') {
+          log('Status poll skipped because server URL is missing', 'warning');
+        }
+        return;
+      }
+      const statusUrl = `${baseUrl}/${encodeURIComponent(currentPeerId)}/status`;
+
+      try {
+        const response = await fetch(statusUrl);
+        if (!response.ok) {
+          const errorBody = await response.text();
+          throw new Error(`Status ${response.status}: ${errorBody}`);
+        }
+
+        const data = await response.json();
+
+        const statusFields = {
+          connection_state: data.connection_state,
+          ice_connection_state: data.ice_connection_state,
+          ice_gathering_state: data.ice_gathering_state
+        };
+
+        if (!lastConnectionStatus ||
+            lastConnectionStatus.connection_state !== data.connection_state ||
+            lastConnectionStatus.ice_connection_state !== data.ice_connection_state ||
+            lastConnectionStatus.ice_gathering_state !== data.ice_gathering_state) {
+          log(`Server status update: ${JSON.stringify(statusFields)}`, 'info');
+        }
+
+        lastConnectionStatus = data;
+
+        const connState = (data.connection_state || '').toLowerCase();
+        const iceState = (data.ice_connection_state || '').toLowerCase();
+
+        if (connState === 'connected' || iceState === 'connected') {
+          updateConnectionStatus('connected');
+        } else if (connState === 'disconnected' || connState === 'failed' || iceState === 'failed') {
+          updateConnectionStatus('disconnected');
+        } else {
+          updateConnectionStatus('connecting');
+        }
+
+        if (data.session_id && data.session_id !== currentSessionId) {
+          currentSessionId = data.session_id;
+          log(`Session synchronized (session_id=${currentSessionId})`, 'info');
+        }
+      } catch (error) {
+        if (testMode === 'debug') {
+          log(`Status poll failed: ${error.message}`, 'warning');
+        }
+      }
+    }
+
+    async function disconnect() {
+      stopConnectionStatusPolling();
+      const peerIdToCleanup = currentPeerId;
+      const baseUrl = getServerBaseUrl();
+
       if (peerConnection) {
+        peerConnection.onicecandidate = null;
+        peerConnection.oniceconnectionstatechange = null;
+        peerConnection.ontrack = null;
         peerConnection.close();
         peerConnection = null;
       }
@@ -976,6 +1194,26 @@
 
       updateConnectionStatus('disconnected');
       log('Disconnected from WebRTC session', 'info');
+      currentPeerId = null;
+      currentSessionId = null;
+      lastConnectionStatus = null;
+      pendingIceCandidates = [];
+
+      if (peerIdToCleanup && baseUrl) {
+        const cleanupUrl = `${baseUrl}/${encodeURIComponent(peerIdToCleanup)}`;
+        try {
+          const response = await fetch(cleanupUrl, { method: 'DELETE' });
+          if (!response.ok) {
+            const body = await response.text();
+            throw new Error(`Status ${response.status}: ${body}`);
+          }
+          log(`Server cleanup completed for ${peerIdToCleanup}`, 'info');
+        } catch (error) {
+          log(`Server cleanup failed for ${peerIdToCleanup}: ${error.message}`, 'warning');
+        }
+      } else if (peerIdToCleanup) {
+        log('Skipped server cleanup because server URL is missing', 'warning');
+      }
     }
 
     async function getStats() {
@@ -1010,13 +1248,38 @@
     }
 
     // ===== Event Listeners =====
-    document.getElementById('connectBtn').addEventListener('click', () => {
-      if (isConnected) {
-        disconnect();
-        document.getElementById('connectBtn').innerHTML = '<i class="fas fa-plug"></i> Connect to Server';
-      } else {
-        connect();
-        document.getElementById('connectBtn').innerHTML = '<i class="fas fa-times"></i> Disconnect';
+    document.getElementById('connectBtn').addEventListener('click', async () => {
+      const btn = document.getElementById('connectBtn');
+
+      if (isConnecting) {
+        log('Connection attempt already in progress', 'warning');
+        return;
+      }
+
+      const shouldDisconnect = isConnected || peerConnection !== null || currentPeerId !== null;
+
+      if (shouldDisconnect) {
+        btn.disabled = true;
+        btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Disconnecting';
+        try {
+          await disconnect();
+          btn.innerHTML = '<i class="fas fa-plug"></i> Connect to Server';
+        } finally {
+          btn.disabled = false;
+        }
+        return;
+      }
+
+      btn.disabled = true;
+      btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Connecting...';
+
+      try {
+        await connect();
+        btn.innerHTML = '<i class="fas fa-times"></i> Disconnect';
+      } catch (error) {
+        btn.innerHTML = '<i class="fas fa-plug"></i> Connect to Server';
+      } finally {
+        btn.disabled = false;
       }
     });
 
@@ -1091,20 +1354,20 @@
     function updateServerUrl() {
       const preset = document.getElementById('serverUrlPreset').value;
       const urlInput = document.getElementById('serverUrl');
-      
-      if (preset === 'local') {
-        urlInput.value = 'https://192.168.100.39/api/v1/webrtc/voice';
+
+      if (preset === 'frontend') {
+        urlInput.value = 'https://web.lumidev.ca/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
-      } else if (preset === 'domain') {
-        urlInput.value = 'https://dev.gmai.sa/api/v1/webrtc/voice';
+      } else if (preset === 'api') {
+        urlInput.value = 'https://api.lumidev.ca/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
       } else {
         urlInput.readOnly = false;
         urlInput.style.backgroundColor = '';
       }
-      
+
       log(`Server URL changed to: ${urlInput.value}`, 'info');
     }
     
