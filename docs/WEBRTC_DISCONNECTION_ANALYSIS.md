@@ -91,9 +91,20 @@ From WebRTC/aiortc specification:
 ```python
 # Added MediaStreamTrack to imports
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
+
+# Set to None when aiortc unavailable (not object) to avoid misleading fallback
+except ImportError:
+    AIORTC_AVAILABLE = False
+    MediaStreamTrack = None  # type: ignore
 ```
 
-#### 2. Added Voice Adapter Storage
+#### 2. Added Configuration Constant
+```python
+# Configuration constants
+DEFAULT_LANGUAGE = "ar"  # Default language when session info unavailable
+```
+
+#### 3. Added Voice Adapter Storage
 ```python
 def __init__(self, ...):
     # ... existing code ...

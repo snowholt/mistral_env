@@ -23,13 +23,17 @@ try:
     AIORTC_AVAILABLE = True
 except ImportError:
     AIORTC_AVAILABLE = False
-    MediaStreamTrack = object
+    MediaStreamTrack = None  # type: ignore
     logger = logging.getLogger(__name__)
     logger.warning("aiortc not available - WebRTC functionality disabled")
 
 from .config_manager import get_config_manager
 
 logger = logging.getLogger(__name__)
+
+
+# Configuration constants
+DEFAULT_LANGUAGE = "ar"  # Default language when session info unavailable
 
 
 class PeerConnectionState(Enum):
@@ -300,23 +304,28 @@ class WebRTCConnectionPool:
                                 WebRTCVoiceConfig
                             )
                             from ..services.voice.conversation.simple_voice_service import SimpleVoiceService
+                            from .webrtc_session_manager import get_webrtc_session_manager
                             
                             # Get session info from session manager
-                            language = "ar"  # Default
+                            language = DEFAULT_LANGUAGE
                             session_id = None
                             try:
-                                from .webrtc_session_manager import get_webrtc_session_manager
                                 session_mgr = get_webrtc_session_manager()
                                 session_info = await session_mgr.get_session_by_peer(peer_id)
                                 if session_info:
-                                    language = session_info.get('language', 'ar')
+                                    language = session_info.get('language', DEFAULT_LANGUAGE)
                                     session_id = session_info.get('session_id')
                             except Exception as e:
                                 logger.warning(f"[WebRTC] Could not get session info for {peer_id}: {e}")
                             
                             if not session_id:
-                                logger.error(f"[WebRTC] No session_id found for peer {peer_id}, cannot create voice adapter")
-                                return
+                                # Generate temporary session_id as fallback to maintain connection
+                                import uuid
+                                session_id = f"webrtc_temp_{uuid.uuid4().hex[:12]}"
+                                logger.warning(
+                                    f"[WebRTC] No session_id found for peer {peer_id}, "
+                                    f"using temporary session {session_id}"
+                                )
                             
                             # Create voice service for this peer if not exists
                             if peer_id not in self._voice_adapters:
@@ -353,7 +362,6 @@ class WebRTCConnectionPool:
                                 
                                 # Update session metadata to indicate audio track is active
                                 try:
-                                    from .webrtc_session_manager import get_webrtc_session_manager
                                     session_mgr = get_webrtc_session_manager()
                                     await session_mgr.update_session_metadata(
                                         peer_id=peer_id,
