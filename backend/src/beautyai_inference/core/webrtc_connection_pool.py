@@ -297,6 +297,41 @@ class WebRTCConnectionPool:
                     logger.info(f"[WebRTC] Received {track.kind} track for peer {peer_id}")
                     
                     if track.kind == "audio":
+                        # Start periodic activity updater to prevent idle timeout during audio processing
+                        async def keep_alive_during_audio():
+                            """
+                            Update connection activity periodically while audio is active.
+                            
+                            This prevents the cleanup loop from removing the connection
+                            during active audio streaming. Without this, connections appear
+                            idle after initial setup and get cleaned up even though audio
+                            frames are being processed.
+                            """
+                            try:
+                                update_interval = 30  # Update every 30 seconds
+                                while peer_id in self._connections:
+                                    await asyncio.sleep(update_interval)
+                                    if peer_id in self._connections:
+                                        self._connections[peer_id].update_activity()
+                                        logger.debug(
+                                            f"[WebRTC] Updated activity for peer {peer_id} "
+                                            f"during audio processing"
+                                        )
+                            except asyncio.CancelledError:
+                                logger.debug(
+                                    f"[WebRTC] Keep-alive task cancelled for peer {peer_id}"
+                                )
+                            except Exception as e:
+                                logger.error(
+                                    f"[WebRTC] Error in keep-alive task for {peer_id}: {e}"
+                                )
+                        
+                        # Start keep-alive task (runs in background, doesn't block)
+                        asyncio.create_task(keep_alive_during_audio())
+                        logger.info(
+                            f"[WebRTC] Started keep-alive task for peer {peer_id} "
+                            f"to prevent idle timeout during audio"
+                        )
                         try:
                             # Import voice service adapter (lazy import to avoid circular dependencies)
                             from ..services.voice.webrtc_voice_service_adapter import (
