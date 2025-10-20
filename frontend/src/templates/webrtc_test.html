@@ -703,6 +703,9 @@
         <button class="tab" data-tab="sdp">
           <i class="fas fa-code"></i> SDP
         </button>
+        <button class="tab" data-tab="json">
+          <i class="fas fa-file-code"></i> JSON Log
+        </button>
       </div>
 
       <!-- Logs Tab -->
@@ -750,6 +753,40 @@
         
         <h3 style="margin-bottom: 1rem; font-size: 1rem;">Remote Answer</h3>
         <pre id="remoteSdp" style="background: var(--bg-secondary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.75rem;">No SDP received yet</pre>
+      </div>
+
+      <!-- JSON Log Tab -->
+      <div class="tab-content" id="jsonTab">
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+          <div style="display: flex; gap: 0.5rem;">
+            <button class="btn btn-secondary" onclick="updateJsonLog()">
+              <i class="fas fa-sync"></i>
+              Refresh JSON
+            </button>
+            <button class="btn btn-secondary" onclick="copyJsonLog()">
+              <i class="fas fa-copy"></i>
+              Copy to Clipboard
+            </button>
+          </div>
+          <div>
+            <small style="color: var(--text-muted);">Auto-updates every 5 seconds</small>
+          </div>
+        </div>
+        <div style="background: var(--bg-secondary); border: 1px solid var(--border-color); border-radius: 8px; padding: 1rem; margin-bottom: 1rem;">
+          <div style="margin-bottom: 0.5rem; font-weight: 600; color: var(--primary-color);">
+            <i class="fas fa-info-circle"></i> About These Logs
+          </div>
+          <div style="font-size: 0.85rem; color: var(--text-secondary); line-height: 1.6;">
+            <strong>📋 Logs Tab:</strong> Human-readable event timeline (connection, audio, errors)<br>
+            <strong>🌐 ICE Candidates:</strong> Network connectivity paths tested during connection<br>
+            <strong>📊 WebRTC Stats:</strong> Live connection quality metrics (latency, packet loss, bitrate)<br>
+            <strong>📄 SDP:</strong> Session Description Protocol - connection negotiation details<br>
+            <strong>📦 JSON Log (this tab):</strong> Complete structured data for debugging and sharing<br>
+            <br>
+            <strong style="color: var(--success-color);">✅ For debugging, share the JSON Log - it includes everything!</strong>
+          </div>
+        </div>
+        <pre id="jsonLogContent" style="background: var(--bg-secondary); padding: 1rem; border-radius: 6px; overflow-x: auto; font-size: 0.70rem; max-height: 600px; overflow-y: auto; border: 1px solid var(--border-color);">Loading JSON log...</pre>
       </div>
     </div>
   </div>
@@ -903,8 +940,44 @@
       }
     }
 
-    function exportLogs() {
-      const data = {
+    function getCompleteLogData() {
+      // Gather all ICE candidates from DOM
+      const iceCandidatesElements = document.querySelectorAll('#iceCandidates .ice-candidate');
+      const iceCandidates = Array.from(iceCandidatesElements).map(el => {
+        const text = el.textContent;
+        const typeMatch = text.match(/^(Local|Remote):/);
+        const type = typeMatch ? typeMatch[1] : 'Unknown';
+        const jsonStart = text.indexOf('{');
+        if (jsonStart !== -1) {
+          try {
+            return {
+              type: type,
+              candidate: JSON.parse(text.substring(jsonStart))
+            };
+          } catch (e) {
+            return { type: type, raw: text };
+          }
+        }
+        return { type: type, raw: text };
+      });
+
+      // Gather WebRTC stats from table
+      const statsRows = document.querySelectorAll('#statsTable tbody tr');
+      const stats = {};
+      statsRows.forEach(row => {
+        const cells = row.cells;
+        if (cells.length >= 2) {
+          const key = cells[0].textContent;
+          const value = cells[1].textContent;
+          try {
+            stats[key] = JSON.parse(value);
+          } catch (e) {
+            stats[key] = value;
+          }
+        }
+      });
+
+      return {
         timestamp: new Date().toISOString(),
         testMode,
         configuration: {
@@ -912,14 +985,48 @@
           language: document.getElementById('language').value,
           voiceGender: document.getElementById('voiceGender').value
         },
+        connection: {
+          peerId: currentPeerId,
+          sessionId: currentSessionId,
+          isConnected: isConnected,
+          status: document.getElementById('connectionStatus').textContent.trim()
+        },
         logs: sessionLogs,
+        iceCandidates: iceCandidates,
+        sdp: {
+          local: document.getElementById('localSdp').textContent,
+          remote: document.getElementById('remoteSdp').textContent
+        },
         metrics: {
           latency: document.getElementById('latency').textContent,
           packetLoss: document.getElementById('packetLoss').textContent,
           jitter: document.getElementById('jitter').textContent,
           bitrate: document.getElementById('bitrate').textContent
-        }
+        },
+        webrtcStats: stats
       };
+    }
+
+    function updateJsonLog() {
+      const data = getCompleteLogData();
+      const jsonContent = document.getElementById('jsonLogContent');
+      if (jsonContent) {
+        jsonContent.textContent = JSON.stringify(data, null, 2);
+      }
+    }
+
+    function copyJsonLog() {
+      const data = getCompleteLogData();
+      const jsonText = JSON.stringify(data, null, 2);
+      navigator.clipboard.writeText(jsonText).then(() => {
+        log('JSON log copied to clipboard', 'success');
+      }).catch(err => {
+        log(`Failed to copy: ${err.message}`, 'error');
+      });
+    }
+
+    function exportLogs() {
+      const data = getCompleteLogData();
 
       const filename = `webrtc_test_${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1572,12 +1679,20 @@
     log('WebRTC Test Interface initialized', 'success');
     log('Ready to connect to WebRTC signaling server', 'info');
 
+    // Initialize JSON log
+    updateJsonLog();
+
     // Periodic stats update
     setInterval(() => {
       if (isConnected) {
         getStats();
       }
     }, 1000);
+
+    // Periodic JSON log update (every 5 seconds)
+    setInterval(() => {
+      updateJsonLog();
+    }, 5000);
   </script>
 </body>
 </html>
