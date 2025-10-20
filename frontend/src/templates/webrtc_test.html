@@ -451,6 +451,65 @@
       font-size: 0.75rem;
     }
 
+    .conversation-message {
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      border-radius: 8px;
+      animation: fadeIn 0.3s ease;
+    }
+
+    .conversation-message.user {
+      background: rgba(124, 58, 237, 0.1);
+      border-left: 3px solid var(--primary-color);
+    }
+
+    .conversation-message.assistant {
+      background: rgba(16, 185, 129, 0.1);
+      border-left: 3px solid var(--success-color);
+    }
+
+    .conversation-message .message-label {
+      font-weight: 600;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      margin-bottom: 0.25rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .conversation-message.user .message-label {
+      color: var(--primary-color);
+    }
+
+    .conversation-message.assistant .message-label {
+      color: var(--success-color);
+    }
+
+    .conversation-message .message-text {
+      color: var(--text-primary);
+      font-size: 0.9rem;
+      line-height: 1.5;
+    }
+
+    .conversation-message .message-timestamp {
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      margin-top: 0.25rem;
+    }
+
+    @keyframes fadeIn {
+      from {
+        opacity: 0;
+        transform: translateY(-10px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
     @media (max-width: 768px) {
       .container {
         padding: 1rem;
@@ -583,6 +642,23 @@
             <option>Default Microphone</option>
           </select>
         </div>
+      </div>
+
+      <!-- Conversation Display Card -->
+      <div class="card">
+        <div class="card-header">
+          <i class="fas fa-comments"></i>
+          <span class="card-title">Conversation</span>
+        </div>
+        <div style="max-height: 300px; overflow-y: auto; margin-bottom: 1rem;" id="conversationContainer">
+          <div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+            <i class="fas fa-info-circle"></i> Start a voice conversation to see transcriptions and responses here
+          </div>
+        </div>
+        <button class="btn btn-secondary" onclick="clearConversation()" style="width: 100%; justify-content: center;">
+          <i class="fas fa-trash"></i>
+          Clear Conversation
+        </button>
       </div>
 
       <!-- Connection Metrics Card -->
@@ -721,6 +797,84 @@
       if (autoScroll) {
         container.scrollTop = container.scrollHeight;
       }
+    }
+
+    function displayTranscription(text, timestamp) {
+      const container = document.getElementById('conversationContainer');
+      const emptyMessage = container.querySelector('[style*="text-align: center"]');
+      if (emptyMessage) {
+        emptyMessage.remove();
+      }
+      
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'conversation-message user';
+      const timeStr = new Date(timestamp * 1000).toLocaleTimeString();
+      messageDiv.innerHTML = `
+        <div class="message-label">
+          <i class="fas fa-user"></i>
+          You
+        </div>
+        <div class="message-text">${escapeHtml(text)}</div>
+        <div class="message-timestamp">${timeStr}</div>
+      `;
+      container.appendChild(messageDiv);
+      container.scrollTop = container.scrollHeight;
+      log(`Transcription displayed: ${text.substring(0, 50)}...`, 'success');
+    }
+
+    function displayAssistantResponse(text, timestamp) {
+      const container = document.getElementById('conversationContainer');
+      const emptyMessage = container.querySelector('[style*="text-align: center"]');
+      if (emptyMessage) {
+        emptyMessage.remove();
+      }
+      
+      const messageDiv = document.createElement('div');
+      messageDiv.className = 'conversation-message assistant';
+      const timeStr = new Date(timestamp * 1000).toLocaleTimeString();
+      messageDiv.innerHTML = `
+        <div class="message-label">
+          <i class="fas fa-robot"></i>
+          Assistant
+        </div>
+        <div class="message-text">${escapeHtml(text)}</div>
+        <div class="message-timestamp">${timeStr}</div>
+      `;
+      container.appendChild(messageDiv);
+      container.scrollTop = container.scrollHeight;
+      log(`Assistant response displayed: ${text.substring(0, 50)}...`, 'success');
+    }
+
+    function playTTSAudio(audioBase64) {
+      try {
+        const audioBytes = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
+        const audioBlob = new Blob([audioBytes], { type: 'audio/wav' });
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audio.play().then(() => {
+          log('Playing TTS audio', 'success');
+        }).catch(error => {
+          log(`Failed to play TTS audio: ${error.message}`, 'error');
+        });
+      } catch (error) {
+        log(`Error decoding TTS audio: ${error.message}`, 'error');
+      }
+    }
+
+    function clearConversation() {
+      const container = document.getElementById('conversationContainer');
+      container.innerHTML = `
+        <div style="padding: 1rem; text-align: center; color: var(--text-muted); font-size: 0.875rem;">
+          <i class="fas fa-info-circle"></i> Start a voice conversation to see transcriptions and responses here
+        </div>
+      `;
+      log('Conversation cleared', 'info');
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
     }
 
     function updateConnectionStatus(status) {
@@ -946,6 +1100,45 @@
           const remoteAudio = new Audio();
           remoteAudio.srcObject = event.streams[0];
           remoteAudio.play();
+        };
+
+        // Handle incoming data channel from server
+        peerConnection.ondatachannel = (event) => {
+          const channel = event.channel;
+          log(`Data channel '${channel.label}' received from server`, 'success');
+          
+          channel.onopen = () => {
+            log(`Data channel '${channel.label}' opened`, 'success');
+          };
+          
+          channel.onclose = () => {
+            log(`Data channel '${channel.label}' closed`, 'info');
+          };
+          
+          channel.onmessage = (evt) => {
+            try {
+              const message = JSON.parse(evt.data);
+              log(`Data channel message: ${message.type}`, 'info');
+              
+              switch (message.type) {
+                case 'transcription':
+                  displayTranscription(message.text, message.timestamp);
+                  break;
+                case 'assistant_response':
+                  displayAssistantResponse(message.text, message.timestamp);
+                  break;
+                case 'tts_audio':
+                  playTTSAudio(message.audio_base64);
+                  break;
+                default:
+                  log(`Unknown message type: ${message.type}`, 'warning');
+              }
+            } catch (error) {
+              log(`Error processing data channel message: ${error.message}`, 'error');
+            }
+          };
+          
+          dataChannel = channel;
         };
 
         // Get user media

@@ -76,3 +76,15 @@ refrences/
 copilot_resources/plans
 voice_tests/
 test_temp_venv.py
+
+# Configuration and service files (local customizations)
+beautyai-api.service
+beautyai-api.service.alibaba
+beautyai-webui.service
+beautyai-webui.service.alibaba
+config_requirements.txt
+deploy_alibaba.sh
+gmai.sa.backup
+nginx-beautyai-config.alibaba.conf
+nginx-beautyai-config.conf
+README.md
