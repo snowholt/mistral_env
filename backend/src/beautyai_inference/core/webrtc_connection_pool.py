@@ -184,6 +184,9 @@ class WebRTCConnectionPool:
         # Voice service adapters per peer (handles audio processing pipeline)
         self._voice_adapters: Dict[str, Any] = {}  # peer_id -> WebRTCVoiceServiceAdapter
         
+        # Keep-alive tasks for active audio tracks
+        self._keepalive_tasks: Dict[str, asyncio.Task] = {}  # peer_id -> keep-alive task
+        
         # Locks for thread safety
         self._lock = asyncio.Lock()
         
@@ -327,7 +330,8 @@ class WebRTCConnectionPool:
                                 )
                         
                         # Start keep-alive task (runs in background, doesn't block)
-                        asyncio.create_task(keep_alive_during_audio())
+                        task = asyncio.create_task(keep_alive_during_audio())
+                        self._keepalive_tasks[peer_id] = task
                         logger.info(
                             f"[WebRTC] Started keep-alive task for peer {peer_id} "
                             f"to prevent idle timeout during audio"
@@ -587,6 +591,21 @@ class WebRTCConnectionPool:
         connection_data = self._connections[peer_id]
         
         try:
+            # Cancel keep-alive task if exists
+            if peer_id in self._keepalive_tasks:
+                try:
+                    task = self._keepalive_tasks[peer_id]
+                    if not task.done():
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    del self._keepalive_tasks[peer_id]
+                    logger.debug(f"[WebRTC] Cancelled keep-alive task for {peer_id}")
+                except Exception as e:
+                    logger.error(f"[WebRTC] Error cancelling keep-alive task for {peer_id}: {e}")
+            
             # Stop voice adapter if exists
             if peer_id in self._voice_adapters:
                 try:
