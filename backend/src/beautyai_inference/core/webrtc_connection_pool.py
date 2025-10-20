@@ -18,11 +18,12 @@ from typing import Dict, Any, Optional, List, Set
 from enum import Enum
 
 try:
-    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate
+    from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
     from aiortc.contrib.media import MediaRecorder, MediaRelay
     AIORTC_AVAILABLE = True
 except ImportError:
     AIORTC_AVAILABLE = False
+    MediaStreamTrack = object
     logger = logging.getLogger(__name__)
     logger.warning("aiortc not available - WebRTC functionality disabled")
 
@@ -176,6 +177,9 @@ class WebRTCConnectionPool:
         self._connections: Dict[str, WebRTCConnectionData] = {}
         self._user_connections: Dict[str, Set[str]] = {}  # user_id -> peer_ids
         
+        # Voice service adapters per peer (handles audio processing pipeline)
+        self._voice_adapters: Dict[str, Any] = {}  # peer_id -> WebRTCVoiceServiceAdapter
+        
         # Locks for thread safety
         self._lock = asyncio.Lock()
         
@@ -275,6 +279,95 @@ class WebRTCConnectionPool:
                 async def on_icegatheringstatechange():
                     if peer_id in self._connections:
                         self._connections[peer_id].update_ice_gathering_state(pc.iceGatheringState)
+                
+                @pc.on("track")
+                async def on_track(track):
+                    """
+                    Handle incoming audio track from client.
+                    
+                    This is critical for WebRTC connection stability:
+                    - Without consuming the track, the connection may timeout or disconnect
+                    - We create a voice service adapter to process the audio stream
+                    - The adapter wires: Track → AudioProcessor → VAD → Buffer → STT/LLM/TTS
+                    """
+                    logger.info(f"[WebRTC] Received {track.kind} track for peer {peer_id}")
+                    
+                    if track.kind == "audio":
+                        try:
+                            # Import voice service adapter (lazy import to avoid circular dependencies)
+                            from ..services.voice.webrtc_voice_service_adapter import (
+                                WebRTCVoiceServiceAdapter,
+                                WebRTCVoiceConfig
+                            )
+                            from ..services.voice.conversation.simple_voice_service import SimpleVoiceService
+                            
+                            # Get session info from session manager
+                            language = "ar"  # Default
+                            session_id = None
+                            try:
+                                from .webrtc_session_manager import get_webrtc_session_manager
+                                session_mgr = get_webrtc_session_manager()
+                                session_info = await session_mgr.get_session_by_peer(peer_id)
+                                if session_info:
+                                    language = session_info.get('language', 'ar')
+                                    session_id = session_info.get('session_id')
+                            except Exception as e:
+                                logger.warning(f"[WebRTC] Could not get session info for {peer_id}: {e}")
+                            
+                            if not session_id:
+                                logger.error(f"[WebRTC] No session_id found for peer {peer_id}, cannot create voice adapter")
+                                return
+                            
+                            # Create voice service for this peer if not exists
+                            if peer_id not in self._voice_adapters:
+                                logger.info(f"[WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
+                                
+                                # Create SimpleVoiceService instance
+                                simple_voice_service = SimpleVoiceService(language=language)
+                                
+                                # Create voice adapter with default config
+                                voice_config = WebRTCVoiceConfig(
+                                    default_language=language
+                                )
+                                
+                                adapter = WebRTCVoiceServiceAdapter(
+                                    peer_id=peer_id,
+                                    session_id=session_id,
+                                    language=language,
+                                    voice_service=simple_voice_service,
+                                    config=voice_config
+                                )
+                                
+                                # Initialize the adapter
+                                if await adapter.initialize():
+                                    self._voice_adapters[peer_id] = adapter
+                                    logger.info(f"[WebRTC] Voice adapter initialized for peer {peer_id}")
+                                else:
+                                    logger.error(f"[WebRTC] Failed to initialize voice adapter for {peer_id}")
+                                    return
+                            
+                            # Start processing audio from the track
+                            adapter = self._voice_adapters[peer_id]
+                            if await adapter.start_voice_session(track):
+                                logger.info(f"[WebRTC] Voice session started for peer {peer_id}")
+                                
+                                # Update session metadata to indicate audio track is active
+                                try:
+                                    from .webrtc_session_manager import get_webrtc_session_manager
+                                    session_mgr = get_webrtc_session_manager()
+                                    await session_mgr.update_session_metadata(
+                                        peer_id=peer_id,
+                                        audio_track_active=True
+                                    )
+                                except Exception as e:
+                                    logger.warning(f"[WebRTC] Could not update session metadata: {e}")
+                            else:
+                                logger.error(f"[WebRTC] Failed to start voice session for {peer_id}")
+                        
+                        except Exception as e:
+                            logger.error(f"[WebRTC] Error handling audio track for {peer_id}: {e}", exc_info=True)
+                    else:
+                        logger.info(f"[WebRTC] Ignoring non-audio track ({track.kind}) for peer {peer_id}")
                 
                 # Process offer
                 offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
@@ -451,6 +544,16 @@ class WebRTCConnectionPool:
         connection_data = self._connections[peer_id]
         
         try:
+            # Stop voice adapter if exists
+            if peer_id in self._voice_adapters:
+                try:
+                    adapter = self._voice_adapters[peer_id]
+                    await adapter.stop_voice_session()
+                    del self._voice_adapters[peer_id]
+                    logger.info(f"[WebRTC] Stopped voice adapter for {peer_id}")
+                except Exception as e:
+                    logger.error(f"[WebRTC] Error stopping voice adapter for {peer_id}: {e}")
+            
             # Close peer connection
             if connection_data.peer_connection:
                 await connection_data.peer_connection.close()
