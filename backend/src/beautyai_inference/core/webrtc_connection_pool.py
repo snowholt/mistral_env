@@ -274,24 +274,35 @@ class WebRTCConnectionPool:
             try:
                 pc = RTCPeerConnection()
                 
-                # Create data channel for sending transcriptions/responses to client
-                data_channel = pc.createDataChannel("voice_results", ordered=True)
+                # The client will create the data channel in the offer.
+                # Server listens for it via @pc.on("datachannel") handler below.
+                data_channel = None  # Will be set when client's channel is received
+                logger.info(f"[WebRTC] RTCPeerConnection created for peer {peer_id}, waiting for client data channel")
                 
-                @data_channel.on("open")
-                def on_dc_open():
-                    logger.info(f"[WebRTC] Data channel opened for peer {peer_id}")
-                    if peer_id in self._connections:
-                        self._connections[peer_id].update_activity()
+                @pc.on("datachannel")
+                def on_datachannel_from_client(channel):
+                    """Handle data channel created by client (in offer)."""
+                    nonlocal data_channel
+                    data_channel = channel
+                    logger.info(f"[WebRTC] ✓ Received data channel '{channel.label}' from client for peer {peer_id}")
+                    
+                    @channel.on("open")
+                    def on_dc_open():
+                        logger.info(f"[WebRTC] ✓ Data channel '{channel.label}' OPENED for peer {peer_id}")
+                        if peer_id in self._connections:
+                            self._connections[peer_id].update_activity()
+                            # Update the stored reference now that it's open
+                            self._connections[peer_id].data_channel = data_channel
+                    
+                    @channel.on("close")
+                    def on_dc_close():
+                        logger.info(f"[WebRTC] Data channel '{channel.label}' CLOSED for peer {peer_id}")
+                    
+                    @channel.on("message")
+                    def on_dc_message(message):
+                        logger.debug(f"[WebRTC] Data channel message from {peer_id}: {message}")
                 
-                @data_channel.on("close")
-                def on_dc_close():
-                    logger.info(f"[WebRTC] Data channel closed for peer {peer_id}")
-                
-                @data_channel.on("message")
-                def on_dc_message(message):
-                    logger.debug(f"[WebRTC] Data channel message from {peer_id}: {message}")
-                
-                logger.info(f"[WebRTC] Data channel created for peer {peer_id}")
+                logger.info(f"[WebRTC] Data channel handler registered for peer {peer_id}")
                 
                 # Set up event handlers
                 @pc.on("connectionstatechange")
@@ -418,8 +429,10 @@ class WebRTCConnectionPool:
                                 # Define callback functions to send data via data channel
                                 def send_transcription(p_id: str, text: str):
                                     """Send transcription via data channel"""
+                                    logger.info(f"[WebRTC] send_transcription called for {p_id}: {text[:50]}...")
                                     if p_id in self._connections:
                                         dc = self._connections[p_id].data_channel
+                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
                                         if dc and dc.readyState == "open":
                                             import json
                                             try:
@@ -428,16 +441,20 @@ class WebRTCConnectionPool:
                                                     "text": text,
                                                     "timestamp": time.time()
                                                 }))
-                                                logger.info(f"[WebRTC] Sent transcription to {p_id}: {text[:50]}...")
+                                                logger.info(f"[WebRTC] ✓ Sent transcription to {p_id}: {text[:50]}...")
                                             except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send transcription: {e}")
+                                                logger.error(f"[WebRTC] Failed to send transcription: {e}", exc_info=True)
                                         else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send transcription")
+                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send transcription")
+                                    else:
+                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send transcription")
                                 
                                 def send_llm_response(p_id: str, text: str):
                                     """Send LLM response via data channel"""
+                                    logger.info(f"[WebRTC] send_llm_response called for {p_id}: {text[:50]}...")
                                     if p_id in self._connections:
                                         dc = self._connections[p_id].data_channel
+                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
                                         if dc and dc.readyState == "open":
                                             import json
                                             try:
@@ -446,11 +463,13 @@ class WebRTCConnectionPool:
                                                     "text": text,
                                                     "timestamp": time.time()
                                                 }))
-                                                logger.info(f"[WebRTC] Sent LLM response to {p_id}: {text[:50]}...")
+                                                logger.info(f"[WebRTC] ✓ Sent LLM response to {p_id}: {text[:50]}...")
                                             except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send LLM response: {e}")
+                                                logger.error(f"[WebRTC] Failed to send LLM response: {e}", exc_info=True)
                                         else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send LLM response")
+                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send LLM response")
+                                    else:
+                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send LLM response")
                                 
                                 def send_tts_audio(p_id: str, audio_bytes: bytes):
                                     """Send TTS audio via data channel"""
@@ -515,11 +534,18 @@ class WebRTCConnectionPool:
                 
                 # Process offer
                 offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
+                logger.debug(f"[WebRTC] Client offer SDP has {offer_sdp.count('m=application')} application sections")
                 await pc.setRemoteDescription(offer)
                 
                 # Create answer
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
+                logger.info(f"[WebRTC] Answer SDP created for {peer_id}")
+                logger.debug(f"[WebRTC] Answer SDP has {answer.sdp.count('m=application')} application sections")
+                if "a=sctp-port" in answer.sdp:
+                    logger.info(f"[WebRTC] ✓ Answer SDP contains SCTP (data channel) for {peer_id}")
+                else:
+                    logger.warning(f"[WebRTC] ⚠️ Answer SDP does NOT contain SCTP for {peer_id} - data channel may not work!")
                 
                 # Store connection data
                 connection_data = WebRTCConnectionData(

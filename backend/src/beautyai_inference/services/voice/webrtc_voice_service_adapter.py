@@ -371,13 +371,18 @@ class WebRTCVoiceServiceAdapter:
             )
             
             if not transcription_result.get("success"):
-                self.logger.error("Transcription failed")
+                self.logger.error(f"[ADAPTER] Transcription failed for peer {self.peer_id}")
                 return transcription_result
             
             transcript = transcription_result.get("transcription", "")
             
+            self.logger.info(f"[ADAPTER] ✓ Transcription complete for peer {self.peer_id}: '{transcript}'")
+            
             if self._on_transcription:
+                self.logger.info(f"[ADAPTER] Calling on_transcription callback for peer {self.peer_id}")
                 self._on_transcription(self.peer_id, transcript)
+            else:
+                self.logger.warning(f"[ADAPTER] No on_transcription callback registered for peer {self.peer_id}")
             
             self.logger.info(f"Transcription: {transcript}")
             
@@ -405,8 +410,13 @@ class WebRTCVoiceServiceAdapter:
             
             llm_response = llm_result.get("response", "")
             
+            self.logger.info(f"[ADAPTER] ✓ LLM response generated for peer {self.peer_id}: '{llm_response[:100]}...'")
+            
             if self._on_llm_response:
+                self.logger.info(f"[ADAPTER] Calling on_llm_response callback for peer {self.peer_id}")
                 self._on_llm_response(self.peer_id, llm_response)
+            else:
+                self.logger.warning(f"[ADAPTER] No on_llm_response callback registered for peer {self.peer_id}")
             
             self.logger.info(f"LLM response: {llm_response[:100]}...")
             
