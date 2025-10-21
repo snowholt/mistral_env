@@ -907,6 +907,105 @@ class SimpleVoiceService:
             f.write(b'RIFF')  # ChunkID
             f.write(struct.pack('<I', 36 + len(pcm_data)))  # ChunkSize
             f.write(b'WAVE')  # Format
+
+    async def transcribe_audio(
+        self,
+        audio_data: bytes,
+        language: Optional[str] = None,
+        audio_format: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Transcribe raw audio bytes for WebRTC adapter compatibility."""
+        try:
+            effective_format = audio_format or "pcm"
+            transcript = await self._transcribe_audio(
+                audio_data,
+                audio_format=effective_format,
+                language=language
+            )
+            return {
+                "success": True,
+                "transcription": transcript,
+                "language": language
+            }
+        except Exception as e:
+            self.logger.error(f"Transcription error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def generate_chat_response(
+        self,
+        user_message: str,
+        session_id: Optional[str] = None,
+        language: Optional[str] = None,
+        conversation_context: Optional[str] = None
+    ) -> Dict[str, Any]:
+        """Generate chat response compatible with WebRTC adapter expectations."""
+        try:
+            target_language = language or self._detect_language(
+                user_message,
+                fallback_language="en"
+            )
+            response_text = await self._generate_chat_response(
+                user_message,
+                target_language=target_language,
+                conversation_context=conversation_context
+            )
+            return {
+                "success": True,
+                "response": response_text,
+                "language": target_language
+            }
+        except Exception as e:
+            self.logger.error(f"Chat generation error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
+    async def synthesize_speech(
+        self,
+        text: str,
+        language: Optional[str] = None,
+        gender: str = "female"
+    ) -> Dict[str, Any]:
+        """Synthesize speech and return raw audio bytes for WebRTC adapter."""
+        try:
+            voice_language = language or self._detect_language(
+                text,
+                fallback_language="en"
+            )
+            voice_id = self._select_voice(voice_language, gender)
+            audio_path = await self._synthesize_speech(
+                text,
+                voice_id,
+                output_format="wav"
+            )
+
+            audio_bytes = audio_path.read_bytes()
+
+            try:
+                audio_path.unlink(missing_ok=True)
+            except Exception:
+                self.logger.debug(
+                    "Failed to remove temporary TTS file: %s",
+                    audio_path
+                )
+
+            return {
+                "success": True,
+                "audio_data": audio_bytes,
+                "audio_format": "wav",
+                "voice_id": voice_id
+            }
+        except Exception as e:
+            self.logger.error(f"Speech synthesis error: {e}", exc_info=True)
+            return {
+                "success": False,
+                "error": str(e)
+            }
+
             
             # fmt sub-chunk
             f.write(b'fmt ')  # Subchunk1ID

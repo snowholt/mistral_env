@@ -19,10 +19,27 @@ Date: 2025-01-30
 import logging
 import time
 from typing import Dict, Any, Optional, List
+from enum import Enum
+from contextlib import contextmanager
 import numpy as np
 
 import torch
-from torch.nn.attention import SDPBackend, sdpa_kernel
+try:
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+except ImportError:  # pragma: no cover - compatibility fallback for older torch builds
+    logging.getLogger(__name__).warning(
+        "torch.nn.attention not available; falling back to no-op sdpa_kernel context"
+    )
+
+    class SDPBackend(Enum):
+        """Minimal stub for SDPBackend when torch.nn.attention is unavailable."""
+
+        MATH = "math"
+
+    @contextmanager
+    def sdpa_kernel(_backend):
+        yield
+
 from transformers import (
     AutoModelForSpeechSeq2Seq, 
     AutoProcessor, 
