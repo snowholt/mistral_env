@@ -60,7 +60,7 @@ class WebRTCVADConfig:
     """Configuration for WebRTC dual VAD service."""
     
     # WebRTC VAD settings (fast path)
-    webrtc_sensitivity: int = 3  # 0-3, higher = less sensitive (RealtimeSTT default: 3)
+    webrtc_sensitivity: int = 0  # 0-3, higher = less sensitive (0=most aggressive, TESTING)
     webrtc_frame_duration_ms: int = 30  # 10, 20, or 30 ms frames
     
     # Silero VAD settings (confirmation path)
@@ -69,9 +69,9 @@ class WebRTCVADConfig:
     
     # Language-specific thresholds (from migration plan)
     language_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        "ar": 0.45,  # Arabic: slightly lower threshold
-        "en": 0.50,  # English: standard threshold
-        "default": 0.50
+        "ar": 0.30,  # Arabic: more permissive for testing
+        "en": 0.30,  # English: more permissive for testing
+        "default": 0.30
     })
     
     # Speech detection timing
@@ -344,6 +344,7 @@ class WebRTCVADService:
             bool: True if voice detected by WebRTC VAD
         """
         if not self.webrtc_vad:
+            print(f"[DEBUG-WEBRTC-VAD] WebRTC VAD not initialized!")
             return False
         
         try:
@@ -353,20 +354,29 @@ class WebRTCVADService:
                 self.config.webrtc_frame_duration_ms * 16000 * 2 / 1000
             )
             
+            print(f"[DEBUG-WEBRTC-VAD] Chunk size={len(audio_data)}, frame_size={frame_size_bytes}, sensitivity={self.config.webrtc_sensitivity}")
+            
             # Split audio into frames
             num_frames = len(audio_data) // frame_size_bytes
             
+            if num_frames == 0:
+                print(f"[DEBUG-WEBRTC-VAD] No complete frames (chunk too small)")
+                return False
+            
             # Check if any frame contains speech
+            speech_frames = 0
             for i in range(num_frames):
                 start = i * frame_size_bytes
                 end = start + frame_size_bytes
                 frame = audio_data[start:end]
                 
                 if len(frame) == frame_size_bytes:
-                    if self.webrtc_vad.is_speech(frame, self.config.silero_sample_rate):
-                        return True
+                    is_speech = self.webrtc_vad.is_speech(frame, self.config.silero_sample_rate)
+                    if is_speech:
+                        speech_frames += 1
             
-            return False
+            print(f"[DEBUG-WEBRTC-VAD] Frames checked={num_frames}, speech_frames={speech_frames}")
+            return speech_frames > 0
             
         except Exception as e:
             self.logger.error(f"WebRTC VAD error: {e}")

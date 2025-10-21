@@ -21,7 +21,7 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path(__file__).parent / "q7.webm"
+AUDIO_FIXTURE = Path(__file__).parent / "q7.pcm"
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "https://api.lumidev.ca/api/v1/webrtc/voice",
@@ -63,10 +63,27 @@ def _build_url(base: str, suffix: str) -> str:
 
 async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
     """Run the end-to-end WebRTC flow and return summary metrics."""
-    player = MediaPlayer(str(AUDIO_FIXTURE), format="webm")
+    # Auto-detect format from file extension
+    file_ext = AUDIO_FIXTURE.suffix.lstrip('.')  # .wav -> wav, .webm -> webm, .pcm -> pcm
+    
+    # Handle raw PCM files specially (no container format)
+    if file_ext == 'pcm':
+        # Raw PCM needs explicit format specification
+        # Assuming 16kHz, mono, s16le (signed 16-bit little-endian)
+        player = MediaPlayer(
+            str(AUDIO_FIXTURE),
+            format='s16le',  # Raw PCM format
+            options={
+                'ar': '16000',  # Sample rate
+                'ac': '1',      # Mono channel
+            }
+        )
+    else:
+        player = MediaPlayer(str(AUDIO_FIXTURE), format=file_ext)
+    
     audio_track = player.audio
     if audio_track is None:
-        raise RuntimeError("MediaPlayer could not extract audio track from q7.webm")
+        raise RuntimeError(f"MediaPlayer could not extract audio track from {AUDIO_FIXTURE.name}")
 
     pc = RTCPeerConnection()
     pc.addTrack(audio_track)
@@ -266,7 +283,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
 def test_webrtc_q7_audio_round_trip():
     """Synchronously exercise the WebRTC audio pipeline using asyncio.run."""
     if not AUDIO_FIXTURE.exists():
-        pytest.skip("Audio fixture q7.webm is missing")
+        pytest.skip(f"Audio fixture {AUDIO_FIXTURE.name} is missing")
 
     signaling_base = os.getenv("WEBRTC_TEST_BASE_URL", DEFAULT_SIGNALING_URL)
     if not signaling_base.startswith("http"):

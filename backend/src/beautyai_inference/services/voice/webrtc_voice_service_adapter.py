@@ -284,6 +284,7 @@ class WebRTCVoiceServiceAdapter:
         Feeds chunk to VAD for speech detection, then to buffer manager.
         """
         try:
+            print(f"[DEBUG-CHUNK] Audio chunk: {len(chunk)} bytes for {self.peer_id}")
             self.logger.debug(f"Audio chunk received: {len(chunk)} bytes")
             
             # Process with VAD
@@ -293,18 +294,26 @@ class WebRTCVoiceServiceAdapter:
                 self.logger.warning(f"VAD processing failed: {vad_result.get('error', 'Unknown error')}")
                 return
             
-            self.logger.debug(f"VAD result: state={vad_result['voice_state'].value}, detected={vad_result['voice_detected']}")
+            voice_state = vad_result['voice_state'].value
+            voice_detected = vad_result['voice_detected']
+            silero_prob = vad_result.get('silero_probability', 0.0)
+            webrtc_det = vad_result.get('webrtc_detected', False)
+            print(f"[DEBUG-VAD] State={voice_state}, detected={voice_detected}, silero_prob={silero_prob:.4f}, webrtc={webrtc_det}")
+            self.logger.info(f"[ADAPTER] VAD result for {self.peer_id}: state={voice_state}, detected={voice_detected}, chunk_size={len(chunk)}")
             
             # Feed to buffer manager with VAD state
             buffer_result = await self.buffer_manager.feed_audio(
                 chunk,
-                vad_result["voice_state"].value,
+                voice_state,
                 metadata
             )
             
-            self.logger.debug(f"Buffer manager result: {buffer_result.get('status')}, segment_ready={buffer_result.get('segment_ready')}")
+            buffer_size = self.buffer_manager.get_buffer_size_bytes()
+            print(f"[DEBUG-BUFFER] Status={buffer_result.get('status')}, segment_ready={buffer_result.get('segment_ready')}, buffer_size={buffer_size}")
+            self.logger.info(f"[ADAPTER] Buffer result for {self.peer_id}: status={buffer_result.get('status')}, segment_ready={buffer_result.get('segment_ready')}, buffer_size={buffer_size}")
             
         except Exception as e:
+            print(f"[DEBUG-ERROR] Chunk processing failed: {e}")
             self.logger.error(f"Error processing audio chunk: {e}", exc_info=True)
     
     async def _on_segment_ready(
@@ -463,9 +472,33 @@ class WebRTCVoiceServiceAdapter:
         self.logger.debug(f"VAD state change for {peer_id}: {new_state.value}")
     
     def _on_utterance_limit(self, peer_id: str):
-        """Callback when utterance exceeds 10s limit."""
-        self.logger.warning(f"Utterance limit exceeded for {peer_id}")
-        # Could trigger warning message or force finalization
+        """Callback when utterance exceeds 10s limit - force transcription."""
+        print(f"[DEBUG-LIMIT] Utterance limit for {peer_id}, buffer_size={self.buffer_manager.get_buffer_size_bytes() if self.buffer_manager else 'N/A'}")
+        self.logger.warning(f"Utterance limit exceeded for {peer_id}, forcing transcription of buffered audio")
+        # Force transcription of whatever audio we have buffered
+        if self.buffer_manager:
+            try:
+                self.logger.info(f"[ADAPTER] Attempting to extract buffered audio for {peer_id}")
+                # Get the current buffer content
+                segment = self.buffer_manager.get_complete_segment()
+                if segment and len(segment) > 0:
+                    duration = len(segment) / (16000 * 2)  # 16kHz, 16-bit PCM
+                    print(f"[DEBUG-LIMIT] Got {len(segment)} bytes ({duration:.2f}s), transcribing...")
+                    self.logger.info(f"[ADAPTER] Got {len(segment)} bytes ({duration:.2f}s) from buffer, triggering transcription")
+                    # Trigger transcription
+                    import asyncio
+                    metadata = {
+                        "peer_id": peer_id,
+                        "duration_sec": duration,
+                        "forced_by_limit": True
+                    }
+                    asyncio.create_task(self._on_segment_ready(peer_id, segment, metadata))
+                else:
+                    print(f"[DEBUG-LIMIT] Buffer is EMPTY (segment={segment})")
+                    self.logger.warning(f"[ADAPTER] No buffered audio available for {peer_id}")
+            except Exception as e:
+                print(f"[DEBUG-LIMIT] ERROR: {e}")
+                self.logger.error(f"[ADAPTER] Failed to process buffered audio on limit: {e}", exc_info=True)
     
     def _on_buffer_overflow(self, peer_id: str):
         """Callback when buffer overflows."""
