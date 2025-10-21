@@ -69,9 +69,9 @@ class WebRTCVADConfig:
     
     # Language-specific thresholds (from migration plan)
     language_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        "ar": 0.30,  # Arabic: more permissive for testing
-        "en": 0.30,  # English: more permissive for testing
-        "default": 0.30
+        "ar": 0.002,  # Arabic: lowered to prioritize detection over noise filtering
+        "en": 0.002,  # English: lowered to prioritize detection over noise filtering
+        "default": 0.002
     })
     
     # Speech detection timing
@@ -172,6 +172,7 @@ class WebRTCVADService:
         
         # Audio buffering for confirmation
         self._audio_buffer = deque(maxlen=100)  # Pre-speech buffer
+        self._silero_remainder: np.ndarray = np.array([], dtype=np.float32)
         self._processing_lock = asyncio.Lock()
         
         # Get language-specific threshold
@@ -402,20 +403,38 @@ class WebRTCVADService:
             # Convert PCM bytes to float32 numpy array
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
             audio_float = audio_array.astype(np.float32) / 32768.0  # Normalize to [-1, 1]
-            
-            # Run Silero VAD
-            with torch.no_grad():
-                audio_tensor = torch.from_numpy(audio_float)
-                probability = self.silero_vad_model(
-                    audio_tensor,
-                    self.config.silero_sample_rate
-                ).item()
-            
-            # Compare against language-specific threshold
+
+            # Append to remainder so we always feed exact frame sizes
+            if self._silero_remainder.size:
+                audio_float = np.concatenate((self._silero_remainder, audio_float))
+
+            frame_size = 512 if self.config.silero_sample_rate == 16000 else 256
+            probabilities: list[float] = []
+
+            while audio_float.size >= frame_size:
+                frame = audio_float[:frame_size]
+                audio_float = audio_float[frame_size:]
+                with torch.no_grad():
+                    audio_tensor = torch.from_numpy(frame)
+                    prob = self.silero_vad_model(
+                        audio_tensor,
+                        self.config.silero_sample_rate
+                    ).item()
+                probabilities.append(prob)
+
+            # Store leftover for the next chunk
+            if audio_float.size:
+                self._silero_remainder = audio_float
+            else:
+                self._silero_remainder = np.array([], dtype=np.float32)
+
+            if not probabilities:
+                return False, 0.0
+
+            probability = max(probabilities)
             is_speech = probability > self.silero_threshold
-            
             return is_speech, probability
-            
+
         except Exception as e:
             self.logger.error(f"Silero VAD error: {e}")
             return False, 0.0
@@ -558,6 +577,7 @@ class WebRTCVADService:
         self.silence_start_time = None
         self.last_voice_time = None
         self._audio_buffer.clear()
+        self._silero_remainder = np.array([], dtype=np.float32)
         
         self.logger.debug(f"VAD state reset for peer {self.peer_id}")
     

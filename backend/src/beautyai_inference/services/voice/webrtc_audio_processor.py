@@ -17,6 +17,7 @@ Date: 2025-10-15
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Optional, Dict, Any, Callable, List
@@ -294,7 +295,9 @@ class WebRTCAudioProcessor:
                         f"{self.current_utterance_duration:.2f}s"
                     )
                     if self._on_utterance_limit_exceeded:
-                        self._on_utterance_limit_exceeded(self.peer_id)
+                        callback_result = self._on_utterance_limit_exceeded(self.peer_id)
+                        if inspect.isawaitable(callback_result):
+                            await callback_result
                     await self.stop_processing()
                     return
                 
@@ -327,7 +330,6 @@ class WebRTCAudioProcessor:
                 self.logger.debug(f"[PROCESSOR] About to send chunk: {len(pcm_bytes)} bytes, callback={self._on_audio_chunk is not None}")
                 if self._on_audio_chunk:
                     # Check if callback is async (coroutine function)
-                    import inspect
                     is_async = inspect.iscoroutinefunction(self._on_audio_chunk)
                     self.logger.debug(f"[PROCESSOR] Callback is async: {is_async}")
                     if is_async:

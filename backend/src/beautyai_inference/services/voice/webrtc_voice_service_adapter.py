@@ -20,7 +20,6 @@ Author: BeautyAI Framework
 Date: 2025-10-15
 """
 
-import asyncio
 import logging
 import time
 from typing import Optional, Dict, Any, Callable
@@ -471,31 +470,63 @@ class WebRTCVoiceServiceAdapter:
         """Callback when VAD state changes."""
         self.logger.debug(f"VAD state change for {peer_id}: {new_state.value}")
     
-    def _on_utterance_limit(self, peer_id: str):
+    async def _on_utterance_limit(self, peer_id: str):
         """Callback when utterance exceeds 10s limit - force transcription."""
         print(f"[DEBUG-LIMIT] Utterance limit for {peer_id}, buffer_size={self.buffer_manager.get_buffer_size_bytes() if self.buffer_manager else 'N/A'}")
         self.logger.warning(f"Utterance limit exceeded for {peer_id}, forcing transcription of buffered audio")
         # Force transcription of whatever audio we have buffered
         if self.buffer_manager:
             try:
-                self.logger.info(f"[ADAPTER] Attempting to extract buffered audio for {peer_id}")
-                # Get the current buffer content
-                segment = self.buffer_manager.get_complete_segment()
-                if segment and len(segment) > 0:
-                    duration = len(segment) / (16000 * 2)  # 16kHz, 16-bit PCM
-                    print(f"[DEBUG-LIMIT] Got {len(segment)} bytes ({duration:.2f}s), transcribing...")
-                    self.logger.info(f"[ADAPTER] Got {len(segment)} bytes ({duration:.2f}s) from buffer, triggering transcription")
-                    # Trigger transcription
-                    import asyncio
-                    metadata = {
-                        "peer_id": peer_id,
-                        "duration_sec": duration,
-                        "forced_by_limit": True
-                    }
-                    asyncio.create_task(self._on_segment_ready(peer_id, segment, metadata))
-                else:
-                    print(f"[DEBUG-LIMIT] Buffer is EMPTY (segment={segment})")
+                self.logger.info(f"[ADAPTER] Attempting to force-finalize buffered audio for {peer_id}")
+
+                snapshot_bytes = self.buffer_manager.get_buffer_size_bytes()
+                snapshot_frames = len(self.buffer_manager._active_buffer) if hasattr(self.buffer_manager, "_active_buffer") else "?"
+                snapshot_state = getattr(self.buffer_manager, "is_recording", None)
+                print(
+                    f"[DEBUG-LIMIT] Force finalize snapshot bytes={snapshot_bytes}, "
+                    f"frames={snapshot_frames}, is_recording={snapshot_state}"
+                )
+                self.logger.info(
+                    f"[ADAPTER] Force finalize snapshot for {peer_id}: "
+                    f"bytes={snapshot_bytes}, frames={snapshot_frames}, "
+                    f"is_recording={snapshot_state}"
+                )
+
+                active_chunks = list(getattr(self.buffer_manager, "_active_buffer", []))
+                if not active_chunks:
+                    print(f"[DEBUG-LIMIT] Buffer is EMPTY (segment=None)")
                     self.logger.warning(f"[ADAPTER] No buffered audio available for {peer_id}")
+                    return
+
+                segment = b"".join(active_chunks)
+                now = time.time()
+                speech_start = getattr(self.buffer_manager, "speech_start_time", None)
+                duration = (now - speech_start) if speech_start else len(segment) / (self.buffer_manager.config.sample_rate * 2)
+
+                segment_metadata = {
+                    "peer_id": peer_id,
+                    "duration_sec": duration,
+                    "num_frames": len(active_chunks),
+                    "pre_roll_frames": getattr(self.buffer_manager.metrics, "pre_roll_chunks", 0),
+                    "speech_frames": getattr(self.buffer_manager.metrics, "speech_chunks", len(active_chunks)),
+                    "post_roll_frames": getattr(self.buffer_manager.metrics, "post_roll_chunks", 0),
+                    "total_bytes": len(segment),
+                    "sample_rate": self.buffer_manager.config.sample_rate,
+                    "timestamp": now,
+                    "forced": True,
+                    "forced_by_limit": True
+                }
+
+                # Reset buffer for next utterance
+                self.buffer_manager.reset()
+
+                print(f"[DEBUG-LIMIT] Got {len(segment)} bytes ({duration:.2f}s), transcribing...")
+                self.logger.info(
+                    f"[ADAPTER] Force-finalized {len(segment)} bytes "
+                    f"({duration:.2f}s) from buffer, triggering transcription"
+                )
+
+                await self._on_segment_ready(peer_id, segment, segment_metadata)
             except Exception as e:
                 print(f"[DEBUG-LIMIT] ERROR: {e}")
                 self.logger.error(f"[ADAPTER] Failed to process buffered audio on limit: {e}", exc_info=True)

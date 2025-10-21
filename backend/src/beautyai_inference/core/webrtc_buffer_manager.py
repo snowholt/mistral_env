@@ -289,7 +289,7 @@ class WebRTCBufferManager:
                     "segment_ready": False
                 }
     
-    async def _finalize_segment(self, metadata: Dict[str, Any]) -> Dict[str, Any]:
+    async def _finalize_segment(self, metadata: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         """
         Finalize complete speech segment and prepare for STT.
         
@@ -297,6 +297,7 @@ class WebRTCBufferManager:
             dict: Segment data and metadata
         """
         try:
+            metadata = metadata or {}
             # Concatenate all buffered chunks
             complete_audio = b''.join(self._active_buffer)
             
@@ -347,6 +348,25 @@ class WebRTCBufferManager:
             self.logger.error(f"Error finalizing segment: {e}")
             self._reset_for_next_segment()
             raise
+
+    async def force_finalize_segment(self, metadata: Optional[Dict[str, Any]] = None) -> Optional[Dict[str, Any]]:
+        """Force finalization of the current segment, bypassing post-roll requirements."""
+        async with self._buffer_lock:
+            active_frames = len(self._active_buffer)
+            if active_frames == 0:
+                self.logger.warning(
+                    f"Force finalize requested for {self.peer_id} but active buffer is empty "
+                    f"(is_recording={self.is_recording})"
+                )
+                return None
+
+            self.logger.warning(
+                f"Force finalizing segment for {self.peer_id}: "
+                f"frames={active_frames}, bytes={sum(len(chunk) for chunk in self._active_buffer)}"
+            )
+
+            forced_metadata = {**(metadata or {}), "forced": True}
+            return await self._finalize_segment(forced_metadata)
     
     def _check_buffer_overflow(self):
         """Check and handle buffer overflow conditions."""

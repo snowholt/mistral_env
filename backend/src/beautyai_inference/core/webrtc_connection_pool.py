@@ -388,7 +388,8 @@ class WebRTCConnectionPool:
                             # Import voice service adapter (lazy import to avoid circular dependencies)
                             from ..services.voice.webrtc_voice_service_adapter import (
                                 WebRTCVoiceServiceAdapter,
-                                WebRTCVoiceConfig
+                                WebRTCVoiceConfig,
+                                WebRTCVADConfig
                             )
                             from ..services.voice.conversation.simple_voice_service import SimpleVoiceService
                             from .webrtc_session_manager import get_webrtc_session_manager
@@ -421,9 +422,13 @@ class WebRTCConnectionPool:
                                 # Create SimpleVoiceService instance (language configured via voice registry)
                                 simple_voice_service = SimpleVoiceService()
                                 
-                                # Create voice adapter with default config
+                                # Create voice adapter with dual VAD configured for Silero-only mode
                                 voice_config = WebRTCVoiceConfig(
-                                    default_language=language
+                                    default_language=language,
+                                    vad_config=WebRTCVADConfig(
+                                        enable_browser_hints=False,
+                                        require_silero_confirmation=False
+                                    )
                                 )
                                 
                                 # Define callback functions to send data via data channel
