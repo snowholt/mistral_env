@@ -116,6 +116,7 @@ class WebRTCAudioProcessor:
         self.peer_id = peer_id
         self.config = config or AudioProcessingConfig()
         self.logger = logging.getLogger(__name__)
+        self._processing_task = None
         
         # Callbacks
         self._on_audio_chunk = on_audio_chunk
@@ -166,10 +167,12 @@ class WebRTCAudioProcessor:
             self.current_utterance_bytes = 0
             self.current_utterance_duration = 0.0
             
-            self.logger.info(f"Starting audio processing for peer {self.peer_id}")
+            self.logger.debug(f"[PROCESSOR] Starting audio processing for peer {self.peer_id}, track={audio_track}")
+            self.logger.debug(f"[PROCESSOR] Callback registered: {self._on_audio_chunk is not None}")
             
-            # Start processing loop
-            asyncio.create_task(self._process_audio_track(audio_track))
+            # Start processing loop and store task reference
+            self._processing_task = asyncio.create_task(self._process_audio_track(audio_track))
+            self.logger.debug(f"[PROCESSOR] Created processing task for {self.peer_id}")
             
             return True
             
@@ -203,6 +206,8 @@ class WebRTCAudioProcessor:
         Continuously reads AudioFrame objects from the track,
         converts them to PCM, and feeds them to the buffer manager.
         """
+        self.logger.debug(f"[PROCESSOR] Entered _process_audio_track loop for {self.peer_id}")
+        frame_count = 0
         try:
             while self.is_processing:
                 try:
@@ -212,24 +217,33 @@ class WebRTCAudioProcessor:
                         timeout=1.0
                     )
                     
+                    frame_count += 1
+                    if frame_count == 1:
+                        self.logger.debug(f"[PROCESSOR] Received first audio frame for {self.peer_id}")
+                    elif frame_count % 100 == 0:
+                        self.logger.debug(f"[PROCESSOR] Processed {frame_count} frames for {self.peer_id}")
+                    
                     # Process the frame
                     await self._process_audio_frame(frame)
                     
                 except asyncio.TimeoutError:
                     # No frame received in timeout period, continue
+                    if frame_count == 0:
+                        self.logger.debug(f"[PROCESSOR] No frames received yet for {self.peer_id} (timeout)")
                     continue
                     
                 except Exception as e:
-                    self.logger.error(f"Error receiving audio frame: {e}")
+                    self.logger.error(f"[PROCESSOR] Error receiving audio frame: {e}", exc_info=True)
                     if self._on_processing_error:
                         self._on_processing_error(self.peer_id, e)
                     break
                 
         except Exception as e:
-            self.logger.error(f"Fatal error in audio track processing: {e}")
+            self.logger.error(f"[PROCESSOR] Fatal error in audio track processing: {e}", exc_info=True)
             if self._on_processing_error:
                 self._on_processing_error(self.peer_id, e)
         finally:
+            self.logger.debug(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             self.is_processing = False
     
     async def _process_audio_frame(self, frame: AudioFrame):
@@ -309,9 +323,22 @@ class WebRTCAudioProcessor:
                     "audio_level": self.metrics.average_level if self.config.enable_level_monitoring else 0.0
                 }
                 
-                # Send chunk to callback (buffer manager)
+                # Send chunk to callback (buffer manager) - must await async callback
+                self.logger.debug(f"[PROCESSOR] About to send chunk: {len(pcm_bytes)} bytes, callback={self._on_audio_chunk is not None}")
                 if self._on_audio_chunk:
-                    self._on_audio_chunk(pcm_bytes, metadata)
+                    # Check if callback is async (coroutine function)
+                    import inspect
+                    is_async = inspect.iscoroutinefunction(self._on_audio_chunk)
+                    self.logger.debug(f"[PROCESSOR] Callback is async: {is_async}")
+                    if is_async:
+                        await self._on_audio_chunk(pcm_bytes, metadata)
+                        self.logger.debug(f"[PROCESSOR] Async callback completed")
+                    else:
+                        # For backward compatibility with sync callbacks
+                        self._on_audio_chunk(pcm_bytes, metadata)
+                        self.logger.debug(f"[PROCESSOR] Sync callback completed")
+                else:
+                    self.logger.warning(f"[PROCESSOR] No audio chunk callback registered!")
                 
             except Exception as e:
                 self.logger.error(f"Error processing audio frame: {e}")

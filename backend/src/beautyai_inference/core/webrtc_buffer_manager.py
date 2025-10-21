@@ -185,7 +185,7 @@ class WebRTCBufferManager:
                 self.metrics.chunks_received += 1
                 
                 # Convert VAD state string to enum-like comparison
-                from ..vad.webrtc_vad_service import VADState
+                from ..services.voice.vad.webrtc_vad_service import VADState
                 
                 # Always feed to pre-roll buffer (continuous rolling window)
                 self._pre_roll_buffer.append(audio_chunk)

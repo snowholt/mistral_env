@@ -33,7 +33,7 @@ except ImportError:
     AIORTC_AVAILABLE = False
     MediaStreamTrack = object
 
-from ..webrtc_audio_processor import (
+from .webrtc_audio_processor import (
     WebRTCAudioProcessor,
     AudioProcessingConfig,
     create_audio_processor
@@ -284,21 +284,28 @@ class WebRTCVoiceServiceAdapter:
         Feeds chunk to VAD for speech detection, then to buffer manager.
         """
         try:
+            self.logger.debug(f"Audio chunk received: {len(chunk)} bytes")
+            
             # Process with VAD
             vad_result = await self.vad_service.process_audio_chunk(chunk, metadata)
             
             if not vad_result["success"]:
+                self.logger.warning(f"VAD processing failed: {vad_result.get('error', 'Unknown error')}")
                 return
             
+            self.logger.debug(f"VAD result: state={vad_result['voice_state'].value}, detected={vad_result['voice_detected']}")
+            
             # Feed to buffer manager with VAD state
-            await self.buffer_manager.feed_audio(
+            buffer_result = await self.buffer_manager.feed_audio(
                 chunk,
                 vad_result["voice_state"].value,
                 metadata
             )
             
+            self.logger.debug(f"Buffer manager result: {buffer_result.get('status')}, segment_ready={buffer_result.get('segment_ready')}")
+            
         except Exception as e:
-            self.logger.error(f"Error processing audio chunk: {e}")
+            self.logger.error(f"Error processing audio chunk: {e}", exc_info=True)
     
     async def _on_segment_ready(
         self,

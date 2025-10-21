@@ -364,6 +364,26 @@ class WebRTCSessionManager:
         
         await self.update_webrtc_metadata(session_id, **kwargs)
     
+    async def update_session_metadata(
+        self,
+        peer_id: str,
+        audio_track_active: Optional[bool] = None,
+        **kwargs
+    ):
+        """
+        Update session metadata by peer_id (convenience method).
+        
+        Args:
+            peer_id: Peer connection identifier
+            audio_track_active: Whether audio track is active
+            **kwargs: Additional metadata fields to update
+        """
+        await self.update_by_peer(
+            peer_id,
+            audio_track_active=audio_track_active,
+            **kwargs
+        )
+    
     async def get_recent_context(
         self,
         session_id: str,

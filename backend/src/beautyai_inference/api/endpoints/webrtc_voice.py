@@ -319,14 +319,12 @@ async def handle_sdp_offer(
             answer_sdp, ice_servers = await connection_pool.create_peer_connection(
                 peer_id=peer_id,
                 offer_sdp=request.sdp,
-                user_id=request.user_id,
-                session_id=session_id,
-                language=request.language or "ar"
+                user_id=request.user_id
             )
         except Exception as e:
             logger.error(f"[WebRTC] Failed to create peer connection for {peer_id}: {e}", exc_info=True)
             # Clean up session on connection failure
-            await session_manager.end_session(peer_id)
+            await session_manager.cleanup_session(peer_id)
             raise HTTPException(
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                 detail=f"Failed to process SDP offer: {str(e)}"
@@ -458,6 +456,11 @@ async def get_connection_status(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Peer connection not found: {peer_id}"
             )
+        
+        # Update activity timestamp to prevent idle cleanup during status polling
+        async with connection_pool._lock:
+            if peer_id in connection_pool._connections:
+                connection_pool._connections[peer_id].update_activity()
         
         # Get connection status
         status_info = await connection_pool.get_connection_status(peer_id)

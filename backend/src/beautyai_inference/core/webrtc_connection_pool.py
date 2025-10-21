@@ -93,6 +93,9 @@ class WebRTCConnectionData:
     packets_sent: int = 0
     packets_received: int = 0
     
+    # Data channel for sending transcriptions/responses
+    data_channel: Optional[Any] = None  # RTCDataChannel instance
+    
     # Metadata
     client_info: Dict[str, Any] = field(default_factory=dict)
     
@@ -162,7 +165,7 @@ class WebRTCConnectionPool:
     def __init__(
         self,
         max_connections: int = 100,
-        connection_timeout_seconds: int = 300,
+        connection_timeout_seconds: int = 1800,
         enable_metrics: bool = True
     ):
         """
@@ -170,7 +173,7 @@ class WebRTCConnectionPool:
         
         Args:
             max_connections: Maximum number of concurrent connections
-            connection_timeout_seconds: Timeout for idle connections
+            connection_timeout_seconds: Timeout for idle connections (default: 1800s = 30 minutes)
             enable_metrics: Enable metrics collection
         """
         self.max_connections = max_connections
@@ -271,6 +274,25 @@ class WebRTCConnectionPool:
             try:
                 pc = RTCPeerConnection()
                 
+                # Create data channel for sending transcriptions/responses to client
+                data_channel = pc.createDataChannel("voice_results", ordered=True)
+                
+                @data_channel.on("open")
+                def on_dc_open():
+                    logger.info(f"[WebRTC] Data channel opened for peer {peer_id}")
+                    if peer_id in self._connections:
+                        self._connections[peer_id].update_activity()
+                
+                @data_channel.on("close")
+                def on_dc_close():
+                    logger.info(f"[WebRTC] Data channel closed for peer {peer_id}")
+                
+                @data_channel.on("message")
+                def on_dc_message(message):
+                    logger.debug(f"[WebRTC] Data channel message from {peer_id}: {message}")
+                
+                logger.info(f"[WebRTC] Data channel created for peer {peer_id}")
+                
                 # Set up event handlers
                 @pc.on("connectionstatechange")
                 async def on_connectionstatechange():
@@ -280,7 +302,22 @@ class WebRTCConnectionPool:
                 @pc.on("iceconnectionstatechange")
                 async def on_iceconnectionstatechange():
                     if peer_id in self._connections:
-                        self._connections[peer_id].update_ice_connection_state(pc.iceConnectionState)
+                        connection_data = self._connections[peer_id]
+                        connection_data.update_ice_connection_state(pc.iceConnectionState)
+
+                        # Mirror the ICE state into the general connection state so the
+                        # status endpoint reflects connectivity changes promptly. aiortc's
+                        # aggregate connectionState can lag or remain "connecting" when only
+                        # trickle ICE is active, so we explicitly map terminal ICE states.
+                        ice_state_normalized = (pc.iceConnectionState or "").lower()
+                        if ice_state_normalized in (ICEConnectionState.CONNECTED.value, ICEConnectionState.COMPLETED.value):
+                            connection_data.update_connection_state(PeerConnectionState.CONNECTED.value)
+                        elif ice_state_normalized == ICEConnectionState.DISCONNECTED.value:
+                            connection_data.update_connection_state(PeerConnectionState.DISCONNECTED.value)
+                        elif ice_state_normalized == ICEConnectionState.FAILED.value:
+                            connection_data.update_connection_state(PeerConnectionState.FAILED.value)
+                        elif ice_state_normalized == ICEConnectionState.CLOSED.value:
+                            connection_data.update_connection_state(PeerConnectionState.CLOSED.value)
                 
                 @pc.on("icegatheringstatechange")
                 async def on_icegatheringstatechange():
@@ -370,20 +407,80 @@ class WebRTCConnectionPool:
                             if peer_id not in self._voice_adapters:
                                 logger.info(f"[WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
                                 
-                                # Create SimpleVoiceService instance
-                                simple_voice_service = SimpleVoiceService(language=language)
+                                # Create SimpleVoiceService instance (language configured via voice registry)
+                                simple_voice_service = SimpleVoiceService()
                                 
                                 # Create voice adapter with default config
                                 voice_config = WebRTCVoiceConfig(
                                     default_language=language
                                 )
                                 
+                                # Define callback functions to send data via data channel
+                                def send_transcription(p_id: str, text: str):
+                                    """Send transcription via data channel"""
+                                    if p_id in self._connections:
+                                        dc = self._connections[p_id].data_channel
+                                        if dc and dc.readyState == "open":
+                                            import json
+                                            try:
+                                                dc.send(json.dumps({
+                                                    "type": "transcription",
+                                                    "text": text,
+                                                    "timestamp": time.time()
+                                                }))
+                                                logger.info(f"[WebRTC] Sent transcription to {p_id}: {text[:50]}...")
+                                            except Exception as e:
+                                                logger.error(f"[WebRTC] Failed to send transcription: {e}")
+                                        else:
+                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send transcription")
+                                
+                                def send_llm_response(p_id: str, text: str):
+                                    """Send LLM response via data channel"""
+                                    if p_id in self._connections:
+                                        dc = self._connections[p_id].data_channel
+                                        if dc and dc.readyState == "open":
+                                            import json
+                                            try:
+                                                dc.send(json.dumps({
+                                                    "type": "assistant_response",
+                                                    "text": text,
+                                                    "timestamp": time.time()
+                                                }))
+                                                logger.info(f"[WebRTC] Sent LLM response to {p_id}: {text[:50]}...")
+                                            except Exception as e:
+                                                logger.error(f"[WebRTC] Failed to send LLM response: {e}")
+                                        else:
+                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send LLM response")
+                                
+                                def send_tts_audio(p_id: str, audio_bytes: bytes):
+                                    """Send TTS audio via data channel"""
+                                    if p_id in self._connections:
+                                        dc = self._connections[p_id].data_channel
+                                        if dc and dc.readyState == "open":
+                                            import json
+                                            import base64
+                                            try:
+                                                dc.send(json.dumps({
+                                                    "type": "tts_audio",
+                                                    "audio_base64": base64.b64encode(audio_bytes).decode(),
+                                                    "timestamp": time.time()
+                                                }))
+                                                logger.info(f"[WebRTC] Sent TTS audio to {p_id}: {len(audio_bytes)} bytes")
+                                            except Exception as e:
+                                                logger.error(f"[WebRTC] Failed to send TTS audio: {e}")
+                                        else:
+                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send TTS audio")
+                                
+                                # Create adapter with callbacks wired
                                 adapter = WebRTCVoiceServiceAdapter(
                                     peer_id=peer_id,
                                     session_id=session_id,
                                     language=language,
                                     voice_service=simple_voice_service,
-                                    config=voice_config
+                                    config=voice_config,
+                                    on_transcription=send_transcription,
+                                    on_llm_response=send_llm_response,
+                                    on_tts_audio=send_tts_audio
                                 )
                                 
                                 # Initialize the adapter
@@ -430,10 +527,36 @@ class WebRTCConnectionPool:
                     peer_connection=pc,
                     user_id=user_id,
                     local_sdp=pc.localDescription.sdp,
-                    remote_sdp=offer_sdp
+                    remote_sdp=offer_sdp,
+                    data_channel=data_channel
                 )
                 
                 self._connections[peer_id] = connection_data
+
+                # Ensure initial connection states reflect the current RTCPeerConnection status.
+                # The aiortc state change callbacks above may fire before the connection data is
+                # registered in the pool (e.g., during setRemoteDescription/createAnswer). When
+                # that happens, the guards in those callbacks skip updates because the peer_id
+                # isn't tracked yet, leaving default "new" values. Snapshot the current state
+                # here so the status endpoint immediately returns accurate information.
+                try:
+                    current_connection_state = getattr(pc, "connectionState", None)
+                    if current_connection_state:
+                        connection_data.update_connection_state(current_connection_state)
+
+                    current_ice_state = getattr(pc, "iceConnectionState", None)
+                    if current_ice_state:
+                        connection_data.update_ice_connection_state(current_ice_state)
+
+                    current_gathering_state = getattr(pc, "iceGatheringState", None)
+                    if current_gathering_state:
+                        connection_data.update_ice_gathering_state(current_gathering_state)
+                except Exception as state_error:
+                    logger.debug(
+                        "[WebRTC] Failed to snapshot initial connection states for %s: %s",
+                        peer_id,
+                        state_error
+                    )
                 
                 # Track user connections
                 if user_id:
@@ -569,9 +692,45 @@ class WebRTCConnectionPool:
         async with self._lock:
             if peer_id not in self._connections:
                 raise ValueError(f"Peer connection not found: {peer_id}")
-            
+
             connection_data = self._connections[peer_id]
-            return connection_data.to_dict()
+
+            # Synchronize metadata with the live RTCPeerConnection states before returning
+            pc = connection_data.peer_connection
+            if pc:
+                try:
+                    current_connection_state = getattr(pc, "connectionState", None)
+                    if current_connection_state and current_connection_state != connection_data.connection_state:
+                        connection_data.update_connection_state(current_connection_state)
+
+                    current_ice_state = getattr(pc, "iceConnectionState", None)
+                    if current_ice_state and current_ice_state != connection_data.ice_connection_state:
+                        connection_data.update_ice_connection_state(current_ice_state)
+
+                    current_gathering_state = getattr(pc, "iceGatheringState", None)
+                    if current_gathering_state and current_gathering_state != connection_data.ice_gathering_state:
+                        connection_data.update_ice_gathering_state(current_gathering_state)
+                except Exception as state_error:
+                    logger.debug(
+                        "[WebRTC] Failed to synchronize connection states for %s: %s",
+                        peer_id,
+                        state_error
+                    )
+
+            status = connection_data.to_dict()
+
+            # Derive a consistent connection state from ICE state to avoid stale "connecting" values
+            ice_state = (status.get('ice_connection_state') or "").lower()
+            if ice_state in (ICEConnectionState.CONNECTED.value, ICEConnectionState.COMPLETED.value):
+                status['connection_state'] = PeerConnectionState.CONNECTED.value
+            elif ice_state == ICEConnectionState.FAILED.value:
+                status['connection_state'] = PeerConnectionState.FAILED.value
+            elif ice_state == ICEConnectionState.DISCONNECTED.value:
+                status['connection_state'] = PeerConnectionState.DISCONNECTED.value
+            elif ice_state == ICEConnectionState.CLOSED.value:
+                status['connection_state'] = PeerConnectionState.CLOSED.value
+
+            return status
     
     async def remove_peer_connection(self, peer_id: str):
         """
@@ -582,14 +741,14 @@ class WebRTCConnectionPool:
         """
         async with self._lock:
             await self._cleanup_connection(peer_id)
-    
+
     async def _cleanup_connection(self, peer_id: str):
         """Internal cleanup method (must be called with lock held)."""
         if peer_id not in self._connections:
             return
-        
+
         connection_data = self._connections[peer_id]
-        
+
         try:
             # Cancel keep-alive task if exists
             if peer_id in self._keepalive_tasks:

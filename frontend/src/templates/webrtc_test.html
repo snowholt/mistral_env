@@ -796,6 +796,9 @@
   let peerConnection = null;
   let dataChannel = null;
   let audioStream = null;
+  let localAudioTrack = null;
+  let audioTransceiver = null;
+  let isMicrophoneStreaming = false;
   let isConnected = false;
   let autoScroll = true;
   let logCounter = 0;
@@ -912,6 +915,300 @@
       const div = document.createElement('div');
       div.textContent = text;
       return div.innerHTML;
+    }
+
+    // ===== HTTP Logging Helpers =====
+    const HTTP_LOG_ENDPOINT_PATTERN = '/api/v1/webrtc/voice';
+    const HTTP_LOG_BODY_CHAR_LIMIT = 2000;
+
+    function shellEscapeSingleQuotes(value) {
+      return `'${String(value).replace(/'/g, `'"'"'`)}'`;
+    }
+
+    function formatCurlCommand({ url, method, headers, bodyText }) {
+      const parts = [];
+      const upperMethod = method.toUpperCase();
+      parts.push('curl');
+
+      if (upperMethod !== 'GET') {
+        parts.push('-X', upperMethod);
+      }
+
+      parts.push(shellEscapeSingleQuotes(url));
+
+      headers.forEach(([key, value]) => {
+        parts.push('-H');
+        parts.push(shellEscapeSingleQuotes(`${key}: ${value}`));
+      });
+
+      if (bodyText) {
+        parts.push('--data-raw');
+        parts.push(shellEscapeSingleQuotes(bodyText));
+      }
+
+      return parts.join(' ');
+    }
+
+    function normalizeHeaders(headersInput) {
+      const map = new Map();
+
+      const addHeaders = (headers) => {
+        if (!headers) {
+          return;
+        }
+        if (headers instanceof Headers) {
+          headers.forEach((value, key) => {
+            map.set(key, value);
+          });
+        } else if (Array.isArray(headers)) {
+          headers.forEach(([key, value]) => {
+            map.set(key, value);
+          });
+        } else if (typeof headers === 'object') {
+          Object.entries(headers).forEach(([key, value]) => {
+            map.set(key, value);
+          });
+        }
+      };
+
+      addHeaders(headersInput);
+
+      return Array.from(map.entries());
+    }
+
+    function serializeBody(body) {
+      if (body === undefined || body === null) {
+        return '';
+      }
+
+      if (typeof body === 'string') {
+        return body;
+      }
+
+      if (body instanceof URLSearchParams) {
+        return body.toString();
+      }
+
+      if (body instanceof FormData) {
+        const pairs = [];
+        body.forEach((value, key) => {
+          pairs.push(`${key}=${value}`);
+        });
+        return pairs.join('&');
+      }
+
+      if (body instanceof Blob) {
+        return `[blob ${body.type || 'binary'} (${body.size} bytes)]`;
+      }
+
+      if (typeof body === 'object') {
+        try {
+          return JSON.stringify(body);
+        } catch (error) {
+          return `[unserializable body: ${error.message}]`;
+        }
+      }
+
+      return String(body);
+    }
+
+    function truncateBody(bodyText) {
+      if (!bodyText) {
+        return { snippet: '', length: 0 };
+      }
+
+      const length = bodyText.length;
+      if (length <= HTTP_LOG_BODY_CHAR_LIMIT) {
+        return { snippet: bodyText, length };
+      }
+
+      const truncated = `${bodyText.slice(0, HTTP_LOG_BODY_CHAR_LIMIT)}\n… (truncated ${length - HTTP_LOG_BODY_CHAR_LIMIT} chars)`;
+      return { snippet: truncated, length };
+    }
+
+    function extractRequestDetails(input, init = {}) {
+      const details = {
+        url: '',
+        method: 'GET',
+        headers: [],
+        bodyText: '',
+        bodySnippet: '',
+        bodyLength: 0
+      };
+
+      if (input instanceof Request) {
+        details.url = input.url;
+        details.method = input.method || 'GET';
+        details.headers = normalizeHeaders(input.headers);
+      } else if (typeof input === 'string' || input instanceof URL) {
+        details.url = String(input);
+      }
+
+      if (init.method) {
+        details.method = init.method;
+      }
+
+      details.method = (details.method || 'GET').toUpperCase();
+
+      const initHeaders = normalizeHeaders(init.headers);
+      if (initHeaders.length > 0) {
+        const headerMap = new Map(details.headers);
+        initHeaders.forEach(([key, value]) => {
+          headerMap.set(key, value);
+        });
+        details.headers = Array.from(headerMap.entries());
+      }
+
+      let body = init.body;
+      if (body === undefined && input instanceof Request) {
+        try {
+          if (!input.bodyUsed && typeof input.clone === 'function') {
+            const cloned = input.clone();
+            if (typeof cloned.text === 'function') {
+              body = cloned.text();
+            }
+          }
+        } catch (error) {
+          body = `[unable to clone request body: ${error.message}]`;
+        }
+      }
+
+      if (body instanceof Promise) {
+        // Defer serialization until resolved
+        // eslint-disable-next-line no-async-promise-executor
+        return body.then(resolvedBody => {
+          const serialized = serializeBody(resolvedBody);
+          const { snippet, length } = truncateBody(serialized);
+          return {
+            ...details,
+            bodyText: serialized,
+            bodySnippet: snippet,
+            bodyLength: length
+          };
+        }).catch(error => ({
+          ...details,
+          bodyText: `[unable to read request body: ${error.message}]`,
+          bodySnippet: `[unable to read request body: ${error.message}]`,
+          bodyLength: 0
+        }));
+      }
+
+      const serialized = serializeBody(body);
+      const { snippet, length } = truncateBody(serialized);
+      details.bodyText = serialized;
+      details.bodySnippet = snippet;
+      details.bodyLength = length;
+      return details;
+    }
+
+    function shouldLogHttp(details) {
+      return typeof details.url === 'string' && details.url.includes(HTTP_LOG_ENDPOINT_PATTERN);
+    }
+
+    async function ensureRequestDetails(details) {
+      if (details instanceof Promise) {
+        return details;
+      }
+      return details;
+    }
+
+    function formatHeadersForDisplay(headers) {
+      if (!headers || headers.length === 0) {
+        return '';
+      }
+      const lines = headers.map(([key, value]) => `${key}: ${value}`);
+      return lines.join('\n');
+    }
+
+    async function captureResponseBody(response) {
+      const clone = response.clone();
+      const contentType = (clone.headers.get('content-type') || '').toLowerCase();
+      const isTextual = contentType.includes('application/json') || contentType.includes('text/') || contentType === '';
+
+      if (!isTextual) {
+        return `[binary response omitted (${contentType || 'unknown content-type'})]`;
+      }
+
+      try {
+        const text = await clone.text();
+        if (!text) {
+          return '';
+        }
+        if (text.length <= HTTP_LOG_BODY_CHAR_LIMIT) {
+          return text;
+        }
+        return `${text.slice(0, HTTP_LOG_BODY_CHAR_LIMIT)}\n… (truncated ${text.length - HTTP_LOG_BODY_CHAR_LIMIT} chars)`;
+      } catch (error) {
+        return `[unable to read response body: ${error.message}]`;
+      }
+    }
+
+    if (!window.__webrtcFetchLoggerInstalled) {
+      window.__webrtcFetchLoggerInstalled = true;
+      const originalFetch = window.fetch.bind(window);
+
+      window.fetch = async (input, init = {}) => {
+        const baseDetails = extractRequestDetails(input, init);
+        const details = await ensureRequestDetails(baseDetails);
+        const logThisRequest = shouldLogHttp(details);
+        let curlCommand = '';
+
+        if (logThisRequest) {
+          curlCommand = formatCurlCommand(details);
+          const messageParts = [
+            '<strong>HTTP Request</strong>',
+            `${escapeHtml(details.method)} ${escapeHtml(details.url)}`
+          ];
+
+          if (details.headers.length > 0) {
+            messageParts.push(`Headers:<br><pre>${escapeHtml(formatHeadersForDisplay(details.headers))}</pre>`);
+          }
+
+          if (details.bodySnippet) {
+            messageParts.push(`Body (${details.bodyLength} chars):<br><pre>${escapeHtml(details.bodySnippet)}</pre>`);
+          }
+
+          messageParts.push(`cURL:<br><pre>${escapeHtml(curlCommand)}</pre>`);
+          log(messageParts.join('<br>'), 'info');
+        }
+
+        try {
+          const response = await originalFetch(input, init);
+
+          if (logThisRequest) {
+            const responseBody = await captureResponseBody(response);
+            const responseHeaders = [];
+            response.headers.forEach((value, key) => {
+              responseHeaders.push([key, value]);
+            });
+
+            const statusLine = `${details.method} ${details.url} → ${response.status} ${response.statusText || ''}`;
+            const responseParts = [
+              '<strong>HTTP Response</strong>',
+              escapeHtml(statusLine.trim())
+            ];
+
+            if (responseHeaders.length > 0) {
+              responseParts.push(`Headers:<br><pre>${escapeHtml(formatHeadersForDisplay(responseHeaders))}</pre>`);
+            }
+
+            if (responseBody) {
+              responseParts.push(`Body:<br><pre>${escapeHtml(responseBody)}</pre>`);
+            }
+
+            const level = response.ok ? 'success' : (response.status >= 500 ? 'error' : 'warning');
+            log(responseParts.join('<br>'), level);
+          }
+
+          return response;
+        } catch (error) {
+          if (logThisRequest) {
+            const errorMessage = `${details.method} ${details.url} → ${error.message}`;
+            log(`<strong>HTTP Error</strong><br>${escapeHtml(errorMessage)}`, 'error');
+          }
+          throw error;
+        }
+      };
     }
 
     function updateConnectionStatus(status) {
@@ -1248,6 +1545,10 @@
           dataChannel = channel;
         };
 
+        // Prepare audio transceiver so we can attach the microphone only when recording starts
+        audioTransceiver = peerConnection.addTransceiver('audio', { direction: 'sendrecv' });
+        log('Audio transceiver prepared (microphone will attach on start)', 'info');
+
         // Get user media
         audioStream = await navigator.mediaDevices.getUserMedia({ 
           audio: {
@@ -1258,10 +1559,14 @@
         });
         log('Microphone access granted', 'success');
 
-        // Add audio track to peer connection
-        audioStream.getTracks().forEach(track => {
-          peerConnection.addTrack(track, audioStream);
-        });
+        // Cache the primary audio track but keep it detached from the peer connection until the user starts talking
+        localAudioTrack = audioStream.getAudioTracks()[0] || null;
+        if (localAudioTrack) {
+          localAudioTrack.enabled = false;
+          log('Microphone track captured but detached (click "Start Voice Conversation" to begin streaming)', 'info');
+        } else {
+          log('No audio track found in captured stream', 'warning');
+        }
 
         // Set up audio visualizer
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -1475,10 +1780,25 @@
         peerConnection = null;
       }
 
+      if (audioTransceiver) {
+        try {
+          await audioTransceiver.sender.replaceTrack(null);
+          if (typeof audioTransceiver.sender.setStreams === 'function') {
+            audioTransceiver.sender.setStreams();
+          }
+        } catch (error) {
+          log(`Failed to detach microphone during disconnect: ${error.message}`, 'warning');
+        }
+      }
+
       if (audioStream) {
         audioStream.getTracks().forEach(track => track.stop());
         audioStream = null;
       }
+
+      localAudioTrack = null;
+      audioTransceiver = null;
+      isMicrophoneStreaming = false;
 
       if (audioContext) {
         audioContext.close();
@@ -1491,6 +1811,10 @@
         cancelAnimationFrame(visualizerAnimationId);
         visualizerAnimationId = null;
       }
+
+      // Reset voice control buttons to default state
+      document.getElementById('startVoiceBtn').style.display = 'block';
+      document.getElementById('stopVoiceBtn').style.display = 'none';
 
       updateConnectionStatus('disconnected');
       log('Disconnected from WebRTC session', 'info');
@@ -1583,16 +1907,68 @@
       }
     });
 
-    document.getElementById('startVoiceBtn').addEventListener('click', () => {
-      document.getElementById('startVoiceBtn').style.display = 'none';
-      document.getElementById('stopVoiceBtn').style.display = 'block';
-      log('Voice conversation started', 'success');
+    document.getElementById('startVoiceBtn').addEventListener('click', async () => {
+      if (isMicrophoneStreaming) {
+        log('Microphone stream already active', 'info');
+        return;
+      }
+
+      if (!audioStream || !audioTransceiver) {
+        log('Cannot start voice conversation: audio stream or transceiver unavailable', 'warning');
+        return;
+      }
+
+      const track = audioStream.getAudioTracks()[0];
+      if (!track) {
+        log('Cannot start voice conversation: no audio track available', 'error');
+        return;
+      }
+
+      try {
+        if (typeof audioTransceiver.sender.setStreams === 'function') {
+          audioTransceiver.sender.setStreams(audioStream);
+        }
+        await audioTransceiver.sender.replaceTrack(track);
+        track.enabled = true;
+        isMicrophoneStreaming = true;
+        document.getElementById('startVoiceBtn').style.display = 'none';
+        document.getElementById('stopVoiceBtn').style.display = 'block';
+        log('Voice conversation started (microphone track attached)', 'success');
+      } catch (error) {
+        log(`Failed to attach microphone track: ${error.message}`, 'error');
+      }
     });
 
-    document.getElementById('stopVoiceBtn').addEventListener('click', () => {
-      document.getElementById('startVoiceBtn').style.display = 'block';
-      document.getElementById('stopVoiceBtn').style.display = 'none';
-      log('Voice conversation stopped', 'info');
+    document.getElementById('stopVoiceBtn').addEventListener('click', async () => {
+      if (!isMicrophoneStreaming && !audioTransceiver) {
+        document.getElementById('startVoiceBtn').style.display = 'block';
+        document.getElementById('stopVoiceBtn').style.display = 'none';
+        log('Voice conversation stopped', 'info');
+        return;
+      }
+
+      try {
+        if (audioTransceiver) {
+          await audioTransceiver.sender.replaceTrack(null);
+          if (typeof audioTransceiver.sender.setStreams === 'function') {
+            audioTransceiver.sender.setStreams();
+          }
+        }
+
+        if (audioStream) {
+          audioStream.getAudioTracks().forEach(track => {
+            track.enabled = false;
+          });
+          log('Microphone stream paused', 'info');
+        }
+
+        isMicrophoneStreaming = false;
+        document.getElementById('startVoiceBtn').style.display = 'block';
+        document.getElementById('stopVoiceBtn').style.display = 'none';
+        log('Voice conversation stopped', 'info');
+      } catch (error) {
+        log(`Failed to detach microphone track: ${error.message}`, 'error');
+      }
     });
 
     document.getElementById('themeToggle').addEventListener('click', () => {
