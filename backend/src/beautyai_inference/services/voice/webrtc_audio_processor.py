@@ -261,19 +261,38 @@ class WebRTCAudioProcessor:
             try:
                 start_time = time.time()
                 
-                # Update metrics
+                # Update metrics with safeguards for missing metadata
                 self.metrics.frames_received += 1
-                self.metrics.sample_rate = frame.sample_rate
-                self.metrics.channels = len(frame.layout.channels)
+
+                frame_rate = getattr(frame, "sample_rate", None) or 0
+                if frame_rate <= 0:
+                    frame_rate = self.config.target_sample_rate
+                    self.logger.warning(
+                        f"[PROCESSOR] Invalid frame sample rate for {self.peer_id}, "
+                        f"falling back to target {frame_rate}Hz"
+                    )
+                self.metrics.sample_rate = frame_rate
+
+                frame_layout = getattr(frame, "layout", None)
+                if frame_layout and getattr(frame_layout, "channels", None):
+                    self.metrics.channels = len(frame_layout.channels)
+                else:
+                    self.metrics.channels = self.config.target_channels
                 
                 # Convert AudioFrame to numpy array
                 audio_array = self._frame_to_numpy(frame)
+
+                if audio_array.size == 0:
+                    self.logger.warning(
+                        f"[PROCESSOR] Empty audio frame received for {self.peer_id}, skipping"
+                    )
+                    return
                 
                 # Resample to target sample rate if needed
-                if frame.sample_rate != self.config.target_sample_rate:
+                if frame_rate != self.config.target_sample_rate:
                     audio_array = self._resample_audio(
                         audio_array,
-                        frame.sample_rate,
+                        frame_rate,
                         self.config.target_sample_rate
                     )
                 
@@ -285,7 +304,8 @@ class WebRTCAudioProcessor:
                 pcm_bytes = self._numpy_to_pcm(audio_array)
                 
                 # Check utterance duration limit
-                chunk_duration = len(pcm_bytes) / (self.config.target_sample_rate * 2)
+                target_rate = max(self.config.target_sample_rate, 1)
+                chunk_duration = len(pcm_bytes) / (target_rate * 2)
                 self.current_utterance_duration += chunk_duration
                 self.current_utterance_bytes += len(pcm_bytes)
                 
@@ -379,6 +399,18 @@ class WebRTCAudioProcessor:
         Returns:
             Resampled audio array
         """
+        if source_rate <= 0:
+            self.logger.warning(
+                f"[PROCESSOR] Invalid source sample rate {source_rate}, skipping resample"
+            )
+            return audio
+
+        if target_rate <= 0:
+            self.logger.warning(
+                f"[PROCESSOR] Invalid target sample rate {target_rate}, skipping resample"
+            )
+            return audio
+
         try:
             from scipy import signal
             
@@ -387,6 +419,12 @@ class WebRTCAudioProcessor:
             
             # Calculate number of samples in output
             num_samples = int(len(audio) * target_rate / source_rate)
+
+            if num_samples <= 0:
+                self.logger.warning(
+                    f"[PROCESSOR] Computed resample length {num_samples}, skipping resample"
+                )
+                return audio
             
             # Resample
             resampled = signal.resample(audio, num_samples)
@@ -396,6 +434,8 @@ class WebRTCAudioProcessor:
         except ImportError:
             self.logger.warning("scipy not available, using simple resampling")
             # Fallback to simple linear interpolation
+            if len(audio) == 0:
+                return audio
             return np.interp(
                 np.linspace(0, len(audio), int(len(audio) * target_rate / source_rate)),
                 np.arange(len(audio)),

@@ -24,7 +24,7 @@ pytestmark = pytest.mark.skipif(
 AUDIO_FIXTURE = Path(__file__).parent / "q7.pcm"
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
-    "https://api.lumidev.ca/api/v1/webrtc/voice",
+    "https://api.gmai.sa/api/v1/webrtc/voice",
 )
 
 CONNECTION_TIMEOUT_SECONDS = 25
