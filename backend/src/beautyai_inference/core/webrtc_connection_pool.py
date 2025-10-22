@@ -95,6 +95,9 @@ class WebRTCConnectionData:
     
     # Data channel for sending transcriptions/responses
     data_channel: Optional[Any] = None  # RTCDataChannel instance
+    data_channel_label: Optional[str] = None
+    data_channel_ready_state: Optional[str] = None
+    data_channel_last_updated: Optional[float] = None
     
     # Metadata
     client_info: Dict[str, Any] = field(default_factory=dict)
@@ -130,8 +133,27 @@ class WebRTCConnectionData:
         self.remote_ice_candidates_count += 1
         logger.debug(f"[WebRTC] Added ICE candidate for peer {self.peer_id} (total: {self.remote_ice_candidates_count})")
     
+    def attach_data_channel(self, channel: Any):
+        """Attach client-created data channel to this connection."""
+        self.data_channel = channel
+        self.data_channel_label = getattr(channel, "label", None)
+        # readyState may not be present immediately; use getattr to avoid AttributeError
+        self.data_channel_ready_state = getattr(channel, "readyState", self.data_channel_ready_state)
+        self.data_channel_last_updated = time.time()
+
+    def update_data_channel_state(self, state: Optional[str]):
+        """Persist the latest known data channel readyState."""
+        self.data_channel_ready_state = state
+        self.data_channel_last_updated = time.time()
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
+        channel_state = "absent"
+        if self.data_channel:
+            channel_state = getattr(self.data_channel, "readyState", None) or self.data_channel_ready_state or "unknown"
+        elif self.data_channel_ready_state:
+            channel_state = self.data_channel_ready_state
+
         return {
             'peer_id': self.peer_id,
             'user_id': self.user_id,
@@ -146,7 +168,11 @@ class WebRTCConnectionData:
             'bytes_received': self.bytes_received,
             'packets_sent': self.packets_sent,
             'packets_received': self.packets_received,
-            'client_info': self.client_info
+            'client_info': self.client_info,
+            'data_channel_present': bool(self.data_channel or self.data_channel_ready_state),
+            'data_channel_state': channel_state,
+            'data_channel_label': self.data_channel_label,
+            'data_channel_last_updated': self.data_channel_last_updated
         }
 
 
@@ -189,6 +215,9 @@ class WebRTCConnectionPool:
         
         # Keep-alive tasks for active audio tracks
         self._keepalive_tasks: Dict[str, asyncio.Task] = {}  # peer_id -> keep-alive task
+
+        # Track data channels received before connection registration completes
+        self._pending_data_channels: Dict[str, Any] = {}  # peer_id -> RTCDataChannel instance
         
         # Locks for thread safety
         self._lock = asyncio.Lock()
@@ -236,6 +265,38 @@ class WebRTCConnectionPool:
         
         logger.info("[WebRTC] Connection pool stopped")
     
+    async def _register_client_data_channel(self, peer_id: str, channel: Any) -> None:
+        """Track data channel provided by the client once it is announced."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.attach_data_channel(channel)
+                self._pending_data_channels.pop(peer_id, None)
+            else:
+                # Store temporarily until the connection record is registered
+                self._pending_data_channels[peer_id] = channel
+
+    async def _handle_data_channel_open(self, peer_id: str, channel: Any) -> None:
+        """Persist open state and bump activity when channel becomes ready."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.attach_data_channel(channel)
+                connection_data.update_data_channel_state("open")
+                connection_data.update_activity()
+                self._pending_data_channels.pop(peer_id, None)
+            else:
+                self._pending_data_channels[peer_id] = channel
+
+    async def _handle_data_channel_close(self, peer_id: str, channel: Any) -> None:
+        """Mark channel as closed and release pending references."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.update_data_channel_state("closed")
+            # Remove any pending reference for this peer
+            self._pending_data_channels.pop(peer_id, None)
+
     async def create_peer_connection(
         self,
         peer_id: str,
@@ -285,14 +346,19 @@ class WebRTCConnectionPool:
                     nonlocal data_channel
                     data_channel = channel
                     logger.info(f"[WebRTC] ✓ Received data channel '{channel.label}' from client for peer {peer_id}")
+
+                    asyncio.create_task(self._register_client_data_channel(peer_id, channel))
+
                     
                     @channel.on("open")
                     def on_dc_open():
                         logger.info(f"[WebRTC] ✓ Data channel '{channel.label}' OPENED for peer {peer_id}")
+                    
                         if peer_id in self._connections:
                             self._connections[peer_id].update_activity()
                             # Update the stored reference now that it's open
                             self._connections[peer_id].data_channel = data_channel
+                    
                     
                     @channel.on("close")
                     def on_dc_close():
@@ -561,6 +627,12 @@ class WebRTCConnectionPool:
                     remote_sdp=offer_sdp,
                     data_channel=data_channel
                 )
+
+                if not data_channel and peer_id in self._pending_data_channels:
+                    pending_channel = self._pending_data_channels.pop(peer_id)
+                    connection_data.attach_data_channel(pending_channel)
+                elif data_channel:
+                    connection_data.attach_data_channel(data_channel)
                 
                 self._connections[peer_id] = connection_data
 
@@ -812,6 +884,10 @@ class WebRTCConnectionPool:
             
             # Remove from tracking
             del self._connections[peer_id]
+
+            # Clear any pending data channel reference for this peer
+            if peer_id in self._pending_data_channels:
+                del self._pending_data_channels[peer_id]
             
             # Remove from user connections
             if connection_data.user_id and connection_data.user_id in self._user_connections:

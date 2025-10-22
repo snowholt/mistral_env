@@ -213,6 +213,10 @@ class ConnectionStatusResponse(BaseModel):
     ice_gathering_state: str
     created_at: float
     last_activity: float
+    data_channel_state: str
+    data_channel_label: Optional[str] = None
+    data_channel_present: bool
+    data_channel_last_updated: Optional[float] = None
     
     class Config:
         json_schema_extra = {
@@ -223,7 +227,11 @@ class ConnectionStatusResponse(BaseModel):
                 "ice_connection_state": "connected",
                 "ice_gathering_state": "complete",
                 "created_at": 1697385600.0,
-                "last_activity": 1697385620.0
+                "last_activity": 1697385620.0,
+                "data_channel_state": "open",
+                "data_channel_label": "client_receive",
+                "data_channel_present": True,
+                "data_channel_last_updated": 1697385620.0
             }
         }
 
@@ -475,7 +483,11 @@ async def get_connection_status(
             ice_connection_state=status_info.get('ice_connection_state', 'unknown'),
             ice_gathering_state=status_info.get('ice_gathering_state', 'unknown'),
             created_at=status_info.get('created_at', time.time()),
-            last_activity=status_info.get('last_activity', time.time())
+            last_activity=status_info.get('last_activity', time.time()),
+            data_channel_state=status_info.get('data_channel_state', 'absent'),
+            data_channel_label=status_info.get('data_channel_label'),
+            data_channel_present=status_info.get('data_channel_present', False),
+            data_channel_last_updated=status_info.get('data_channel_last_updated')
         )
         
     except HTTPException:
