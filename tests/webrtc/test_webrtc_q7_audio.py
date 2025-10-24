@@ -25,7 +25,7 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path(__file__).parent / "q7.wav"  # Changed from q7.pcm to test WAV format
+AUDIO_FIXTURE = Path("/home/lumi/beautyai/voice_tests/input_test_questions/pcm/q7.pcm")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "https://api.gmai.sa/api/v1/webrtc/voice",
@@ -174,7 +174,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         offer_payload = {
             "sdp": offer.sdp,
             "type": offer.type,
-            "language": "en",
+            "language": "ar",  # Changed to Arabic since test audio files are Arabic
             "session_metadata": {
                 "test_origin": "pytest_webrtc_q7",
                 "generated_at": time.time(),

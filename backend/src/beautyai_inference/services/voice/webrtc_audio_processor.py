@@ -138,6 +138,11 @@ class WebRTCAudioProcessor:
         self._frame_buffer: deque = deque(maxlen=self.config.frame_buffer_size)
         self._processing_lock = asyncio.Lock()
         
+        # Frame accumulator for tiny frames (before resampling)
+        self._frame_accumulator = []
+        self._accumulator_samples = 0
+        self._min_samples_before_resample = 48  # Just 1ms at 48kHz - very conservative
+        
         self.logger.info(
             f"WebRTC audio processor initialized for peer {peer_id} "
             f"(target: {self.config.target_sample_rate}Hz mono, "
@@ -296,12 +301,34 @@ class WebRTCAudioProcessor:
                         self.config.target_sample_rate
                     )
                 
+                # DEBUG: Check after resample
+                if audio_array.size > 10:
+                    non_zero = np.count_nonzero(np.abs(audio_array) > 0.001)
+                    if non_zero == 0:
+                        self.logger.warning(f"[PROCESSOR] Audio is zeros after resample!")
+                
                 # Convert to mono if needed
                 if audio_array.ndim > 1:
                     audio_array = np.mean(audio_array, axis=0)
                 
+                # DEBUG: Check after mono conversion
+                if audio_array.size > 10:
+                    non_zero = np.count_nonzero(np.abs(audio_array) > 0.001)
+                    if non_zero == 0:
+                        self.logger.warning(f"[PROCESSOR] Audio is zeros after mono conversion!")
+                
                 # Convert to 16-bit PCM bytes
                 pcm_bytes = self._numpy_to_pcm(audio_array)
+                
+                # DEBUG: Check PCM bytes content
+                if len(pcm_bytes) >= 100:
+                    import struct
+                    samples = struct.unpack('<50h', pcm_bytes[:100])
+                    non_zero = sum(1 for s in samples if abs(s) > 10)
+                    if non_zero == 0:
+                        self.logger.warning(f"[PROCESSOR] PCM chunk is all zeros! len={len(pcm_bytes)}")
+                    elif non_zero < 5:
+                        self.logger.warning(f"[PROCESSOR] PCM chunk mostly zeros: {non_zero}/50 non-zero")
                 
                 # Check utterance duration limit
                 target_rate = max(self.config.target_sample_rate, 1)
@@ -380,6 +407,13 @@ class WebRTCAudioProcessor:
         """
         # AudioFrame.to_ndarray() returns audio as float32 in range [-1.0, 1.0]
         audio_array = frame.to_ndarray()
+        
+        # DEBUG: Check if audio has actual content
+        if audio_array.size > 0:
+            non_zero = np.count_nonzero(np.abs(audio_array) > 0.001)
+            if non_zero == 0 and audio_array.size > 10:
+                self.logger.warning(f"[PROCESSOR] Frame is all zeros! size={audio_array.size}")
+        
         return audio_array
     
     def _resample_audio(
@@ -421,9 +455,8 @@ class WebRTCAudioProcessor:
             num_samples = int(len(audio) * target_rate / source_rate)
 
             if num_samples <= 0:
-                self.logger.warning(
-                    f"[PROCESSOR] Computed resample length {num_samples}, skipping resample"
-                )
+                # For tiny frames, just pass through without resampling
+                # The VAD/buffer will accumulate them anyway
                 return audio
             
             # Resample

@@ -375,7 +375,7 @@ class WebRTCVoiceServiceAdapter:
             # 1. STT: Transcribe audio to text
             transcription_result = await self.voice_service.transcribe_audio(
                 audio_data=audio_array.tobytes(),
-                language=self.language if self.language != "en" else None  # Auto-detect for English
+                language=self.language  # Pass language through (Whisper auto-detects if None)
             )
             
             if not transcription_result.get("success"):

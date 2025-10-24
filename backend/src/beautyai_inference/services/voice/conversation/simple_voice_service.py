@@ -1066,6 +1066,17 @@ class SimpleVoiceService:
             else:
                 # Use persistent Whisper engine directly
                 print(f"✅ [TRANSCRIBE] Using persistent Whisper engine for transcription")
+                print(f"   Audio data size: {len(audio_data)} bytes, format: {audio_format}, language: {language}")
+                
+                # DEBUG: Check audio data properties
+                import struct
+                if audio_format == 'pcm' and len(audio_data) >= 1000:
+                    # Sample first 1000 bytes as int16 values
+                    samples = struct.unpack('<500h', audio_data[:1000])
+                    non_zero = sum(1 for s in samples if abs(s) > 100)
+                    max_val = max(abs(s) for s in samples)
+                    print(f"   DEBUG: First 500 samples - non_zero: {non_zero}/500, max_val: {max_val}")
+                
                 logger.debug("Using persistent Whisper engine for transcription")
                 result = whisper_engine.transcribe_audio_bytes(
                     audio_data, 
