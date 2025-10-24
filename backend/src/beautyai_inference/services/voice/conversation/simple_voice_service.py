@@ -1045,6 +1045,7 @@ class SimpleVoiceService:
             
             # Fallback to transcription factory if persistent engine not available
             if whisper_engine is None:
+                print(f"⚠️  [TRANSCRIBE] Persistent Whisper engine not available, using factory fallback")
                 logger.warning("Persistent Whisper engine not available, using factory fallback")
                 if self.transcription_service is None:
                     from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
@@ -1064,6 +1065,7 @@ class SimpleVoiceService:
                 )
             else:
                 # Use persistent Whisper engine directly
+                print(f"✅ [TRANSCRIBE] Using persistent Whisper engine for transcription")
                 logger.debug("Using persistent Whisper engine for transcription")
                 result = whisper_engine.transcribe_audio_bytes(
                     audio_data, 

@@ -6,6 +6,10 @@ from typing import Dict, List
 
 import pytest
 import requests
+import urllib3
+
+# Suppress SSL verification warnings for self-signed certificates
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription
@@ -21,7 +25,7 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path(__file__).parent / "q7.pcm"
+AUDIO_FIXTURE = Path(__file__).parent / "q7.wav"  # Changed from q7.pcm to test WAV format
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "https://api.gmai.sa/api/v1/webrtc/voice",
@@ -36,7 +40,7 @@ async def _post_json(url: str, payload: Dict) -> Dict:
     """Submit JSON payload via POST using a thread executor."""
 
     def _send() -> Dict:
-        response = requests.post(url, json=payload, timeout=30)
+        response = requests.post(url, json=payload, timeout=30, verify=False)
         response.raise_for_status()
         return response.json()
 
@@ -47,7 +51,7 @@ async def _delete(url: str) -> None:
     """Send DELETE request in executor."""
 
     def _send() -> None:
-        response = requests.delete(url, timeout=15)
+        response = requests.delete(url, timeout=15, verify=False)
         # Treat 2xx/404 as success to keep cleanup idempotent
         if response.status_code not in {200, 204, 404}:
             response.raise_for_status()

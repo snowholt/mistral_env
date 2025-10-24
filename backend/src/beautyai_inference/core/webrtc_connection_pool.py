@@ -482,11 +482,29 @@ class WebRTCConnectionPool:
                                 )
                             
                             # Create voice service for this peer if not exists
+                            print(f"🔍 [WebRTC-DEBUG] Checking voice_adapters for peer {peer_id}. Current adapters: {list(self._voice_adapters.keys())}")
+                            logger.info(f"[WebRTC-DEBUG] Checking voice_adapters for peer {peer_id}. Current adapters: {list(self._voice_adapters.keys())}")
                             if peer_id not in self._voice_adapters:
+                                print(f"✨ [WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
                                 logger.info(f"[WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
                                 
-                                # Create SimpleVoiceService instance (language configured via voice registry)
+                                # Create SimpleVoiceService instance with persistent model manager for GPU-accelerated Whisper
                                 simple_voice_service = SimpleVoiceService()
+                                
+                                # Set up persistent model manager for optimized GPU inference
+                                try:
+                                    from ..core.persistent_model_manager import get_persistent_model_manager
+                                    persistent_mgr = get_persistent_model_manager()
+                                    simple_voice_service.set_persistent_model_manager(persistent_mgr)
+                                    
+                                    # Pre-load models (Whisper on GPU)
+                                    await simple_voice_service._preload_required_models()
+                                    print(f"✅ [WebRTC] Persistent GPU-accelerated Whisper engine loaded for peer {peer_id}")
+                                    logger.info(f"[WebRTC] ✅ Persistent GPU-accelerated Whisper engine loaded for peer {peer_id}")
+                                except Exception as e:
+                                    print(f"⚠️  [WebRTC] Could not set up persistent models for {peer_id}: {e}")
+                                    logger.warning(f"[WebRTC] Could not set up persistent models for {peer_id}: {e}")
+                                    logger.info(f"[WebRTC] Continuing with factory fallback for {peer_id}")
                                 
                                 # Create voice adapter with dual VAD configured for Silero-only mode
                                 voice_config = WebRTCVoiceConfig(
@@ -580,6 +598,9 @@ class WebRTCConnectionPool:
                                 else:
                                     logger.error(f"[WebRTC] Failed to initialize voice adapter for {peer_id}")
                                     return
+                            else:
+                                print(f"♻️  [WebRTC-DEBUG] Voice adapter already exists for peer {peer_id}, reusing existing adapter")
+                                logger.info(f"[WebRTC-DEBUG] Voice adapter already exists for peer {peer_id}, reusing existing adapter")
                             
                             # Start processing audio from the track
                             adapter = self._voice_adapters[peer_id]

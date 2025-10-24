@@ -582,11 +582,11 @@
         <div class="form-group">
           <label>Server URL</label>
           <select id="serverUrlPreset" onchange="updateServerUrl()" style="margin-bottom: 0.5rem;">
-            <option value="frontend" selected>Frontend Proxy (web.lumidev.ca)</option>
-            <option value="api">Direct API (api.lumidev.ca)</option>
+            <option value="frontend" selected>Frontend Proxy (dev.gmai.sa)</option>
+            <option value="api">Direct API (api.gmai.sa)</option>
             <option value="custom">Custom URL</option>
           </select>
-          <input type="text" id="serverUrl" value="https://web.lumidev.ca/api/v1/webrtc/voice" placeholder="https://server:port/path">
+          <input type="text" id="serverUrl" value="https://dev.gmai.sa/api/v1/webrtc/voice" placeholder="https://server:port/path">
           <small style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; display: block;">
             <i class="fas fa-info-circle"></i> Use HTTPS for signaling endpoints (not WSS)
           </small>
@@ -2032,11 +2032,11 @@
       const urlInput = document.getElementById('serverUrl');
 
       if (preset === 'frontend') {
-        urlInput.value = 'https://web.lumidev.ca/api/v1/webrtc/voice';
+        urlInput.value = 'https://dev.gmai.sa/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
       } else if (preset === 'api') {
-        urlInput.value = 'https://api.lumidev.ca/api/v1/webrtc/voice';
+        urlInput.value = 'https://api.gmai.sa/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
       } else {

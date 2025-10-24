@@ -11,6 +11,9 @@ import logging
 import time
 import os
 
+# Logging configured centrally in run_server via configure_logging.
+logger = logging.getLogger(__name__)
+
 # Import the routers
 from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
 from .endpoints.debug_router import debug_router
@@ -20,20 +23,17 @@ from .endpoints.websocket_simple_voice import websocket_simple_voice_router
 try:
     from .endpoints.webrtc_voice import webrtc_voice_router
     webrtc_router_available = True
-except ImportError:
+except ImportError as e:
     webrtc_router_available = False
-    logger.warning("WebRTC voice router not available - WebRTC features disabled")
+    logger.warning(f"WebRTC voice router not available - WebRTC features disabled: {e}")
 
 # Import performance dashboard router
 try:
     from .endpoints.performance_dashboard import performance_router
     performance_router_available = True
-except ImportError:
+except ImportError as e:
     performance_router_available = False
-    logger.warning("Performance dashboard router not available")
-
-# Logging configured centrally in run_server via configure_logging.
-logger = logging.getLogger(__name__)
+    logger.warning(f"Performance dashboard router not available: {e}")
 
 # Define OpenAPI tags for better documentation organization
 tags_metadata = [
