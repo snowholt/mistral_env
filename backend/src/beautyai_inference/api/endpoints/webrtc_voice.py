@@ -294,7 +294,7 @@ async def handle_sdp_offer(
         # Generate unique peer_id
         peer_id = f"peer_{uuid.uuid4().hex[:12]}"
         
-        logger.info(f"[WebRTC] Handling SDP offer for peer_id={peer_id}, language={request.language}")
+        logger.info("[WebRTC] handle_sdp_offer start | peer_id=%s | language=%s", peer_id, request.language)
         
         # Get WebRTC configuration from environment
         import os
@@ -309,11 +309,18 @@ async def handle_sdp_offer(
         
         # Create voice session first to get session_id
         try:
+            start_session = time.time()
             session_id = await session_manager.create_session(
                 peer_id=peer_id,
                 language=request.language or "ar",
                 user_id=request.user_id,
                 metadata=request.session_metadata
+            )
+            logger.debug(
+                "[WebRTC] (%s) Session created session_id=%s (%.2f ms)",
+                peer_id,
+                session_id,
+                (time.time() - start_session) * 1000,
             )
         except Exception as e:
             logger.error(f"[WebRTC] Failed to create voice session for {peer_id}: {e}", exc_info=True)
@@ -324,10 +331,16 @@ async def handle_sdp_offer(
         
         # Create RTCPeerConnection and process offer
         try:
+            start_pc = time.time()
             answer_sdp, ice_servers = await connection_pool.create_peer_connection(
                 peer_id=peer_id,
                 offer_sdp=request.sdp,
                 user_id=request.user_id
+            )
+            logger.debug(
+                "[WebRTC] (%s) create_peer_connection completed (%.2f ms)",
+                peer_id,
+                (time.time() - start_pc) * 1000,
             )
         except Exception as e:
             logger.error(f"[WebRTC] Failed to create peer connection for {peer_id}: {e}", exc_info=True)
@@ -338,7 +351,11 @@ async def handle_sdp_offer(
                 detail=f"Failed to process SDP offer: {str(e)}"
             )
         
-        logger.info(f"[WebRTC] Successfully created peer connection and session: peer_id={peer_id}, session_id={session_id}")
+        logger.info(
+            "[WebRTC] handle_sdp_offer complete | peer_id=%s | session_id=%s",
+            peer_id,
+            session_id,
+        )
         
         # Return SDP answer with identifiers
         return SDPAnswerResponse(

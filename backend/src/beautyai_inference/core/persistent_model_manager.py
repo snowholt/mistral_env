@@ -18,6 +18,7 @@ Date: 2024-09-11
 
 import asyncio
 import logging
+import os
 import time
 import threading
 import gc
@@ -347,7 +348,50 @@ class PersistentModelManager:
         
         # Fallback to ModelManager if not preloaded
         self.logger.warning("Whisper model not preloaded, using ModelManager fallback")
-        return self._model_manager.get_streaming_whisper()
+        whisper_engine = self._model_manager.get_streaming_whisper()
+        if whisper_engine:
+            # Cache for subsequent callers so we do not reload per connection
+            self._preloaded_models['whisper'] = whisper_engine
+            self.logger.info("Cached Whisper engine obtained via fallback for reuse")
+        return whisper_engine
+
+    async def ensure_whisper_loaded(
+        self,
+        model_id: Optional[str] = None,
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None
+    ) -> bool:
+        """Ensure the persistent Whisper model is loaded once (typically for WebRTC)."""
+        if 'whisper' in self._preloaded_models:
+            return True
+
+        resolved_model_id = model_id or os.getenv('WEBRTC_WHISPER_MODEL_ID')
+        resolved_device = device or os.getenv('WEBRTC_WHISPER_DEVICE', 'cuda')
+        resolved_compute = compute_type or os.getenv('WEBRTC_WHISPER_COMPUTE', 'float16')
+
+        with self._initialization_lock:
+            if 'whisper' in self._preloaded_models:
+                return True
+
+            preload_config = {
+                'model_id': resolved_model_id,
+                'device': resolved_device,
+                'compute_type': resolved_compute
+            }
+
+            self.logger.info(
+                "Ensuring persistent Whisper model is loaded (model_id=%s, device=%s, compute=%s)",
+                preload_config['model_id'],
+                preload_config['device'],
+                preload_config['compute_type']
+            )
+
+            success = await self._preload_whisper_model(preload_config)
+            if success:
+                self.logger.info("Persistent Whisper model ready for reuse")
+            else:
+                self.logger.warning("Failed to preload Whisper model via ensure_whisper_loaded")
+            return success
     
     def get_llm_model(self) -> Optional[Any]:
         """

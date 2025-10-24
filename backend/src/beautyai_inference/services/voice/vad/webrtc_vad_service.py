@@ -60,34 +60,34 @@ class WebRTCVADConfig:
     """Configuration for WebRTC dual VAD service."""
     
     # WebRTC VAD settings (fast path)
-    webrtc_sensitivity: int = 0  # 0-3, higher = less sensitive (0=most aggressive, TESTING)
+    webrtc_sensitivity: int = 2  # 0-3, higher = less sensitive (2=less aggressive, FIXED)
     webrtc_frame_duration_ms: int = 30  # 10, 20, or 30 ms frames
     
     # Silero VAD settings (confirmation path)
-    silero_sensitivity: float = 0.5  # 0.0-1.0, higher = more sensitive
+    silero_sensitivity: float = 0.3  # 0.0-1.0, higher = more sensitive (OPTIMIZED)
     silero_sample_rate: int = 16000  # Silero requires 16kHz
     
     # Language-specific thresholds (from migration plan)
     language_thresholds: Dict[str, float] = field(default_factory=lambda: {
-        "ar": 0.002,  # Arabic: lowered to prioritize detection over noise filtering
+        "ar": 0.001,  # Arabic: very low threshold for maximum capture (OPTIMIZED)
         "en": 0.002,  # English: lowered to prioritize detection over noise filtering
         "default": 0.002
     })
     
     # Speech detection timing
-    min_speech_duration_ms: int = 300  # Minimum to register as speech (RealtimeSTT pattern)
-    post_speech_silence_ms: int = 500  # Silence duration to end speech (RealtimeSTT: 600ms)
+    min_speech_duration_ms: int = 30   # Minimum to register as speech (OPTIMIZED for immediate capture)
+    post_speech_silence_ms: int = 1000 # Silence duration to end speech (OPTIMIZED for natural pauses)
     pre_speech_buffer_ms: int = 200  # Pre-roll buffer (RealtimeSTT: 200ms)
     
     # State management
     enable_browser_hints: bool = True  # Use WebRTC VAD as first pass
-    require_silero_confirmation: bool = True  # Require Silero to confirm WebRTC
+    require_silero_confirmation: bool = True  # Require Silero confirmation for quality
     
     # Performance
     silero_use_onnx: bool = False  # Use ONNX for faster Silero inference
     
     # Monitoring
-    log_vad_decisions: bool = False  # Log detailed VAD decisions for debugging
+    log_vad_decisions: bool = True  # Log detailed VAD decisions for debugging (ENABLED)
 
 
 @dataclass

@@ -11,6 +11,7 @@ Date: October 15, 2025
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -221,10 +222,18 @@ class WebRTCConnectionPool:
         
         # Locks for thread safety
         self._lock = asyncio.Lock()
+        self._persistent_whisper_lock = asyncio.Lock()
         
         # Cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
         self._running = False
+
+        # Persistent Whisper preload configuration (shared across WebRTC connections)
+        self._persistent_whisper_ready = False
+        self._persistent_whisper_enabled = os.getenv('WEBRTC_PERSISTENT_WHISPER', '1') == '1'
+        self._persistent_whisper_model_id = os.getenv('WEBRTC_WHISPER_MODEL_ID')
+        self._persistent_whisper_device = os.getenv('WEBRTC_WHISPER_DEVICE', 'cuda')
+        self._persistent_whisper_compute = os.getenv('WEBRTC_WHISPER_COMPUTE', 'float16')
         
         logger.info(f"[WebRTC] Connection pool initialized (max_connections={max_connections})")
     
@@ -238,6 +247,41 @@ class WebRTCConnectionPool:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("[WebRTC] Connection pool started")
     
+    async def _ensure_persistent_whisper_ready(self) -> None:
+        """Load the shared Whisper model once if persistent mode is enabled."""
+        if not self._persistent_whisper_enabled or self._persistent_whisper_ready:
+            return
+
+        async with self._persistent_whisper_lock:
+            if self._persistent_whisper_ready or not self._persistent_whisper_enabled:
+                return
+
+            try:
+                from .persistent_model_manager import get_persistent_model_manager
+
+                manager = get_persistent_model_manager()
+                success = await manager.ensure_whisper_loaded(
+                    model_id=self._persistent_whisper_model_id,
+                    device=self._persistent_whisper_device,
+                    compute_type=self._persistent_whisper_compute
+                )
+                if success:
+                    self._persistent_whisper_ready = True
+                    logger.info(
+                        "[WebRTC] Persistent Whisper engine warmed (device=%s)",
+                        self._persistent_whisper_device,
+                    )
+                else:
+                    logger.warning(
+                        "[WebRTC] Persistent Whisper preload failed; connections will use fallback loader"
+                    )
+            except Exception as exc:
+                logger.error(
+                    "[WebRTC] Error ensuring persistent Whisper availability: %s",
+                    exc,
+                    exc_info=True,
+                )
+
     async def stop(self):
         """Stop the connection pool and cleanup all connections."""
         if not self._running:
@@ -322,9 +366,27 @@ class WebRTCConnectionPool:
         if not AIORTC_AVAILABLE:
             raise RuntimeError("aiortc library not available - cannot create peer connection")
         
+        # Warm persistent Whisper model once so subsequent peers reuse the GPU instance
+        await self._ensure_persistent_whisper_ready()
+
+        logger.debug("[WebRTC] create_peer_connection start | peer_id=%s", peer_id)
+
         async with self._lock:
             # Check max connections
-            if len(self._connections) >= self.max_connections:
+            current_connection_count = len(self._connections)
+            logger.debug(
+                "[WebRTC] Active connections=%s (max=%s) before creating peer %s",
+                current_connection_count,
+                self.max_connections,
+                peer_id,
+            )
+
+            if current_connection_count >= self.max_connections:
+                logger.error(
+                    "[WebRTC] Rejecting offer for %s - pool at capacity (%s)",
+                    peer_id,
+                    self.max_connections,
+                )
                 raise ValueError(f"Maximum connections reached ({self.max_connections})")
             
             # Get STUN server from environment
@@ -333,12 +395,16 @@ class WebRTCConnectionPool:
             
             # Create RTCPeerConnection
             try:
+                logger.debug("[WebRTC] Instantiating RTCPeerConnection for %s", peer_id)
                 pc = RTCPeerConnection()
                 
                 # The client will create the data channel in the offer.
                 # Server listens for it via @pc.on("datachannel") handler below.
                 data_channel = None  # Will be set when client's channel is received
-                logger.info(f"[WebRTC] RTCPeerConnection created for peer {peer_id}, waiting for client data channel")
+                logger.info(
+                    "[WebRTC] RTCPeerConnection created for peer %s, waiting for client data channel",
+                    peer_id,
+                )
                 
                 @pc.on("datachannel")
                 def on_datachannel_from_client(channel):
@@ -625,15 +691,39 @@ class WebRTCConnectionPool:
                         logger.info(f"[WebRTC] Ignoring non-audio track ({track.kind}) for peer {peer_id}")
                 
                 # Process offer
+                logger.debug(
+                    "[WebRTC] (%s) Applying remote offer | sdp_len=%s",
+                    peer_id,
+                    len(offer_sdp),
+                )
                 offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
-                logger.debug(f"[WebRTC] Client offer SDP has {offer_sdp.count('m=application')} application sections")
+                logger.debug(
+                    "[WebRTC] Client offer SDP has %s application sections",
+                    offer_sdp.count('m=application'),
+                )
+                start_apply = time.time()
                 await pc.setRemoteDescription(offer)
+                logger.debug(
+                    "[WebRTC] (%s) setRemoteDescription complete (%.2f ms)",
+                    peer_id,
+                    (time.time() - start_apply) * 1000,
+                )
                 
                 # Create answer
+                logger.debug("[WebRTC] (%s) Creating SDP answer", peer_id)
+                start_answer = time.time()
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
-                logger.info(f"[WebRTC] Answer SDP created for {peer_id}")
-                logger.debug(f"[WebRTC] Answer SDP has {answer.sdp.count('m=application')} application sections")
+                answer_elapsed = (time.time() - start_answer) * 1000
+                logger.info(
+                    "[WebRTC] Answer SDP created for %s (%.2f ms)",
+                    peer_id,
+                    answer_elapsed,
+                )
+                logger.debug(
+                    "[WebRTC] Answer SDP has %s application sections",
+                    answer.sdp.count('m=application'),
+                )
                 if "a=sctp-port" in answer.sdp:
                     logger.info(f"[WebRTC] ✓ Answer SDP contains SCTP (data channel) for {peer_id}")
                 else:
@@ -694,7 +784,16 @@ class WebRTCConnectionPool:
                     {"urls": "stun:stun1.l.google.com:19302"}
                 ]
                 
-                logger.info(f"[WebRTC] Created peer connection: peer_id={peer_id}, user_id={user_id}")
+                logger.info(
+                    "[WebRTC] Created peer connection: peer_id=%s, user_id=%s",
+                    peer_id,
+                    user_id,
+                )
+                logger.debug(
+                    "[WebRTC] (%s) Returning answer | local_sdp_len=%s",
+                    peer_id,
+                    len(pc.localDescription.sdp) if pc.localDescription else 0,
+                )
                 
                 return pc.localDescription.sdp, ice_servers
                 
