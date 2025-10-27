@@ -14,6 +14,10 @@ urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 try:
     from aiortc import RTCPeerConnection, RTCSessionDescription
     from aiortc.contrib.media import MediaPlayer
+    from aiortc.mediastreams import MediaStreamTrack
+    from av import AudioFrame
+    import numpy as np
+    import fractions
 
     AIORTC_AVAILABLE = True
 except ImportError:  # pragma: no cover
@@ -25,15 +29,152 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path("/home/lumi/beautyai/voice_tests/input_test_questions/pcm/q7.pcm")
+AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/q7.wav")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
-    "https://api.gmai.sa/api/v1/webrtc/voice",
+    "http://localhost:8000/api/v1/webrtc/voice",
 )
 
 CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
+
+
+class AudioInspectorTrack(MediaStreamTrack):
+    """
+    A wrapper track that inspects audio frames and logs their content.
+    This helps debug why server receives silent audio.
+    """
+    kind = "audio"
+    
+    def __init__(self, source_track: MediaStreamTrack):
+        super().__init__()
+        self.source_track = source_track
+        self.frame_count = 0
+        
+    async def recv(self) -> AudioFrame:
+        frame = await self.source_track.recv()
+        self.frame_count += 1
+        
+        # Inspect frame content
+        if self.frame_count <= 5 or self.frame_count % 20 == 0:
+            # Convert frame to numpy for analysis
+            arr = frame.to_ndarray()
+            max_val = np.abs(arr).max()
+            rms = np.sqrt(np.mean(arr.astype(np.float32)**2))
+            non_zero = np.count_nonzero(arr)
+            total = arr.size
+            
+            print(f"[INSPECTOR] Frame {self.frame_count}: "
+                  f"shape={arr.shape}, samples={frame.samples}, "
+                  f"rate={frame.sample_rate}Hz, format={frame.format.name}, "
+                  f"max={max_val:.1f}, rms={rms:.1f}, "
+                  f"non_zero={non_zero}/{total}")
+        
+        return frame
+
+
+class FileAudioTrack(MediaStreamTrack):
+    """
+    Custom audio track that reads from a file directly using soundfile/librosa.
+    Bypasses MediaPlayer to avoid warm-up and compatibility issues.
+    """
+    kind = "audio"
+    
+    def __init__(self, file_path: Path):
+        super().__init__()
+        self.file_path = file_path
+        self._audio_data = None
+        self._sample_rate = None
+        self._frame_samples = 960  # 20ms at 48kHz
+        self._current_pos = 0
+        self._initialized = False
+        
+    def _initialize(self):
+        """Load the audio file."""
+        import soundfile as sf
+        
+        # Load audio file
+        self._audio_data, self._sample_rate = sf.read(str(self.file_path), dtype='float32')
+        
+        print(f"[FileAudioTrack] Original: {len(self._audio_data)} samples at {self._sample_rate}Hz")
+        
+        # Check first few samples
+        if len(self._audio_data) > 100:
+            first_max = np.abs(self._audio_data[:100]).max()
+            later_max = np.abs(self._audio_data[5000:5100] if len(self._audio_data) > 5100 else self._audio_data[-100:]).max()
+            print(f"[FileAudioTrack] First 100 samples max: {first_max:.4f}, Later samples max: {later_max:.4f}")
+        
+        # Skip silent lead-in period (first ~0.2 seconds or ~5000 samples at 24kHz)
+        # This corresponds to the codec/encoder warm-up silence
+        skip_duration_sec = 0.15  # Skip first 150ms of silence
+        skip_samples = int(skip_duration_sec * self._sample_rate)
+        if len(self._audio_data) > skip_samples:
+            self._audio_data = self._audio_data[skip_samples:]
+            print(f"[FileAudioTrack] Skipped first {skip_samples} samples ({skip_duration_sec}s of silence)")
+        
+        # Resample to 48kHz if needed (WebRTC standard)
+        if self._sample_rate != 48000:
+            from scipy import signal
+            num_samples = int(len(self._audio_data) * 48000 / self._sample_rate)
+            self._audio_data = signal.resample(self._audio_data, num_samples)
+            self._sample_rate = 48000
+        
+        # Ensure mono
+        if self._audio_data.ndim > 1:
+            self._audio_data = np.mean(self._audio_data, axis=1)
+        
+        # Keep as 1D mono array
+        self._original_data = self._audio_data.copy()
+        
+        self._initialized = True
+        print(f"[FileAudioTrack] Final: {len(self._audio_data)} samples at {self._sample_rate}Hz")
+        
+        # Verify we have actual audio now
+        if len(self._audio_data) > 1000:
+            first_samples = self._audio_data[:100]
+            later_samples = self._audio_data[1000:1100] if len(self._audio_data) > 1100 else self._audio_data[-100:]
+            max_first = np.abs(first_samples).max()
+            max_later = np.abs(later_samples).max()
+            rms_later = np.sqrt(np.mean(later_samples**2))
+            print(f"[FileAudioTrack] After skip - First 100: max={max_first:.3f}, Later: max={max_later:.3f}, rms={rms_later:.3f}")
+        
+    async def recv(self) -> AudioFrame:
+        if not self._initialized:
+            self._initialize()
+        
+        # Check if we have more audio
+        if self._current_pos >= len(self._audio_data):
+            # End of file - raise MediaStreamError to signal completion
+            from aiortc.mediastreams import MediaStreamError
+            self.stop()
+            raise MediaStreamError("end of stream")
+        
+        # Get next chunk
+        end_pos = min(self._current_pos + self._frame_samples, len(self._audio_data))
+        chunk = self._audio_data[self._current_pos:end_pos]
+        
+        # Pad if needed (last frame might be short)
+        if len(chunk) < self._frame_samples:
+            padding = np.zeros(self._frame_samples - len(chunk), dtype=np.float32)
+            chunk = np.concatenate([chunk, padding])
+        
+        # Convert float32 [-1, 1] to int16 for Opus encoder
+        chunk_int16 = (chunk * 32767).astype(np.int16)
+        
+        # For planar mono, we need shape: (1, samples)
+        mono_chunk = chunk_int16.reshape(1, -1)
+        
+        self._current_pos = end_pos
+        
+        # Create AudioFrame with mono layout in s16 format (required by Opus encoder)
+        from av import AudioFrame
+        frame = AudioFrame.from_ndarray(mono_chunk, format='s16', layout='mono')
+        frame.sample_rate = self._sample_rate
+        frame.pts = self._current_pos - self._frame_samples
+        frame.time_base = fractions.Fraction(1, self._sample_rate)
+        
+        return frame
 
 
 async def _post_json(url: str, payload: Dict) -> Dict:
@@ -67,30 +208,14 @@ def _build_url(base: str, suffix: str) -> str:
 
 async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
     """Run the end-to-end WebRTC flow and return summary metrics."""
-    # Auto-detect format from file extension
-    file_ext = AUDIO_FIXTURE.suffix.lstrip('.')  # .wav -> wav, .webm -> webm, .pcm -> pcm
+    # Create custom audio track that reads file directly (bypasses MediaPlayer)
+    audio_track = FileAudioTrack(AUDIO_FIXTURE)
     
-    # Handle raw PCM files specially (no container format)
-    if file_ext == 'pcm':
-        # Raw PCM needs explicit format specification
-        # Assuming 16kHz, mono, s16le (signed 16-bit little-endian)
-        player = MediaPlayer(
-            str(AUDIO_FIXTURE),
-            format='s16le',  # Raw PCM format
-            options={
-                'ar': '16000',  # Sample rate
-                'ac': '1',      # Mono channel
-            }
-        )
-    else:
-        player = MediaPlayer(str(AUDIO_FIXTURE), format=file_ext)
-    
-    audio_track = player.audio
-    if audio_track is None:
-        raise RuntimeError(f"MediaPlayer could not extract audio track from {AUDIO_FIXTURE.name}")
+    # Wrap with inspector for debugging
+    wrapped_track = AudioInspectorTrack(audio_track)
 
     pc = RTCPeerConnection()
-    pc.addTrack(audio_track)
+    pc.addTrack(wrapped_track)
     
     # Create client-side data channel for receiving server messages
     # In WebRTC, the offer side must create data channels for them to be negotiated properly

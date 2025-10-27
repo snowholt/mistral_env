@@ -7,11 +7,12 @@ for model management, content filtering, prompt building, and session management
 import logging
 import time
 import os
+from copy import deepcopy
 from typing import Dict, List, Any, Optional, Tuple
 from pathlib import Path
 
 # Core imports
-from ...config.config_manager import ModelConfig
+from ...config.config_manager import ModelConfig, AppConfig
 from ...utils.language_detection import detect_language
 from ..shared import (
     get_shared_model_manager,
@@ -36,6 +37,11 @@ class ChatService:
         self.content_filter = get_shared_content_filter()
         self.prompt_builder = get_shared_prompt_builder()
         self.session_manager = get_shared_session_manager()
+        self._model_registry_path = Path(__file__).parent.parent.parent / "config" / "model_registry.json"
+        self.default_model_name: Optional[str] = None
+        self.default_model_config: Optional[ModelConfig] = None
+        self.default_generation_config: Dict[str, Any] = {}
+        self._initialize_default_model_metadata()
         
         # Default fallback messages for different languages
         self.fallback_messages = {
@@ -46,6 +52,94 @@ class ChatService:
             'de': "Hallo! Ich bin Arzt für ästhetische Medizin. Wie kann ich Ihnen heute helfen?"
         }
     
+    def _initialize_default_model_metadata(self) -> None:
+        """Resolve and cache the default chat model metadata from the registry."""
+        try:
+            app_config = AppConfig()
+            app_config.models_file = str(self._model_registry_path)
+            app_config.load_model_registry()
+
+            registry = app_config.model_registry
+            preferred_model_name = os.getenv("BEAUTYAI_DEFAULT_CHAT_MODEL", "").strip()
+
+            if not preferred_model_name:
+                preferred_model_name = registry.default_model or "qwen3-unsloth-q4ks"
+
+            model_config = registry.get_model(preferred_model_name)
+
+            if model_config is None and preferred_model_name != "qwen3-unsloth-q4ks":
+                model_config = registry.get_model("qwen3-unsloth-q4ks")
+                if model_config:
+                    logger.info("Falling back to qwen3-unsloth-q4ks for default chat model")
+                    preferred_model_name = "qwen3-unsloth-q4ks"
+
+            if model_config is None:
+                available_models = registry.list_models()
+                if available_models:
+                    fallback_name = available_models[0]
+                    model_config = registry.get_model(fallback_name)
+                    preferred_model_name = fallback_name
+                    logger.warning(
+                        "Default chat model not found; using first available model: %s",
+                        fallback_name
+                    )
+
+            if model_config is None:
+                logger.error("No chat models available in registry; using minimal defaults")
+                self.default_model_name = None
+                self.default_model_config = None
+                self.default_generation_config = self._build_generation_config(None)
+                return
+
+            self.default_model_name = preferred_model_name or getattr(model_config, "name", None)
+            self.default_model_config = model_config
+            self.default_generation_config = self._build_generation_config(model_config)
+
+            logger.debug(
+                "Cached default chat model metadata: name=%s, model_id=%s",
+                self.default_model_name,
+                self.default_model_config.model_id
+            )
+
+        except Exception as exc:
+            logger.error("Failed to initialize default chat model metadata: %s", exc)
+            self.default_model_name = None
+            self.default_model_config = None
+            self.default_generation_config = self._build_generation_config(None)
+
+    def _build_generation_config(self, model_config: Optional[ModelConfig]) -> Dict[str, Any]:
+        """Construct default generation parameters tuned for fast chat responses."""
+        base_config: Dict[str, Any] = {
+            "max_new_tokens": 256,
+            "temperature": 0.3,
+            "top_p": 0.95,
+            "do_sample": True,
+            "thinking_mode": False
+        }
+
+        if model_config:
+            if getattr(model_config, "max_new_tokens", None):
+                base_config["max_new_tokens"] = min(model_config.max_new_tokens, 512)
+
+            if model_config.custom_generation_params:
+                for key, value in model_config.custom_generation_params.items():
+                    if value is not None:
+                        base_config[key] = value
+
+        # Always enforce voice requirements
+        base_config["thinking_mode"] = False
+        return base_config
+
+    def get_default_model_info(self) -> Tuple[Optional[str], Optional[ModelConfig]]:
+        """Return the cached default chat model name and configuration."""
+        return self.default_model_name, self.default_model_config
+
+    def get_default_generation_config(self) -> Dict[str, Any]:
+        """Provide a copy of the cached default generation configuration."""
+        if not self.default_generation_config:
+            self.default_generation_config = self._build_generation_config(self.default_model_config)
+        return deepcopy(self.default_generation_config)
+
     def chat(
         self,
         message: str,
@@ -229,38 +323,47 @@ class ChatService:
             bool: True if successful, False otherwise
         """
         try:
-            from pathlib import Path
-            from ...config.config_manager import AppConfig
-            
-            # Use the fastest model for real-time conversation
-            model_name = "qwen3-unsloth-q4ks"
-            
-            # Get model configuration
-            app_config = AppConfig()
-            config_dir = Path(__file__).parent.parent.parent / "config"
-            models_file = config_dir / "model_registry.json"
-            app_config.models_file = str(models_file)
-            app_config.load_model_registry()
-            
-            model_config = app_config.model_registry.get_model(model_name)
-            if not model_config:
-                logger.error(f"Model configuration for '{model_name}' not found in registry")
+            if self.default_model_config is None:
+                self._initialize_default_model_metadata()
+
+            if self.default_model_config is None:
+                logger.error("Model configuration for default chat model not found in registry")
                 return False
-            
-            logger.info(f"Loading fastest model for service: {model_name} ({model_config.model_id})")
-            
-            # Load using shared model manager
-            model = self.model_manager.load_model(model_config)
+
+            resolved_name = self.default_model_name or getattr(self.default_model_config, "name", "default")
+            logger.info(
+                "Loading fastest model for service: %s (%s)",
+                resolved_name,
+                self.default_model_config.model_id
+            )
+
+            model = self.model_manager.load_model(self.default_model_config)
             if model:
-                logger.info(f"✅ Successfully loaded default model: {model_name}")
+                logger.info("✅ Successfully loaded default model: %s", resolved_name)
+                self._ensure_default_metadata_populated(resolved_name, self.default_model_config)
                 return True
-            else:
-                logger.error(f"❌ Failed to load default model: {model_name}")
-                return False
-                
+
+            logger.error("❌ Failed to load default model: %s", resolved_name)
+            return False
+
         except Exception as e:
             logger.error(f"Error loading default model: {e}")
             return False
+
+    def _ensure_default_metadata_populated(
+        self,
+        model_name: str,
+        model_config: Optional[ModelConfig]
+    ) -> None:
+        """Backfill cached default metadata if it was missing previously."""
+        if self.default_model_name is None and model_name:
+            self.default_model_name = model_name
+
+        if self.default_model_config is None and model_config is not None:
+            self.default_model_config = model_config
+
+        if not self.default_generation_config and model_config is not None:
+            self.default_generation_config = self._build_generation_config(model_config)
     
     def _ensure_model_loaded(self, model_name: str, model_config: ModelConfig):
         """Ensure the specified model is loaded."""

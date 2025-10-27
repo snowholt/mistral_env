@@ -15,7 +15,7 @@ import tempfile
 import time
 import uuid
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List, Callable
+from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from dataclasses import dataclass
 from datetime import datetime
 import edge_tts
@@ -85,6 +85,12 @@ class SimpleVoiceService:
         # Core services - will be initialized later
         self.transcription_service = None
         self.chat_service = None
+        self.chat_default_model_name: Optional[str] = None
+        self.chat_default_model_config: Optional[Any] = None
+        self.chat_default_generation_config: Dict[str, Any] = {}
+        self.chat_session_id: Optional[str] = None
+        self.chat_history: List[Dict[str, str]] = []
+        self.chat_last_language: Optional[str] = None
         
         # UPDATED: Reference to persistent Whisper engine from ModelManager
         self.persistent_whisper_engine = None
@@ -108,6 +114,75 @@ class SimpleVoiceService:
         
         if self.debug_mode:
             self.logger.info("🔍 Debug mode enabled for SimpleVoiceService")
+
+    def _cache_chat_defaults(self) -> None:
+        """Capture default chat model metadata for fast reuse in the voice pipeline."""
+        if not self.chat_service:
+            return
+
+        try:
+            default_name: Optional[str] = None
+            default_config: Optional[Any] = None
+            generation_config: Dict[str, Any] = {}
+
+            if hasattr(self.chat_service, "get_default_model_info"):
+                default_name, default_config = self.chat_service.get_default_model_info()
+
+            if hasattr(self.chat_service, "get_default_generation_config"):
+                generation_config = self.chat_service.get_default_generation_config()
+
+            if not generation_config:
+                generation_config = {
+                    "max_new_tokens": 256,
+                    "temperature": 0.3,
+                    "top_p": 0.95,
+                    "do_sample": True,
+                    "thinking_mode": False
+                }
+
+            if default_name:
+                self.logger.debug(
+                    "Cached chat defaults: model=%s, max_new_tokens=%s",
+                    default_name,
+                    generation_config.get("max_new_tokens")
+                )
+
+            self.chat_default_model_name = default_name
+            self.chat_default_model_config = default_config
+            self.chat_default_generation_config = generation_config
+
+        except Exception as exc:
+            self.logger.warning(f"Failed to cache chat defaults: {exc}")
+
+    def _prepare_generation_config(self) -> Dict[str, Any]:
+        """Construct per-request generation settings for the voice chat flow."""
+        base = dict(self.chat_default_generation_config or {})
+
+        # Ensure essential parameters are set for fast voice replies
+        base.setdefault("max_new_tokens", 192)
+        try:
+            base["max_new_tokens"] = min(int(base["max_new_tokens"]), 256)
+        except (TypeError, ValueError):
+            base["max_new_tokens"] = 192
+        base.setdefault("temperature", 0.3)
+        base.setdefault("top_p", 0.95)
+        base.setdefault("do_sample", True)
+
+        # Thinking mode must stay disabled for voice
+        base["thinking_mode"] = False
+
+        # Voice responses should not be too random
+        try:
+            base["temperature"] = float(base.get("temperature", 0.3))
+        except (TypeError, ValueError):
+            base["temperature"] = 0.3
+        try:
+            base["top_p"] = float(base.get("top_p", 0.95))
+        except (TypeError, ValueError):
+            base["top_p"] = 0.95
+        base["top_p"] = min(max(base["top_p"], 0.0), 1.0)
+
+        return base
     
     def set_debug_callback(self, callback: Callable[[DebugEvent], None]) -> None:
         """Set callback function for real-time debug events."""
@@ -316,6 +391,7 @@ class SimpleVoiceService:
                         # Use the preloaded LLM for chat service
                         from beautyai_inference.services.inference.chat_service import ChatService
                         self.chat_service = ChatService()
+                        self._cache_chat_defaults()
                         
                         # Set the preloaded model in chat service if supported
                         if hasattr(self.chat_service, 'set_model_engine'):
@@ -326,6 +402,7 @@ class SimpleVoiceService:
                             success = self.chat_service.load_default_model_from_config()
                             if success:
                                 self.logger.info("✅ Loaded default chat model (fallback)")
+                                self._cache_chat_defaults()
                 except Exception as e:
                     self.logger.warning(f"Failed to get LLM model from persistent manager: {e}")
             
@@ -351,14 +428,20 @@ class SimpleVoiceService:
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
+                self._cache_chat_defaults()
                 
                 # Load the fastest model for persistent 24/7 service
                 success = self.chat_service.load_default_model_from_config()  # This will load qwen3-unsloth-q4ks
                 if success:
                     self.logger.info("✅ Fastest chat model (qwen3-unsloth-q4ks) pre-loaded for 24/7 service")
+                    self._cache_chat_defaults()
                 else:
                     self.logger.warning("Failed to pre-load fastest chat model, will load on demand")
             
+            # Ensure defaults are cached even if chat_service was pre-existing
+            if self.chat_service:
+                self._cache_chat_defaults()
+
             self.logger.info("🚀 Voice processing models pre-loading completed")
             
         except Exception as e:
@@ -742,9 +825,11 @@ class SimpleVoiceService:
                 # Handle chat failure gracefully - provide language-appropriate default response
                 logger.warning("Chat generation failed, using fallback response")
                 if detected_language == "ar":
-                    response_text = "أهلاً بك! كيف يمكنني مساعدتك اليوم؟"
+                    response_text = sanitize_tts_text("أهلاً بك! كيف يمكنني مساعدتك اليوم؟")
                 else:
-                    response_text = "Hello! How can I help you today?"
+                    response_text = sanitize_tts_text("Hello! How can I help you today?")
+            else:
+                response_text = sanitize_tts_text(response_text)
                 
             self.logger.info(f"AI Response: {response_text}")
             
@@ -820,11 +905,12 @@ class SimpleVoiceService:
             result = {
                 "transcribed_text": transcribed_text,
                 "response_text": response_text,
-                "response_text_clean": response_text,  # Already cleaned in _generate_chat_response
+                "response_text_clean": response_text,
                 "audio_file_path": str(audio_output_path),
                 "processing_time": processing_time,
                 "voice_used": selected_voice,
                 "language_detected": detected_language,  # Use detected_language instead of language
+                "chat_session_id": self.chat_session_id,
                 "debug_summary": self.current_debug_summary if self.debug_mode else None
             }
             
@@ -952,10 +1038,13 @@ class SimpleVoiceService:
                 target_language=target_language,
                 conversation_context=conversation_context
             )
+            clean_response = sanitize_tts_text(response_text)
+            response_language = self.chat_last_language or target_language
             return {
                 "success": True,
-                "response": response_text,
-                "language": target_language
+                "response": clean_response,
+                "language": response_language,
+                "session_id": self.chat_session_id
             }
         except Exception as e:
             self.logger.error(f"Chat generation error: {e}", exc_info=True)
@@ -1135,23 +1224,22 @@ class SimpleVoiceService:
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
-                
-                # Try to load persistent default model first
-                success = self.chat_service.load_default_model_from_config()
-                if not success:
-                    logger.warning("Failed to load default model, trying registry alternatives...")
-                    # Try alternative models from registry
-                    alternative_models = ["qwen3-unsloth-q4ks", "qwen3-model", "deepseek-r1-qwen-14b-multilingual", "qwen3-official-q4km"]
-                    for model in alternative_models:
-                        if self.chat_service.load_model(model):
-                            logger.info(f"Successfully loaded alternative model: {model}")
-                            break
-                    else:
-                        logger.error("Failed to load any model")
-                        if target_language == "ar":
-                            return "عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاول مرة أخرى."
-                        else:
-                            return "Sorry, I'm experiencing technical difficulties. Please try again."
+                self._cache_chat_defaults()
+
+            # Ensure a chat model is ready
+            if self.chat_default_model_config is None:
+                load_success = self.chat_service.load_default_model_from_config()
+                if load_success:
+                    self._cache_chat_defaults()
+
+            if self.chat_default_model_config is None:
+                logger.error("Chat model configuration unavailable; cannot generate response")
+                if target_language == "ar":
+                    return sanitize_tts_text("عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاولي مرة أخرى لاحقاً.")
+                return sanitize_tts_text("Sorry, I'm having technical difficulties right now. Please try again later.")
+
+            # Refresh cached values in case registry changed after initialization
+            self._cache_chat_defaults()
             
             # Create optimized message for fast responses in simple voice mode
             if conversation_context:
@@ -1167,78 +1255,70 @@ class SimpleVoiceService:
                     
             logger.info(f"Optimized message with context: {optimized_message[:100]}... (target_language: {target_language})")
             
-            # FIXED: Use the real chat service with correct parameter structure
-            # Create proper generation config for ChatService
-            generation_config = {
-                "max_new_tokens": 128,
-                "temperature": 0.3,
-                "top_p": 0.95,
-                "do_sample": True,
-                "thinking_mode": False
-            }
-            
-            # Try to call ChatService with proper API - fallback to simple response if it fails
-            try:
-                # Use a simple chat interface if available, otherwise fallback
-                if hasattr(self.chat_service, 'simple_chat'):
-                    # Some implementations might have a simple_chat method
-                    result = self.chat_service.simple_chat(
-                        message=optimized_message,
-                        language=target_language,
-                        max_tokens=128,
-                        temperature=0.3
-                    )
-                else:
-                    # For now, generate appropriate language response instead of calling complex API
-                    # This allows the voice system to work while the ChatService API is being fixed
-                    logger.warning("ChatService API incompatible, using language-appropriate fallback")
-                    
-                    if target_language == "ar":
-                        # Return Arabic responses based on the input topic
-                        if "تنظيف البشرة" in text or "جلسة" in text:
-                            response_text = "نتائج تنظيف البشرة تدوم عادة من أسبوع إلى أسبوعين، حسب نوع البشرة والعناية اليومية."
-                        elif "مرحبا" in text or "أهلا" in text or "السلام" in text:
-                            response_text = "أهلاً وسهلاً بك! كيف يمكنني مساعدتك اليوم؟"
-                        else:
-                            response_text = "شكراً لسؤالك. كيف يمكنني مساعدتك أكثر؟"
-                    else:
-                        # Return English responses based on the input topic  
-                        if "skincare" in text.lower() or "facial" in text.lower() or "treatment" in text.lower():
-                            response_text = "Skincare treatment results typically last 1-2 weeks, depending on your skin type and daily care routine."
-                        elif "hello" in text.lower() or "hi" in text.lower() or "hey" in text.lower():
-                            response_text = "Hello! How can I help you today?"
-                        else:
-                            response_text = "Thank you for your question. How can I help you further?"
-                    
-                    # Create a successful result structure to continue with the existing code flow
-                    result = {"success": True, "response": response_text}
-                    
-            except Exception as chat_error:
-                logger.error(f"ChatService call failed: {chat_error}")
-                # Fall through to existing error handling below
-                result = {"success": False, "error": str(chat_error)}
-            
-            if result.get("success"):
-                raw_response = result.get("response", "")
-                # Clean thinking blocks from the response before TTS
-                # Defensive clean & emoji strip (thinking mode already disabled via parameter)
-                clean_response = sanitize_tts_text(raw_response)
-                logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
-                return clean_response
+            generation_config = self._prepare_generation_config()
+
+            if target_language not in (None, "auto"):
+                response_language_hint = target_language
+            elif self.chat_last_language:
+                response_language_hint = self.chat_last_language
             else:
-                error_msg = result.get("error", "Unknown error")
-                logger.error(f"Chat service error: {error_msg}")
+                response_language_hint = None
+
+            history_snapshot = self.chat_history[:] if self.chat_history else None
+            session_id_snapshot = self.chat_session_id
+
+            loop = asyncio.get_running_loop()
+
+            def invoke_chat() -> Tuple[str, str, List[Dict[str, str]], str]:
+                return self.chat_service.chat(
+                    message=optimized_message,
+                    model_name=self.chat_default_model_name or getattr(self.chat_default_model_config, "name", "default"),
+                    model_config=self.chat_default_model_config,
+                    generation_config=generation_config,
+                    conversation_history=history_snapshot,
+                    response_language=response_language_hint,
+                    session_id=session_id_snapshot,
+                    disable_content_filter=False
+                )
+
+            try:
+                response_text, detected_language, updated_history, new_session_id = await loop.run_in_executor(
+                    None,
+                    invoke_chat
+                )
+            except Exception as chat_error:
+                logger.error(f"ChatService invocation failed: {chat_error}")
                 if target_language == "ar":
-                    return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
-                else:
-                    return "Sorry, I'm having trouble processing your request. Please try again."
+                    return sanitize_tts_text("عذراً، حدث خطأ أثناء توليد الرد. من فضلك حاولي مرة أخرى لاحقاً.")
+                return sanitize_tts_text("Sorry, I ran into an error while generating a response. Please try again later.")
+
+            # Persist session state for subsequent turns
+            if new_session_id:
+                self.chat_session_id = new_session_id
+            if updated_history is not None:
+                self.chat_history = updated_history
+                max_turn_pairs = 20
+                if len(self.chat_history) > max_turn_pairs * 2:
+                    self.chat_history = self.chat_history[-max_turn_pairs * 2:]
+            if detected_language:
+                self.chat_last_language = detected_language
+
+            clean_response = sanitize_tts_text(response_text)
+            if not clean_response:
+                logger.warning("ChatService returned empty response after sanitization; using fallback")
+                if (detected_language or target_language) == "ar":
+                    return sanitize_tts_text("عذراً، لم أفهم سؤالك بشكل كافٍ. هل يمكنك إعادة صياغته؟")
+                return sanitize_tts_text("I’m sorry, I didn’t quite catch that. Could you please rephrase?")
+
+            logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
+            return clean_response
             
         except Exception as e:
             logger.error(f"Error generating chat response: {e}")
             if target_language == "ar":
-                return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+                return sanitize_tts_text("عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى.")
             else:
-                return "Sorry, I'm having trouble processing your request. Please try again."
+                return sanitize_tts_text("Sorry, I'm having trouble processing your request. Please try again.")
     
     async def _synthesize_speech(self, text: str, voice_id: str, output_format: str = "wav") -> Path:
         """

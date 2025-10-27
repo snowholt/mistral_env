@@ -79,6 +79,10 @@ class WebRTCVADConfig:
     post_speech_silence_ms: int = 1000 # Silence duration to end speech (OPTIMIZED for natural pauses)
     pre_speech_buffer_ms: int = 200  # Pre-roll buffer (RealtimeSTT: 200ms)
     
+    # Warmup filter (prevents premature VOICE_START during codec initialization)
+    warmup_filter_duration_ms: int = 500  # Ignore initial audio period (0.5s for file lead-in + codec init)
+    min_sustained_speech_frames: int = 3  # Require N consecutive speech frames before VOICE_START
+    
     # State management
     enable_browser_hints: bool = True  # Use WebRTC VAD as first pass
     require_silero_confirmation: bool = True  # Require Silero confirmation for quality
@@ -166,6 +170,11 @@ class WebRTCVADService:
         self.speech_start_time: Optional[float] = None
         self.silence_start_time: Optional[float] = None
         self.last_voice_time: Optional[float] = None
+        
+        # Warmup filter state
+        self.connection_start_time: Optional[float] = None
+        self.warmup_complete = False
+        self.sustained_speech_counter = 0  # Counter for sustained speech frames
         
         # Metrics
         self.metrics = VADMetrics()
@@ -264,6 +273,49 @@ class WebRTCVADService:
             try:
                 start_time = time.time()
                 
+                # Track connection start time (first audio chunk)
+                if self.connection_start_time is None:
+                    self.connection_start_time = start_time
+                    print(f"[WARMUP-INIT] Connection started for {self.peer_id}, warmup={self.config.warmup_filter_duration_ms}ms")
+                    self.logger.info(
+                        f"[WARMUP] Connection started for {self.peer_id}, "
+                        f"warmup filter active for {self.config.warmup_filter_duration_ms}ms"
+                    )
+                
+                # Check if warmup period has passed
+                elapsed_ms = (start_time - self.connection_start_time) * 1000
+                
+                if elapsed_ms < self.config.warmup_filter_duration_ms:
+                    # During warmup: Always return INACTIVE to prevent premature VOICE_START
+                    print(f"[WARMUP-FILTER] Active: {elapsed_ms:.0f}/{self.config.warmup_filter_duration_ms}ms for {self.peer_id}")
+                    self.logger.debug(
+                        f"[WARMUP] Filter active for {self.peer_id}: "
+                        f"{elapsed_ms:.0f}ms / {self.config.warmup_filter_duration_ms}ms"
+                    )
+                    return {
+                        "success": True,
+                        "peer_id": self.peer_id,
+                        "voice_detected": False,
+                        "voice_state": VADState.INACTIVE,
+                        "previous_state": self.current_state,
+                        "webrtc_detected": False,
+                        "silero_detected": False,
+                        "silero_probability": 0.0,
+                        "speech_duration_ms": 0.0,
+                        "processing_time_ms": (time.time() - start_time) * 1000,
+                        "timestamp": time.time(),
+                        "warmup_active": True,
+                        "warmup_elapsed_ms": elapsed_ms
+                    }
+                else:
+                    # Warmup complete (log once)
+                    if not self.warmup_complete:
+                        self.warmup_complete = True
+                        self.logger.info(
+                            f"[WARMUP] Filter complete for {self.peer_id} after {elapsed_ms:.0f}ms, "
+                            f"normal VAD processing enabled"
+                        )
+                
                 # Stage 1: WebRTC VAD (fast path, inspired by _is_voice_active)
                 webrtc_detected = False
                 if self.webrtc_vad and self.config.enable_browser_hints:
@@ -291,6 +343,35 @@ class WebRTCVADService:
                     silero_probability
                 )
                 
+                # Sustained speech detection: Require min_sustained_speech_frames consecutive detections
+                # before transitioning from INACTIVE to VOICE_START
+                if voice_detected and webrtc_detected and silero_detected:
+                    self.sustained_speech_counter += 1
+                    self.logger.debug(
+                        f"[SUSTAINED] Speech frame {self.sustained_speech_counter}/"
+                        f"{self.config.min_sustained_speech_frames} for {self.peer_id}"
+                    )
+                else:
+                    # Reset counter on non-voice or partial detection
+                    if self.sustained_speech_counter > 0:
+                        self.logger.debug(
+                            f"[SUSTAINED] Counter reset for {self.peer_id} "
+                            f"(was {self.sustained_speech_counter})"
+                        )
+                    self.sustained_speech_counter = 0
+                
+                # Override voice_detected if sustained speech requirement not met (only during INACTIVE state)
+                if (self.current_state == VADState.INACTIVE and 
+                    self.sustained_speech_counter < self.config.min_sustained_speech_frames):
+                    # Not enough sustained speech yet, force to inactive
+                    original_voice_detected = voice_detected
+                    voice_detected = False
+                    if original_voice_detected:
+                        self.logger.debug(
+                            f"[SUSTAINED] Suppressing VOICE_START for {self.peer_id} "
+                            f"(need {self.config.min_sustained_speech_frames - self.sustained_speech_counter} more frames)"
+                        )
+                
                 # Update state machine
                 previous_state = self.current_state
                 new_state = await self._update_state(voice_detected, metadata)
@@ -303,8 +384,8 @@ class WebRTCVADService:
                     self.logger.debug(
                         f"VAD decision for {self.peer_id}: "
                         f"webrtc={webrtc_detected}, silero={silero_detected} "
-                        f"(prob={silero_probability:.3f}), final={voice_detected}, "
-                        f"state={new_state.value}"
+                        f"(prob={silero_probability:.3f}), sustained={self.sustained_speech_counter}/{self.config.min_sustained_speech_frames}, "
+                        f"final={voice_detected}, state={new_state.value}"
                     )
                 
                 return {
@@ -316,12 +397,15 @@ class WebRTCVADService:
                     "webrtc_detected": webrtc_detected,
                     "silero_detected": silero_detected,
                     "silero_probability": silero_probability,
+                    "sustained_speech_frames": self.sustained_speech_counter,
                     "speech_duration_ms": (
                         (time.time() - self.speech_start_time) * 1000
                         if self.speech_start_time else 0.0
                     ),
                     "processing_time_ms": processing_time_ms,
-                    "timestamp": time.time()
+                    "timestamp": time.time(),
+                    "warmup_active": False,
+                    "warmup_elapsed_ms": elapsed_ms
                 }
                 
             except Exception as e:
@@ -578,6 +662,11 @@ class WebRTCVADService:
         self.last_voice_time = None
         self._audio_buffer.clear()
         self._silero_remainder = np.array([], dtype=np.float32)
+        
+        # Reset warmup filter state
+        self.connection_start_time = None
+        self.warmup_complete = False
+        self.sustained_speech_counter = 0
         
         self.logger.debug(f"VAD state reset for peer {self.peer_id}")
     
