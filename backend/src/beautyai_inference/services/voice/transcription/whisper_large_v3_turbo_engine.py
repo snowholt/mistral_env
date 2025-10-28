@@ -108,13 +108,24 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 torch.set_float32_matmul_precision("high")
             
             # Load model with optimal configuration
-            self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                model_id,
-                torch_dtype=self.torch_dtype,
-                low_cpu_mem_usage=self.low_cpu_mem_usage,
-                use_safetensors=self.use_safetensors,
-                attn_implementation=self.attn_implementation
-            )
+            model_kwargs = {
+                "low_cpu_mem_usage": self.low_cpu_mem_usage,
+                "use_safetensors": self.use_safetensors,
+                "attn_implementation": self.attn_implementation,
+            }
+            try:
+                model_kwargs["dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
+            except TypeError:
+                model_kwargs.pop("dtype", None)
+                model_kwargs["torch_dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
             self.model.to(self.device)
             
             # Configure static cache and compile model if supported
@@ -130,7 +141,6 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 model=self.model,
                 tokenizer=self.processor.tokenizer,
                 feature_extractor=self.processor.feature_extractor,
-                torch_dtype=self.torch_dtype,
                 device=self.device
             )
             

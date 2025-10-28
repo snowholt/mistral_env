@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ModelManager:
     """Singleton class to manage loaded models."""
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
     _persistence_file = None
     
     def __new__(cls):
@@ -500,6 +500,7 @@ class ModelManager:
         """Start or reset the keep-alive timer for a model."""
         self._stop_model_timer(model_name)  # Ensure no duplicate timers
         timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
+        timer.daemon = True  # Allow tests and short-lived processes to exit immediately
         timer.start()
         self._model_timers[model_name] = timer
         logger.info(f"Started keep-alive timer for model '{model_name}' (will unload after {self._auto_unload_minutes} minutes of inactivity)")

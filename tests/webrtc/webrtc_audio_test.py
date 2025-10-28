@@ -40,8 +40,8 @@ CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
 
-# q7.wav contains an excited greeting loop useful for VAD testing
-EXPECTED_TRANSCRIPTION_FRAGMENT = "hey"
+# laser_hair.wav contains an upbeat scripted greeting useful for VAD testing
+EXPECTED_TRANSCRIPTION_FRAGMENT = "How does laser hair removal work?"
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -303,9 +303,9 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         offer_payload = {
             "sdp": offer.sdp,
             "type": offer.type,
-            "language": "en",  # q7.wav is English narration
+            "language": "en",  # laser_hair.wav is English narration
             "session_metadata": {
-                "test_origin": "pytest_webrtc_q7",
+                "test_origin": "pytest_webrtc_laser_hair",
                 "generated_at": time.time(),
             },
         }
@@ -420,7 +420,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
             audio_track.stop()
 
 
-def test_webrtc_q7_audio_round_trip():
+def test_webrtc_audio_round_trip():
     """Synchronously exercise the WebRTC audio pipeline using asyncio.run."""
     if not AUDIO_FIXTURE.exists():
         pytest.skip(f"Audio fixture {AUDIO_FIXTURE.name} is missing")
