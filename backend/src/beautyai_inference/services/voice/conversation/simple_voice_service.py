@@ -15,6 +15,7 @@ import os
 import tempfile
 import time
 import uuid
+import wave
 from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from dataclasses import dataclass
@@ -1062,7 +1063,8 @@ class SimpleVoiceService:
                 audio_data,
                 audio_format=effective_format,
                 language=language,
-                sample_rate_hint=sample_rate_hint
+                sample_rate_hint=sample_rate_hint,
+                metadata=metadata
             )
             return {
                 "success": True,
@@ -1281,7 +1283,8 @@ class SimpleVoiceService:
         audio_data: bytes,
         audio_format: str = "wav",
         language: Optional[str] = None,
-        sample_rate_hint: Optional[int] = None
+        sample_rate_hint: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> str:
         """
         Transcribes audio data using persistent Whisper model from ModelManager.
@@ -1348,6 +1351,16 @@ class SimpleVoiceService:
                 if not prepared_bytes:
                     self.logger.warning("[STT] Prepared audio is empty after preprocessing")
                     return "unclear audio /no_think"
+
+                try:
+                    last_dump_path = self.temp_dir / "last_stt_input.wav"
+                    with wave.open(str(last_dump_path), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate_used or 16000)
+                        wav_file.writeframes(prepared_bytes)
+                except Exception as exc:
+                    self.logger.debug("[STT] Failed to write latest STT dump: %s", exc)
             else:
                 prepared_bytes = audio_bytes_for_engine
                 if sample_rate_hint:
@@ -1358,6 +1371,28 @@ class SimpleVoiceService:
                     len(prepared_bytes)
                 )
                 self._stt_sample_rate_hint = sample_rate_hint or self._stt_sample_rate_hint
+
+            dump_path = None
+            if metadata:
+                dump_path = metadata.get("dump_path") or metadata.get("stt_dump_path")
+            if not dump_path:
+                dump_path = os.getenv("BEAUTYAI_DUMP_STT_INPUT")
+            if dump_path:
+                try:
+                    dump_file = Path(dump_path)
+                    dump_file.parent.mkdir(parents=True, exist_ok=True)
+                    sample_rate_to_write = self._stt_sample_rate_hint or 16000
+                    import wave
+
+                    with wave.open(str(dump_file), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate_to_write)
+                        wav_file.writeframes(prepared_bytes)
+
+                    self.logger.info("[STT] Dumped prepared audio to %s", dump_file)
+                except Exception as exc:
+                    self.logger.warning("[STT] Failed to dump prepared audio: %s", exc)
 
             # UPDATED: Use persistent Whisper engine if available
             whisper_engine = self.persistent_whisper_engine

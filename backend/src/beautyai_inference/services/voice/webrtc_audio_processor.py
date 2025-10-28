@@ -480,9 +480,16 @@ class WebRTCAudioProcessor:
         Returns:
             1D numpy array of audio samples (mono, flattened)
         """
-        # AudioFrame.to_ndarray() returns audio as float32 in range [-1.0, 1.0]
-        # Shape can be (samples,) for mono or (channels, samples) for multi-channel
+        # AudioFrame.to_ndarray() returns audio in the frame's native dtype
+        # (float for WebRTC float tracks, int for s16). Normalize to float32.
         audio_array = frame.to_ndarray()
+
+        if np.issubdtype(audio_array.dtype, np.integer):
+            dtype_info = np.iinfo(audio_array.dtype)
+            scale = float(max(abs(dtype_info.min), dtype_info.max)) or 1.0
+            audio_array = audio_array.astype(np.float32) / scale
+        else:
+            audio_array = audio_array.astype(np.float32)
         
         # Convert to mono immediately if multi-channel
         if audio_array.ndim > 1:

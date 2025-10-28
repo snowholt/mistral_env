@@ -23,7 +23,10 @@ Date: 2025-10-15
 import asyncio
 import inspect
 import logging
+import os
 import time
+import wave
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
 
@@ -352,12 +355,69 @@ class WebRTCVoiceServiceAdapter:
                 f"Speech segment ready for {peer_id}: "
                 f"{len(audio_data)} bytes, {metadata['duration_sec']:.2f}s"
             )
+
+            sample_rate = metadata.get("sample_rate") or (
+                self.buffer_manager.config.sample_rate if self.buffer_manager else 16000
+            )
+
+            try:
+                repo_root = Path(__file__).resolve().parents[5]
+            except IndexError:
+                repo_root = Path.cwd()
+
+            segment_dump_dir = repo_root / "logs" / "api"
+            segment_dump_dir.mkdir(parents=True, exist_ok=True)
+            segment_dump_path = segment_dump_dir / f"webrtc_segment_{peer_id}.wav"
+
+            try:
+                with wave.open(str(segment_dump_path), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(sample_rate or 16000)
+                    wav_file.writeframes(audio_data)
+                self.logger.info(
+                    f"[ADAPTER] Saved latest WebRTC segment for {peer_id} to {segment_dump_path}"
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    f"[ADAPTER] Failed to persist WebRTC segment for {peer_id}: {exc}"
+                )
+
+            dump_path_env = os.getenv("BEAUTYAI_DUMP_WEBRTC_STT")
+            if dump_path_env:
+                try:
+                    dump_path = Path(dump_path_env)
+                    dump_path.parent.mkdir(parents=True, exist_ok=True)
+                    with wave.open(str(dump_path), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate)
+                        wav_file.writeframes(audio_data)
+
+                    self.logger.info(
+                        f"[ADAPTER] Dumped WebRTC STT segment to {dump_path} (sr={sample_rate})"
+                    )
+                except Exception as exc:
+                    self.logger.warning(
+                        f"[ADAPTER] Failed to dump WebRTC STT segment: {exc}"
+                    )
             
             start_time = time.time()
             
             # Convert PCM bytes to numpy array for voice service
             import numpy as np
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
+
+            if audio_array.size:
+                audio_float = audio_array.astype(np.float32) / 32768.0
+                max_abs = float(np.max(np.abs(audio_float)))
+                if max_abs > 0.0 and max_abs < 0.90:
+                    gain = min(0.92 / max_abs, 48.0)
+                    audio_float *= gain
+                    audio_array = np.clip(audio_float * 32767.0, -32767.0, 32767.0).astype(np.int16)
+                    self.logger.debug(
+                        f"[ADAPTER] Applied segment gain {gain:.2f}x (peak {max_abs:.6f})"
+                    )
 
             # Process through voice service (STT → LLM → TTS)
             self._finalization_complete.clear()
@@ -422,6 +482,14 @@ class WebRTCVoiceServiceAdapter:
             stt_language = self.language if self.language in {"ar", "en"} else "en"
             stt_metadata["language_hint"] = stt_language
 
+            try:
+                repo_root = Path(__file__).resolve().parents[5]
+            except IndexError:
+                repo_root = Path.cwd()
+            dump_dir = repo_root / "logs" / "api"
+            dump_dir.mkdir(parents=True, exist_ok=True)
+            stt_metadata["dump_path"] = str(dump_dir / f"stt_input_{self.peer_id}.wav")
+
             peak_int16 = int(audio_array.max()) if audio_array.size else 0
             min_int16 = int(audio_array.min()) if audio_array.size else 0
             duration_sec = (audio_array.size / float(sample_rate)) if audio_array.size else 0.0
@@ -430,6 +498,7 @@ class WebRTCVoiceServiceAdapter:
                 f"duration={duration_sec:.2f}s, sample_rate={sample_rate}, "
                 f"peak_int16={peak_int16}, min_int16={min_int16}"
             )
+            self.logger.info(f"[ADAPTER] STT metadata for {self.peer_id}: {stt_metadata}")
 
             transcription_result = await self.voice_service.transcribe_audio(
                 audio_data=audio_array.tobytes(),

@@ -25,9 +25,9 @@ import numpy as np
 
 import torch
 from transformers import (
-    AutoModelForSpeechSeq2Seq, 
-    AutoProcessor, 
-    pipeline
+    AutoModelForSpeechSeq2Seq,
+    AutoProcessor,
+    pipeline,
 )
 
 from .base_whisper_engine import BaseWhisperEngine
@@ -224,34 +224,76 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
             Transcribed text
         """
         try:
-            # Prepare audio input for pipeline
+            normalized_language = self._normalize_language_hint(language)
+            language_for_generation = normalized_language or "english"
+
+            if normalized_language:
+                logger.debug(f"Transcribing with specified language: {normalized_language}")
+            else:
+                logger.debug("Language hint missing or auto; defaulting to english")
+
+            forced_decoder_ids = None
+            if self.processor is not None:
+                try:
+                    forced_decoder_ids = self.processor.get_decoder_prompt_ids(
+                        language=language_for_generation,
+                        task="transcribe",
+                    )
+                except Exception as decoder_exc:
+                    logger.debug(
+                        "Unable to derive forced decoder ids for %s transcribe task: %s",
+                        language_for_generation,
+                        decoder_exc,
+                    )
+
+            if self.pipe is None:
+                logger.error("Whisper pipeline not initialized")
+                return ""
+
+            model_ref = getattr(self.pipe, "model", None)
+            if model_ref is None:
+                logger.error("Whisper pipeline missing model reference")
+                return ""
+
+            generation_config = model_ref.generation_config
+            generation_config.max_new_tokens = 256
+            generation_config.num_beams = 1
+            generation_config.do_sample = False
+            generation_config.temperature = 0.0
+            generation_config.no_speech_threshold = 0.25
+            generation_config.condition_on_prev_tokens = False
+            generation_config.return_timestamps = False
+            generation_config.logprob_threshold = None
+            generation_config.compression_ratio_threshold = None
+            generation_config.language = language_for_generation
+            generation_config.task = "transcribe"
+
+            if forced_decoder_ids:
+                generation_config.forced_decoder_ids = forced_decoder_ids
+                model_ref.config.forced_decoder_ids = forced_decoder_ids
+                logger.debug(
+                    "Applied forced decoder prompt ids for %s transcribe task",
+                    language_for_generation,
+                )
+            else:
+                logger.warning(
+                    "Falling back to default whisper prompt; forced decoder ids unavailable"
+                )
+
+            logger.info(
+                f"[WHISPER] Using turbo engine in {language_for_generation} transcribe mode"
+            )
+
             audio_input = {
                 "array": audio_array,
-                "sampling_rate": 16000
+                "sampling_rate": 16000,
             }
-            
-            # FIXED: Use generate_kwargs for language specification to avoid translation
-            kwargs = {}
-            
-            # Add language specification via generate_kwargs (prevents auto-detection and translation)
-            if language and language != "auto":
-                generate_kwargs = {}
-                if language == "ar":
-                    generate_kwargs["language"] = "arabic"
-                elif language == "en":
-                    generate_kwargs["language"] = "english"
-                else:
-                    generate_kwargs["language"] = language
-                
-                kwargs["generate_kwargs"] = generate_kwargs
-                logger.debug(f"Transcribing with specified language: {generate_kwargs['language']}")
-            else:
-                logger.debug(f"Transcribing with auto language detection")
-            
-            # Perform transcription with proper parameter structure
-            result = self.pipe(audio_input, **kwargs)
-            
-            # Extract and clean transcription
+
+            result = self.pipe(
+                audio_input,
+                return_timestamps=False,
+            )
+
             transcribed_text = result.get("text", "").strip() if result else ""
             transcribed_text = self._clean_transcription_output(transcribed_text)
             

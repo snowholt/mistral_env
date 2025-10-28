@@ -1,8 +1,9 @@
 import asyncio
 import os
+import shutil
 from pathlib import Path
 import time
-from typing import Dict, List
+from typing import Dict, List, Optional
 
 import pytest
 import requests
@@ -42,6 +43,58 @@ RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM 
 
 # laser_hair.wav contains an upbeat scripted greeting useful for VAD testing
 EXPECTED_TRANSCRIPTION_FRAGMENT = "How does laser hair removal work?"
+
+# Output location for captured server-side segment (copied after the test run)
+CAPTURED_AUDIO_SUBDIR = Path("reports/webRTC-VAD")
+CAPTURED_AUDIO_PREFIX = "captured_webrtc_segment"
+
+
+async def _persist_latest_segment(
+    peer_id: str,
+    fallback_audio: Optional[np.ndarray] = None,
+    fallback_sample_rate: Optional[int] = None,
+    attempts: int = 20,
+    delay_seconds: float = 0.5,
+) -> Optional[Path]:
+    """Copy the latest server-captured segment into the reports directory for analysis."""
+    repo_root = Path(__file__).resolve().parents[2]
+    source = repo_root / "logs" / "api" / f"webrtc_segment_{peer_id}.wav"
+
+    for attempt in range(attempts):
+        if source.exists():
+            destination_dir = repo_root / CAPTURED_AUDIO_SUBDIR
+            destination_dir.mkdir(parents=True, exist_ok=True)
+            timestamp = time.strftime("%Y%m%d-%H%M%S")
+            destination = destination_dir / f"{CAPTURED_AUDIO_PREFIX}_{timestamp}.wav"
+            shutil.copy2(source, destination)
+            print(
+                f"[TEST] Copied server segment from {source} to {destination} (attempt {attempt + 1})"
+            )
+            return destination
+
+        await asyncio.sleep(delay_seconds)
+
+    print(
+        f"[TEST] No server segment found at {source} after {attempts} attempts"
+    )
+
+    if fallback_audio is not None and fallback_audio.size > 0:
+        destination_dir = repo_root / CAPTURED_AUDIO_SUBDIR
+        destination_dir.mkdir(parents=True, exist_ok=True)
+        timestamp = time.strftime("%Y%m%d-%H%M%S")
+        fallback_path = destination_dir / f"{CAPTURED_AUDIO_PREFIX}_{timestamp}_client.wav"
+        try:
+            import soundfile as sf
+
+            sf.write(fallback_path, fallback_audio, fallback_sample_rate or 48000)
+            print(
+                f"[TEST] Wrote fallback captured audio to {fallback_path} (sample_rate={fallback_sample_rate})"
+            )
+            return fallback_path
+        except Exception as exc:
+            print(f"[TEST] Failed to write fallback audio: {exc}")
+
+    return None
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -93,6 +146,7 @@ class FileAudioTrack(MediaStreamTrack):
         self._frame_samples = 960  # 20ms at 48kHz
         self._current_pos = 0
         self._initialized = False
+        self._transmitted_chunks: List[np.ndarray] = []
         
     def _initialize(self):
         """Load the audio file."""
@@ -156,7 +210,9 @@ class FileAudioTrack(MediaStreamTrack):
         
         # Get next chunk
         end_pos = min(self._current_pos + self._frame_samples, len(self._audio_data))
-        chunk = self._audio_data[self._current_pos:end_pos]
+        raw_chunk = self._audio_data[self._current_pos:end_pos]
+        self._transmitted_chunks.append(raw_chunk.copy())
+        chunk = raw_chunk
         
         # Pad if needed (last frame might be short)
         if len(chunk) < self._frame_samples:
@@ -179,6 +235,14 @@ class FileAudioTrack(MediaStreamTrack):
         frame.time_base = fractions.Fraction(1, self._sample_rate)
         
         return frame
+
+    def get_transmitted_audio(self) -> np.ndarray:
+        if not self._transmitted_chunks:
+            return np.array([], dtype=np.float32)
+        return np.concatenate(self._transmitted_chunks)
+
+    def get_sample_rate(self) -> int:
+        return int(self._sample_rate or 0)
 
 
 async def _post_json(url: str, payload: Dict) -> Dict:
@@ -389,6 +453,21 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         
         for i, trans in enumerate(transcriptions):
             print(f"[TEST] Transcription {i+1}: {trans.get('text', '')[:100]}")
+
+        fallback_audio = audio_track.get_transmitted_audio()
+        fallback_sample_rate = audio_track.get_sample_rate()
+
+        captured_path = await _persist_latest_segment(
+            peer_id,
+            fallback_audio=fallback_audio,
+            fallback_sample_rate=fallback_sample_rate,
+        )
+
+        if captured_path:
+            print(f"[TEST] ✓ Captured audio copied to: {captured_path}")
+        else:
+            print("[TEST] ⚠️ No captured audio file found after waiting; skipping copy")
+
         if transcriptions:
             normalized_text = transcriptions[-1].get("text", "").strip().lower()
             assert normalized_text, "Transcription payload should not be empty"
@@ -407,6 +486,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
             "transcriptions": transcriptions,
             "llm_responses": llm_responses,
             "all_messages": received_messages,
+            "captured_audio_path": str(captured_path) if captured_path else None,
         }
 
     finally:
@@ -463,5 +543,11 @@ def test_webrtc_audio_round_trip():
         else:
             print(f"[TEST] ✓ Received {len(result['llm_responses'])} LLM response(s)")
     
+    captured_output = result.get("captured_audio_path")
+    if captured_output:
+        print(f"[TEST] 🎧 Review captured audio at: {captured_output}")
+    else:
+        print("[TEST] ⚠️ Captured audio output unavailable; check server logs for segment files")
+
     # Store results for inspection
     result["fixture_file"] = str(AUDIO_FIXTURE)
