@@ -22,6 +22,7 @@ Date: 2025-10-15
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Optional, Dict, Any, Callable, List
@@ -339,7 +340,9 @@ class WebRTCBufferManager:
             
             # Trigger callback if set
             if self._on_segment_ready:
-                self._on_segment_ready(self.peer_id, complete_audio, segment_metadata)
+                callback_result = self._on_segment_ready(self.peer_id, complete_audio, segment_metadata)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             
             # Reset for next segment
             self._reset_for_next_segment()

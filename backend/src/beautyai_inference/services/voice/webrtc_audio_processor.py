@@ -133,6 +133,7 @@ class WebRTCAudioProcessor:
         self.utterance_start_time: Optional[float] = None  # Real-time clock for utterance
         self.current_utterance_bytes = 0
         self.current_utterance_duration = 0.0
+        self._stream_terminated = False
         
         # Audio metrics
         self.metrics = AudioStreamMetrics()
@@ -180,6 +181,7 @@ class WebRTCAudioProcessor:
             self.utterance_start_time = time.time()  # Track real-time utterance duration
             self.current_utterance_bytes = 0
             self.current_utterance_duration = 0.0
+            self._stream_terminated = False
             
             self.logger.debug(f"[PROCESSOR] Starting audio processing for peer {self.peer_id}, track={audio_track}")
             self.logger.debug(f"[PROCESSOR] Callback registered: {self._on_audio_chunk is not None}")
@@ -260,6 +262,8 @@ class WebRTCAudioProcessor:
                     if frame_count > 0 and timeout_count >= 3:
                         self.logger.error(f"[PROCESSOR] Audio stream stopped unexpectedly for {self.peer_id} after {frame_count} frames")
                         print(f"[PROCESSOR] Audio stream stopped unexpectedly for {self.peer_id} after {frame_count} frames")
+                        self.is_processing = False
+                        await self._finalize_stream("consecutive_timeouts")
                         break
                     continue
                     
@@ -268,6 +272,7 @@ class WebRTCAudioProcessor:
                     print(f"[PROCESSOR] Error receiving audio frame: {e}")
                     if self._on_processing_error:
                         self._on_processing_error(self.peer_id, e)
+                    await self._finalize_stream("recv_exception")
                     break
                 
         except Exception as e:
@@ -275,19 +280,13 @@ class WebRTCAudioProcessor:
             print(f"[PROCESSOR] Fatal error in audio track processing: {e}")
             if self._on_processing_error:
                 self._on_processing_error(self.peer_id, e)
+            await self._finalize_stream("fatal_exception")
         finally:
             self.logger.debug(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             print(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             self.is_processing = False
             self.logger.info(f"[Audio] Stream stopped for {self.peer_id} after {frame_count} frames")
-            vad_service = getattr(self, "vad_service", None)
-            if vad_service:
-                try:
-                    result = vad_service.handle_end_of_stream(self.peer_id)
-                    if inspect.isawaitable(result):
-                        await result
-                except Exception as e:
-                    self.logger.error(f"Error finalizing VAD for {self.peer_id}: {e}")
+            await self._finalize_stream("loop_exit")
     
     async def _process_audio_frame(self, frame: AudioFrame):
         """
@@ -454,6 +453,23 @@ class WebRTCAudioProcessor:
                 if self._on_processing_error:
                     self._on_processing_error(self.peer_id, e)
     
+    async def _finalize_stream(self, reason: str) -> None:
+        """Invoke VAD end-of-stream finalization exactly once."""
+        if self._stream_terminated:
+            return
+        self._stream_terminated = True
+        self.logger.info(f"[PROCESSOR] Finalizing stream for {self.peer_id} (reason: {reason})")
+        vad_service = getattr(self, "vad_service", None)
+        if not vad_service:
+            self.logger.debug(f"[PROCESSOR] No VAD service attached for {self.peer_id}; skipping end-of-stream handling")
+            return
+        try:
+            result = vad_service.handle_end_of_stream(self.peer_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            self.logger.error(f"[PROCESSOR] Failed to finalize VAD for {self.peer_id}: {exc}")
+
     def _frame_to_numpy(self, frame: AudioFrame) -> np.ndarray:
         """
         Convert AudioFrame to numpy array and flatten to 1D.

@@ -173,12 +173,21 @@ class WebRTCSessionManager:
         Returns:
             Session identifier
         """
+        normalized_language = (language or "ar").strip().lower()
+        if normalized_language not in {"ar", "en"}:
+            logger.warning(
+                "[WebRTC] Unsupported language '%s' when creating session; defaulting to 'ar'",
+                normalized_language,
+            )
+            normalized_language = "ar"
+
         async with self._lock:
             # Generate session ID
             session_id = f"webrtc_session_{uuid.uuid4().hex[:12]}"
             
             # Prepare session metadata
-            session_metadata = metadata or {}
+            session_metadata = dict(metadata or {})
+            session_metadata.setdefault('requested_language', normalized_language)
             session_metadata['peer_id'] = peer_id
             session_metadata['transport'] = 'webrtc'
             
@@ -191,7 +200,7 @@ class WebRTCSessionManager:
                 session_id=session_id,
                 connection_id=peer_id,  # Use peer_id as connection_id
                 user_id=user_id,
-                language=language,
+                language=normalized_language,
                 voice_type=voice_type
             )
             

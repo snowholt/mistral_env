@@ -36,7 +36,10 @@ from ....api.schemas.debug_schemas import (
 )
 
 # Configure logger
-logger = logging.getLogger(__name__)
+LOGGER_NAME = "beautyai.voice.simple_voice_service"
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+logger.propagate = True
 
 
 @dataclass
@@ -73,7 +76,9 @@ class SimpleVoiceService:
             debug_mode: Enable debug mode for detailed metrics and logging
         """
         self.config = config or {}
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = True
         
         # Debug configuration
         self.debug_mode = debug_mode

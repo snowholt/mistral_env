@@ -20,6 +20,8 @@ Author: BeautyAI Framework
 Date: 2025-10-15
 """
 
+import asyncio
+import inspect
 import logging
 import time
 from typing import Optional, Dict, Any, Callable
@@ -145,6 +147,9 @@ class WebRTCVoiceServiceAdapter:
         self.is_initialized = False
         self.is_active = False
         self.session_start_time: Optional[float] = None
+        self._finalization_task: Optional[asyncio.Task] = None
+        self._finalization_complete: asyncio.Event = asyncio.Event()
+        self._finalization_complete.set()
         
         # Metrics
         self.utterances_processed = 0
@@ -264,6 +269,12 @@ class WebRTCVoiceServiceAdapter:
             # Stop audio processor
             if self.audio_processor:
                 await self.audio_processor.stop_processing()
+
+            if self._finalization_task and not self._finalization_task.done():
+                self.logger.info(f"[ADAPTER] Awaiting finalization task for {self.peer_id} during stop")
+                await self._finalization_task
+
+            await self._finalization_complete.wait()
             
             # Reset components
             if self.vad_service:
@@ -347,9 +358,17 @@ class WebRTCVoiceServiceAdapter:
             # Convert PCM bytes to numpy array for voice service
             import numpy as np
             audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            
+
             # Process through voice service (STT → LLM → TTS)
-            result = await self._process_voice_with_service(audio_array, metadata)
+            self._finalization_complete.clear()
+            self._finalization_task = asyncio.create_task(
+                self._process_voice_with_service(audio_array, metadata)
+            )
+            try:
+                result = await self._finalization_task
+            finally:
+                self._finalization_task = None
+                self._finalization_complete.set()
             
             processing_time = time.time() - start_time
             self.total_processing_time += processing_time
@@ -384,15 +403,37 @@ class WebRTCVoiceServiceAdapter:
         try:
             # 1. STT: Transcribe audio to text
             segment_metadata = metadata or {}
+
+            sample_rate = segment_metadata.get("sample_rate")
+            if not sample_rate and self.buffer_manager and getattr(self.buffer_manager, "config", None):
+                sample_rate = getattr(self.buffer_manager.config, "sample_rate", None)
+            if not sample_rate and self.config.audio_config:
+                sample_rate = getattr(self.config.audio_config, "target_sample_rate", None)
+            if not sample_rate:
+                sample_rate = 16000
+
             stt_metadata = {
-                "sample_rate": segment_metadata.get("sample_rate"),
+                "sample_rate": sample_rate,
                 "duration_sec": segment_metadata.get("duration_sec"),
-                "num_frames": segment_metadata.get("num_frames")
+                "num_frames": segment_metadata.get("num_frames"),
+                "audio_format": "pcm"
             }
+
+            stt_language = self.language if self.language in {"ar", "en"} else "en"
+            stt_metadata["language_hint"] = stt_language
+
+            peak_int16 = int(audio_array.max()) if audio_array.size else 0
+            min_int16 = int(audio_array.min()) if audio_array.size else 0
+            duration_sec = (audio_array.size / float(sample_rate)) if audio_array.size else 0.0
+            self.logger.info(
+                f"[ADAPTER] Dispatching STT for {self.peer_id}: language={stt_language}, "
+                f"duration={duration_sec:.2f}s, sample_rate={sample_rate}, "
+                f"peak_int16={peak_int16}, min_int16={min_int16}"
+            )
 
             transcription_result = await self.voice_service.transcribe_audio(
                 audio_data=audio_array.tobytes(),
-                language=self.language,
+                language=stt_language,
                 audio_format="pcm",
                 metadata=stt_metadata
             )
@@ -407,7 +448,9 @@ class WebRTCVoiceServiceAdapter:
             
             if self._on_transcription:
                 self.logger.info(f"[ADAPTER] Calling on_transcription callback for peer {self.peer_id}")
-                self._on_transcription(self.peer_id, transcript)
+                callback_result = self._on_transcription(self.peer_id, transcript)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             else:
                 self.logger.warning(f"[ADAPTER] No on_transcription callback registered for peer {self.peer_id}")
             
@@ -441,7 +484,9 @@ class WebRTCVoiceServiceAdapter:
             
             if self._on_llm_response:
                 self.logger.info(f"[ADAPTER] Calling on_llm_response callback for peer {self.peer_id}")
-                self._on_llm_response(self.peer_id, llm_response)
+                callback_result = self._on_llm_response(self.peer_id, llm_response)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             else:
                 self.logger.warning(f"[ADAPTER] No on_llm_response callback registered for peer {self.peer_id}")
             
@@ -461,7 +506,9 @@ class WebRTCVoiceServiceAdapter:
             tts_audio = tts_result.get("audio_data")
             
             if self._on_tts_audio:
-                self._on_tts_audio(self.peer_id, tts_audio)
+                callback_result = self._on_tts_audio(self.peer_id, tts_audio)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             
             return {
                 "success": True,
@@ -596,6 +643,12 @@ class WebRTCVoiceServiceAdapter:
         self.logger.info(f"Cleaning up voice pipeline for {self.peer_id}")
         
         await self.stop_voice_session()
+
+        if self._finalization_task and not self._finalization_task.done():
+            self.logger.info(f"[ADAPTER] Awaiting finalization task for {self.peer_id} during cleanup")
+            await self._finalization_task
+
+        await self._finalization_complete.wait()
         
         if self.audio_processor:
             await self.audio_processor.stop_processing()

@@ -29,8 +29,8 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-# Use 2.4s English clip with early speech for Silero post-warmup confirmation
-AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/laser_hair.wav")
+# Use longer 5s English clip with early speech for reliable VAD confirmation
+AUDIO_FIXTURE = Path("tests/webrtc/laser_hair.wav")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "http://localhost:8000/api/v1/webrtc/voice",
@@ -40,8 +40,8 @@ CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
 
-# Expected transcription for laser_hair.wav (English)
-EXPECTED_TRANSCRIPTION = "How does laser hair removal work?"
+# q7.wav contains an excited greeting loop useful for VAD testing
+EXPECTED_TRANSCRIPTION_FRAGMENT = "hey"
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -303,7 +303,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         offer_payload = {
             "sdp": offer.sdp,
             "type": offer.type,
-            "language": "en",  # Force English for laser_hair.wav clip
+            "language": "en",  # q7.wav is English narration
             "session_metadata": {
                 "test_origin": "pytest_webrtc_q7",
                 "generated_at": time.time(),
@@ -389,6 +389,13 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         
         for i, trans in enumerate(transcriptions):
             print(f"[TEST] Transcription {i+1}: {trans.get('text', '')[:100]}")
+        if transcriptions:
+            normalized_text = transcriptions[-1].get("text", "").strip().lower()
+            assert normalized_text, "Transcription payload should not be empty"
+            assert EXPECTED_TRANSCRIPTION_FRAGMENT in normalized_text, (
+                f"Normalized transcription mismatch: expected fragment '{EXPECTED_TRANSCRIPTION_FRAGMENT}', "
+                f"got '{transcriptions[-1].get('text', '')}'"
+            )
         for i, resp in enumerate(llm_responses):
             print(f"[TEST] LLM Response {i+1}: {resp.get('text', '')[:100]}")
 

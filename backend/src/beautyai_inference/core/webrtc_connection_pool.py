@@ -213,6 +213,7 @@ class WebRTCConnectionPool:
         
         # Voice service adapters per peer (handles audio processing pipeline)
         self._voice_adapters: Dict[str, Any] = {}  # peer_id -> WebRTCVoiceServiceAdapter
+        self._last_payload_sent: Dict[str, float] = {}
         
         # Keep-alive tasks for active audio tracks
         self._keepalive_tasks: Dict[str, asyncio.Task] = {}  # peer_id -> keep-alive task
@@ -235,6 +236,8 @@ class WebRTCConnectionPool:
         self._persistent_whisper_device = os.getenv('WEBRTC_WHISPER_DEVICE', 'cuda')
         self._persistent_whisper_compute = os.getenv('WEBRTC_WHISPER_COMPUTE', 'float16')
         
+        self._final_payload_grace_seconds = max(float(os.getenv("WEBRTC_FINAL_PAYLOAD_GRACE_SEC", "1.5")), 0.0)
+
         logger.info(f"[WebRTC] Connection pool initialized (max_connections={max_connections})")
     
     async def start(self):
@@ -345,7 +348,8 @@ class WebRTCConnectionPool:
         self,
         peer_id: str,
         offer_sdp: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> tuple[str, List[Dict[str, Any]]]:
         """
         Create a new RTCPeerConnection and process SDP offer.
@@ -537,6 +541,11 @@ class WebRTCConnectionPool:
                                     session_id = session_info.get('session_id')
                             except Exception as e:
                                 logger.warning(f"[WebRTC] Could not get session info for {peer_id}: {e}")
+
+                            if (not session_id or not language or language == DEFAULT_LANGUAGE) and peer_id in self._connections:
+                                requested_language = self._connections[peer_id].client_info.get('requested_language')
+                                if requested_language:
+                                    language = requested_language
                             
                             if not session_id:
                                 # Generate temporary session_id as fallback to maintain connection
@@ -582,70 +591,58 @@ class WebRTCConnectionPool:
                                 )
                                 
                                 # Define callback functions to send data via data channel
-                                def send_transcription(p_id: str, text: str):
+                                async def _send_json_payload(p_id: str, payload: Dict[str, Any]) -> None:
+                                    if p_id not in self._connections:
+                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send payload {payload.get('type')}")
+                                        return
+
+                                    dc = self._connections[p_id].data_channel
+                                    logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
+                                    if not dc or dc.readyState != "open":
+                                        logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send {payload.get('type')}")
+                                        return
+
+                                    import json
+                                    try:
+                                        dc.send(json.dumps(payload))
+                                        await asyncio.sleep(0)
+                                        logger.info(f"[WebRTC] ✓ Sent {payload.get('type')} to {p_id}")
+                                        self._last_payload_sent[p_id] = time.time()
+                                    except Exception as e:
+                                        logger.error(f"[WebRTC] Failed to send payload {payload.get('type')} to {p_id}: {e}", exc_info=True)
+
+                                async def send_transcription(p_id: str, text: str):
                                     """Send transcription via data channel"""
-                                    logger.info(f"[WebRTC] send_transcription called for {p_id}: {text[:50]}...")
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            try:
-                                                dc.send(json.dumps({
-                                                    "type": "transcription",
-                                                    "text": text,
-                                                    "timestamp": time.time()
-                                                }))
-                                                logger.info(f"[WebRTC] ✓ Sent transcription to {p_id}: {text[:50]}...")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send transcription: {e}", exc_info=True)
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send transcription")
-                                    else:
-                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send transcription")
-                                
-                                def send_llm_response(p_id: str, text: str):
+                                    payload = {
+                                        "type": "transcription",
+                                        "text": text,
+                                        "timestamp": time.time(),
+                                        "language": language,
+                                        "final": True
+                                    }
+                                    await _send_json_payload(p_id, payload)
+
+                                async def send_llm_response(p_id: str, text: str):
                                     """Send LLM response via data channel"""
-                                    logger.info(f"[WebRTC] send_llm_response called for {p_id}: {text[:50]}...")
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            try:
-                                                payload = {
-                                                    "text": text,
-                                                    "timestamp": time.time()
-                                                }
-                                                dc.send(json.dumps({"type": "assistant_response", **payload}))
-                                                dc.send(json.dumps({"type": "llm_response", **payload}))
-                                                logger.info(f"[WebRTC] ✓ Sent LLM response to {p_id}: {text[:50]}...")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send LLM response: {e}", exc_info=True)
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send LLM response")
-                                    else:
-                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send LLM response")
-                                
-                                def send_tts_audio(p_id: str, audio_bytes: bytes):
+                                    base_payload = {
+                                        "text": text,
+                                        "timestamp": time.time()
+                                    }
+                                    await _send_json_payload(p_id, {"type": "assistant_response", **base_payload})
+                                    await _send_json_payload(p_id, {"type": "llm_response", **base_payload})
+
+                                async def send_tts_audio(p_id: str, audio_bytes: bytes):
                                     """Send TTS audio via data channel"""
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            import base64
-                                            try:
-                                                dc.send(json.dumps({
-                                                    "type": "tts_audio",
-                                                    "audio_base64": base64.b64encode(audio_bytes).decode(),
-                                                    "timestamp": time.time()
-                                                }))
-                                                logger.info(f"[WebRTC] Sent TTS audio to {p_id}: {len(audio_bytes)} bytes")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send TTS audio: {e}")
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send TTS audio")
-                                
+                                    import base64
+                                    payload = {
+                                        "type": "tts_audio",
+                                        "audio": base64.b64encode(audio_bytes).decode(),
+                                        "timestamp": time.time(),
+                                        "sample_rate": 16000,
+                                        "mime": "audio/wav"
+                                    }
+                                    await _send_json_payload(p_id, payload)
+
                                 # Create adapter with callbacks wired
                                 adapter = WebRTCVoiceServiceAdapter(
                                     peer_id=peer_id,
@@ -731,13 +728,18 @@ class WebRTCConnectionPool:
                     logger.warning(f"[WebRTC] ⚠️ Answer SDP does NOT contain SCTP for {peer_id} - data channel may not work!")
                 
                 # Store connection data
+                client_info: Dict[str, Any] = {}
+                if language:
+                    client_info["requested_language"] = language
+
                 connection_data = WebRTCConnectionData(
                     peer_id=peer_id,
                     peer_connection=pc,
                     user_id=user_id,
                     local_sdp=pc.localDescription.sdp,
                     remote_sdp=offer_sdp,
-                    data_channel=data_channel
+                    data_channel=data_channel,
+                    client_info=client_info,
                 )
 
                 if not data_channel and peer_id in self._pending_data_channels:
@@ -992,12 +994,30 @@ class WebRTCConnectionPool:
             # Stop voice adapter if exists
             if peer_id in self._voice_adapters:
                 try:
+                    last_payload_ts = self._last_payload_sent.get(peer_id)
+                    grace = self._final_payload_grace_seconds
+                    if grace > 0 and last_payload_ts:
+                        remaining = (last_payload_ts + grace) - time.time()
+                        if remaining > 0:
+                            logger.info(
+                                "[WebRTC] Applying %.2fs grace period for %s before shutting down",
+                                remaining,
+                                peer_id,
+                            )
+                            try:
+                                await asyncio.sleep(remaining)
+                            except asyncio.CancelledError:
+                                logger.debug(
+                                    "[WebRTC] Grace sleep cancelled for %s; proceeding with cleanup",
+                                    peer_id,
+                                )
                     adapter = self._voice_adapters[peer_id]
                     await adapter.stop_voice_session()
                     del self._voice_adapters[peer_id]
                     logger.info(f"[WebRTC] Stopped voice adapter for {peer_id}")
                 except Exception as e:
                     logger.error(f"[WebRTC] Error stopping voice adapter for {peer_id}: {e}")
+            self._last_payload_sent.pop(peer_id, None)
             
             # Close peer connection
             if connection_data.peer_connection:

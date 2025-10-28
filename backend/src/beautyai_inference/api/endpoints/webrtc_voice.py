@@ -293,8 +293,21 @@ async def handle_sdp_offer(
     try:
         # Generate unique peer_id
         peer_id = f"peer_{uuid.uuid4().hex[:12]}"
-        
-        logger.info("[WebRTC] handle_sdp_offer start | peer_id=%s | language=%s", peer_id, request.language)
+
+        requested_language = (request.language or "ar").strip().lower()
+        if requested_language not in {"ar", "en"}:
+            logger.warning(
+                "[WebRTC] Unsupported language '%s' in offer for %s; defaulting to 'ar'",
+                requested_language,
+                peer_id,
+            )
+            requested_language = "ar"
+
+        logger.info(
+            "[WebRTC] handle_sdp_offer start | peer_id=%s | language=%s",
+            peer_id,
+            requested_language,
+        )
         
         # Get WebRTC configuration from environment
         import os
@@ -310,11 +323,14 @@ async def handle_sdp_offer(
         # Create voice session first to get session_id
         try:
             start_session = time.time()
+            session_metadata = dict(request.session_metadata or {})
+            session_metadata.setdefault("requested_language", requested_language)
+
             session_id = await session_manager.create_session(
                 peer_id=peer_id,
-                language=request.language or "ar",
+                language=requested_language,
                 user_id=request.user_id,
-                metadata=request.session_metadata
+                metadata=session_metadata
             )
             logger.debug(
                 "[WebRTC] (%s) Session created session_id=%s (%.2f ms)",
@@ -335,7 +351,8 @@ async def handle_sdp_offer(
             answer_sdp, ice_servers = await connection_pool.create_peer_connection(
                 peer_id=peer_id,
                 offer_sdp=request.sdp,
-                user_id=request.user_id
+                user_id=request.user_id,
+                language=requested_language
             )
             logger.debug(
                 "[WebRTC] (%s) create_peer_connection completed (%.2f ms)",
