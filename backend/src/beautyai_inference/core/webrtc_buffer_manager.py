@@ -184,6 +184,11 @@ class WebRTCBufferManager:
             try:
                 self.metrics.chunks_received += 1
                 
+                # Log every 10 chunks for debugging
+                if self.metrics.chunks_received % 10 == 0:
+                    self.logger.info(f"[BUFFER←VAD] Received chunk #{self.metrics.chunks_received}: {len(audio_chunk)} bytes, state={vad_state}")
+                    print(f"[BUFFER←VAD] Received chunk #{self.metrics.chunks_received}: {len(audio_chunk)} bytes, state={vad_state}")
+                
                 # Convert VAD state string to enum-like comparison
                 from ..services.voice.vad.webrtc_vad_service import VADState
                 

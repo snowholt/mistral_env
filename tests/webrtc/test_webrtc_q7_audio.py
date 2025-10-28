@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/q7.wav")
+AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/laser_hair.wav")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "http://localhost:8000/api/v1/webrtc/voice",
@@ -38,6 +38,9 @@ DEFAULT_SIGNALING_URL = os.getenv(
 CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
+
+# Expected transcription for laser_hair.wav (English)
+EXPECTED_TRANSCRIPTION = "How does laser hair removal work?"
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -105,13 +108,12 @@ class FileAudioTrack(MediaStreamTrack):
             later_max = np.abs(self._audio_data[5000:5100] if len(self._audio_data) > 5100 else self._audio_data[-100:]).max()
             print(f"[FileAudioTrack] First 100 samples max: {first_max:.4f}, Later samples max: {later_max:.4f}")
         
-        # Skip silent lead-in period (first ~0.2 seconds or ~5000 samples at 24kHz)
-        # This corresponds to the codec/encoder warm-up silence
-        skip_duration_sec = 0.15  # Skip first 150ms of silence
-        skip_samples = int(skip_duration_sec * self._sample_rate)
-        if len(self._audio_data) > skip_samples:
-            self._audio_data = self._audio_data[skip_samples:]
-            print(f"[FileAudioTrack] Skipped first {skip_samples} samples ({skip_duration_sec}s of silence)")
+        # NOTE: For laser_hair.wav, we DON'T skip the silence because:
+        # - The first ~0.5s is almost silent (RMS=4.2)
+        # - Warmup filter is 450ms
+        # - Speech starts around 0.5s, right when warmup ends
+        # - If we skip silence, we might skip the speech start too
+        # REMOVED: skip_duration_sec = 0.15  # Skip first 150ms of silence
         
         # Resample to 48kHz if needed (WebRTC standard)
         if self._sample_rate != 48000:
@@ -142,6 +144,11 @@ class FileAudioTrack(MediaStreamTrack):
     async def recv(self) -> AudioFrame:
         if not self._initialized:
             self._initialize()
+        
+        # Simulate real-time audio transmission (20ms per frame at 48kHz)
+        # This prevents overwhelming the server with instant bulk transmission
+        frame_duration_sec = self._frame_samples / self._sample_rate  # 960/48000 = 0.02s (20ms)
+        await asyncio.sleep(frame_duration_sec)
         
         # Check if we have more audio
         if self._current_pos >= len(self._audio_data):
