@@ -11,6 +11,7 @@ Date: 2025-01-23
 
 import asyncio
 import logging
+import os
 import tempfile
 import time
 import uuid
@@ -18,6 +19,13 @@ from pathlib import Path
 from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import numpy as np
+
+try:
+    from scipy.signal import resample_poly
+except ImportError:  # pragma: no cover - optional dependency
+    resample_poly = None
+
 import edge_tts
 from ....services.voice.utils.text_cleaning import sanitize_tts_text
 
@@ -109,6 +117,13 @@ class SimpleVoiceService:
         
         # Audio configuration from registry
         self.audio_config = self.voice_config.get_audio_config()
+
+        # Streaming STT configuration
+        self._stt_sample_rate_hint: int = 16000
+
+        # Chat persona configuration (default to beauty/medical domain)
+        self.chat_persona: str = os.getenv("VOICE_CHAT_PERSONA", "beauty").lower()
+        self.disable_content_filter: bool = False
         
         self.logger.info("SimpleVoiceService initialized with voice registry configuration")
         
@@ -153,6 +168,37 @@ class SimpleVoiceService:
 
         except Exception as exc:
             self.logger.warning(f"Failed to cache chat defaults: {exc}")
+
+    def configure_chat_persona(self, persona: str, disable_content_filter: bool = False) -> None:
+        """Configure chat persona (e.g., general vs beauty) for voice sessions."""
+        if persona:
+            self.chat_persona = persona.lower()
+        self.disable_content_filter = disable_content_filter
+        self._apply_chat_persona_overrides()
+
+    def _apply_chat_persona_overrides(self) -> None:
+        """Apply persona-specific prompt or safety overrides when chat service is ready."""
+        if not self.chat_service:
+            return
+
+        applied_marker = getattr(self.chat_service, "_voice_persona_applied", None)
+        if applied_marker == self.chat_persona:
+            return
+
+        prompt_builder = getattr(self.chat_service, "prompt_builder", None)
+
+        if self.chat_persona == "general" and prompt_builder and hasattr(prompt_builder, "override_system_prompt"):
+            prompt_builder.override_system_prompt(
+                "en",
+                "You are a friendly, conversational AI assistant. Respond in clear English "
+                "with helpful, respectful answers across any topic."
+            )
+            prompt_builder.override_system_prompt(
+                "ar",
+                "أنت مساعد ذكاء اصطناعي ودود يقدم إجابات محترمة ومفيدة في أي موضوع باحترافية ووضوح."
+            )
+
+        setattr(self.chat_service, "_voice_persona_applied", self.chat_persona)
 
     def _prepare_generation_config(self) -> Dict[str, Any]:
         """Construct per-request generation settings for the voice chat flow."""
@@ -998,15 +1044,20 @@ class SimpleVoiceService:
         self,
         audio_data: bytes,
         language: Optional[str] = None,
-        audio_format: Optional[str] = None
+        audio_format: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Transcribe raw audio bytes for WebRTC adapter compatibility."""
         try:
             effective_format = audio_format or "pcm"
+            sample_rate_hint = None
+            if metadata:
+                sample_rate_hint = metadata.get("sample_rate") or metadata.get("sample_rate_hz")
             transcript = await self._transcribe_audio(
                 audio_data,
                 audio_format=effective_format,
-                language=language
+                language=language,
+                sample_rate_hint=sample_rate_hint
             )
             return {
                 "success": True,
@@ -1114,7 +1165,119 @@ class SimpleVoiceService:
         logger.info(f"🎵 Converted raw PCM data ({len(pcm_data)} bytes) to WAV file: {wav_file}")
         return wav_file
     
-    async def _transcribe_audio(self, audio_data: bytes, audio_format: str = "wav", language: Optional[str] = None) -> str:
+    def _prepare_audio_for_stt(
+        self,
+        audio_bytes: bytes,
+        sample_rate_hint: Optional[int] = None,
+        target_sample_rate: int = 16000,
+        silence_threshold_db: float = -40.0,
+        silence_padding_ms: int = 100
+    ) -> Tuple[np.ndarray, int, float, float]:
+        """Convert PCM bytes to normalized float audio ready for STT."""
+        if not audio_bytes:
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        try:
+            audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+        except ValueError:
+            self.logger.warning("[STT] Unable to interpret audio bytes as int16 PCM; skipping preprocessing")
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        if audio_array.size == 0:
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        audio_array /= 32768.0  # Normalize to [-1, 1]
+
+        sample_rate = sample_rate_hint or getattr(self, "_stt_sample_rate_hint", target_sample_rate)
+
+        # Resample if needed
+        if sample_rate and sample_rate != target_sample_rate:
+            audio_array = self._resample_audio(audio_array, sample_rate, target_sample_rate)
+            sample_rate = target_sample_rate
+
+        # Trim leading/trailing silence while keeping a bit of padding
+        audio_array = self._trim_silence(
+            audio_array,
+            sample_rate=sample_rate or target_sample_rate,
+            threshold_db=silence_threshold_db,
+            padding_ms=silence_padding_ms
+        )
+
+        peak_level = float(np.max(np.abs(audio_array))) if audio_array.size else 0.0
+        rms_level = float(np.sqrt(np.mean(audio_array ** 2))) if audio_array.size else 0.0
+
+        return audio_array.astype(np.float32), sample_rate or target_sample_rate, peak_level, rms_level
+
+    def _resample_audio(self, audio: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
+        """Resample audio using polyphase filtering when available."""
+        if audio.size == 0 or source_sr == target_sr:
+            return audio
+
+        if resample_poly is not None:
+            try:
+                from math import gcd
+
+                ratio_gcd = gcd(source_sr, target_sr)
+                up = target_sr // ratio_gcd
+                down = source_sr // ratio_gcd
+                return resample_poly(audio, up, down)
+            except Exception as exc:  # pragma: no cover - fallback path
+                self.logger.debug(f"[STT] resample_poly failed ({exc}), falling back to linear interpolation")
+
+        # Fallback linear interpolation
+        if source_sr <= 0 or target_sr <= 0:
+            return audio
+
+        duration = audio.size / float(source_sr)
+        target_length = max(int(duration * target_sr), 1)
+        source_positions = np.linspace(0.0, 1.0, num=audio.size, endpoint=False)
+        target_positions = np.linspace(0.0, 1.0, num=target_length, endpoint=False)
+        return np.interp(target_positions, source_positions, audio)
+
+    def _trim_silence(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        threshold_db: float = -40.0,
+        padding_ms: int = 100
+    ) -> np.ndarray:
+        """Trim silence from both ends of the signal while preserving padding."""
+        if audio.size == 0 or sample_rate <= 0:
+            return audio
+
+        threshold = 10 ** (threshold_db / 20.0)
+        magnitude = np.abs(audio)
+        active_indices = np.where(magnitude >= threshold)[0]
+
+        if active_indices.size == 0:
+            return audio
+
+        padding = int(sample_rate * padding_ms / 1000)
+        start = max(int(active_indices[0]) - padding, 0)
+        end = min(int(active_indices[-1]) + padding + 1, audio.size)
+        trimmed = audio[start:end]
+
+        # Keep original audio if trimming results in extremely short clip (<100ms)
+        min_samples = int(sample_rate * 0.1)
+        if trimmed.size < min_samples:
+            return audio
+
+        return trimmed
+
+    def _float_audio_to_pcm_bytes(self, audio: np.ndarray) -> bytes:
+        """Convert normalized float audio back to int16 PCM bytes."""
+        if audio.size == 0:
+            return b""
+        clipped = np.clip(audio, -1.0, 1.0)
+        return (clipped * 32767.0).astype(np.int16).tobytes()
+
+    async def _transcribe_audio(
+        self,
+        audio_data: bytes,
+        audio_format: str = "wav",
+        language: Optional[str] = None,
+        sample_rate_hint: Optional[int] = None
+    ) -> str:
         """
         Transcribes audio data using persistent Whisper model from ModelManager.
         
@@ -1129,58 +1292,106 @@ class SimpleVoiceService:
             Transcribed text from the audio with /no_think suffix added
         """
         try:
+            language_hint = language or "en"
+            effective_format = (audio_format or "pcm").lower()
+
+            # Default sample-rate hint can be overridden by upstream metadata later
+            sample_rate_hint = sample_rate_hint or getattr(self, "_stt_sample_rate_hint", 16000)
+
+            processed_audio = None
+            peak_level = 0.0
+            rms_level = 0.0
+            duration_sec = 0.0
+
+            # Only custom-preprocess PCM (and WAV when we can parse header)
+            audio_bytes_for_engine = audio_data
+
+            if effective_format == "wav":
+                try:
+                    import io
+                    import wave
+
+                    with wave.open(io.BytesIO(audio_data), "rb") as wav_file:
+                        sample_rate_hint = wav_file.getframerate()
+                        frames = wav_file.readframes(wav_file.getnframes())
+                    audio_bytes_for_engine = frames
+                    effective_format = "pcm"
+                except Exception as exc:  # pragma: no cover - WAV parsing fallback
+                    self.logger.debug(f"[STT] WAV header parsing failed ({exc}); using raw bytes")
+
+            if effective_format == "pcm":
+                processed_audio, sample_rate_used, peak_level, rms_level = self._prepare_audio_for_stt(
+                    audio_bytes_for_engine,
+                    sample_rate_hint=sample_rate_hint
+                )
+
+                self._stt_sample_rate_hint = sample_rate_used or 16000
+                duration_sec = (
+                    processed_audio.size / float(sample_rate_used)
+                    if processed_audio.size and sample_rate_used else 0.0
+                )
+
+                self.logger.info(
+                    "[STT-IN] sr=%d, dtype=float32, len=%d, peak=%.4f, rms=%.4f",
+                    sample_rate_used,
+                    processed_audio.size,
+                    peak_level,
+                    rms_level
+                )
+
+                prepared_bytes = self._float_audio_to_pcm_bytes(processed_audio)
+                if not prepared_bytes:
+                    self.logger.warning("[STT] Prepared audio is empty after preprocessing")
+                    return "unclear audio /no_think"
+            else:
+                prepared_bytes = audio_bytes_for_engine
+                if sample_rate_hint:
+                    duration_sec = len(prepared_bytes) / float(sample_rate_hint * 2)
+                self.logger.info(
+                    "[STT-IN] format=%s, len_bytes=%d (no custom preprocessing)",
+                    effective_format,
+                    len(prepared_bytes)
+                )
+                self._stt_sample_rate_hint = sample_rate_hint or self._stt_sample_rate_hint
+
             # UPDATED: Use persistent Whisper engine if available
             whisper_engine = self.persistent_whisper_engine
-            
-            # Fallback to transcription factory if persistent engine not available
+
             if whisper_engine is None:
-                print(f"⚠️  [TRANSCRIBE] Persistent Whisper engine not available, using factory fallback")
                 logger.warning("Persistent Whisper engine not available, using factory fallback")
                 if self.transcription_service is None:
                     from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
                     self.transcription_service = create_transcription_service()
-                    
-                    # Use voice registry model
+
                     model_loaded = self.transcription_service.load_whisper_model()
                     if not model_loaded:
                         logger.warning("Failed to load voice registry STT model")
                         return "Sorry, I couldn't understand the audio."
-                
-                # Use factory-created transcription service
+
                 result = self.transcription_service.transcribe_audio_bytes(
-                    audio_data, 
-                    audio_format=audio_format,
-                    language=language
+                    prepared_bytes,
+                    audio_format="pcm",
+                    language=language_hint
                 )
             else:
-                # Use persistent Whisper engine directly
-                print(f"✅ [TRANSCRIBE] Using persistent Whisper engine for transcription")
-                print(f"   Audio data size: {len(audio_data)} bytes, format: {audio_format}, language: {language}")
-                
-                # DEBUG: Check audio data properties
-                import struct
-                if audio_format == 'pcm' and len(audio_data) >= 1000:
-                    # Sample first 1000 bytes as int16 values
-                    samples = struct.unpack('<500h', audio_data[:1000])
-                    non_zero = sum(1 for s in samples if abs(s) > 100)
-                    max_val = max(abs(s) for s in samples)
-                    print(f"   DEBUG: First 500 samples - non_zero: {non_zero}/500, max_val: {max_val}")
-                
                 logger.debug("Using persistent Whisper engine for transcription")
                 result = whisper_engine.transcribe_audio_bytes(
-                    audio_data, 
-                    audio_format=audio_format,
-                    language=language
+                    prepared_bytes,
+                    audio_format="pcm",
+                    language=language_hint
                 )
-            
-            # Add /no_think to disable thinking mode for voice conversations
-            if result and result.strip():
-                transcribed_text = result.strip() + " /no_think"
+
+            raw_text = result.strip() if result else ""
+            self.logger.info("[STT-OUT] text=\"%s\"", raw_text)
+            self.logger.info("[STT] duration_sec=%.3f, lang_hint=%s", duration_sec, language_hint)
+
+            if raw_text:
+                transcribed_text = raw_text + " /no_think"
                 logger.info(f"Transcribed audio with /no_think: {transcribed_text}")
                 return transcribed_text
-            else:
-                return "unclear audio /no_think"
-            
+
+            return "unclear audio /no_think"
+
         except Exception as e:
             logger.error(f"Error transcribing audio: {e}")
             return "unclear audio /no_think"
@@ -1240,18 +1451,34 @@ class SimpleVoiceService:
 
             # Refresh cached values in case registry changed after initialization
             self._cache_chat_defaults()
+            self._apply_chat_persona_overrides()
             
             # Create optimized message for fast responses in simple voice mode
-            if conversation_context:
-                if target_language == "ar":
-                    optimized_message = f"السياق: {conversation_context}\n\nأجب بإيجاز بالعربية: {text}"
+            if self.chat_persona == "general":
+                if conversation_context:
+                    if target_language == "ar":
+                        optimized_message = f"سياق إضافي: {conversation_context}\n\nرجاءً قدم رداً واضحاً ومفيداً: {text}"
+                    else:
+                        optimized_message = (
+                            f"Additional context: {conversation_context}\n\n"
+                            f"Please respond helpfully in {target_language or 'English'}: {text}"
+                        )
                 else:
-                    optimized_message = f"Context: {conversation_context}\n\nAnswer briefly in English: {text}"
+                    if target_language == "ar":
+                        optimized_message = f"يرجى الرد بوضوح وبأسلوب ودود: {text}"
+                    else:
+                        optimized_message = f"Please respond helpfully in {target_language or 'English'}: {text}"
             else:
-                if target_language == "ar":
-                    optimized_message = f"أجب بإيجاز بالعربية: {text}"
+                if conversation_context:
+                    if target_language == "ar":
+                        optimized_message = f"السياق: {conversation_context}\n\nأجب بإيجاز بالعربية: {text}"
+                    else:
+                        optimized_message = f"Context: {conversation_context}\n\nAnswer briefly in English: {text}"
                 else:
-                    optimized_message = f"Answer briefly in English: {text}"
+                    if target_language == "ar":
+                        optimized_message = f"أجب بإيجاز بالعربية: {text}"
+                    else:
+                        optimized_message = f"Answer briefly in English: {text}"
                     
             logger.info(f"Optimized message with context: {optimized_message[:100]}... (target_language: {target_language})")
             
@@ -1278,7 +1505,7 @@ class SimpleVoiceService:
                     conversation_history=history_snapshot,
                     response_language=response_language_hint,
                     session_id=session_id_snapshot,
-                    disable_content_filter=False
+                    disable_content_filter=self.disable_content_filter
                 )
 
             try:

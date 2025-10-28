@@ -40,6 +40,17 @@ class PromptBuildingService:
                 ("User: من فضلك أجب باللغة العربية فقط", "Assistant: سأجيب باللغة العربية.")
             ]
         }
+
+    def override_system_prompt(self, language: str, prompt: str) -> None:
+        """Override the system prompt for a specific language."""
+        if not language:
+            return
+        self.system_prompts[language] = prompt
+        logger.info(
+            "[prompt] System prompt overridden for %s (length=%d)",
+            language,
+            len(prompt or "")
+        )
     
     def build_prompt(
         self,

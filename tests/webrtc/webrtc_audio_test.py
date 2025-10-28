@@ -29,8 +29,8 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-# Use ≥5s test clip with speech starting inside the first second so Silero sees post-warmup frames
-AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/q7.wav")
+# Use 2.4s English clip with early speech for Silero post-warmup confirmation
+AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/laser_hair.wav")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "http://localhost:8000/api/v1/webrtc/voice",
@@ -40,8 +40,8 @@ CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
 
-# Expected transcription for q7.wav (English)
-EXPECTED_TRANSCRIPTION = "What are the most common side effects of Botox injections?"
+# Expected transcription for laser_hair.wav (English)
+EXPECTED_TRANSCRIPTION = "How does laser hair removal work?"
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -303,7 +303,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         offer_payload = {
             "sdp": offer.sdp,
             "type": offer.type,
-            "language": "ar",  # Changed to Arabic since test audio files are Arabic
+            "language": "en",  # Force English for laser_hair.wav clip
             "session_metadata": {
                 "test_origin": "pytest_webrtc_q7",
                 "generated_at": time.time(),

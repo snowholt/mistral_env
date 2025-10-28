@@ -613,11 +613,12 @@ class WebRTCConnectionPool:
                                         if dc and dc.readyState == "open":
                                             import json
                                             try:
-                                                dc.send(json.dumps({
-                                                    "type": "assistant_response",
+                                                payload = {
                                                     "text": text,
                                                     "timestamp": time.time()
-                                                }))
+                                                }
+                                                dc.send(json.dumps({"type": "assistant_response", **payload}))
+                                                dc.send(json.dumps({"type": "llm_response", **payload}))
                                                 logger.info(f"[WebRTC] ✓ Sent LLM response to {p_id}: {text[:50]}...")
                                             except Exception as e:
                                                 logger.error(f"[WebRTC] Failed to send LLM response: {e}", exc_info=True)

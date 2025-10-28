@@ -205,6 +205,9 @@ class WebRTCVoiceServiceAdapter:
 
             if self.vad_service:
                 self.vad_service.attach_buffer_manager(self.buffer_manager)
+
+            if self.voice_service and hasattr(self.voice_service, "configure_chat_persona"):
+                self.voice_service.configure_chat_persona(persona="general", disable_content_filter=True)
             
             self.is_initialized = True
             self.logger.info(f"WebRTC voice pipeline initialized for {self.peer_id}")
@@ -380,9 +383,18 @@ class WebRTCVoiceServiceAdapter:
         
         try:
             # 1. STT: Transcribe audio to text
+            segment_metadata = metadata or {}
+            stt_metadata = {
+                "sample_rate": segment_metadata.get("sample_rate"),
+                "duration_sec": segment_metadata.get("duration_sec"),
+                "num_frames": segment_metadata.get("num_frames")
+            }
+
             transcription_result = await self.voice_service.transcribe_audio(
                 audio_data=audio_array.tobytes(),
-                language=self.language  # Pass language through (Whisper auto-detects if None)
+                language=self.language,
+                audio_format="pcm",
+                metadata=stt_metadata
             )
             
             if not transcription_result.get("success"):
