@@ -22,11 +22,14 @@ Date: 2025-10-15
 import asyncio
 import logging
 import time
-from typing import Optional, Dict, Any, Callable
+from typing import Optional, Dict, Any, Callable, TYPE_CHECKING
 from dataclasses import dataclass, field
 from collections import deque
 from enum import Enum
 import numpy as np
+
+if TYPE_CHECKING:
+    from ....core.webrtc_buffer_manager import WebRTCBufferManager
 
 try:
     import webrtcvad
@@ -183,6 +186,12 @@ class WebRTCVADService:
         self._audio_buffer = deque(maxlen=100)  # Pre-speech buffer
         self._silero_remainder: np.ndarray = np.array([], dtype=np.float32)
         self._processing_lock = asyncio.Lock()
+
+        # Optional buffer manager linkage for end-of-stream handling
+        self.buffer_manager: Optional['WebRTCBufferManager'] = None
+
+        # Debug tracking for wider post-warmup logging window
+        self._warmup_completion_chunk: Optional[int] = None
         
         # Get language-specific threshold
         self.silero_threshold = self.config.language_thresholds.get(
@@ -243,6 +252,14 @@ class WebRTCVADService:
             self.logger.error(f"Failed to initialize VAD service: {e}")
             return False
     
+    def attach_buffer_manager(self, buffer_manager: Optional['WebRTCBufferManager']) -> None:
+        """Attach buffer manager so VAD can finalize audio on stream end."""
+        self.buffer_manager = buffer_manager
+        if buffer_manager:
+            self.logger.debug(f"[VAD] Buffer manager attached for {self.peer_id}")
+        else:
+            self.logger.debug(f"[VAD] Buffer manager detached for {self.peer_id}")
+
     async def process_audio_chunk(
         self,
         audio_data: bytes,
@@ -278,6 +295,8 @@ class WebRTCVADService:
         async with self._processing_lock:
             try:
                 start_time = time.time()
+
+                self.logger.debug(f"[VAD] Received chunk: {len(audio_data)} bytes from processor")
                 
                 # Track connection start time (first audio chunk)
                 if self.connection_start_time is None:
@@ -302,6 +321,7 @@ class WebRTCVADService:
                 elif not self.warmup_complete:
                     # Warmup just completed (log once)
                     self.warmup_complete = True
+                    self._warmup_completion_chunk = self.metrics.chunks_processed
                     self.logger.info(
                         f"[WARMUP] Filter complete for {self.peer_id} after {elapsed_ms:.0f}ms, "
                         f"STT trigger enabled"
@@ -327,12 +347,21 @@ class WebRTCVADService:
                 silero_detected = False
                 silero_probability = 0.0
                 
+                post_warmup_window = (
+                    self._warmup_completion_chunk is not None and
+                    self.metrics.chunks_processed - self._warmup_completion_chunk <= 30
+                )
+
                 if webrtc_detected or not self.config.enable_browser_hints:
                     # Only run Silero if WebRTC detected voice, or if WebRTC disabled
                     silero_detected, silero_probability = self._is_silero_speech(audio_data)
                     
                     # Log Silero output for first 30 chunks or when speech detected
-                    if self.metrics.chunks_processed <= 30 or silero_detected:
+                    if (
+                        self.metrics.chunks_processed <= 30
+                        or silero_detected
+                        or post_warmup_window
+                    ):
                         self.logger.info(f"[SILERO-VAD] Chunk #{self.metrics.chunks_processed}: "
                                        f"prob={silero_probability:.4f}, threshold={self.silero_threshold:.4f}, "
                                        f"detected={silero_detected}, warmup={warmup_active}")
@@ -440,6 +469,55 @@ class WebRTCVADService:
                     "success": False,
                     "error": str(e)
                 }
+
+    async def handle_end_of_stream(self, peer_id: str) -> None:
+        """Finalize buffered audio when upstream stream ends."""
+        self.logger.info(f"[VAD] END_OF_STREAM received for {peer_id}")
+
+        buffer_manager = self.buffer_manager
+        if buffer_manager is None:
+            self.logger.warning(f"[VAD] No buffer manager attached for {peer_id}; resetting state")
+            self.reset()
+            return
+
+        active_state = self.current_state in {
+            VADState.VOICE_START,
+            VADState.VOICE_ACTIVE,
+            VADState.VOICE_END_PENDING
+        }
+
+        buffered_bytes = buffer_manager.get_buffer_size_bytes()
+        if not active_state and buffered_bytes == 0:
+            self.logger.info(f"[VAD] No buffered audio to finalize for {peer_id}; resetting state")
+            self.reset()
+            return
+
+        forced_metadata = {
+            "peer_id": peer_id,
+            "end_of_stream": True,
+            "vad_state": self.current_state.value if isinstance(self.current_state, VADState) else str(self.current_state)
+        }
+
+        try:
+            segment = await buffer_manager.force_finalize_segment(forced_metadata)
+            if segment:
+                metadata = segment.get("metadata", {})
+                duration = metadata.get("duration_sec")
+                bytes_len = metadata.get("total_bytes", buffer_manager.get_buffer_size_bytes())
+                duration_part = f", duration={duration:.2f}s" if isinstance(duration, (int, float)) else ""
+                self.logger.info(
+                    f"[VAD] Finalized buffered segment for {peer_id} on END_OF_STREAM"
+                    f" (bytes={bytes_len}{duration_part})"
+                )
+            else:
+                self.logger.warning(
+                    f"[VAD] Buffer finalize returned no segment for {peer_id}"
+                    f" (active_state={active_state}, buffered_bytes={buffered_bytes})"
+                )
+        except Exception as exc:
+            self.logger.error(f"[VAD] Failed to finalize buffered audio for {peer_id}: {exc}", exc_info=True)
+        finally:
+            self.reset()
     
     def _is_voice_active_webrtc(self, audio_data: bytes) -> bool:
         """

@@ -187,6 +187,10 @@ class WebRTCVoiceServiceAdapter:
                 on_vad_state_change=self._on_vad_state_change
             )
             
+            # Link audio processor to VAD for lifecycle notifications
+            if self.audio_processor:
+                self.audio_processor.vad_service = self.vad_service
+
             if not await self.vad_service.initialize():
                 self.logger.error("Failed to initialize VAD service")
                 return False
@@ -198,6 +202,9 @@ class WebRTCVoiceServiceAdapter:
                 on_segment_ready=self._on_segment_ready,
                 on_buffer_overflow=self._on_buffer_overflow
             )
+
+            if self.vad_service:
+                self.vad_service.attach_buffer_manager(self.buffer_manager)
             
             self.is_initialized = True
             self.logger.info(f"WebRTC voice pipeline initialized for {self.peer_id}")

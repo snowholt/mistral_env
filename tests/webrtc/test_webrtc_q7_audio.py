@@ -29,7 +29,8 @@ pytestmark = pytest.mark.skipif(
     reason="aiortc not installed - skipping WebRTC integration test",
 )
 
-AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/laser_hair.wav")
+# Use ≥5s test clip with speech starting inside the first second so Silero sees post-warmup frames
+AUDIO_FIXTURE = Path("/home/lumi/beautyai/tests/webrtc/q7.wav")
 DEFAULT_SIGNALING_URL = os.getenv(
     "WEBRTC_TEST_BASE_URL",
     "http://localhost:8000/api/v1/webrtc/voice",
@@ -39,8 +40,8 @@ CONNECTION_TIMEOUT_SECONDS = 25
 STREAM_DURATION_SECONDS = 10  # Stream audio for 10 seconds
 RESPONSE_WAIT_SECONDS = 20  # Wait for server to process and respond (STT + LLM can be slow)
 
-# Expected transcription for laser_hair.wav (English)
-EXPECTED_TRANSCRIPTION = "How does laser hair removal work?"
+# Expected transcription for q7.wav (English)
+EXPECTED_TRANSCRIPTION = "What are the most common side effects of Botox injections?"
 
 
 class AudioInspectorTrack(MediaStreamTrack):
@@ -108,12 +109,8 @@ class FileAudioTrack(MediaStreamTrack):
             later_max = np.abs(self._audio_data[5000:5100] if len(self._audio_data) > 5100 else self._audio_data[-100:]).max()
             print(f"[FileAudioTrack] First 100 samples max: {first_max:.4f}, Later samples max: {later_max:.4f}")
         
-        # NOTE: For laser_hair.wav, we DON'T skip the silence because:
-        # - The first ~0.5s is almost silent (RMS=4.2)
-        # - Warmup filter is 450ms
-        # - Speech starts around 0.5s, right when warmup ends
-        # - If we skip silence, we might skip the speech start too
-        # REMOVED: skip_duration_sec = 0.15  # Skip first 150ms of silence
+        # NOTE: This clip has energetic speech well within the first second while
+        # still providing >250ms of warmup silence, so no explicit skip needed.
         
         # Resample to 48kHz if needed (WebRTC standard)
         if self._sample_rate != 48000:

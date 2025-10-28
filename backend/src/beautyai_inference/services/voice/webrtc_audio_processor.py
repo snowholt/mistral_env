@@ -20,10 +20,13 @@ import asyncio
 import inspect
 import logging
 import time
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable, List, TYPE_CHECKING
 from dataclasses import dataclass, field
 from collections import deque
 import numpy as np
+
+if TYPE_CHECKING:
+    from .vad.webrtc_vad_service import WebRTCVADService
 
 try:
     from aiortc import MediaStreamTrack, RTCPeerConnection
@@ -143,6 +146,9 @@ class WebRTCAudioProcessor:
         self._frame_accumulator = []
         self._accumulator_samples = 0
         self._min_samples_before_resample = 48  # Just 1ms at 48kHz - very conservative
+
+        # Linked services (assigned by adapter)
+        self.vad_service: Optional['WebRTCVADService'] = None
         
         self.logger.info(
             f"WebRTC audio processor initialized for peer {peer_id} "
@@ -273,6 +279,15 @@ class WebRTCAudioProcessor:
             self.logger.debug(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             print(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             self.is_processing = False
+            self.logger.info(f"[Audio] Stream stopped for {self.peer_id} after {frame_count} frames")
+            vad_service = getattr(self, "vad_service", None)
+            if vad_service:
+                try:
+                    result = vad_service.handle_end_of_stream(self.peer_id)
+                    if inspect.isawaitable(result):
+                        await result
+                except Exception as e:
+                    self.logger.error(f"Error finalizing VAD for {self.peer_id}: {e}")
     
     async def _process_audio_frame(self, frame: AudioFrame):
         """
@@ -413,6 +428,7 @@ class WebRTCAudioProcessor:
                 }
                 
                 # Send chunk to callback (buffer manager) - must await async callback
+                self.logger.debug(f"[PROCESSOR] Sending chunk to VAD: {len(pcm_bytes)} bytes")
                 if self.metrics.frames_processed % 10 == 0:
                     self.logger.info(f"[PROCESSOR→VAD] Sending chunk #{self.metrics.frames_processed}: {len(pcm_bytes)} bytes, {chunk_duration*1000:.1f}ms")
                     print(f"[PROCESSOR→VAD] Sending chunk #{self.metrics.frames_processed}: {len(pcm_bytes)} bytes to callback")
