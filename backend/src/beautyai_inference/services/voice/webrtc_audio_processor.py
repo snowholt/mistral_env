@@ -146,6 +146,18 @@ class WebRTCAudioProcessor:
         self.current_utterance_bytes = 0
         self.current_utterance_duration = 0.0
         self._stream_terminated = False
+
+        # Source format hint (WebRTC typically delivers 48 kHz audio).
+        #
+        # When aiortc fails to populate ``frame.sample_rate`` (observed during
+        # codec warm-up) we previously fell back to the 16 kHz *target* rate.
+        # That caused downstream logic to believe 48 kHz PCM had already been
+        # downsampled which stretched playback by ~3× and made the audio
+        # unusable for VAD/STT.  Keep a best-effort guess of the capture rate
+        # so we can resample correctly even when frame metadata is missing.
+        self._source_sample_rate = 48000
+        self._last_frame_pts: Optional[int] = None
+        self._last_time_base: Optional[float] = None
         
         # Audio metrics
         self.metrics = AudioStreamMetrics()
@@ -205,12 +217,18 @@ class WebRTCAudioProcessor:
             return False
         
         try:
+            track_rate = getattr(audio_track, "sample_rate", None)
+            if isinstance(track_rate, (int, float)) and track_rate > 0:
+                self._source_sample_rate = int(track_rate)
+
             self.is_processing = True
             self.start_time = time.time()
             self.utterance_start_time = time.time()  # Track real-time utterance duration
             self.current_utterance_bytes = 0
             self.current_utterance_duration = 0.0
             self._stream_terminated = False
+            self._last_frame_pts = None
+            self._last_time_base = None
             
             self.logger.debug(f"[PROCESSOR] Starting audio processing for peer {self.peer_id}, track={audio_track}")
             self.logger.debug(f"[PROCESSOR] Callback registered: {self._on_audio_chunk is not None}")
@@ -334,12 +352,51 @@ class WebRTCAudioProcessor:
                 # Update metrics with safeguards for missing metadata
                 self.metrics.frames_received += 1
 
-                frame_rate = self._determine_frame_sample_rate(frame)
-                if not frame_rate or frame_rate <= 0:
-                    frame_rate = self.config.target_sample_rate
+                samples = getattr(frame, "samples", None)
+                detected_rate = self._determine_frame_sample_rate(frame)
+                duration_from_pts = self._update_frame_timing(frame)
+
+                frame_rate: int
+                if detected_rate and detected_rate > 0:
+                    candidate_rate = int(detected_rate)
+                    suspicious = False
+
+                    if self._source_sample_rate and abs(candidate_rate - self._source_sample_rate) > 1000:
+                        duration_from_samples = None
+                        if samples and candidate_rate > 0:
+                            duration_from_samples = samples / float(candidate_rate)
+
+                        comparison_duration = None
+                        if duration_from_pts and duration_from_pts > 0:
+                            comparison_duration = duration_from_pts
+                        elif samples and self._source_sample_rate:
+                            comparison_duration = samples / float(self._source_sample_rate)
+
+                        if (
+                            duration_from_samples
+                            and comparison_duration
+                            and comparison_duration > 0
+                        ):
+                            ratio = duration_from_samples / comparison_duration
+                            if ratio < 0.7 or ratio > 1.3:
+                                suspicious = True
+                        elif candidate_rate < self._source_sample_rate * 0.75:
+                            suspicious = True
+
+                    if suspicious:
+                        frame_rate = self._source_sample_rate
+                        self.logger.warning(
+                            f"[PROCESSOR] Ignoring implausible frame sample rate {candidate_rate}Hz for {self.peer_id} "
+                            f"(samples={samples}, fallback={self._source_sample_rate}Hz)"
+                        )
+                    else:
+                        frame_rate = candidate_rate
+                        self._source_sample_rate = candidate_rate
+                else:
+                    frame_rate = self._source_sample_rate or self.config.target_sample_rate
                     self.logger.warning(
                         f"[PROCESSOR] Unable to determine frame sample rate for {self.peer_id}, "
-                        f"falling back to target {frame_rate}Hz"
+                        f"falling back to assumed source {frame_rate}Hz"
                     )
 
                 frame_layout = getattr(frame, "layout", None)
@@ -547,6 +604,11 @@ class WebRTCAudioProcessor:
         if sample_rate and sample_rate > 0:
             return int(sample_rate)
 
+        # PyAV also exposes ``rate`` on audio frames; check it as a fallback.
+        alt_rate = getattr(frame, "rate", None)
+        if alt_rate and alt_rate > 0:
+            return int(alt_rate)
+
         time_base = getattr(frame, "time_base", None)
         if time_base:
             try:
@@ -560,6 +622,36 @@ class WebRTCAudioProcessor:
                 )
 
         return None
+
+    def _update_frame_timing(self, frame: AudioFrame) -> Optional[float]:
+        """Track presentation timestamps and estimate frame duration in seconds."""
+        pts = getattr(frame, "pts", None)
+        time_base = getattr(frame, "time_base", None)
+
+        try:
+            tb_value = float(time_base) if time_base is not None else None
+        except (TypeError, ValueError):
+            tb_value = None
+
+        duration = None
+        if (
+            pts is not None
+            and tb_value
+            and tb_value > 0
+            and self._last_frame_pts is not None
+        ):
+            delta_pts = pts - self._last_frame_pts
+            if delta_pts > 0:
+                duration = delta_pts * tb_value
+
+        if pts is not None:
+            self._last_frame_pts = pts
+            self._last_time_base = tb_value if tb_value and tb_value > 0 else None
+        else:
+            self._last_frame_pts = None
+            self._last_time_base = None
+
+        return duration
     
     def _resample_audio(
         self,
@@ -739,6 +831,8 @@ class WebRTCAudioProcessor:
         self.utterance_start_time = time.time()  # Reset real-time tracker
         self._level_history.clear()
         self.start_time = time.time()
+        self._last_frame_pts = None
+        self._last_time_base = None
         
         self.logger.debug(f"Metrics reset for peer {self.peer_id}")
 
