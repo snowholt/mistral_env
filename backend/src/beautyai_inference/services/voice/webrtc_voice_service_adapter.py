@@ -403,7 +403,35 @@ class WebRTCVoiceServiceAdapter:
                 )
             )
 
-            # Audio is already 16kHz mono PCM from audio processor - no resampling needed
+            # Validate that audio is actually at the claimed sample rate
+            # Convert bytes to float to check actual content
+            audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
+            
+            # Calculate expected duration based on claimed rate
+            expected_duration = len(audio_int16) / sample_rate
+            
+            # Sanity check: duration should be reasonable (0.5s to 10s for speech)
+            if not (0.3 <= expected_duration <= 15.0):
+                self.logger.warning(
+                    f"[ADAPTER] Suspicious audio duration: {expected_duration:.2f}s "
+                    f"(bytes={len(audio_data)}, claimed_rate={sample_rate}Hz) for {peer_id}"
+                )
+            
+            # CRITICAL: Verify sample rate is 16kHz as expected by Whisper
+            if sample_rate != 16000:
+                self.logger.error(
+                    f"[ADAPTER] Audio not at 16kHz! Got {sample_rate}Hz for {peer_id}. "
+                    f"This will cause incorrect transcription!"
+                )
+                # Convert to float and resample to 16kHz
+                audio_float = audio_int16.astype(np.float32) / 32768.0
+                from .utils.audio import to_float_mono_16k
+                audio_float, sample_rate = to_float_mono_16k(audio_float, sample_rate)
+                # Convert back to PCM
+                audio_data = (np.clip(audio_float, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+                self.logger.info(f"[ADAPTER] Resampled audio to 16kHz for {peer_id}")
+
+            # Audio is already 16kHz mono PCM from audio processor
             pcm_bytes = audio_data
 
             metadata["sample_rate"] = sample_rate

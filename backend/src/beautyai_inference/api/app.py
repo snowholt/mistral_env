@@ -6,10 +6,13 @@ including endpoints for model management, chat interactions, and system monitori
 """
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import HTMLResponse
 from typing import Dict, Any
 import logging
 import time
 import os
+from pathlib import Path
 
 # Logging configured centrally in run_server via configure_logging.
 logger = logging.getLogger(__name__)
@@ -26,6 +29,14 @@ try:
 except ImportError as e:
     webrtc_router_available = False
     logger.warning(f"WebRTC voice router not available - WebRTC features disabled: {e}")
+
+# Import WebRTC debug capture router
+try:
+    from .endpoints.webrtc_debug_capture import debug_capture_router
+    debug_capture_router_available = True
+except ImportError as e:
+    debug_capture_router_available = False
+    logger.warning(f"WebRTC debug capture router not available: {e}")
 
 # Import performance dashboard router
 try:
@@ -48,6 +59,11 @@ tags_metadata = [
         "description": "🌐 **WebRTC Voice** - Browser-based WebRTC voice-to-voice signaling endpoints. "
                       "Supports SDP offer/answer exchange, ICE candidates, and peer connection management. "
                       "Enables high-quality, low-latency voice communication with built-in audio processing."
+    },
+    {
+        "name": "webrtc-debug",
+        "description": "🐛 **WebRTC Debug** - Audio capture debugging tools for analyzing sample rates, resampling, "
+                      "and audio pipeline issues. Saves audio at each processing layer without STT/LLM overhead."
     },
     {
         "name": "health",
@@ -198,6 +214,41 @@ if webrtc_router_available:
     )
     logger.info("WebRTC voice endpoints registered at /api/v1/webrtc/voice")
 else:
+    logger.warning("WebRTC voice endpoints not registered - module not available")
+
+# Include WebRTC debug capture router if available
+if debug_capture_router_available:
+    app.include_router(
+        debug_capture_router,
+        tags=["webrtc-debug"]
+    )
+    logger.info("WebRTC debug capture endpoints registered at /api/v1/webrtc/debug/voice-capture")
+else:
+    logger.warning("WebRTC debug capture endpoints not registered - module not available")
+
+# Serve debug test page
+@app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
+async def serve_debug_test_page():
+    """Serve the WebRTC debug audio capture test page."""
+    try:
+        # Path relative to backend/src/beautyai_inference/api/app.py
+        # Go up 4 levels to reach project root: api -> beautyai_inference -> src -> backend -> root
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "frontend" / "src" / "templates" / "webrtc_voice_capture_test.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"Test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="WebRTC debug test page not found")
+    except Exception as e:
+        logger.error(f"Error serving debug test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""

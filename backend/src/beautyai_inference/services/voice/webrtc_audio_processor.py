@@ -156,6 +156,8 @@ class WebRTCAudioProcessor:
         # unusable for VAD/STT.  Keep a best-effort guess of the capture rate
         # so we can resample correctly even when frame metadata is missing.
         self._source_sample_rate = 48000
+        self._last_frame_pts: Optional[int] = None
+        self._last_time_base: Optional[float] = None
         
         # Audio metrics
         self.metrics = AudioStreamMetrics()
@@ -225,6 +227,8 @@ class WebRTCAudioProcessor:
             self.current_utterance_bytes = 0
             self.current_utterance_duration = 0.0
             self._stream_terminated = False
+            self._last_frame_pts = None
+            self._last_time_base = None
             
             self.logger.debug(f"[PROCESSOR] Starting audio processing for peer {self.peer_id}, track={audio_track}")
             self.logger.debug(f"[PROCESSOR] Callback registered: {self._on_audio_chunk is not None}")
@@ -348,12 +352,48 @@ class WebRTCAudioProcessor:
                 # Update metrics with safeguards for missing metadata
                 self.metrics.frames_received += 1
 
-                frame_rate = self._determine_frame_sample_rate(frame)
-                if frame_rate and frame_rate > 0:
-                    # Update our fallback hint once we have a reliable value.
-                    self._source_sample_rate = int(frame_rate)
+                samples = getattr(frame, "samples", None)
+                detected_rate = self._determine_frame_sample_rate(frame)
+                duration_from_pts = self._update_frame_timing(frame)
+
+                frame_rate: int
+                if detected_rate and detected_rate > 0:
+                    candidate_rate = int(detected_rate)
+                    suspicious = False
+
+                    if self._source_sample_rate and abs(candidate_rate - self._source_sample_rate) > 1000:
+                        duration_from_samples = None
+                        if samples and candidate_rate > 0:
+                            duration_from_samples = samples / float(candidate_rate)
+
+                        comparison_duration = None
+                        if duration_from_pts and duration_from_pts > 0:
+                            comparison_duration = duration_from_pts
+                        elif samples and self._source_sample_rate:
+                            comparison_duration = samples / float(self._source_sample_rate)
+
+                        if (
+                            duration_from_samples
+                            and comparison_duration
+                            and comparison_duration > 0
+                        ):
+                            ratio = duration_from_samples / comparison_duration
+                            if ratio < 0.7 or ratio > 1.3:
+                                suspicious = True
+                        elif candidate_rate < self._source_sample_rate * 0.75:
+                            suspicious = True
+
+                    if suspicious:
+                        frame_rate = self._source_sample_rate
+                        self.logger.warning(
+                            f"[PROCESSOR] Ignoring implausible frame sample rate {candidate_rate}Hz for {self.peer_id} "
+                            f"(samples={samples}, fallback={self._source_sample_rate}Hz)"
+                        )
+                    else:
+                        frame_rate = candidate_rate
+                        self._source_sample_rate = candidate_rate
                 else:
-                    frame_rate = self._source_sample_rate
+                    frame_rate = self._source_sample_rate or self.config.target_sample_rate
                     self.logger.warning(
                         f"[PROCESSOR] Unable to determine frame sample rate for {self.peer_id}, "
                         f"falling back to assumed source {frame_rate}Hz"
@@ -380,13 +420,11 @@ class WebRTCAudioProcessor:
                           f"shape={audio_array.shape}, size={audio_array.size}, "
                           f"frame_rate={frame_rate}Hz")
                 
-                # Resample to 16kHz if needed (audio_array is already mono from _frame_to_numpy)
+                # Resample to 16kHz if needed (audio_array is already mono float32 from _frame_to_numpy)
+                # Don't use to_float_mono_16k - it would redundantly try mono conversion again!
                 if frame_rate != self.config.target_sample_rate:
-                    audio_array, normalized_rate = to_float_mono_16k(audio_array, frame_rate)
-                    frame_rate = normalized_rate
-                else:
-                    # Already at target rate, just ensure float32
-                    audio_array = audio_array.astype(np.float32, copy=False)
+                    audio_array = self._resample_audio(audio_array, frame_rate, self.config.target_sample_rate)
+                    frame_rate = self.config.target_sample_rate
                 self.metrics.sample_rate = frame_rate
                 
                 # Debug: Log array shape after resampling
@@ -577,21 +615,33 @@ class WebRTCAudioProcessor:
 
     def _determine_frame_sample_rate(self, frame: AudioFrame) -> Optional[int]:
         """Infer the true frame sample rate using explicit metadata or time_base."""
+        # Try primary sample_rate attribute
         sample_rate = getattr(frame, "sample_rate", None)
         if sample_rate and sample_rate > 0:
-            return int(sample_rate)
+            rate = int(sample_rate)
+            # Sanity check: common rates are 8k, 16k, 24k, 32k, 44.1k, 48k
+            if rate in [8000, 16000, 24000, 32000, 44100, 48000]:
+                return rate
+            if 8000 <= rate <= 96000:  # Broader range but log warning
+                self.logger.warning(f"[PROCESSOR] Unusual sample rate detected: {rate}Hz")
+                return rate
 
         # PyAV also exposes ``rate`` on audio frames; check it as a fallback.
         alt_rate = getattr(frame, "rate", None)
         if alt_rate and alt_rate > 0:
-            return int(alt_rate)
+            rate = int(alt_rate)
+            if 8000 <= rate <= 96000:
+                return rate
 
+        # Try deriving from time_base
         time_base = getattr(frame, "time_base", None)
         if time_base:
             try:
                 tb_value = float(time_base)
                 if tb_value > 0.0:
-                    return int(round(1.0 / tb_value))
+                    rate = int(round(1.0 / tb_value))
+                    if 8000 <= rate <= 96000:
+                        return rate
             except (ZeroDivisionError, TypeError, ValueError):
                 self.logger.debug(
                     f"[PROCESSOR] Failed to derive sample rate from time_base for {self.peer_id}",
@@ -599,6 +649,36 @@ class WebRTCAudioProcessor:
                 )
 
         return None
+
+    def _update_frame_timing(self, frame: AudioFrame) -> Optional[float]:
+        """Track presentation timestamps and estimate frame duration in seconds."""
+        pts = getattr(frame, "pts", None)
+        time_base = getattr(frame, "time_base", None)
+
+        try:
+            tb_value = float(time_base) if time_base is not None else None
+        except (TypeError, ValueError):
+            tb_value = None
+
+        duration = None
+        if (
+            pts is not None
+            and tb_value
+            and tb_value > 0
+            and self._last_frame_pts is not None
+        ):
+            delta_pts = pts - self._last_frame_pts
+            if delta_pts > 0:
+                duration = delta_pts * tb_value
+
+        if pts is not None:
+            self._last_frame_pts = pts
+            self._last_time_base = tb_value if tb_value and tb_value > 0 else None
+        else:
+            self._last_frame_pts = None
+            self._last_time_base = None
+
+        return duration
     
     def _resample_audio(
         self,
@@ -667,7 +747,7 @@ class WebRTCAudioProcessor:
     
     def _numpy_to_pcm(self, audio: np.ndarray) -> bytes:
         """
-        Convert numpy audio array to 16-bit PCM bytes with normalization.
+        Convert numpy audio array to 16-bit PCM bytes.
         
         Args:
             audio: Audio array (float32 in range [-1.0, 1.0])
@@ -678,19 +758,7 @@ class WebRTCAudioProcessor:
         # Ensure float32 dtype
         audio = audio.astype(np.float32)
         
-        # Check amplitude and apply gain boost if too quiet (for Silero VAD)
-        max_amplitude = np.max(np.abs(audio))
-        if max_amplitude > 0.0:
-            if max_amplitude < 0.05:
-                # Audio is very quiet, boost it for VAD detection
-                gain = 0.3 / max_amplitude  # Target 0.3 peak amplitude
-                gain = min(gain, 20.0)  # Limit max gain to 20x
-                audio = audio * gain
-                if self.metrics.frames_received <= 3:
-                    self.logger.info(f"[NORMALIZE] Boosted quiet audio by {gain:.2f}x (was {max_amplitude:.6f})")
-                    print(f"[NORMALIZE] Boosted quiet audio by {gain:.2f}x")
-        
-        # Clip to [-1.0, 1.0] range
+        # Clip to [-1.0, 1.0] range (no gain boost - trust source levels)
         audio = np.clip(audio, -1.0, 1.0)
         
         # Convert to 16-bit signed integer
@@ -778,6 +846,8 @@ class WebRTCAudioProcessor:
         self.utterance_start_time = time.time()  # Reset real-time tracker
         self._level_history.clear()
         self.start_time = time.time()
+        self._last_frame_pts = None
+        self._last_time_base = None
         
         self.logger.debug(f"Metrics reset for peer {self.peer_id}")
 
