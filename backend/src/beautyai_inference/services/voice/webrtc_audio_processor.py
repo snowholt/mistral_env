@@ -146,6 +146,16 @@ class WebRTCAudioProcessor:
         self.current_utterance_bytes = 0
         self.current_utterance_duration = 0.0
         self._stream_terminated = False
+
+        # Source format hint (WebRTC typically delivers 48 kHz audio).
+        #
+        # When aiortc fails to populate ``frame.sample_rate`` (observed during
+        # codec warm-up) we previously fell back to the 16 kHz *target* rate.
+        # That caused downstream logic to believe 48 kHz PCM had already been
+        # downsampled which stretched playback by ~3× and made the audio
+        # unusable for VAD/STT.  Keep a best-effort guess of the capture rate
+        # so we can resample correctly even when frame metadata is missing.
+        self._source_sample_rate = 48000
         
         # Audio metrics
         self.metrics = AudioStreamMetrics()
@@ -205,6 +215,10 @@ class WebRTCAudioProcessor:
             return False
         
         try:
+            track_rate = getattr(audio_track, "sample_rate", None)
+            if isinstance(track_rate, (int, float)) and track_rate > 0:
+                self._source_sample_rate = int(track_rate)
+
             self.is_processing = True
             self.start_time = time.time()
             self.utterance_start_time = time.time()  # Track real-time utterance duration
@@ -335,11 +349,14 @@ class WebRTCAudioProcessor:
                 self.metrics.frames_received += 1
 
                 frame_rate = self._determine_frame_sample_rate(frame)
-                if not frame_rate or frame_rate <= 0:
-                    frame_rate = self.config.target_sample_rate
+                if frame_rate and frame_rate > 0:
+                    # Update our fallback hint once we have a reliable value.
+                    self._source_sample_rate = int(frame_rate)
+                else:
+                    frame_rate = self._source_sample_rate
                     self.logger.warning(
                         f"[PROCESSOR] Unable to determine frame sample rate for {self.peer_id}, "
-                        f"falling back to target {frame_rate}Hz"
+                        f"falling back to assumed source {frame_rate}Hz"
                     )
 
                 frame_layout = getattr(frame, "layout", None)
@@ -563,6 +580,11 @@ class WebRTCAudioProcessor:
         sample_rate = getattr(frame, "sample_rate", None)
         if sample_rate and sample_rate > 0:
             return int(sample_rate)
+
+        # PyAV also exposes ``rate`` on audio frames; check it as a fallback.
+        alt_rate = getattr(frame, "rate", None)
+        if alt_rate and alt_rate > 0:
+            return int(alt_rate)
 
         time_base = getattr(frame, "time_base", None)
         if time_base:
