@@ -46,7 +46,7 @@ class BufferConfig:
     max_buffer_size_bytes: int = 16000 * 2 * 30  # 30s at 16kHz mono 16-bit
     
     # Frame management
-    frame_duration_ms: int = 30  # Standard frame size for VAD
+    frame_duration_ms: int = 40  # Frame size matching Opus decoder output (40ms @ 48kHz = 1920 samples)
     sample_rate: int = 16000  # Target sample rate
     
     # Overflow handling
@@ -216,6 +216,12 @@ class WebRTCBufferManager:
                 
                 # Always feed to pre-roll buffer (continuous rolling window)
                 self._pre_roll_buffer.append(audio_chunk)
+                
+                # DEBUG: Track buffer accumulation
+                if self.metrics.chunks_received % 10 == 0:
+                    pre_roll_size = sum(len(c) for c in self._pre_roll_buffer)
+                    active_size = sum(len(c) for c in self._active_buffer)
+                    print(f"[BUFFER] Chunk #{self.metrics.chunks_received}: pre_roll={pre_roll_size}B, active={active_size}B, incoming={len(audio_chunk)}B")
                 
                 # Handle state-specific buffering
                 if vad_state == VADState.INACTIVE.value:

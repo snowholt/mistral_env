@@ -335,13 +335,18 @@ class WebRTCVoiceServiceAdapter:
             self.logger.error(f"Error stopping voice session: {e}")
     
     async def _on_audio_chunk_received(self, chunk: bytes, metadata: Dict[str, Any]):
-        """
+        """  
         Callback when audio chunk received from processor.
         
         Feeds chunk to VAD for speech detection, then to buffer manager.
         """
         try:
-            print(f"[DEBUG-CHUNK] Audio chunk: {len(chunk)} bytes for {self.peer_id}")
+            chunk_num = getattr(self, '_chunk_counter', 0)
+            self._chunk_counter = chunk_num + 1
+            
+            if chunk_num % 10 == 0:
+                print(f"[ADAPTER-IN] Chunk #{chunk_num}: received {len(chunk)} bytes from processor")
+            
             self.logger.debug(f"Audio chunk received: {len(chunk)} bytes")
             
             # Process with VAD
@@ -355,7 +360,11 @@ class WebRTCVoiceServiceAdapter:
             voice_detected = vad_result['voice_detected']
             silero_prob = vad_result.get('silero_probability', 0.0)
             webrtc_det = vad_result.get('webrtc_detected', False)
-            print(f"[DEBUG-VAD] State={voice_state}, detected={voice_detected}, silero_prob={silero_prob:.4f}, webrtc={webrtc_det}")
+            
+            if chunk_num % 10 == 0:
+                print(f"[ADAPTER-VAD] Chunk #{chunk_num}: VAD state={voice_state}, detected={voice_detected}")
+                print(f"[ADAPTER-BUFFER] Chunk #{chunk_num}: feeding {len(chunk)} bytes to buffer")
+            
             self.logger.info(f"[ADAPTER] VAD result for {self.peer_id}: state={voice_state}, detected={voice_detected}, chunk_size={len(chunk)}")
             
             # Feed to buffer manager with VAD state
@@ -394,10 +403,8 @@ class WebRTCVoiceServiceAdapter:
                 )
             )
 
-            audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
-            normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate)
-            sample_rate = ensure_sample_rate(normalized_rate, sample_rate)
-            pcm_bytes = float_to_pcm16(normalized_audio)
+            # Audio is already 16kHz mono PCM from audio processor - no resampling needed
+            pcm_bytes = audio_data
 
             metadata["sample_rate"] = sample_rate
             metadata["duration_sec"] = len(pcm_bytes) / (sample_rate * 2)

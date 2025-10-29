@@ -348,7 +348,7 @@ class WebRTCAudioProcessor:
                 else:
                     self.metrics.channels = self.config.target_channels
                 
-                # Convert AudioFrame to numpy array
+                # Convert AudioFrame to numpy array (already handles mono conversion)
                 audio_array = self._frame_to_numpy(frame)
 
                 if audio_array.size == 0:
@@ -363,8 +363,13 @@ class WebRTCAudioProcessor:
                           f"shape={audio_array.shape}, size={audio_array.size}, "
                           f"frame_rate={frame_rate}Hz")
                 
-                audio_array, normalized_rate = to_float_mono_16k(audio_array, frame_rate)
-                frame_rate = normalized_rate
+                # Resample to 16kHz if needed (audio_array is already mono from _frame_to_numpy)
+                if frame_rate != self.config.target_sample_rate:
+                    audio_array, normalized_rate = to_float_mono_16k(audio_array, frame_rate)
+                    frame_rate = normalized_rate
+                else:
+                    # Already at target rate, just ensure float32
+                    audio_array = audio_array.astype(np.float32, copy=False)
                 self.metrics.sample_rate = frame_rate
                 
                 # Debug: Log array shape after resampling
@@ -379,6 +384,11 @@ class WebRTCAudioProcessor:
                 
                 # Convert to 16-bit PCM bytes
                 pcm_bytes = self._numpy_to_pcm(audio_array)
+                
+                # DEBUG: Track chunk sizes
+                if self.metrics.frames_processed % 10 == 0:
+                    print(f"[PROCESSOR-OUT] Frame #{self.metrics.frames_processed}: sending {len(pcm_bytes)} bytes to VAD")
+                    self.logger.info(f"[PROCESSOR-OUT] Sending {len(pcm_bytes)} bytes to callback")
                 
                 # DEBUG: Check PCM bytes content
                 if len(pcm_bytes) >= 100:
@@ -518,10 +528,17 @@ class WebRTCAudioProcessor:
         else:
             audio_array = audio_array.astype(np.float32)
         
-        # Convert to mono immediately if multi-channel
+        # Convert to mono immediately if multi-channel by selecting LEFT channel
+        # This avoids phase cancellation from averaging
         if audio_array.ndim > 1:
-            # Take mean across channel axis to convert to mono
-            audio_array = np.mean(audio_array, axis=0)
+            # Select LEFT channel (index 0)
+            # Shape can be (channels, samples) or (samples, channels)
+            if audio_array.shape[0] <= 2 and audio_array.shape[1] > audio_array.shape[0]:
+                # Shape is (channels, samples)
+                audio_array = audio_array[0, :]
+            else:
+                # Shape is (samples, channels)
+                audio_array = audio_array[:, 0]
         
         # Diagnostic logging (first few frames only)
         if self.metrics.frames_received <= 3:

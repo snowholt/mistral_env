@@ -322,6 +322,8 @@ class WebRTCVADService:
                 sample_rate_hint = metadata.get("sample_rate") or self.config.silero_sample_rate
                 original_len = len(audio_data)
 
+                # Audio comes in as 16kHz mono PCM from audio processor
+                # No resampling needed - just convert to numpy array
                 try:
                     audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
                 except ValueError:
@@ -331,16 +333,19 @@ class WebRTCVADService:
                         "error": "invalid audio format"
                     }
 
-                normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate_hint)
-                normalized_audio = normalized_audio.astype(np.float32, copy=False)
-                sample_rate_used = ensure_sample_rate(normalized_rate, self.config.silero_sample_rate)
-                audio_data = float_to_pcm16(normalized_audio)
+                # DEBUG: Track audio sizes
+                if self.metrics.chunks_processed % 10 == 0:
+                    print(f"[VAD-IN] Chunk #{self.metrics.chunks_processed}: received {original_len} bytes")
+
+                # Convert to float32 [-1.0, 1.0] for Silero VAD
+                normalized_audio = audio_int16.astype(np.float32) / 32768.0
+                sample_rate_used = ensure_sample_rate(sample_rate_hint, self.config.silero_sample_rate)
 
                 metadata["sample_rate"] = sample_rate_used
                 metadata["duration_sec"] = len(audio_data) / (sample_rate_used * 2)
 
                 self.logger.debug(
-                    f"[VAD] Received chunk: original={original_len} bytes, normalized={len(audio_data)} bytes"
+                    f"[VAD] Received chunk: {original_len} bytes at {sample_rate_used}Hz"
                 )
                 
                 # Track connection start time (first audio chunk)

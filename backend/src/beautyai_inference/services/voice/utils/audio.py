@@ -37,12 +37,16 @@ def to_float_mono_16k(audio: np.ndarray, sample_rate: int) -> Tuple[np.ndarray, 
     else:
         normalized = audio.astype(np.float32)
 
-    # Handle stereo/interleaved layouts by averaging channels.
+    # Handle stereo/multi-channel by selecting LEFT channel explicitly
+    # This avoids phase cancellation issues from averaging
     if normalized.ndim == 2:
-        if normalized.shape[0] in (1, 2) and normalized.shape[1] > 2:
-            mono = normalized.mean(axis=0)
+        # Check if shape is (channels, samples) or (samples, channels)
+        if normalized.shape[0] <= 2 and normalized.shape[1] > normalized.shape[0]:
+            # Shape is (channels, samples) - select first channel (LEFT)
+            mono = normalized[0, :]
         else:
-            mono = normalized.mean(axis=normalized.ndim - 1)
+            # Shape is (samples, channels) - select first channel (LEFT)
+            mono = normalized[:, 0]
     else:
         mono = normalized
 

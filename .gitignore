@@ -54,7 +54,7 @@ logs/
 
 # Audio test files and debug captures
 *.webm
-*.wav
+
 *.mp3
 *.pcm
 vad_testting_temp/
