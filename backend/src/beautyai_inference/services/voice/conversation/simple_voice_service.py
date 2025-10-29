@@ -740,6 +740,26 @@ class SimpleVoiceService:
         else:
             return self.default_english_voice
     
+    async def process_transcription(
+        self,
+        audio_data: bytes,
+        audio_format: str = "pcm",
+        language: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Legacy API shim that routes to process_voice_message."""
+        metadata = metadata or {}
+        return await self.process_voice_message(
+            audio_data=audio_data,
+            audio_format=metadata.get("audio_format", audio_format),
+            chat_model=metadata.get("chat_model", "qwen-3"),
+            voice_id=metadata.get("voice_id"),
+            language=language or metadata.get("language"),
+            gender=metadata.get("gender", "female"),
+            conversation_context=metadata.get("conversation_context"),
+            debug_context=metadata.get("debug_context"),
+        )
+
     async def process_voice_message(
         self,
         audio_data: bytes,

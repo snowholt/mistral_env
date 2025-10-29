@@ -285,7 +285,7 @@ class WebRTCVADService:
     async def process_audio_chunk(
         self,
         audio_data: bytes,
-        metadata: Dict[str, Any]
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Process audio chunk with dual VAD.
@@ -812,6 +812,14 @@ class WebRTCVADService:
             "current_state": self.current_state.value,
             "silero_threshold": self.silero_threshold
         }
+
+    async def process_audio(
+        self,
+        audio_data: bytes,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Backward-compatible alias for process_audio_chunk."""
+        return await self.process_audio_chunk(audio_data, metadata)
     
     def reset(self):
         """Reset VAD state for new utterance."""
@@ -867,11 +875,10 @@ class WebRTCVADService:
         }
 
         if previous_state in terminal_states and new_state == VADState.INACTIVE:
-            sample_rate = (
-                metadata.get("sample_rate")
-                if metadata
-                else None
-            ) or self.config.silero_sample_rate
+            sample_rate = ensure_sample_rate(
+                metadata.get("sample_rate") if metadata else None,
+                self.config.silero_sample_rate
+            )
             self._persist_debug_chunks(sample_rate)
 
     def _persist_debug_chunks(self, sample_rate: int) -> None:
@@ -881,6 +888,8 @@ class WebRTCVADService:
 
         timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
         base_name = f"{timestamp}_{self.peer_id}_{self._debug_segment_index:02d}"
+
+        sample_rate = ensure_sample_rate(sample_rate, self.config.silero_sample_rate)
 
         for label, chunks in (("webrtc", self._debug_webrtc_chunks), ("silero", self._debug_silero_chunks)):
             if not chunks:

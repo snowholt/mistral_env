@@ -103,7 +103,8 @@ class WebRTCBufferManager:
         peer_id: str,
         config: Optional[BufferConfig] = None,
         on_segment_ready: Optional[Callable[[str, bytes, Dict[str, Any]], None]] = None,
-        on_buffer_overflow: Optional[Callable[[str], None]] = None
+        on_buffer_overflow: Optional[Callable[[str], None]] = None,
+        **legacy_kwargs: Any,
     ):
         """
         Initialize WebRTC buffer manager.
@@ -114,6 +115,20 @@ class WebRTCBufferManager:
             on_segment_ready: Callback when complete speech segment ready
             on_buffer_overflow: Callback when buffer overflows
         """
+        # Legacy compatibility: accept dict-based config overrides
+        if config is None and legacy_kwargs:
+            overrides: Dict[str, Any] = {}
+            if "pre_roll_ms" in legacy_kwargs:
+                overrides["pre_roll_duration_ms"] = int(legacy_kwargs["pre_roll_ms"])
+            if "post_roll_ms" in legacy_kwargs:
+                overrides["post_roll_duration_ms"] = int(legacy_kwargs["post_roll_ms"])
+            if "max_buffer_size_mb" in legacy_kwargs:
+                overrides["max_buffer_size_bytes"] = int(legacy_kwargs["max_buffer_size_mb"]) * 1024 * 1024
+            if "sample_rate" in legacy_kwargs:
+                overrides["sample_rate"] = int(legacy_kwargs["sample_rate"])
+
+            config = BufferConfig(**overrides)
+
         self.peer_id = peer_id
         self.config = config or BufferConfig()
         self.logger = logging.getLogger(__name__)
@@ -148,6 +163,10 @@ class WebRTCBufferManager:
             f"(pre-roll: {self.config.pre_roll_duration_ms}ms, "
             f"post-roll: {self.config.post_roll_duration_ms}ms)"
         )
+
+    async def initialize(self) -> bool:
+        """Legacy no-op initializer for backward compatibility."""
+        return True
     
     def _ms_to_frames(self, duration_ms: int) -> int:
         """Convert milliseconds to number of frames."""
@@ -161,7 +180,7 @@ class WebRTCBufferManager:
         self,
         audio_chunk: bytes,
         vad_state: str,  # VADState enum value
-        metadata: Dict[str, Any]
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Feed audio chunk to buffer manager (RealtimeSTT feed_audio pattern).
@@ -183,6 +202,8 @@ class WebRTCBufferManager:
         """
         async with self._buffer_lock:
             try:
+                metadata = metadata or {}
+
                 self.metrics.chunks_received += 1
                 
                 # Log every 10 chunks for debugging
@@ -426,6 +447,12 @@ class WebRTCBufferManager:
         """
         if not self.is_recording and self._active_buffer:
             return b''.join(self._active_buffer)
+        return None
+
+    def get_recording(self) -> Optional[bytes]:
+        """Legacy helper that returns currently buffered audio regardless of state."""
+        if self._active_buffer:
+            return b"".join(self._active_buffer)
         return None
     
     def get_current_duration(self) -> float:

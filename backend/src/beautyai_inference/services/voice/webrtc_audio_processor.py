@@ -107,7 +107,8 @@ class WebRTCAudioProcessor:
         config: Optional[AudioProcessingConfig] = None,
         on_audio_chunk: Optional[Callable[[bytes, Dict[str, Any]], None]] = None,
         on_utterance_limit_exceeded: Optional[Callable[[str], None]] = None,
-        on_processing_error: Optional[Callable[[str, Exception], None]] = None
+        on_processing_error: Optional[Callable[[str, Exception], None]] = None,
+        **legacy_kwargs: Any,
     ):
         """
         Initialize WebRTC audio processor.
@@ -119,6 +120,15 @@ class WebRTCAudioProcessor:
             on_utterance_limit_exceeded: Callback when utterance exceeds 10s limit
             on_processing_error: Callback for processing errors
         """
+        # Legacy constructor compatibility: accept dict-style config
+        if config is None and legacy_kwargs:
+            # Older tests passed a flat dict; map known keys into AudioProcessingConfig
+            config = AudioProcessingConfig(
+                target_sample_rate=legacy_kwargs.get("sample_rate", 16000),
+                target_channels=legacy_kwargs.get("channels", 1),
+                max_utterance_duration_sec=legacy_kwargs.get("max_utterance_sec", 10),
+            )
+
         self.peer_id = peer_id
         self.config = config or AudioProcessingConfig()
         self.logger = logging.getLogger(__name__)
@@ -158,6 +168,23 @@ class WebRTCAudioProcessor:
             f"(target: {self.config.target_sample_rate}Hz mono, "
             f"max: {self.config.max_utterance_duration_sec}s)"
         )
+
+    # ------------------------------------------------------------------
+    # Legacy lifecycle adapters (initialize/cleanup) used by older tests
+    # ------------------------------------------------------------------
+
+    async def initialize(self) -> bool:
+        """Legacy no-op initializer retained for backward compatibility."""
+        return True
+
+    async def cleanup(self) -> None:
+        """Legacy cleanup shim that stops processing and resets state."""
+        await self.stop_processing()
+        self.reset_metrics()
+
+    async def process_frame(self, frame: AudioFrame) -> Optional[bytes]:
+        """Legacy helper returning PCM bytes for a single frame."""
+        return await self._process_audio_frame(frame)
     
     async def start_processing(self, audio_track: MediaStreamTrack) -> bool:
         """
@@ -443,12 +470,15 @@ class WebRTCAudioProcessor:
                 else:
                     self.logger.error(f"[PROCESSOR] No audio chunk callback registered!")
                     print(f"[PROCESSOR] ERROR: No audio chunk callback registered!")
-                
+
             except Exception as e:
                 self.logger.error(f"Error processing audio frame: {e}")
                 self.metrics.dropped_frames += 1
                 if self._on_processing_error:
                     self._on_processing_error(self.peer_id, e)
+                return None
+
+        return pcm_bytes
     
     async def _finalize_stream(self, reason: str) -> None:
         """Invoke VAD end-of-stream finalization exactly once."""

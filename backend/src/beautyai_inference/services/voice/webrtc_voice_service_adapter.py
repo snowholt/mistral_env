@@ -68,7 +68,7 @@ def _log_pcm_stats(
     audio_bytes: bytes
 ) -> None:
     """Log basic PCM statistics for debugging sample-rate issues."""
-    sr = sample_rate or 0
+    sr = ensure_sample_rate(sample_rate)
     samples = len(audio_bytes) // 2
     duration = (samples / sr) if sr else 0.0
     if samples:
