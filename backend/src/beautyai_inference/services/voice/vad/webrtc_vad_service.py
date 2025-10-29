@@ -21,7 +21,11 @@ Date: 2025-10-15
 
 import asyncio
 import logging
+import os
 import time
+import wave
+from datetime import datetime
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable, TYPE_CHECKING
 from dataclasses import dataclass, field
 from collections import deque
@@ -186,6 +190,22 @@ class WebRTCVADService:
         self._audio_buffer = deque(maxlen=100)  # Pre-speech buffer
         self._silero_remainder: np.ndarray = np.array([], dtype=np.float32)
         self._processing_lock = asyncio.Lock()
+
+        # Debug capture configuration
+        self.debug_enabled = os.getenv("BEAUTYAI_VAD_DEBUG", "1") not in {"0", "false", "False"}
+        self._debug_webrtc_chunks: list[bytes] = []
+        self._debug_silero_chunks: list[bytes] = []
+        self._debug_segment_index: int = 0
+
+        if self.debug_enabled:
+            try:
+                backend_root = Path(__file__).resolve().parents[5]
+            except IndexError:
+                backend_root = Path.cwd()
+            self._debug_dump_dir = backend_root / "logs" / "webrtc" / "vad_debug"
+            self._debug_dump_dir.mkdir(parents=True, exist_ok=True)
+        else:
+            self._debug_dump_dir = None
 
         # Optional buffer manager linkage for end-of-stream handling
         self.buffer_manager: Optional['WebRTCBufferManager'] = None
@@ -379,6 +399,9 @@ class WebRTCVADService:
                     silero_probability
                 )
                 
+                if self.debug_enabled:
+                    self._collect_debug_chunks(audio_data, webrtc_detected, silero_detected)
+
                 # Sustained speech detection: Require min_sustained_speech_frames consecutive detections
                 # before transitioning from INACTIVE to VOICE_START
                 # In Silero-only mode, only check silero_detected; in dual mode, check both
@@ -443,6 +466,9 @@ class WebRTCVADService:
                         f"warmup={warmup_active}, final={voice_detected}, state={new_state.value}"
                     )
                 
+                if self.debug_enabled:
+                    self._handle_debug_state_transition(previous_state, self.current_state, metadata)
+
                 return {
                     "success": True,
                     "peer_id": self.peer_id,
@@ -517,6 +543,8 @@ class WebRTCVADService:
         except Exception as exc:
             self.logger.error(f"[VAD] Failed to finalize buffered audio for {peer_id}: {exc}", exc_info=True)
         finally:
+            if self.debug_enabled:
+                self._persist_debug_chunks(self.config.silero_sample_rate)
             self.reset()
     
     def _is_voice_active_webrtc(self, audio_data: bytes) -> bool:
@@ -771,6 +799,10 @@ class WebRTCVADService:
         self.connection_start_time = None
         self.warmup_complete = False
         self.sustained_speech_counter = 0
+
+        if self.debug_enabled:
+            self._debug_webrtc_chunks.clear()
+            self._debug_silero_chunks.clear()
         
         self.logger.debug(f"VAD state reset for peer {self.peer_id}")
     
@@ -779,6 +811,74 @@ class WebRTCVADService:
         self.reset()
         self.is_initialized = False
         self.logger.info(f"VAD service cleaned up for peer {self.peer_id}")
+
+    def _collect_debug_chunks(self, audio_chunk: bytes, webrtc_detected: bool, silero_detected: bool) -> None:
+        """Accumulate debug audio slices for WebRTC and Silero detections."""
+        try:
+            if webrtc_detected:
+                self._debug_webrtc_chunks.append(audio_chunk)
+            if silero_detected:
+                self._debug_silero_chunks.append(audio_chunk)
+        except Exception as exc:  # pragma: no cover - debug path
+            self.logger.debug(f"[VAD-DEBUG] Failed to collect debug chunks: {exc}")
+
+    def _handle_debug_state_transition(
+        self,
+        previous_state: VADState,
+        new_state: VADState,
+        metadata: Dict[str, Any]
+    ) -> None:
+        """Persist debug audio when a speech segment completes."""
+        if not self.debug_enabled:
+            return
+
+        terminal_states = {
+            VADState.VOICE_ACTIVE,
+            VADState.VOICE_END_PENDING,
+            VADState.VOICE_START,
+            VADState.VOICE_END
+        }
+
+        if previous_state in terminal_states and new_state == VADState.INACTIVE:
+            sample_rate = (
+                metadata.get("sample_rate")
+                if metadata
+                else None
+            ) or self.config.silero_sample_rate
+            self._persist_debug_chunks(sample_rate)
+
+    def _persist_debug_chunks(self, sample_rate: int) -> None:
+        """Write collected debug chunks to WAV files and reset buffers."""
+        if not self.debug_enabled or not self._debug_dump_dir:
+            return
+
+        timestamp = datetime.utcnow().strftime("%Y%m%d-%H%M%S")
+        base_name = f"{timestamp}_{self.peer_id}_{self._debug_segment_index:02d}"
+
+        for label, chunks in (("webrtc", self._debug_webrtc_chunks), ("silero", self._debug_silero_chunks)):
+            if not chunks:
+                continue
+
+            raw_audio = b"".join(chunks)
+            output_path = self._debug_dump_dir / f"{base_name}_{label}.wav"
+
+            try:
+                with wave.open(str(output_path), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(raw_audio)
+                self.logger.info(
+                    f"[VAD-DEBUG] Saved {label.upper()} debug audio to {output_path}"
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    f"[VAD-DEBUG] Failed to persist {label} debug audio for {self.peer_id}: {exc}"
+                )
+
+        self._debug_webrtc_chunks.clear()
+        self._debug_silero_chunks.clear()
+        self._debug_segment_index += 1
 
 
 # Factory function

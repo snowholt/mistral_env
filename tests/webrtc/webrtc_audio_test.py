@@ -58,7 +58,7 @@ async def _persist_latest_segment(
 ) -> Optional[Path]:
     """Copy the latest server-captured segment into the reports directory for analysis."""
     repo_root = Path(__file__).resolve().parents[2]
-    source = repo_root / "logs" / "api" / f"webrtc_segment_{peer_id}.wav"
+    source = repo_root / "backend" / "logs" / "webrtc" / f"webrtc_segment_{peer_id}.wav"
 
     for attempt in range(attempts):
         if source.exists():

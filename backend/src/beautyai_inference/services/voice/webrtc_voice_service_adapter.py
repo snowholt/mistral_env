@@ -361,11 +361,11 @@ class WebRTCVoiceServiceAdapter:
             )
 
             try:
-                repo_root = Path(__file__).resolve().parents[5]
+                backend_root = Path(__file__).resolve().parents[4]
             except IndexError:
-                repo_root = Path.cwd()
+                backend_root = Path.cwd()
 
-            segment_dump_dir = repo_root / "logs" / "api"
+            segment_dump_dir = backend_root / "logs" / "webrtc"
             segment_dump_dir.mkdir(parents=True, exist_ok=True)
             segment_dump_path = segment_dump_dir / f"webrtc_segment_{peer_id}.wav"
 
@@ -483,10 +483,10 @@ class WebRTCVoiceServiceAdapter:
             stt_metadata["language_hint"] = stt_language
 
             try:
-                repo_root = Path(__file__).resolve().parents[5]
+                backend_root = Path(__file__).resolve().parents[4]
             except IndexError:
-                repo_root = Path.cwd()
-            dump_dir = repo_root / "logs" / "api"
+                backend_root = Path.cwd()
+            dump_dir = backend_root / "logs" / "webrtc"
             dump_dir.mkdir(parents=True, exist_ok=True)
             stt_metadata["dump_path"] = str(dump_dir / f"stt_input_{self.peer_id}.wav")
 
