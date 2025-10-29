@@ -1,0 +1,157 @@
+# BeautyAI VAD Test Configuration
+# Environment: vad_test
+# Purpose: Test WebRTC + VAD without loading heavy models
+
+# VAD Test Mode - disables model loading
+vad_test_mode: true
+
+duplex:
+  # TTS Configuration (disabled for VAD testing)
+  tts_model: null
+  tts_voice: "ar-SA-ZariyahNeural"
+  tts_streaming_enabled: false
+  tts_chunk_size_ms: 40
+  tts_format: "opus"
+  
+  # Echo Suppression (disabled for VAD testing)
+  echo_suppression_enabled: false
+  echo_correlation_threshold: 0.15
+  echo_spectral_threshold: 0.12
+  echo_vad_threshold: 0.05
+  echo_adaptive_threshold: false
+  
+  # Jitter Buffer
+  jitter_buffer_target_ms: 60
+  jitter_buffer_max_ms: 200
+  jitter_buffer_adaptive: true
+  
+  # Duplex Mode
+  duplex_mode: "full"
+  barge_in_enabled: false
+  barge_in_sensitivity: 0.3
+  barge_in_delay_ms: 300
+  
+  # Audio Buffers
+  audio_buffer_size_ms: 10000
+  pcm_buffer_size_samples: 16000
+  
+  # Session Management
+  max_concurrent_sessions: 5
+  session_timeout_ms: 300000
+
+# WebRTC Voice Configuration (ENABLED for VAD testing)
+webrtc:
+  # Feature Toggle
+  enabled: true  # ENABLED for VAD testing
+  
+  # Utterance Limits
+  max_utterance_sec: 10
+  
+  # Signaling
+  signaling_path: "/api/v1/webrtc/voice"
+  
+  # ICE Configuration
+  stun_servers:
+    - "stun:stun.l.google.com:19302"
+  turn_servers: []
+  ice_transport_policy: "all"
+  
+  # VAD Configuration (DUAL MODE - WebRTC + Silero)
+  vad_webrtc_sensitivity: 2  # 0-3 (2=balanced)
+  vad_silero_sensitivity: 0.3  # 0-1 threshold for English
+  vad_silero_sensitivity_arabic: 0.001  # 0-1 threshold for Arabic (very sensitive)
+  
+  # VAD Mode Selection
+  enable_browser_hints: false  # false=Silero only, true=dual mode
+  require_silero_confirmation: true  # Require Silero confirmation
+  
+  # Warmup Filter (prevent premature detection during codec init)
+  warmup_filter_duration_ms: 250  # Ignore initial audio period
+  min_sustained_speech_frames: 3  # Require N consecutive frames before VOICE_START
+  
+  # Speech Timing
+  min_speech_duration_ms: 30  # Minimum to register as speech
+  post_speech_silence_ms: 1000  # Silence duration to end speech
+  pre_speech_buffer_ms: 200  # Pre-roll buffer
+  
+  # Buffer Configuration
+  buffer_pre_roll_ms: 300
+  buffer_post_roll_ms: 300
+  
+  # LLM Integration (disabled for VAD testing)
+  auto_no_think_prefix: false
+  
+  # Debugging
+  debug_logging: true  # ENABLED for VAD testing
+  log_vad_decisions: true  # Log all VAD decisions
+
+system:
+  # GPU Configuration (VAD can run on CPU)
+  gpu_enabled: false  # Disabled for VAD testing
+  gpu_memory_fraction: 0.8
+  gpu_memory_growth: true
+  
+  # Logging
+  log_level: "DEBUG"  # Verbose logging for debugging
+  log_format: "json"
+  log_file: "logs/vad_test.log"
+  
+  # Caching
+  cache_dir: "./cache"
+  model_cache_size_gb: 1  # Minimal cache for VAD
+  
+  # API Settings
+  api_timeout_s: 30
+  max_request_size_mb: 100
+  
+  # Monitoring
+  metrics_enabled: true
+  tracing_enabled: true  # Enable tracing for debugging
+  health_check_interval_s: 30
+
+models:
+  # Default Models (ALL DISABLED for VAD testing)
+  default_asr_model: null  # No Whisper model
+  default_llm_model: null  # No LLM model
+  default_tts_model: null  # No TTS model
+  
+  # Model Loading
+  model_load_timeout_s: 120
+  model_unload_delay_s: 300
+  preload_models: []  # No preloading
+  
+  # Quantization
+  quantization_enabled: false
+  quantization_bits: 8
+
+# VAD Test Specific Settings
+vad_test:
+  # Test Mode Configuration
+  use_mock_models: true  # Use mock Whisper/LLM/TTS
+  skip_model_loading: true  # Skip all model initialization
+  
+  # Test Audio Settings
+  test_audio_file: "tests/webrtc/laser_hair.wav"
+  test_audio_sample_rate: 16000
+  test_audio_channels: 1
+  
+  # VAD Debug Settings
+  vad_debug_enabled: true  # Enable VAD debug output
+  vad_save_debug_audio: true  # Save VAD-detected audio segments
+  vad_debug_dir: "logs/webrtc/vad_debug"
+  
+  # Metrics Collection
+  collect_vad_metrics: true
+  metrics_output_file: "logs/vad_test_metrics.json"
+  
+  # Test Scenarios
+  test_scenarios:
+    - name: "dual_vad_mode"
+      enable_browser_hints: true
+      require_silero_confirmation: true
+    - name: "silero_only_mode"
+      enable_browser_hints: false
+      require_silero_confirmation: false
+    - name: "webrtc_only_mode"
+      enable_browser_hints: true
+      require_silero_confirmation: false
