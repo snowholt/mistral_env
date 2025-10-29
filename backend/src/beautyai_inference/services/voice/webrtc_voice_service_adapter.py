@@ -30,6 +30,8 @@ from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
 
+import numpy as np
+
 try:
     from aiortc import MediaStreamTrack
     AIORTC_AVAILABLE = True
@@ -53,8 +55,40 @@ from ...core.webrtc_buffer_manager import (
     BufferConfig,
     create_buffer_manager
 )
+from .utils.audio import to_float_mono_16k, float_to_pcm16, ensure_sample_rate
 
 logger = logging.getLogger(__name__)
+
+
+def _log_pcm_stats(
+    logger: logging.Logger,
+    label: str,
+    sample_rate: Optional[int],
+    channels: int,
+    audio_bytes: bytes
+) -> None:
+    """Log basic PCM statistics for debugging sample-rate issues."""
+    sr = sample_rate or 0
+    samples = len(audio_bytes) // 2
+    duration = (samples / sr) if sr else 0.0
+    if samples:
+        int16_audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        float_audio = int16_audio.astype(np.float32) / 32768.0
+        peak = float(np.max(np.abs(float_audio))) if float_audio.size else 0.0
+        rms = float(np.sqrt(np.mean(float_audio ** 2))) if float_audio.size else 0.0
+    else:
+        peak = 0.0
+        rms = 0.0
+
+    dtype_name = "int16"
+    message = (
+        f"[PCM] label={label} sr={sr} ch={channels} dtype={dtype_name} "
+        f"samples={samples} duration_s={duration:.3f} peak={peak:.4f} rms={rms:.4f}"
+    )
+    logger.info(message)
+    diagnostics_logger = logging.getLogger("beautyai.voice.diagnostics")
+    if diagnostics_logger is not logger:
+        diagnostics_logger.info(message)
 
 
 @dataclass
@@ -351,13 +385,26 @@ class WebRTCVoiceServiceAdapter:
         This is where we inject the /no_think prefix and call SimpleVoiceService.
         """
         try:
-            self.logger.info(
-                f"Speech segment ready for {peer_id}: "
-                f"{len(audio_data)} bytes, {metadata['duration_sec']:.2f}s"
+            original_len = len(audio_data)
+            duration_hint = metadata.get("duration_sec", 0.0)
+
+            sample_rate = ensure_sample_rate(
+                metadata.get("sample_rate") or (
+                    self.buffer_manager.config.sample_rate if self.buffer_manager else None
+                )
             )
 
-            sample_rate = metadata.get("sample_rate") or (
-                self.buffer_manager.config.sample_rate if self.buffer_manager else 16000
+            audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
+            normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate)
+            sample_rate = ensure_sample_rate(normalized_rate, sample_rate)
+            pcm_bytes = float_to_pcm16(normalized_audio)
+
+            metadata["sample_rate"] = sample_rate
+            metadata["duration_sec"] = len(pcm_bytes) / (sample_rate * 2)
+
+            self.logger.info(
+                f"Speech segment ready for {peer_id}: "
+                f"{original_len}→{len(pcm_bytes)} bytes, {metadata['duration_sec']:.2f}s"
             )
 
             try:
@@ -373,8 +420,15 @@ class WebRTCVoiceServiceAdapter:
                 with wave.open(str(segment_dump_path), "wb") as wav_file:
                     wav_file.setnchannels(1)
                     wav_file.setsampwidth(2)
-                    wav_file.setframerate(sample_rate or 16000)
-                    wav_file.writeframes(audio_data)
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(pcm_bytes)
+                _log_pcm_stats(
+                    self.logger,
+                    label="post-vad",
+                    sample_rate=sample_rate,
+                    channels=1,
+                    audio_bytes=pcm_bytes,
+                )
                 self.logger.info(
                     f"[ADAPTER] Saved latest WebRTC segment for {peer_id} to {segment_dump_path}"
                 )
@@ -392,7 +446,7 @@ class WebRTCVoiceServiceAdapter:
                         wav_file.setnchannels(1)
                         wav_file.setsampwidth(2)
                         wav_file.setframerate(sample_rate)
-                        wav_file.writeframes(audio_data)
+                        wav_file.writeframes(pcm_bytes)
 
                     self.logger.info(
                         f"[ADAPTER] Dumped WebRTC STT segment to {dump_path} (sr={sample_rate})"
@@ -404,20 +458,8 @@ class WebRTCVoiceServiceAdapter:
             
             start_time = time.time()
             
-            # Convert PCM bytes to numpy array for voice service
-            import numpy as np
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-
-            if audio_array.size:
-                audio_float = audio_array.astype(np.float32) / 32768.0
-                max_abs = float(np.max(np.abs(audio_float)))
-                if max_abs > 0.0 and max_abs < 0.90:
-                    gain = min(0.92 / max_abs, 48.0)
-                    audio_float *= gain
-                    audio_array = np.clip(audio_float * 32767.0, -32767.0, 32767.0).astype(np.int16)
-                    self.logger.debug(
-                        f"[ADAPTER] Applied segment gain {gain:.2f}x (peak {max_abs:.6f})"
-                    )
+            # Convert normalized PCM bytes to numpy array for voice service
+            audio_array = np.frombuffer(pcm_bytes, dtype=np.int16).copy()
 
             # Process through voice service (STT → LLM → TTS)
             self._finalization_complete.clear()

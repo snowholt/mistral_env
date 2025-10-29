@@ -28,6 +28,7 @@ except ImportError:  # pragma: no cover - optional dependency
     resample_poly = None
 
 import edge_tts
+from ..utils.audio import to_float_mono_16k, ensure_sample_rate
 from ....services.voice.utils.text_cleaning import sanitize_tts_text
 
 from ....config.configuration_manager import ConfigurationManager
@@ -41,6 +42,37 @@ LOGGER_NAME = "beautyai.voice.simple_voice_service"
 logger = logging.getLogger(LOGGER_NAME)
 logger.setLevel(logging.INFO)
 logger.propagate = True
+
+
+def _log_pcm_stats(
+    logger: logging.Logger,
+    label: str,
+    sample_rate: Optional[int],
+    channels: int,
+    audio_bytes: bytes
+) -> None:
+    """Log PCM statistics for debugging STT sample-rate mismatches."""
+    sr = ensure_sample_rate(sample_rate)
+    samples = len(audio_bytes) // 2
+    duration = samples / float(sr) if sr else 0.0
+
+    if samples:
+        int16_audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        float_audio = int16_audio.astype(np.float32) / 32768.0
+        peak = float(np.max(np.abs(float_audio))) if float_audio.size else 0.0
+        rms = float(np.sqrt(np.mean(float_audio ** 2))) if float_audio.size else 0.0
+    else:
+        peak = 0.0
+        rms = 0.0
+
+    message = (
+        f"[PCM] label={label} sr={sr} ch={channels} dtype=int16 "
+        f"samples={samples} duration_s={duration:.3f} peak={peak:.4f} rms={rms:.4f}"
+    )
+    logger.info(message)
+    diagnostics_logger = logging.getLogger("beautyai.voice.diagnostics")
+    if diagnostics_logger is not logger:
+        diagnostics_logger.info(message)
 
 
 @dataclass
@@ -1185,35 +1217,29 @@ class SimpleVoiceService:
             return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
 
         try:
-            audio_array = np.frombuffer(audio_bytes, dtype=np.int16).astype(np.float32)
+            audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
         except ValueError:
             self.logger.warning("[STT] Unable to interpret audio bytes as int16 PCM; skipping preprocessing")
             return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
 
-        if audio_array.size == 0:
+        if audio_int16.size == 0:
             return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
 
-        audio_array /= 32768.0  # Normalize to [-1, 1]
-
         sample_rate = sample_rate_hint or getattr(self, "_stt_sample_rate_hint", target_sample_rate)
+        normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate)
+        sample_rate = normalized_rate or target_sample_rate
 
-        # Resample if needed
-        if sample_rate and sample_rate != target_sample_rate:
-            audio_array = self._resample_audio(audio_array, sample_rate, target_sample_rate)
-            sample_rate = target_sample_rate
-
-        # Trim leading/trailing silence while keeping a bit of padding
-        audio_array = self._trim_silence(
-            audio_array,
-            sample_rate=sample_rate or target_sample_rate,
+        trimmed_audio = self._trim_silence(
+            normalized_audio,
+            sample_rate=sample_rate,
             threshold_db=silence_threshold_db,
             padding_ms=silence_padding_ms
         )
 
-        peak_level = float(np.max(np.abs(audio_array))) if audio_array.size else 0.0
-        rms_level = float(np.sqrt(np.mean(audio_array ** 2))) if audio_array.size else 0.0
+        peak_level = float(np.max(np.abs(trimmed_audio))) if trimmed_audio.size else 0.0
+        rms_level = float(np.sqrt(np.mean(trimmed_audio ** 2))) if trimmed_audio.size else 0.0
 
-        return audio_array.astype(np.float32), sample_rate or target_sample_rate, peak_level, rms_level
+        return trimmed_audio.astype(np.float32), sample_rate, peak_level, rms_level
 
     def _resample_audio(self, audio: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
         """Resample audio using polyphase filtering when available."""
@@ -1357,7 +1383,7 @@ class SimpleVoiceService:
                     with wave.open(str(last_dump_path), "wb") as wav_file:
                         wav_file.setnchannels(1)
                         wav_file.setsampwidth(2)
-                        wav_file.setframerate(sample_rate_used or 16000)
+                        wav_file.setframerate(sample_rate_used)
                         wav_file.writeframes(prepared_bytes)
                 except Exception as exc:
                     self.logger.debug("[STT] Failed to write latest STT dump: %s", exc)
@@ -1381,7 +1407,7 @@ class SimpleVoiceService:
                 try:
                     dump_file = Path(dump_path)
                     dump_file.parent.mkdir(parents=True, exist_ok=True)
-                    sample_rate_to_write = self._stt_sample_rate_hint or 16000
+                    sample_rate_to_write = ensure_sample_rate(self._stt_sample_rate_hint)
                     import wave
 
                     with wave.open(str(dump_file), "wb") as wav_file:
@@ -1389,6 +1415,13 @@ class SimpleVoiceService:
                         wav_file.setsampwidth(2)
                         wav_file.setframerate(sample_rate_to_write)
                         wav_file.writeframes(prepared_bytes)
+                    _log_pcm_stats(
+                        self.logger,
+                        label="stt-in",
+                        sample_rate=sample_rate_to_write,
+                        channels=1,
+                        audio_bytes=prepared_bytes,
+                    )
 
                     self.logger.info("[STT] Dumped prepared audio to %s", dump_file)
                 except Exception as exc:

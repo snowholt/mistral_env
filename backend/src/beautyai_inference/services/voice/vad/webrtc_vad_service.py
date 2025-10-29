@@ -32,6 +32,8 @@ from collections import deque
 from enum import Enum
 import numpy as np
 
+from ..utils.audio import to_float_mono_16k, float_to_pcm16, ensure_sample_rate
+
 if TYPE_CHECKING:
     from ....core.webrtc_buffer_manager import WebRTCBufferManager
 
@@ -316,7 +318,30 @@ class WebRTCVADService:
             try:
                 start_time = time.time()
 
-                self.logger.debug(f"[VAD] Received chunk: {len(audio_data)} bytes from processor")
+                metadata = metadata or {}
+                sample_rate_hint = metadata.get("sample_rate") or self.config.silero_sample_rate
+                original_len = len(audio_data)
+
+                try:
+                    audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
+                except ValueError:
+                    self.logger.warning("[VAD] Unable to interpret audio chunk as int16 PCM; skipping")
+                    return {
+                        "success": False,
+                        "error": "invalid audio format"
+                    }
+
+                normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate_hint)
+                normalized_audio = normalized_audio.astype(np.float32, copy=False)
+                sample_rate_used = ensure_sample_rate(normalized_rate, self.config.silero_sample_rate)
+                audio_data = float_to_pcm16(normalized_audio)
+
+                metadata["sample_rate"] = sample_rate_used
+                metadata["duration_sec"] = len(audio_data) / (sample_rate_used * 2)
+
+                self.logger.debug(
+                    f"[VAD] Received chunk: original={original_len} bytes, normalized={len(audio_data)} bytes"
+                )
                 
                 # Track connection start time (first audio chunk)
                 if self.connection_start_time is None:
@@ -372,9 +397,9 @@ class WebRTCVADService:
                     self.metrics.chunks_processed - self._warmup_completion_chunk <= 30
                 )
 
-                if webrtc_detected or not self.config.enable_browser_hints:
+                if normalized_audio.size and (webrtc_detected or not self.config.enable_browser_hints):
                     # Only run Silero if WebRTC detected voice, or if WebRTC disabled
-                    silero_detected, silero_probability = self._is_silero_speech(audio_data)
+                    silero_detected, silero_probability = self._is_silero_speech(normalized_audio)
                     
                     # Log Silero output for first 30 chunks or when speech detected
                     if (
@@ -599,7 +624,7 @@ class WebRTCVADService:
             self.logger.error(f"WebRTC VAD error: {e}")
             return False
     
-    def _is_silero_speech(self, audio_data: bytes) -> tuple[bool, float]:
+    def _is_silero_speech(self, audio_float: np.ndarray) -> tuple[bool, float]:
         """
         Silero VAD: Accurate speech detection confirmation.
         
@@ -607,7 +632,7 @@ class WebRTCVADService:
         Uses ML model for precise speech detection with language-specific thresholds.
         
         Args:
-            audio_data: PCM audio bytes
+            audio_float: Normalized float audio samples
             
         Returns:
             tuple: (is_speech, probability)
@@ -616,9 +641,11 @@ class WebRTCVADService:
             return False, 0.0
         
         try:
-            # Convert PCM bytes to float32 numpy array
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            audio_float = audio_array.astype(np.float32) / 32768.0  # Normalize to [-1, 1]
+            if audio_float.size == 0:
+                return False, 0.0
+
+            if audio_float.dtype != np.float32:
+                audio_float = audio_float.astype(np.float32)
 
             # Append to remainder so we always feed exact frame sizes
             if self._silero_remainder.size:
@@ -640,7 +667,7 @@ class WebRTCVADService:
 
             # Store leftover for the next chunk
             if audio_float.size:
-                self._silero_remainder = audio_float
+                self._silero_remainder = audio_float.astype(np.float32, copy=False)
             else:
                 self._silero_remainder = np.array([], dtype=np.float32)
 

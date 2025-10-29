@@ -38,6 +38,8 @@ except ImportError:
     MediaStreamTrack = object
     AudioFrame = object
 
+from .utils.audio import to_float_mono_16k
+
 logger = logging.getLogger(__name__)
 
 
@@ -305,14 +307,13 @@ class WebRTCAudioProcessor:
                 # Update metrics with safeguards for missing metadata
                 self.metrics.frames_received += 1
 
-                frame_rate = getattr(frame, "sample_rate", None) or 0
-                if frame_rate <= 0:
+                frame_rate = self._determine_frame_sample_rate(frame)
+                if not frame_rate or frame_rate <= 0:
                     frame_rate = self.config.target_sample_rate
                     self.logger.warning(
-                        f"[PROCESSOR] Invalid frame sample rate for {self.peer_id}, "
+                        f"[PROCESSOR] Unable to determine frame sample rate for {self.peer_id}, "
                         f"falling back to target {frame_rate}Hz"
                     )
-                self.metrics.sample_rate = frame_rate
 
                 frame_layout = getattr(frame, "layout", None)
                 if frame_layout and getattr(frame_layout, "channels", None):
@@ -335,13 +336,9 @@ class WebRTCAudioProcessor:
                           f"shape={audio_array.shape}, size={audio_array.size}, "
                           f"frame_rate={frame_rate}Hz")
                 
-                # Resample to target sample rate if needed
-                if frame_rate != self.config.target_sample_rate:
-                    audio_array = self._resample_audio(
-                        audio_array,
-                        frame_rate,
-                        self.config.target_sample_rate
-                    )
+                audio_array, normalized_rate = to_float_mono_16k(audio_array, frame_rate)
+                frame_rate = normalized_rate
+                self.metrics.sample_rate = frame_rate
                 
                 # Debug: Log array shape after resampling
                 if self.metrics.frames_received <= 3:
@@ -513,6 +510,26 @@ class WebRTCAudioProcessor:
                 self.logger.warning(f"[PROCESSOR] Frame is all zeros! size={audio_array.size}")
         
         return audio_array
+
+    def _determine_frame_sample_rate(self, frame: AudioFrame) -> Optional[int]:
+        """Infer the true frame sample rate using explicit metadata or time_base."""
+        sample_rate = getattr(frame, "sample_rate", None)
+        if sample_rate and sample_rate > 0:
+            return int(sample_rate)
+
+        time_base = getattr(frame, "time_base", None)
+        if time_base:
+            try:
+                tb_value = float(time_base)
+                if tb_value > 0.0:
+                    return int(round(1.0 / tb_value))
+            except (ZeroDivisionError, TypeError, ValueError):
+                self.logger.debug(
+                    f"[PROCESSOR] Failed to derive sample rate from time_base for {self.peer_id}",
+                    exc_info=True
+                )
+
+        return None
     
     def _resample_audio(
         self,
