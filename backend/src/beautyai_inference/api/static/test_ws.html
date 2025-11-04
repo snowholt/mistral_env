@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>WebSocket Audio Test</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
+        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
+        #log { background: #f0f0f0; padding: 10px; height: 400px; overflow-y: scroll; margin-top: 20px; font-family: monospace; font-size: 12px; }
+        .error { color: red; }
+        .success { color: green; }
+        .info { color: blue; }
+    </style>
+</head>
+<body>
+    <h1>🎤 WebSocket Audio Test (No WebRTC)</h1>
+    <p>This test captures audio and sends it via WebSocket.</p>
+    
+    <button id="start" onclick="start()">Start Capture</button>
+    <button id="stop" onclick="stop()" disabled>Stop Capture</button>
+    
+    <div id="log"></div>
+    
+    <script>
+        const WS_URL = window.location.protocol === 'https:' 
+            ? `wss://${window.location.host}/api/v1/ws/audio-debug`
+            : `ws://localhost:8000/api/v1/ws/audio-debug`;
+        
+        let ws, mediaRecorder, audioContext, stream;
+        let bytesSent = 0;
+        
+        function log(msg, type = 'info') {
+            const div = document.getElementById('log');
+            const time = new Date().toLocaleTimeString();
+            div.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
+            div.scrollTop = div.scrollHeight;
+            console.log(msg);
+        }
+        
+        async function start() {
+            try {
+                log('🎤 Getting microphone...', 'info');
+                stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 48000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+                log('✅ Got microphone', 'success');
+                
+                // Connect WebSocket
+                log('🔌 Connecting to WebSocket...', 'info');
+                ws = new WebSocket(WS_URL);
+                
+                ws.onopen = () => {
+                    log('✅ WebSocket connected!', 'success');
+                    startRecording();
+                };
+                
+                ws.onerror = (err) => {
+                    log(`❌ WebSocket error: ${err}`, 'error');
+                };
+                
+                ws.onclose = () => {
+                    log('🔌 WebSocket closed', 'info');
+                };
+                
+                ws.onmessage = (event) => {
+                    log(`📨 Server: ${event.data}`, 'success');
+                };
+                
+            } catch (err) {
+                log(`❌ Error: ${err.message}`, 'error');
+                console.error(err);
+            }
+        }
+        
+        function startRecording() {
+            try {
+                // Use MediaRecorder to capture audio
+                mediaRecorder = new MediaRecorder(stream, {
+                    mimeType: 'audio/webm;codecs=opus',
+                    audioBitsPerSecond: 128000
+                });
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                        ws.send(event.data);
+                        bytesSent += event.data.size;
+                        log(`📤 Sent ${event.data.size} bytes (total: ${bytesSent})`, 'info');
+                    }
+                };
+                
+                mediaRecorder.onerror = (err) => {
+                    log(`❌ MediaRecorder error: ${err}`, 'error');
+                };
+                
+                // Start recording with 100ms chunks
+                mediaRecorder.start(100);
+                log('🎙️ Recording started', 'success');
+                
+                document.getElementById('start').disabled = true;
+                document.getElementById('stop').disabled = false;
+                
+            } catch (err) {
+                log(`❌ Recording error: ${err.message}`, 'error');
+            }
+        }
+        
+        function stop() {
+            try {
+                log('🛑 Stopping...', 'info');
+                
+                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                    mediaRecorder.stop();
+                }
+                
+                if (stream) {
+                    stream.getTracks().forEach(t => t.stop());
+                }
+                
+                if (ws) {
+                    ws.close();
+                }
+                
+                log(`✅ Stopped (sent ${bytesSent} bytes total)`, 'success');
+                document.getElementById('start').disabled = false;
+                document.getElementById('stop').disabled = true;
+                bytesSent = 0;
+                
+            } catch (err) {
+                log(`❌ Stop error: ${err.message}`, 'error');
+            }
+        }
+    </script>
+</body>
+</html>

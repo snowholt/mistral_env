@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
 from .endpoints.debug_router import debug_router
 from .endpoints.websocket_simple_voice import websocket_simple_voice_router
+from .endpoints.ws_audio_debug import ws_audio_debug_router
 
 # Import WebRTC voice router (Phase B - WebRTC Migration)
 try:
@@ -206,6 +207,12 @@ app.include_router(
     tags=["simple-voice"]
 )
 
+# Include WebSocket audio debug router
+app.include_router(
+    ws_audio_debug_router,
+    tags=["debug"]
+)
+
 # Include WebRTC voice router if available (Phase B - WebRTC Migration)
 if webrtc_router_available:
     app.include_router(
@@ -247,6 +254,49 @@ async def serve_debug_test_page():
         raise HTTPException(status_code=404, detail="WebRTC debug test page not found")
     except Exception as e:
         logger.error(f"Error serving debug test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test_simple.html", response_class=HTMLResponse)
+async def serve_simple_test_page():
+    """Serve the simplified WebRTC test page for connection debugging."""
+    try:
+        # Path to the static file we just copied
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_simple.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"Simple test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Simple WebRTC test page not found")
+    except Exception as e:
+        logger.error(f"Error serving simple test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test_ws.html", response_class=HTMLResponse)
+async def serve_websocket_test_page():
+    """Serve the WebSocket audio test page (no WebRTC)."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_ws.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"WebSocket test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="WebSocket test page not found")
+    except Exception as e:
+        logger.error(f"Error serving WebSocket test page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")

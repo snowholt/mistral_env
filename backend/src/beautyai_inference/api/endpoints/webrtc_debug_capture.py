@@ -18,7 +18,7 @@ from typing import Dict, Any, Optional
 from fastapi import APIRouter, HTTPException, status
 from pydantic import BaseModel, Field
 
-from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRecorder
 
 logger = logging.getLogger(__name__)
@@ -56,19 +56,28 @@ async def handle_debug_offer(request: DebugOfferRequest):
     """Create debug capture session - captures audio at each layer."""
     try:
         peer_id = f"debug_{uuid.uuid4().hex[:8]}"
+        print(f"[DEBUG-CAPTURE] Creating session for {peer_id}", flush=True)
         logger.info(f"[DEBUG-CAPTURE] Creating session for {peer_id}")
         
-        # Create RTCPeerConnection
-        pc = RTCPeerConnection()
+        # Create RTCPeerConnection with STUN and TURN servers for NAT traversal
+        config = RTCConfiguration(
+            iceServers=[
+                RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+                RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
+                RTCIceServer(
+                    urls=["turn:188.48.209.107:15478"],
+                    username="beautyai",
+                    credential="beautyai2025"
+                ),
+            ]
+        )
+        pc = RTCPeerConnection(configuration=config)
+        print(f"[DEBUG-CAPTURE] {peer_id} RTCPeerConnection created with STUN+TURN servers", flush=True)
         
-        # Setup paths for saving audio
-        try:
-            backend_root = Path(__file__).resolve().parents[3]
-        except IndexError:
-            backend_root = Path.cwd()
-        
-        debug_dir = backend_root / "logs" / "webrtc" / "debug_captures"
+        # Setup paths for saving audio - use hardcoded path for reliability
+        debug_dir = Path("/home/lumi/beautyai/logs/webrtc/debug_captures")
         debug_dir.mkdir(parents=True, exist_ok=True)
+        print(f"[DEBUG-CAPTURE] Debug directory: {debug_dir}", flush=True)
         
         capture_info = {
             "pc": pc,
@@ -84,13 +93,27 @@ async def handle_debug_offer(request: DebugOfferRequest):
         # Track received audio
         @pc.on("track")
         async def on_track(track: MediaStreamTrack):
+            print(f"[DEBUG-CAPTURE] {peer_id} received {track.kind} track", flush=True)
             logger.info(f"[DEBUG-CAPTURE] {peer_id} received {track.kind} track")
             
             if track.kind == "audio":
+                print(f"[DEBUG-CAPTURE] {peer_id} starting audio capture task", flush=True)
                 capture_info["audio_track"] = track
                 
                 # Start capturing frames
                 asyncio.create_task(_capture_audio_frames(peer_id, track, capture_info))
+        
+        # Monitor ICE connection state changes
+        @pc.on("iceconnectionstatechange")
+        async def on_ice_connection_state_change():
+            print(f"[DEBUG-CAPTURE] {peer_id} ICE connection state: {pc.iceConnectionState}", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} ICE connection state: {pc.iceConnectionState}")
+        
+        # Monitor connection state changes
+        @pc.on("connectionstatechange")
+        async def on_connection_state_change():
+            print(f"[DEBUG-CAPTURE] {peer_id} Connection state: {pc.connectionState}", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} Connection state: {pc.connectionState}")
         
         # Set remote description
         await pc.setRemoteDescription(
@@ -200,6 +223,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     from scipy.signal import resample_poly
     from math import gcd
     
+    print(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop", flush=True)
     logger.info(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop")
     
     # Accumulators for different layers
@@ -208,12 +232,17 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     layer_16khz = []          # Layer 3: Downsampled to 16kHz
     
     frame_count = 0
+    timeout_count = 0
+    max_consecutive_timeouts = 30  # 30 timeouts * 1s = 30 seconds total wait
     
     try:
         while True:
             try:
-                frame = await asyncio.wait_for(track.recv(), timeout=5.0)
+                print(f"[DEBUG-CAPTURE] {peer_id} waiting for frame (timeout #{timeout_count + 1})...", flush=True)
+                frame = await asyncio.wait_for(track.recv(), timeout=1.0)
+                print(f"[DEBUG-CAPTURE] {peer_id} received frame #{frame_count + 1}", flush=True)
                 frame_count += 1
+                timeout_count = 0  # Reset on successful receive
                 info["frames_captured"] = frame_count
                 
                 # LAYER 1: Raw frame from WebRTC (48kHz int16)
@@ -259,9 +288,25 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     )
                 
             except asyncio.TimeoutError:
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} recv timeout, ending capture")
-                break
+                timeout_count += 1
+                if frame_count == 0 and timeout_count <= 5:
+                    # Still waiting for first frame
+                    print(f"[DEBUG-CAPTURE] {peer_id} no frames yet (timeout #{timeout_count})", flush=True)
+                    continue
+                elif frame_count == 0 and timeout_count > max_consecutive_timeouts:
+                    # Never received any frames
+                    print(f"[DEBUG-CAPTURE] {peer_id} gave up after {timeout_count} timeouts without receiving any frames", flush=True)
+                    logger.warning(f"[DEBUG-CAPTURE] {peer_id} recv timeout after {timeout_count} attempts, no frames received")
+                    break
+                elif frame_count > 0 and timeout_count >= 3:
+                    # Had frames, then stopped
+                    print(f"[DEBUG-CAPTURE] {peer_id} recv timeout after {frame_count} frames, ending capture", flush=True)
+                    logger.info(f"[DEBUG-CAPTURE] {peer_id} recv timeout, ending capture")
+                    break
+                # Otherwise continue waiting
+                continue
             except Exception as e:
+                print(f"[DEBUG-CAPTURE] {peer_id} frame error: {e}", flush=True)
                 logger.error(f"[DEBUG-CAPTURE] {peer_id} frame error: {e}")
                 break
                 
@@ -274,6 +319,12 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         info["layer_48khz_float"] = layer_48khz_float
         info["layer_16khz"] = layer_16khz
         
+        print(
+            f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
+            f"layers: 48kHz_raw={len(layer_48khz_raw)}, "
+            f"48kHz_float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}",
+            flush=True
+        )
         logger.info(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"layers: 48kHz_raw={len(layer_48khz_raw)}, "
