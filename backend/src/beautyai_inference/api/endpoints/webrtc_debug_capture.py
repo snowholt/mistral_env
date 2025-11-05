@@ -199,10 +199,40 @@ async def handle_debug_ice(request: DebugICERequest):
         
         pc = _debug_connections[request.peer_id]["pc"]
         
+        # Parse ICE candidate string into components
+        # Browser format: "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host generation 0 ufrag abc network-cost 999"
+        parts = request.candidate.split()
+        if len(parts) < 8 or not parts[0].startswith('candidate:'):
+            raise ValueError(f"Invalid candidate format (need at least 8 parts): {request.candidate}")
+        
+        foundation = parts[0][10:]  # Remove "candidate:" prefix
+        component = int(parts[1])
+        protocol = parts[2].upper()
+        priority = int(parts[3])
+        ip = parts[4]
+        port = int(parts[5])
+        
+        # Find 'typ' keyword (can be at different positions due to extra fields)
+        if 'typ' not in parts:
+            raise ValueError(f"Missing 'typ' keyword in candidate: {request.candidate}")
+        
+        typ_idx = parts.index('typ')
+        if typ_idx + 1 >= len(parts):
+            raise ValueError(f"Missing candidate type after 'typ' in: {request.candidate}")
+        
+        candidate_type = parts[typ_idx + 1]
+        
+        # Create ICE candidate with parsed components
         candidate = RTCIceCandidate(
+            component=component,
+            foundation=foundation,
+            ip=ip,
+            port=port,
+            priority=priority,
+            protocol=protocol,
+            type=candidate_type,
             sdpMid=request.sdp_mid,
-            sdpMLineIndex=request.sdp_m_line_index,
-            candidate=request.candidate
+            sdpMLineIndex=request.sdp_m_line_index
         )
         
         await pc.addIceCandidate(candidate)
@@ -340,12 +370,20 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 else:
                     print(f"[DEBUG-CAPTURE] {peer_id} received frame #{frame_count} (sr={sample_rate}Hz, samples={frame.samples})", flush=True)
                 
-                # Flatten to 1D if needed
+                # Convert stereo to mono if needed
+                # PyAV returns interleaved stereo as (1, samples*channels) or (channels, samples)
                 if audio_array.ndim > 1:
-                    if audio_array.shape[0] <= 2 and audio_array.shape[1] > audio_array.shape[0]:
-                        audio_array = audio_array[0, :]  # (channels, samples) -> select LEFT
-                    else:
-                        audio_array = audio_array[:, 0]  # (samples, channels) -> select LEFT
+                    # Flatten first
+                    audio_array = audio_array.flatten()
+                
+                # Check if we have stereo (indicated by frame.samples vs array length)
+                # frame.samples is per-channel, array length might be total
+                if len(audio_array) == frame.samples * 2:
+                    # Interleaved stereo: [L,R,L,R,...] -> reshape to (samples, 2) then average
+                    # Keep as int16 to avoid noise from float conversion
+                    audio_array = audio_array.reshape(-1, 2).mean(axis=1).astype(np.int16)
+                    if frame_count == 1:
+                        print(f"[DEBUG-CAPTURE] {peer_id} Converted stereo to mono (averaged L+R channels)", flush=True)
                 
                 # Save raw int16
                 layer_48khz_raw.append(audio_array.copy())

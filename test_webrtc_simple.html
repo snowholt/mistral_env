@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple WebRTC Test</title>
+    <title>Simple WebRTC Test v2.1 (ICE Fix + Audio Fix)</title>
     <style>
         body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
         button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
@@ -75,7 +75,7 @@
 </head>
 <body>
     <h1>🎤 WebRTC Audio Debug Tool</h1>
-    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging.</p>
+    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #0066cc;">Version 2.1 (ICE + Audio Fixes Applied)</strong></p>
     
     <button id="start" onclick="start()">🎤 Start Capture</button>
     <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
@@ -270,22 +270,32 @@
                     log(`🔗 Connection: ${pc.connectionState}`, 'info');
                 };
                 
+                // Queue for ICE candidates that arrive before we have peer_id
+                const pendingIceCandidates = [];
+                
                 pc.onicecandidate = async (e) => {
-                    if (e.candidate && peerId) {
-                        log(`📤 Sending ICE candidate (${e.candidate.candidate.split(' ')[7]})`, 'info');
-                        try {
-                            await fetch(`${API}/api/v1/webrtc/debug/voice-capture/ice`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    peer_id: peerId,
-                                    candidate: e.candidate.candidate,
-                                    sdp_mid: e.candidate.sdpMid,
-                                    sdp_m_line_index: e.candidate.sdpMLineIndex
-                                })
-                            });
-                        } catch (err) {
-                            log(`❌ ICE send error: ${err}`, 'error');
+                    if (e.candidate) {
+                        if (peerId) {
+                            // We have peer_id, send immediately
+                            log(`📤 Sending ICE candidate (${e.candidate.candidate.split(' ')[7]})`, 'info');
+                            try {
+                                await fetch(`${API}/api/v1/webrtc/debug/voice-capture/ice`, {
+                                    method: 'POST',
+                                    headers: { 'Content-Type': 'application/json' },
+                                    body: JSON.stringify({
+                                        peer_id: peerId,
+                                        candidate: e.candidate.candidate,
+                                        sdp_mid: e.candidate.sdpMid,
+                                        sdp_m_line_index: e.candidate.sdpMLineIndex
+                                    })
+                                });
+                            } catch (err) {
+                                log(`❌ ICE send error: ${err}`, 'error');
+                            }
+                        } else {
+                            // No peer_id yet, queue it
+                            log(`📋 Queuing ICE candidate (will send after getting peer_id)`, 'info');
+                            pendingIceCandidates.push(e.candidate);
                         }
                     }
                 };
@@ -311,6 +321,29 @@
                 peerId = data.peer_id;
                 log(`✅ Got peer ID: ${peerId}`, 'success');
                 updateStatus('peerId', peerId);
+                
+                // Send any queued ICE candidates now that we have peer_id
+                if (pendingIceCandidates.length > 0) {
+                    log(`📤 Sending ${pendingIceCandidates.length} queued ICE candidate(s)...`, 'info');
+                    for (const candidate of pendingIceCandidates) {
+                        try {
+                            await fetch(`${API}/api/v1/webrtc/debug/voice-capture/ice`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    peer_id: peerId,
+                                    candidate: candidate.candidate,
+                                    sdp_mid: candidate.sdpMid,
+                                    sdp_m_line_index: candidate.sdpMLineIndex
+                                })
+                            });
+                            log(`✅ Sent queued ICE candidate (${candidate.candidate.split(' ')[7]})`, 'info');
+                        } catch (err) {
+                            log(`❌ Error sending queued ICE: ${err}`, 'error');
+                        }
+                    }
+                    pendingIceCandidates.length = 0; // Clear queue
+                }
                 
                 // Set remote description
                 await pc.setRemoteDescription({ type: 'answer', sdp: data.sdp });
