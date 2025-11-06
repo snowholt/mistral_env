@@ -487,10 +487,10 @@ class WebRTCVADService:
                 # Calculate processing time
                 processing_time_ms = (time.time() - start_time) * 1000
                 
-                # Log VAD decision if enabled
+                # Log VAD decision if enabled (using INFO level for visibility in production logs)
                 if self.config.log_vad_decisions:
-                    self.logger.debug(
-                        f"VAD decision for {self.peer_id}: "
+                    self.logger.info(
+                        f"[VAD-DECISION] {self.peer_id}: "
                         f"webrtc={webrtc_detected}, silero={silero_detected} "
                         f"(prob={silero_probability:.3f}), sustained={self.sustained_speech_counter}/{self.config.min_sustained_speech_frames}, "
                         f"warmup={warmup_active}, final={voice_detected}, state={new_state.value}"

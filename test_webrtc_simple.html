@@ -1,7 +1,10 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Simple WebRTC Test v2.1 (ICE Fix + Audio Fix)</title>
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+    <meta http-equiv="Pragma" content="no-cache">
+    <meta http-equiv="Expires" content="0">
+    <title>Simple WebRTC Test v2.2-VAD (NO CACHE - Nov 5 18:47)</title>
     <style>
         body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
         button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
@@ -75,7 +78,7 @@
 </head>
 <body>
     <h1>🎤 WebRTC Audio Debug Tool</h1>
-    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #0066cc;">Version 2.1 (ICE + Audio Fixes Applied)</strong></p>
+    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #ff0066; font-size: 18px; background: yellow; padding: 5px;">⚡ Version 2.2-VAD (ICE + Audio + VAD) - Nov 5, 18:47 UTC - CLEAR YOUR CACHE! ⚡</strong></p>
     
     <button id="start" onclick="start()">🎤 Start Capture</button>
     <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
@@ -98,29 +101,62 @@
             <span class="status-label">Duration:</span>
             <span class="status-value" id="duration">0s</span>
         </div>
+        <div class="status-item" style="background: #e3f2fd; margin-top: 10px; padding: 10px; border-radius: 5px;">
+            <span class="status-label">🎯 VAD State:</span>
+            <span class="status-value" id="vadState">—</span>
+        </div>
+        <div class="status-item" style="background: #e3f2fd;">
+            <span class="status-label">🔊 Silero Probability:</span>
+            <span class="status-value" id="sileroProbability">—</span>
+        </div>
+        <div class="status-item" style="background: #e3f2fd;">
+            <span class="status-label">🎤 Speech Detected:</span>
+            <span class="status-value" id="speechDetected">—</span>
+        </div>
     </div>
     
     <canvas id="visualizer"></canvas>
     
     <div class="download-section" id="downloadSection">
-        <h3>📥 Captured Audio Files</h3>
+        <h3>📥 Captured Audio Files (4 Layers)</h3>
         <p id="downloadMessage">Audio files have been saved on the server.</p>
         <p><strong>Location:</strong> <code id="audioPath">—</code></p>
         <p><strong>Files saved:</strong></p>
         <ul>
-            <li><code>debug_capture_{peer_id}_layer1_48khz_raw.wav</code> - Raw 48kHz from WebRTC</li>
-            <li><code>debug_capture_{peer_id}_layer2_48khz_float.wav</code> - Normalized 48kHz</li>
-            <li><code>debug_capture_{peer_id}_layer3_16khz.wav</code> - Downsampled 16kHz (Whisper-ready)</li>
+            <li><code>debug_capture_{peer_id}_layer1_48khz_raw.wav</code> - 🎙️ Layer 1: Raw 48kHz from WebRTC (stereo→mono)</li>
+            <li><code>debug_capture_{peer_id}_layer2_48khz_float.wav</code> - 📊 Layer 2: Normalized 48kHz float</li>
+            <li><code>debug_capture_{peer_id}_layer3_16khz.wav</code> - 🔄 Layer 3: Downsampled 16kHz (all audio)</li>
+            <li><code>debug_capture_{peer_id}_layer4_16khz_vad_filtered.wav</code> - ✨ Layer 4: VAD-filtered 16kHz (SPEECH ONLY, no silence!)</li>
         </ul>
+        <p style="background: #fffacd; padding: 10px; border-radius: 5px; margin-top: 10px;">
+            <strong>🎯 VAD Info:</strong> Layer 4 contains ONLY speech segments detected by Silero VAD. 
+            Compare Layer 3 (all audio) vs Layer 4 (speech only) to see VAD filtering in action!
+        </p>
+    </div>
+    
+    <div class="download-section" id="transcriptionSection" style="display: none;">
+        <h3>🎯 Live Transcription (Currently Disabled for VAD Testing)</h3>
+        <p><strong>Status:</strong> <span id="transcriptionStatus">Whisper disabled - Testing VAD filtering only</span></p>
+        <p style="background: #fff3cd; padding: 10px; border-radius: 5px; color: #856404;">
+            ℹ️ <strong>VAD Testing Mode:</strong> Whisper transcription is temporarily disabled. 
+            We're capturing audio with VAD filtering. Check Layer 4 file to see speech-only audio!
+        </p>
+        <div id="transcriptionText" style="background: #f0f0f0; padding: 15px; border-radius: 8px; min-height: 100px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; white-space: pre-wrap; display: none;"></div>
     </div>
     
     <div id="log"></div>
     
     <script>
-        const API = 'https://188.48.209.107:8443';
+        // VERSION DETECTION - MUST BE FIRST LINE
+        console.log('%c🚀 WebRTC Debug Tool v2.2-VAD LOADED (Nov 5, 18:47 UTC)', 'background: #00ff00; color: #000; font-size: 20px; font-weight: bold; padding: 10px;');
+        console.log('%c⚠️ If you see an older version, CLEAR YOUR CACHE NOW!', 'background: #ff0000; color: #fff; font-size: 16px; padding: 5px;');
+        
+        const API = 'https://192.168.100.39:8443';
         let pc, stream, peerId, audioContext, analyser, dataArray;
         let startTime = null;
         let durationInterval = null;
+        let transcriptionInterval = null;
+        let lastTranscriptionCount = 0;
         let minimumCaptureTime = 5000; // 5 seconds minimum capture time
         
         function log(msg, type = 'info') {
@@ -134,6 +170,60 @@
         function updateStatus(field, value) {
             const el = document.getElementById(field);
             if (el) el.textContent = value;
+        }
+        
+        async function fetchTranscriptions() {
+            if (!peerId) return;
+            
+            try {
+                const resp = await fetch(`${API}/api/v1/webrtc/debug/voice-capture/${peerId}/transcriptions`);
+                if (!resp.ok) return;
+                
+                const data = await resp.json();
+                
+                if (data.whisper_available === false) {
+                    document.getElementById('transcriptionStatus').textContent = 'Whisper not available';
+                    clearInterval(transcriptionInterval);
+                    return;
+                }
+                
+                if (data.transcriptions && data.transcriptions.length > lastTranscriptionCount) {
+                    // New transcriptions available
+                    const newTranscriptions = data.transcriptions.slice(lastTranscriptionCount);
+                    const transcriptionDiv = document.getElementById('transcriptionText');
+                    
+                    newTranscriptions.forEach(t => {
+                        const p = document.createElement('p');
+                        p.style.marginBottom = '10px';
+                        p.style.color = '#333';
+                        const timestamp = t.timestamp.toFixed(1);
+                        p.innerHTML = `<strong>[${timestamp}s]</strong> ${t.text}`;
+                        transcriptionDiv.appendChild(p);
+                    });
+                    
+                    lastTranscriptionCount = data.transcriptions.length;
+                    document.getElementById('transcriptionStatus').textContent = `Active (${lastTranscriptionCount} segments)`;
+                    log(`🎯 Transcription: ${newTranscriptions[newTranscriptions.length - 1].text.substring(0, 50)}...`, 'success');
+                }
+            } catch (err) {
+                console.error('Transcription fetch error:', err);
+            }
+        }
+        
+        function startTranscriptionPolling() {
+            lastTranscriptionCount = 0;
+            document.getElementById('transcriptionText').innerHTML = '<p style="color: #666; font-style: italic;">Waiting for speech...</p>';
+            // Poll every 2 seconds
+            transcriptionInterval = setInterval(fetchTranscriptions, 2000);
+            // Fetch immediately
+            fetchTranscriptions();
+        }
+        
+        function stopTranscriptionPolling() {
+            if (transcriptionInterval) {
+                clearInterval(transcriptionInterval);
+                transcriptionInterval = null;
+            }
         }
         
         function setupAudioVisualization(stream) {
@@ -270,6 +360,34 @@
                     log(`🔗 Connection: ${pc.connectionState}`, 'info');
                 };
                 
+                // Listen for data channel from server (VAD feedback)
+                pc.ondatachannel = (event) => {
+                    const dc = event.channel;
+                    log(`📡 Data channel '${dc.label}' received from server`, 'info');
+                    
+                    dc.onmessage = (e) => {
+                        try {
+                            const msg = JSON.parse(e.data);
+                            if (msg.type === 'vad_feedback') {
+                                // Update VAD status in UI
+                                updateStatus('vadState', msg.voice_state);
+                                updateStatus('sileroProbability', msg.silero_prob.toFixed(4));
+                                updateStatus('speechDetected', msg.is_speech ? '🟢 YES' : '🔴 NO');
+                                
+                                // Color code based on speech detection
+                                const speechEl = document.getElementById('speechDetected');
+                                speechEl.style.fontWeight = 'bold';
+                                speechEl.style.color = msg.is_speech ? '#2e7d32' : '#c62828';
+                            }
+                        } catch (err) {
+                            console.error('Error parsing data channel message:', err);
+                        }
+                    };
+                    
+                    dc.onopen = () => log('📡 VAD feedback channel opened', 'success');
+                    dc.onclose = () => log('📡 VAD feedback channel closed', 'info');
+                };
+                
                 // Queue for ICE candidates that arrive before we have peer_id
                 const pendingIceCandidates = [];
                 
@@ -372,6 +490,11 @@
                     log(`⏰ Please capture for at least ${minimumCaptureTime/1000} seconds before stopping`, 'info');
                     document.getElementById('start').disabled = true;
                     document.getElementById('stop').disabled = false;
+                    
+                    // Start polling for transcriptions
+                    document.getElementById('transcriptionSection').style.display = 'block';
+                    document.getElementById('transcriptionStatus').textContent = 'Listening...';
+                    startTranscriptionPolling();
                 } else {
                     log(`❌ Connection failed: ${pc.iceConnectionState}`, 'error');
                     cleanup();
@@ -395,6 +518,9 @@
                 }
                 
                 log('🛑 Stopping capture and saving audio...', 'info');
+                
+                // Stop transcription polling
+                stopTranscriptionPolling();
                 
                 // Stop duration counter
                 if (durationInterval) {
