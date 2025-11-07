@@ -444,6 +444,151 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     speech_buffer_16k = []  # Layer 4 (16kHz)
     speech_buffer_48k = []  # Layer 5 (48kHz)
     
+    def finalize_speech_segment(reason: str, frame_index: int) -> None:
+        """Flush buffered speech into VAD layers and trigger Whisper if enabled."""
+        if not speech_buffer_16k:
+            return
+
+        total_samples_16k = int(sum(len(chunk) for chunk in speech_buffer_16k))
+        if total_samples_16k == 0:
+            speech_buffer_16k.clear()
+            speech_buffer_48k.clear()
+            return
+
+        speech_duration = total_samples_16k / 16000
+        print(
+            f"[DEBUG-CAPTURE] {peer_id} 🛑 Speech ended ({reason}), buffer_frames={len(speech_buffer_16k)} (~{speech_duration:.2f}s)",
+            flush=True,
+        )
+        logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech segment ({reason}): {speech_duration:.2f}s")
+
+        # Persist buffered audio into Layer 4 and Layer 5 collections
+        for speech_frame in speech_buffer_16k:
+            layer_16khz_vad_filtered.append(speech_frame.copy())
+
+        for speech_frame_48k in speech_buffer_48k:
+            layer_48khz_vad_filtered.append(speech_frame_48k.copy())
+
+        speech_segments_count = info.get("speech_segments_count", 0)
+
+        if info.get("whisper_enabled", False):
+            whisper_model = info.get("whisper_model")
+            if whisper_model:
+                try:
+                    # Layer 4 transcription (16kHz VAD-filtered PCM)
+                    speech_audio_16k = np.concatenate(speech_buffer_16k)
+                    audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
+                    audio_bytes_16k = audio_int16_16k.tobytes()
+                    segment_duration_16k = len(audio_int16_16k) / 16000
+
+                    print(
+                        f"[WHISPER-L4] {peer_id} 🎤 Transcribing Layer 4 (16kHz) segment #{speech_segments_count}: "
+                        f"{len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...",
+                        flush=True,
+                    )
+                    start_t4 = time.time()
+                    transcription_16k = whisper_model.transcribe_audio_bytes(
+                        audio_bytes_16k, audio_format="pcm_raw", language="en"
+                    )
+                    latency_16k = (time.time() - start_t4) * 1000
+
+                    # Layer 5 transcription (48kHz VAD-filtered resampled for Whisper)
+                    transcription_48k = None
+                    latency_48k = 0.0
+                    segment_duration_48k = 0.0
+                    if speech_buffer_48k:
+                        speech_audio_48k = np.concatenate(speech_buffer_48k)
+                        speech_audio_16k_from_48k = resample_poly(
+                            speech_audio_48k, up=1, down=3, window=("kaiser", 8.0)
+                        )
+                        speech_audio_16k_from_48k = np.clip(speech_audio_16k_from_48k, -1.0, 1.0)
+                        audio_int16_48k = (speech_audio_16k_from_48k * 32767).astype(np.int16)
+                        audio_bytes_48k = audio_int16_48k.tobytes()
+                        segment_duration_48k = len(audio_int16_48k) / 16000
+
+                        print(
+                            f"[WHISPER-L5] {peer_id} 🎤 Transcribing Layer 5 (48kHz→16kHz) segment #{speech_segments_count}: "
+                            f"{len(audio_int16_48k)} samples ({segment_duration_48k:.2f}s)...",
+                            flush=True,
+                        )
+                        start_t5 = time.time()
+                        transcription_48k = whisper_model.transcribe_audio_bytes(
+                            audio_bytes_48k, audio_format="pcm_raw", language="en"
+                        )
+                        latency_48k = (time.time() - start_t5) * 1000
+
+                    if transcription_16k and transcription_16k.strip():
+                        info.setdefault("transcriptions", []).append(
+                            {
+                                "segment_number": speech_segments_count,
+                                "frame_index": frame_index,
+                                "timestamp": time.time() - info["start_time"],
+                                "layer": "Layer4_16kHz",
+                                "text": transcription_16k,
+                                "duration_s": segment_duration_16k,
+                                "latency_ms": latency_16k,
+                            }
+                        )
+                        print(
+                            f"[WHISPER-L4] {peer_id} ✅ Layer 4 Segment #{speech_segments_count} ({latency_16k:.0f}ms): "
+                            f"\"{transcription_16k}\"",
+                            flush=True,
+                        )
+
+                    if transcription_48k and transcription_48k.strip():
+                        info.setdefault("transcriptions", []).append(
+                            {
+                                "segment_number": speech_segments_count,
+                                "frame_index": frame_index,
+                                "timestamp": time.time() - info["start_time"],
+                                "layer": "Layer5_48kHz",
+                                "text": transcription_48k,
+                                "duration_s": segment_duration_48k,
+                                "latency_ms": latency_48k,
+                            }
+                        )
+                        print(
+                            f"[WHISPER-L5] {peer_id} ✅ Layer 5 Segment #{speech_segments_count} ({latency_48k:.0f}ms): "
+                            f"\"{transcription_48k}\"",
+                            flush=True,
+                        )
+
+                    if transcription_16k and transcription_48k:
+                        match = (
+                            "✅ MATCH"
+                            if transcription_16k.strip().lower() == transcription_48k.strip().lower()
+                            else "⚠️ DIFFERENT"
+                        )
+                        print(
+                            f"[WHISPER-COMPARE] {peer_id} Segment #{speech_segments_count}: {match}",
+                            flush=True,
+                        )
+                        print(f"  L4 (16kHz): \"{transcription_16k}\"", flush=True)
+                        print(f"  L5 (48kHz): \"{transcription_48k}\"", flush=True)
+                    elif transcription_16k or transcription_48k:
+                        print(
+                            f"[WHISPER] {peer_id} ⚠️ Segment #{speech_segments_count}: One layer empty",
+                            flush=True,
+                        )
+
+                except Exception as transcribe_error:  # pragma: no cover - logging path
+                    print(
+                        f"[WHISPER] {peer_id} ❌ Segment #{speech_segments_count} transcription error: {transcribe_error}",
+                        flush=True,
+                    )
+                    logger.error(
+                        f"[WHISPER] {peer_id} transcription error: {transcribe_error}",
+                        exc_info=True,
+                    )
+        else:
+            print(
+                f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz) and Layer 5 (48kHz)",
+                flush=True,
+            )
+
+        speech_buffer_16k.clear()
+        speech_buffer_48k.clear()
+
     frame_count = 0
     timeout_count = 0
     max_consecutive_timeouts = 30  # 30 timeouts * 1s = 30 seconds total wait
@@ -586,94 +731,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         
                         # VOICE_END: Speech confirmed ended (after waiting post_speech_silence_ms)
                         # This only fires AFTER silence threshold, so segments are properly grouped!
-                        if voice_state == VADState.VOICE_END and len(speech_buffer_16k) > 0:
-                            speech_duration = len(speech_buffer_16k) * len(audio_16k) / 16000
-                            print(f"[DEBUG-CAPTURE] {peer_id} 🛑 Speech ended, buffer: {len(speech_buffer_16k)} frames (~{speech_duration:.2f}s)", flush=True)
-                            logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech segment: {speech_duration:.2f}s")
-                            
-                            # Save speech segment to Layer 4 (16kHz VAD-filtered)
-                            for speech_frame in speech_buffer_16k:
-                                layer_16khz_vad_filtered.append(speech_frame.copy())
-                            
-                            # Save speech segment to Layer 5 (48kHz VAD-filtered) - NEW!
-                            for speech_frame_48k in speech_buffer_48k:
-                                layer_48khz_vad_filtered.append(speech_frame_48k.copy())
-                            
-                            # Get current segment count for transcription
-                            speech_segments_count = info.get("speech_segments_count", 0)
-                            
-                            # Transcribe speech segment with Whisper Turbo (Layer 4 → Whisper)
-                            if info.get("whisper_enabled", False):
-                                whisper_model = info.get("whisper_model")
-                                if whisper_model:
-                                    try:
-                                        # === LAYER 4: Transcribe 16kHz VAD-filtered audio ===
-                                        speech_audio_16k = np.concatenate(speech_buffer_16k)
-                                        audio_int16_16k = (speech_audio_16k * 32767).astype(np.int16)
-                                        audio_bytes_16k = audio_int16_16k.tobytes()
-                                        segment_duration_16k = len(audio_int16_16k) / 16000
-                                        
-                                        print(f"[WHISPER-L4] {peer_id} 🎤 Transcribing Layer 4 (16kHz) segment #{speech_segments_count}: {len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...", flush=True)
-                                        start_t4 = time.time()
-                                        transcription_16k = whisper_model.transcribe_audio_bytes(audio_bytes_16k, audio_format="pcm_raw", language="en")
-                                        latency_16k = (time.time() - start_t4) * 1000
-                                        
-                                        # === LAYER 5: Transcribe 48kHz VAD-filtered audio (downsampled to 16kHz for Whisper) ===
-                                        speech_audio_48k = np.concatenate(speech_buffer_48k)
-                                        # Downsample 48kHz → 16kHz for Whisper (3:1 ratio)
-                                        speech_audio_16k_from_48k = resample_poly(speech_audio_48k, up=1, down=3, window=('kaiser', 8.0))
-                                        audio_int16_48k = (speech_audio_16k_from_48k * 32767).astype(np.int16)
-                                        audio_bytes_48k = audio_int16_48k.tobytes()
-                                        segment_duration_48k = len(audio_int16_48k) / 16000
-                                        
-                                        print(f"[WHISPER-L5] {peer_id} 🎤 Transcribing Layer 5 (48kHz→16kHz) segment #{speech_segments_count}: {len(audio_int16_48k)} samples ({segment_duration_48k:.2f}s)...", flush=True)
-                                        start_t5 = time.time()
-                                        transcription_48k = whisper_model.transcribe_audio_bytes(audio_bytes_48k, audio_format="pcm_raw", language="en")
-                                        latency_48k = (time.time() - start_t5) * 1000
-                                        
-                                        # Store both transcriptions for comparison
-                                        if transcription_16k and transcription_16k.strip():
-                                            info["transcriptions"].append({
-                                                "segment_number": speech_segments_count,
-                                                "frame_index": frame_count,
-                                                "timestamp": time.time() - info["start_time"],
-                                                "layer": "Layer4_16kHz",
-                                                "text": transcription_16k,
-                                                "duration_s": segment_duration_16k,
-                                                "latency_ms": latency_16k
-                                            })
-                                            print(f"[WHISPER-L4] {peer_id} ✅ Layer 4 Segment #{speech_segments_count} ({latency_16k:.0f}ms): \"{transcription_16k}\"", flush=True)
-                                        
-                                        if transcription_48k and transcription_48k.strip():
-                                            info["transcriptions"].append({
-                                                "segment_number": speech_segments_count,
-                                                "frame_index": frame_count,
-                                                "timestamp": time.time() - info["start_time"],
-                                                "layer": "Layer5_48kHz",
-                                                "text": transcription_48k,
-                                                "duration_s": segment_duration_48k,
-                                                "latency_ms": latency_48k
-                                            })
-                                            print(f"[WHISPER-L5] {peer_id} ✅ Layer 5 Segment #{speech_segments_count} ({latency_48k:.0f}ms): \"{transcription_48k}\"", flush=True)
-                                        
-                                        # Comparison logging
-                                        if transcription_16k and transcription_48k:
-                                            match = "✅ MATCH" if transcription_16k.strip().lower() == transcription_48k.strip().lower() else "⚠️ DIFFERENT"
-                                            print(f"[WHISPER-COMPARE] {peer_id} Segment #{speech_segments_count}: {match}", flush=True)
-                                            print(f"  L4 (16kHz): \"{transcription_16k}\"", flush=True)
-                                            print(f"  L5 (48kHz): \"{transcription_48k}\"", flush=True)
-                                        else:
-                                            print(f"[WHISPER] {peer_id} ⚠️ Segment #{speech_segments_count}: One or both layers empty", flush=True)
-                                            
-                                    except Exception as transcribe_error:
-                                        print(f"[WHISPER] {peer_id} ❌ Segment #{speech_segments_count} transcription error: {transcribe_error}", flush=True)
-                                        logger.error(f"[WHISPER] {peer_id} transcription error: {transcribe_error}", exc_info=True)
-                            else:
-                                print(f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz) and Layer 5 (48kHz)", flush=True)
-                            
-                            # Clear buffers after processing
-                            speech_buffer_16k.clear()
-                            speech_buffer_48k.clear()
+                        if voice_state == VADState.VOICE_END:
+                            finalize_speech_segment("VAD state VOICE_END", frame_count)
                         
                     except Exception as vad_error:
                         logger.error(f"[DEBUG-CAPTURE] {peer_id} VAD error: {vad_error}")
@@ -712,6 +771,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         logger.error(f"[DEBUG-CAPTURE] {peer_id} capture loop error: {e}", exc_info=True)
     
     finally:
+        finalize_speech_segment("capture loop exit flush", frame_count)
+
         # Save accumulated layers and detected sample rate
         info["layer_48khz_raw"] = layer_48khz_raw
         info["layer_48khz_float"] = layer_48khz_float

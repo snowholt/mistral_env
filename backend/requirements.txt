@@ -23,6 +23,8 @@ silero-vad>=5.1.0
 websockets>=11.0.0
 pydub>=0.25.0
 python-json-logger>=2.0.7
+scipy>=1.10.0
+noisereduce>=2.0.0
 
 # WebRTC dependencies (Phase A - WebRTC Migration)
 aiortc>=1.5.0
