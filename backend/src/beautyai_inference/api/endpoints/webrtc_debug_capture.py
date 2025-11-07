@@ -143,38 +143,35 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "whisper_enabled": False,  # DISABLED for VAD testing
         }
         
-        # Try to get preloaded Whisper model (DISABLED for VAD testing)
-        capture_info["whisper_enabled"] = False  # Set to True to enable Whisper
-        if False:  # Disabled - change to True to enable Whisper
-            try:
-                model_manager = get_persistent_model_manager()
-                whisper_engine = model_manager.get_whisper_model()
-                if whisper_engine:
-                    capture_info["whisper_model"] = whisper_engine
-                    capture_info["whisper_enabled"] = True
-                    print(f"[DEBUG-CAPTURE] {peer_id} loaded preloaded Whisper model", flush=True)
-                    logger.info(f"[DEBUG-CAPTURE] {peer_id} using preloaded Whisper Turbo model")
-                else:
-                    print(f"[DEBUG-CAPTURE] {peer_id} Whisper model not preloaded, transcription disabled", flush=True)
-                    logger.warning(f"[DEBUG-CAPTURE] {peer_id} Whisper model not available")
-            except Exception as e:
-                logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to load Whisper model: {e}")
-                capture_info["whisper_model"] = None
-        else:
-            print(f"[DEBUG-CAPTURE] {peer_id} Whisper DISABLED for VAD testing", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Whisper disabled - VAD testing mode")
+        # Get preloaded Whisper model for transcription after VAD filtering
+        capture_info["whisper_enabled"] = False  # Will be set to True if model loads successfully
+        try:
+            model_manager = get_persistent_model_manager()
+            whisper_engine = model_manager.get_whisper_model()
+            if whisper_engine:
+                capture_info["whisper_model"] = whisper_engine
+                capture_info["whisper_enabled"] = True
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Loaded persistent Whisper Turbo model", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} using persistent Whisper Turbo (whisper-large-v3-turbo)")
+            else:
+                print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not preloaded, transcription disabled", flush=True)
+                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Whisper model not available - ensure model is preloaded on startup")
+        except Exception as e:
+            logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to load Whisper model: {e}")
+            capture_info["whisper_model"] = None
+            print(f"[DEBUG-CAPTURE] {peer_id} ❌ Whisper load error: {e}", flush=True)
         
         # Initialize VAD service
         try:
             # Create config and set properties (WebRTCVADConfig is not a dataclass)
             vad_config = WebRTCVADConfig()
-            vad_config.silero_sensitivity = 0.3  # Lower = more sensitive (default 0.5)
+            vad_config.silero_sensitivity = 0.3  # More sensitive (0.3 = catches more speech)
             vad_config.webrtc_sensitivity = 2    # 0-3, where 3 = least sensitive
-            vad_config.post_speech_silence_ms = 1000
-            vad_config.min_speech_duration_ms = 30
-            vad_config.language_thresholds = {"ar": 0.0001, "en": 0.0001, "default": 0.0001}  # ULTRA-LOW for testing
-            vad_config.warmup_filter_duration_ms = 0  # DISABLE warmup for testing
-            vad_config.min_sustained_speech_frames = 1  # Only need 1 frame (disable sustained check for testing)
+            vad_config.post_speech_silence_ms = 700  # Wait 700ms before ending speech (groups sentences)
+            vad_config.min_speech_duration_ms = 50  # Minimum 50ms speech to register
+            vad_config.language_thresholds = {"ar": 0.1, "en": 0.1, "default": 0.1}  # Lower threshold for better detection
+            vad_config.warmup_filter_duration_ms = 200  # Filter initial 200ms noise
+            vad_config.min_sustained_speech_frames = 2  # Need 2 consecutive frames to confirm speech
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
             
             vad_service = WebRTCVADService(peer_id, language="en", config=vad_config)
@@ -185,8 +182,8 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 raise RuntimeError("VAD initialization failed - Silero model not loaded")
             
             capture_info["vad_service"] = vad_service
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero loaded, silero_sens=0.3, log_decisions=True)", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} VAD service ready with Silero model loaded")
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero sens=0.3, post_silence=700ms, sustained=2 frames, thresh=0.1)", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} VAD service ready with balanced settings")
         except Exception as e:
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to initialize VAD: {e}")
             capture_info["vad_service"] = None
@@ -430,7 +427,7 @@ async def cleanup_debug_session(peer_id: str):
 async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dict):
     """Capture raw audio frames and save at each processing stage."""
     import numpy as np
-    from scipy.signal import resample_poly
+    from scipy.signal import resample_poly, butter, filtfilt
     from math import gcd
     
     print(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop", flush=True)
@@ -440,6 +437,12 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     layer_48khz_raw = info.setdefault("layer_48khz_raw", [])
     layer_48khz_float = info.setdefault("layer_48khz_float", [])
     layer_16khz = info.setdefault("layer_16khz", [])
+    layer_16khz_vad_filtered = info.setdefault("layer_16khz_vad_filtered", [])  # Layer 4: 16kHz VAD-filtered
+    layer_48khz_vad_filtered = info.setdefault("layer_48khz_vad_filtered", [])  # Layer 5: 48kHz VAD-filtered (NEW!)
+    
+    # Speech buffers for VAD-filtered segments (both 16kHz and 48kHz)
+    speech_buffer_16k = []  # Layer 4 (16kHz)
+    speech_buffer_48k = []  # Layer 5 (48kHz)
     
     frame_count = 0
     timeout_count = 0
@@ -503,7 +506,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 layer_48khz_float.append(audio_float.copy())
                 
-                # LAYER 3: Resample to 16kHz with improved quality
+                # LAYER 3: Resample to 16kHz with improved quality + noise reduction
                 if sample_rate != 16000:
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
@@ -522,6 +525,13 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         down = sample_rate // ratio_gcd
                         audio_16k = resample_poly(audio_float, up, down, window=('kaiser', 8.0))
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    # GENTLE noise reduction: Only remove very quiet background noise
+                    # Don't use high-pass or aggressive gates - they kill the signal!
+                    # Simple approach: if entire frame is very quiet, zero it out
+                    frame_rms = np.sqrt(np.mean(audio_16k**2))
+                    if frame_rms < 0.001:  # Extremely quiet frame (likely silence/noise)
+                        audio_16k = np.zeros_like(audio_16k)
                 else:
                     audio_16k = audio_float
                 
@@ -529,8 +539,6 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 # VAD: Check for voice activity
                 vad_service = info.get("vad_service")
-                speech_buffer = info.get("speech_buffer", [])
-                layer_16khz_vad_filtered = info.get("layer_16khz_vad_filtered", [])
                 
                 if vad_service:
                     try:
@@ -551,81 +559,121 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         # Get VAD state and probability
                         voice_state = vad_result.get("voice_state")
                         silero_prob = vad_result.get("silero_probability", 0)
-                        is_speech = voice_state in [VADState.VOICE_START, VADState.VOICE_ACTIVE]
+                        
+                        # PROPER STATE MACHINE: Listen to VAD_STATE transitions, not frame-by-frame booleans
+                        # This respects post_speech_silence_ms (groups words together!)
+                        was_state = info.get("previous_vad_state", VADState.INACTIVE)
+                        info["previous_vad_state"] = voice_state
                         
                         # Log VAD decision every 25 frames (every 0.5 seconds) for visibility
                         if frame_count % 25 == 0:
-                            state_emoji = "🟢" if is_speech else "⚪"
+                            state_emoji = "🟢" if voice_state in [VADState.VOICE_START, VADState.VOICE_ACTIVE] else "⚪"
                             print(f"[VAD] {peer_id} Frame {frame_count}: {state_emoji} {voice_state} (prob={silero_prob:.3f})", flush=True)
                         
-                        # Update speech state
-                        was_speech = info.get("is_speech_active", False)
-                        info["is_speech_active"] = is_speech
-                        
-                        # Speech started
-                        if is_speech and not was_speech:
+                        # VOICE_START: Speech just started (begin accumulating)
+                        if voice_state == VADState.VOICE_START and was_state != VADState.VOICE_START:
                             segments_count = info.get("speech_segments_count", 0) + 1
                             info["speech_segments_count"] = segments_count
                             print(f"[DEBUG-CAPTURE] {peer_id} 🎤 Speech started (frame {frame_count}, segment #{segments_count})", flush=True)
                             logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech detected at frame {frame_count}")
-                            speech_buffer.clear()
+                            speech_buffer_16k.clear()
+                            speech_buffer_48k.clear()
                         
-                        # Accumulate speech audio (for both VAD layer and potential transcription)
-                        if is_speech:
-                            speech_buffer.append(audio_16k.copy())
+                        # ACCUMULATE AUDIO: During speech AND during pending silence (to keep full segment)
+                        if voice_state in [VADState.VOICE_START, VADState.VOICE_ACTIVE, VADState.VOICE_END_PENDING]:
+                            speech_buffer_16k.append(audio_16k.copy())  # Layer 4 buffer
+                            speech_buffer_48k.append(audio_float.copy())  # Layer 5 buffer (48kHz float)
                         
-                        # Speech ended - save to VAD-filtered layer
-                        if was_speech and not is_speech and len(speech_buffer) > 0:
-                            speech_duration = len(speech_buffer) * len(audio_16k) / 16000
-                            print(f"[DEBUG-CAPTURE] {peer_id} 🛑 Speech ended, buffer: {len(speech_buffer)} frames (~{speech_duration:.2f}s)", flush=True)
+                        # VOICE_END: Speech confirmed ended (after waiting post_speech_silence_ms)
+                        # This only fires AFTER silence threshold, so segments are properly grouped!
+                        if voice_state == VADState.VOICE_END and len(speech_buffer_16k) > 0:
+                            speech_duration = len(speech_buffer_16k) * len(audio_16k) / 16000
+                            print(f"[DEBUG-CAPTURE] {peer_id} 🛑 Speech ended, buffer: {len(speech_buffer_16k)} frames (~{speech_duration:.2f}s)", flush=True)
                             logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech segment: {speech_duration:.2f}s")
                             
-                            # Save speech segment to VAD-filtered layer
-                            for speech_frame in speech_buffer:
+                            # Save speech segment to Layer 4 (16kHz VAD-filtered)
+                            for speech_frame in speech_buffer_16k:
                                 layer_16khz_vad_filtered.append(speech_frame.copy())
                             
-                            # Only transcribe if Whisper is enabled
+                            # Save speech segment to Layer 5 (48kHz VAD-filtered) - NEW!
+                            for speech_frame_48k in speech_buffer_48k:
+                                layer_48khz_vad_filtered.append(speech_frame_48k.copy())
+                            
+                            # Get current segment count for transcription
+                            speech_segments_count = info.get("speech_segments_count", 0)
+                            
+                            # Transcribe speech segment with Whisper Turbo (Layer 4 → Whisper)
                             if info.get("whisper_enabled", False):
                                 whisper_model = info.get("whisper_model")
                                 if whisper_model:
                                     try:
-                                        # Concatenate all speech frames
-                                        speech_audio = np.concatenate(speech_buffer)
+                                        # === LAYER 4: Transcribe 16kHz VAD-filtered audio ===
+                                        speech_audio_16k = np.concatenate(speech_buffer_16k)
+                                        audio_int16_16k = (speech_audio_16k * 32767).astype(np.int16)
+                                        audio_bytes_16k = audio_int16_16k.tobytes()
+                                        segment_duration_16k = len(audio_int16_16k) / 16000
                                         
-                                        # Convert to int16 PCM for Whisper
-                                        audio_int16 = (speech_audio * 32767).astype(np.int16)
-                                        audio_bytes = audio_int16.tobytes()
+                                        print(f"[WHISPER-L4] {peer_id} 🎤 Transcribing Layer 4 (16kHz) segment #{speech_segments_count}: {len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...", flush=True)
+                                        start_t4 = time.time()
+                                        transcription_16k = whisper_model.transcribe_audio_bytes(audio_bytes_16k, audio_format="pcm_raw", language="en")
+                                        latency_16k = (time.time() - start_t4) * 1000
                                         
-                                        # Transcribe
-                                        print(f"[DEBUG-CAPTURE] {peer_id} transcribing {len(audio_int16)} samples (~{len(audio_int16)/16000:.1f}s)...", flush=True)
-                                        transcription = whisper_model.transcribe_audio_bytes(
-                                            audio_bytes,
-                                            audio_format="pcm_raw",
-                                            language="en"
-                                        )
+                                        # === LAYER 5: Transcribe 48kHz VAD-filtered audio (downsampled to 16kHz for Whisper) ===
+                                        speech_audio_48k = np.concatenate(speech_buffer_48k)
+                                        # Downsample 48kHz → 16kHz for Whisper (3:1 ratio)
+                                        speech_audio_16k_from_48k = resample_poly(speech_audio_48k, up=1, down=3, window=('kaiser', 8.0))
+                                        audio_int16_48k = (speech_audio_16k_from_48k * 32767).astype(np.int16)
+                                        audio_bytes_48k = audio_int16_48k.tobytes()
+                                        segment_duration_48k = len(audio_int16_48k) / 16000
                                         
-                                        if transcription:
+                                        print(f"[WHISPER-L5] {peer_id} 🎤 Transcribing Layer 5 (48kHz→16kHz) segment #{speech_segments_count}: {len(audio_int16_48k)} samples ({segment_duration_48k:.2f}s)...", flush=True)
+                                        start_t5 = time.time()
+                                        transcription_48k = whisper_model.transcribe_audio_bytes(audio_bytes_48k, audio_format="pcm_raw", language="en")
+                                        latency_48k = (time.time() - start_t5) * 1000
+                                        
+                                        # Store both transcriptions for comparison
+                                        if transcription_16k and transcription_16k.strip():
                                             info["transcriptions"].append({
+                                                "segment_number": speech_segments_count,
                                                 "frame_index": frame_count,
                                                 "timestamp": time.time() - info["start_time"],
-                                                "text": transcription,
-                                                "duration_s": len(audio_int16) / 16000
+                                                "layer": "Layer4_16kHz",
+                                                "text": transcription_16k,
+                                                "duration_s": segment_duration_16k,
+                                                "latency_ms": latency_16k
                                             })
-                                            print(f"[DEBUG-CAPTURE] {peer_id} ✅ transcription: '{transcription[:100]}...'", flush=True)
-                                            logger.info(f"[DEBUG-CAPTURE] {peer_id} transcribed: {transcription[:50]}...")
+                                            print(f"[WHISPER-L4] {peer_id} ✅ Layer 4 Segment #{speech_segments_count} ({latency_16k:.0f}ms): \"{transcription_16k}\"", flush=True)
+                                        
+                                        if transcription_48k and transcription_48k.strip():
+                                            info["transcriptions"].append({
+                                                "segment_number": speech_segments_count,
+                                                "frame_index": frame_count,
+                                                "timestamp": time.time() - info["start_time"],
+                                                "layer": "Layer5_48kHz",
+                                                "text": transcription_48k,
+                                                "duration_s": segment_duration_48k,
+                                                "latency_ms": latency_48k
+                                            })
+                                            print(f"[WHISPER-L5] {peer_id} ✅ Layer 5 Segment #{speech_segments_count} ({latency_48k:.0f}ms): \"{transcription_48k}\"", flush=True)
+                                        
+                                        # Comparison logging
+                                        if transcription_16k and transcription_48k:
+                                            match = "✅ MATCH" if transcription_16k.strip().lower() == transcription_48k.strip().lower() else "⚠️ DIFFERENT"
+                                            print(f"[WHISPER-COMPARE] {peer_id} Segment #{speech_segments_count}: {match}", flush=True)
+                                            print(f"  L4 (16kHz): \"{transcription_16k}\"", flush=True)
+                                            print(f"  L5 (48kHz): \"{transcription_48k}\"", flush=True)
                                         else:
-                                            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Empty transcription", flush=True)
+                                            print(f"[WHISPER] {peer_id} ⚠️ Segment #{speech_segments_count}: One or both layers empty", flush=True)
                                             
                                     except Exception as transcribe_error:
-                                        logger.error(f"[DEBUG-CAPTURE] {peer_id} transcription error: {transcribe_error}")
+                                        print(f"[WHISPER] {peer_id} ❌ Segment #{speech_segments_count} transcription error: {transcribe_error}", flush=True)
+                                        logger.error(f"[WHISPER] {peer_id} transcription error: {transcribe_error}", exc_info=True)
                             else:
-                                print(f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper disabled - speech segment saved to VAD layer only", flush=True)
+                                print(f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz) and Layer 5 (48kHz)", flush=True)
                             
-                            # Clear buffer after processing
-                            speech_buffer.clear()
-                        
-                        info["speech_buffer"] = speech_buffer
-                        info["layer_16khz_vad_filtered"] = layer_16khz_vad_filtered
+                            # Clear buffers after processing
+                            speech_buffer_16k.clear()
+                            speech_buffer_48k.clear()
                         
                     except Exception as vad_error:
                         logger.error(f"[DEBUG-CAPTURE] {peer_id} VAD error: {vad_error}")
@@ -680,16 +728,32 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
             speech_segments = info.get("speech_segments_count", 0)
             print(f"[VAD-SUMMARY] {peer_id} 🎤 Detected {speech_segments} speech segments", flush=True)
         
+        # Display Whisper transcription summary
+        transcriptions = info.get("transcriptions", [])
+        if transcriptions:
+            layer4_count = sum(1 for t in transcriptions if t.get("layer") == "Layer4_16kHz")
+            layer5_count = sum(1 for t in transcriptions if t.get("layer") == "Layer5_48kHz")
+            print(f"[WHISPER-SUMMARY] {peer_id} 📝 Transcribed {layer4_count} Layer 4 (16kHz) + {layer5_count} Layer 5 (48kHz) segments:", flush=True)
+            for i, trans in enumerate(transcriptions, 1):
+                layer_tag = trans.get("layer", "Unknown")
+                print(f"  [{i}] {layer_tag} ({trans.get('latency_ms', 0):.0f}ms) \"{trans.get('text', '')}\"", flush=True)
+            logger.info(f"[WHISPER-SUMMARY] {peer_id} completed {layer4_count} L4 + {layer5_count} L5 transcriptions")
+        elif info.get("whisper_enabled", False):
+            print(f"[WHISPER-SUMMARY] {peer_id} ⚠️ No transcriptions (all segments were silence/empty)", flush=True)
+        
+        vad_filtered_l4_count = len(info.get("layer_16khz_vad_filtered", []))
+        vad_filtered_l5_count = len(info.get("layer_48khz_vad_filtered", []))
+        
         print(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD-filtered={vad_filtered_count}",
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}",
             flush=True
         )
         logger.info(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD-filtered={vad_filtered_count}"
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}"
         )
 
 
@@ -806,9 +870,49 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 f"[DEBUG-CAPTURE] Saved Layer 4 (16kHz VAD-filtered, speech only): {len(audio_16k_vad)} samples, "
                 f"{duration_speech:.2f}s ({speech_ratio:.1f}% of total) -> {path_16k_vad}"
             )
+            
+            # Save Layer 5: 48kHz VAD-filtered (same VAD timing, higher sample rate)
+            if info.get("layer_48khz_vad_filtered"):
+                audio_48k_vad = np.concatenate(info["layer_48khz_vad_filtered"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer5 (VAD-filtered 48kHz) samples: {len(audio_48k_vad)}",
+                    flush=True,
+                )
+                audio_48k_vad_int16 = (np.clip(audio_48k_vad, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_48k_vad = debug_dir / f"debug_capture_{peer_id}_layer5_48khz_vad_filtered.wav"
+                with wave.open(str(path_48k_vad), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(48000)
+                    wav.writeframes(audio_48k_vad_int16.tobytes())
+                
+                duration_speech_48k = len(audio_48k_vad) / 48000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 5 saved: {duration_speech_48k:.2f}s @ 48kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 5 (48kHz VAD-filtered, speech only): {len(audio_48k_vad)} samples, "
+                    f"{duration_speech_48k:.2f}s -> {path_48k_vad}"
+                )
+            else:
+                print(f"[DEBUG-CAPTURE] {peer_id} Layer 5 (48kHz VAD-filtered) empty", flush=True)
         else:
-            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 empty", flush=True)
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layer empty")
+            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 and Layer 5 empty", flush=True)
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layers empty")
+        
+        # Save transcriptions to JSON file
+        if info.get("transcriptions"):
+            transcriptions_path = debug_dir / f"debug_capture_{peer_id}_transcriptions.json"
+            try:
+                with open(transcriptions_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "peer_id": peer_id,
+                        "total_segments": len(info["transcriptions"]),
+                        "transcriptions": info["transcriptions"]
+                    }, f, indent=2, ensure_ascii=False)
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Saved {len(info['transcriptions'])} transcriptions to {transcriptions_path.name}", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} transcriptions saved to {transcriptions_path}")
+            except Exception as json_error:
+                logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to save transcriptions JSON: {json_error}")
         
         logger.info(f"[DEBUG-CAPTURE] {peer_id} all layers saved to {debug_dir}")
         
