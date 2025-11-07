@@ -786,11 +786,15 @@ class WebRTCVADService:
                     if self._on_voice_end:
                         self._on_voice_end(self.peer_id, speech_duration)
                     
+                    # Transition to VOICE_END (will be reset to INACTIVE on next cycle)
                     self.current_state = VADState.VOICE_END
-                    # Reset to inactive after end
+                    # Reset timing but keep VOICE_END state for this cycle
                     self.speech_start_time = None
                     self.silence_start_time = None
-                    self.current_state = VADState.INACTIVE
+            
+            elif self.current_state == VADState.VOICE_END:
+                # One cycle after VOICE_END, transition to INACTIVE
+                self.current_state = VADState.INACTIVE
         
         # Notify state change
         if self.current_state != previous_state:

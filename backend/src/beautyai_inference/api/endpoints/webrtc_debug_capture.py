@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRecorder
 import numpy as np
+import noisereduce as nr
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
@@ -427,7 +428,7 @@ async def cleanup_debug_session(peer_id: str):
 async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dict):
     """Capture raw audio frames and save at each processing stage."""
     import numpy as np
-    from scipy.signal import resample_poly, butter, filtfilt
+    from scipy.signal import resample_poly, butter, sosfiltfilt
     from math import gcd
     
     print(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop", flush=True)
@@ -651,8 +652,51 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 layer_48khz_float.append(audio_float.copy())
                 
-                # LAYER 3: Resample to 16kHz with improved quality + noise reduction
+                # NOISE REDUCTION: Apply spectral gating to remove microphone artifacts
+                # Uses non-stationary mode to adapt to intermittent high-frequency noise
+                # Applied at 48kHz before downsampling for maximum effectiveness
+                try:
+                    audio_float_denoised = nr.reduce_noise(
+                        y=audio_float,
+                        sr=sample_rate,
+                        stationary=False,  # Adaptive mode for intermittent noise
+                        time_constant_s=2.0,  # 2-second window for noise floor estimation
+                        freq_mask_smooth_hz=500,  # Smooth mask across 500 Hz bands
+                        time_mask_smooth_ms=50,  # Smooth mask across 50 ms time frames
+                        prop_decrease=0.8,  # Remove 80% of detected noise (preserve some dynamics)
+                        n_jobs=1  # Single-threaded for real-time processing
+                    )
+                    audio_float = audio_float_denoised
+                    
+                    if frame_count == 1:
+                        logger.info(
+                            f"[DEBUG-CAPTURE] {peer_id} Noise reduction enabled: "
+                            f"non-stationary mode, time_const=2.0s, freq_smooth=500Hz, "
+                            f"time_smooth=50ms, prop_decrease=0.8"
+                        )
+                except Exception as e:
+                    # If noise reduction fails, continue with original audio
+                    logger.warning(
+                        f"[DEBUG-CAPTURE] {peer_id} Noise reduction failed on frame {frame_count}: {e}. "
+                        f"Continuing with original audio."
+                    )
+                
+                # LAYER 3: Resample to 16kHz with anti-aliasing filter + adaptive noise gate
                 if sample_rate != 16000:
+                    # ANTI-ALIASING: Apply low-pass filter BEFORE downsampling
+                    # Target Nyquist: 8kHz for 16kHz output → cutoff at 7.5kHz (safety margin)
+                    # This prevents high-frequency noise (>8kHz) from folding into audible range
+                    nyquist_freq = sample_rate / 2
+                    cutoff_freq = 7500  # 7.5kHz cutoff for 16kHz target
+                    
+                    # Only filter if we need to remove frequencies above cutoff
+                    if nyquist_freq > cutoff_freq:
+                        # Butterworth low-pass filter (4th order for smooth rolloff)
+                        normalized_cutoff = cutoff_freq / nyquist_freq
+                        sos = butter(4, normalized_cutoff, btype='low', output='sos')
+                        audio_float = sosfiltfilt(sos, audio_float)
+                        audio_float = np.clip(audio_float, -1.0, 1.0)
+                    
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
                     # Stage 2: 24kHz → 16kHz (3:2)
@@ -671,11 +715,21 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         audio_16k = resample_poly(audio_float, up, down, window=('kaiser', 8.0))
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
                     
-                    # GENTLE noise reduction: Only remove very quiet background noise
-                    # Don't use high-pass or aggressive gates - they kill the signal!
-                    # Simple approach: if entire frame is very quiet, zero it out
+                    # ADAPTIVE NOISE GATE with EMA (Exponential Moving Average)
+                    # Track noise floor using EMA for frequency-aware gating
+                    if not hasattr(info, '_noise_ema'):
+                        info['_noise_ema'] = 0.001  # Initial noise floor estimate
+                    
                     frame_rms = np.sqrt(np.mean(audio_16k**2))
-                    if frame_rms < 0.001:  # Extremely quiet frame (likely silence/noise)
+                    alpha = 0.1  # EMA smoothing factor (lower = more stable)
+                    
+                    # Update noise floor estimate only during quiet frames
+                    if frame_rms < info['_noise_ema'] * 1.5:
+                        info['_noise_ema'] = alpha * frame_rms + (1 - alpha) * info['_noise_ema']
+                    
+                    # Gate: Zero out frames below 2x adaptive noise floor
+                    adaptive_threshold = info['_noise_ema'] * 2.0
+                    if frame_rms < adaptive_threshold:
                         audio_16k = np.zeros_like(audio_16k)
                 else:
                     audio_16k = audio_float
