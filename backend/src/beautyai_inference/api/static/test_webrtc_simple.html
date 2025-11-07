@@ -4,7 +4,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Simple WebRTC Test v2.2-VAD (NO CACHE - Nov 5 18:47)</title>
+    <title>Simple WebRTC Test v2.3-ENHANCED (Nov 7 17:15)</title>
     <style>
         body { font-family: Arial; padding: 20px; max-width: 800px; margin: 0 auto; }
         button { padding: 10px 20px; margin: 5px; font-size: 16px; cursor: pointer; }
@@ -74,12 +74,75 @@
         .download-section.visible {
             display: block;
         }
+        
+        .transcription-live {
+            margin-top: 20px;
+            padding: 20px;
+            background: #f3e5f5;
+            border-radius: 8px;
+            border: 2px solid #9c27b0;
+        }
+        
+        .transcription-live h3 {
+            margin-top: 0;
+            color: #6a1b9a;
+        }
+        
+        .transcription-text {
+            background: #fff;
+            padding: 15px;
+            border-radius: 5px;
+            min-height: 100px;
+            max-height: 400px;
+            overflow-y: auto;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            font-size: 16px;
+            line-height: 1.8;
+            color: #333;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+        
+        .transcription-text p {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f5f5f5;
+            border-left: 4px solid #9c27b0;
+            border-radius: 4px;
+        }
+        
+        .transcription-text .timestamp {
+            color: #9c27b0;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+        
+        .transcription-text .segment-text {
+            color: #000;
+        }
+        
+        .hard-refresh-btn {
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-size: 16px;
+            font-weight: bold;
+            margin: 5px;
+        }
+        
+        .hard-refresh-btn:hover {
+            background: #ff5252;
+        }
     </style>
 </head>
 <body>
     <h1>🎤 WebRTC Audio Debug Tool</h1>
-    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #ff0066; font-size: 18px; background: yellow; padding: 5px;">⚡ Version 2.2-VAD (ICE + Audio + VAD) - Nov 5, 18:47 UTC - CLEAR YOUR CACHE! ⚡</strong></p>
+    <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #ff0066; font-size: 18px; background: yellow; padding: 5px;">⚡ Version 2.3-ENHANCED (Noise Suppression + Live Transcription) - Nov 7, 17:15 UTC ⚡</strong></p>
     
+    <button class="hard-refresh-btn" onclick="hardRefresh()">🔄 Hard Refresh (Clear Cache)</button>
     <button id="start" onclick="start()">🎤 Start Capture</button>
     <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
     
@@ -117,6 +180,21 @@
     
     <canvas id="visualizer"></canvas>
     
+    <div class="transcription-live">
+        <h3>🎯 Live Transcription (Real-time Speech Recognition)</h3>
+        <div class="status-item">
+            <span class="status-label">Status:</span>
+            <span class="status-value" id="transcriptionStatus">Waiting to start...</span>
+        </div>
+        <div class="status-item">
+            <span class="status-label">Segments Received:</span>
+            <span class="status-value" id="segmentCount">0</span>
+        </div>
+        <div class="transcription-text" id="transcriptionText">
+            <p style="color: #999; font-style: italic;">Transcriptions will appear here as you speak...</p>
+        </div>
+    </div>
+    
     <div class="download-section" id="downloadSection">
         <h3>📥 Captured Audio Files (4 Layers)</h3>
         <p id="downloadMessage">Audio files have been saved on the server.</p>
@@ -134,22 +212,29 @@
         </p>
     </div>
     
-    <div class="download-section" id="transcriptionSection" style="display: none;">
-        <h3>🎯 Live Transcription (Currently Disabled for VAD Testing)</h3>
-        <p><strong>Status:</strong> <span id="transcriptionStatus">Whisper disabled - Testing VAD filtering only</span></p>
-        <p style="background: #fff3cd; padding: 10px; border-radius: 5px; color: #856404;">
-            ℹ️ <strong>VAD Testing Mode:</strong> Whisper transcription is temporarily disabled. 
-            We're capturing audio with VAD filtering. Check Layer 4 file to see speech-only audio!
-        </p>
-        <div id="transcriptionText" style="background: #f0f0f0; padding: 15px; border-radius: 8px; min-height: 100px; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; line-height: 1.6; white-space: pre-wrap; display: none;"></div>
-    </div>
-    
     <div id="log"></div>
     
     <script>
         // VERSION DETECTION - MUST BE FIRST LINE
-        console.log('%c🚀 WebRTC Debug Tool v2.2-VAD LOADED (Nov 5, 18:47 UTC)', 'background: #00ff00; color: #000; font-size: 20px; font-weight: bold; padding: 10px;');
-        console.log('%c⚠️ If you see an older version, CLEAR YOUR CACHE NOW!', 'background: #ff0000; color: #fff; font-size: 16px; padding: 5px;');
+        console.log('%c🚀 WebRTC Debug Tool v2.3-ENHANCED LOADED (Nov 7, 17:15 UTC)', 'background: #00ff00; color: #000; font-size: 20px; font-weight: bold; padding: 10px;');
+        console.log('%c✨ NEW: Browser noise suppression + Live transcriptions + Hard refresh button!', 'background: #9c27b0; color: #fff; font-size: 16px; padding: 5px;');
+        
+        /**
+         * Hard refresh function - clears cache and reloads
+         */
+        function hardRefresh() {
+            console.log('🔄 Performing hard refresh...');
+            // Clear cache and reload
+            if ('caches' in window) {
+                caches.keys().then(function(names) {
+                    names.forEach(function(name) {
+                        caches.delete(name);
+                    });
+                });
+            }
+            // Force reload from server
+            window.location.reload(true);
+        }
         
         const API = 'https://192.168.100.39:8443';
         let pc, stream, peerId, audioContext, analyser, dataArray;
@@ -183,6 +268,7 @@
                 
                 if (data.whisper_available === false) {
                     document.getElementById('transcriptionStatus').textContent = 'Whisper not available';
+                    document.getElementById('transcriptionStatus').style.color = '#ff9800';
                     clearInterval(transcriptionInterval);
                     return;
                 }
@@ -192,18 +278,32 @@
                     const newTranscriptions = data.transcriptions.slice(lastTranscriptionCount);
                     const transcriptionDiv = document.getElementById('transcriptionText');
                     
+                    // Clear the placeholder text on first transcription
+                    if (lastTranscriptionCount === 0) {
+                        transcriptionDiv.innerHTML = '';
+                    }
+                    
                     newTranscriptions.forEach(t => {
                         const p = document.createElement('p');
-                        p.style.marginBottom = '10px';
-                        p.style.color = '#333';
-                        const timestamp = t.timestamp.toFixed(1);
-                        p.innerHTML = `<strong>[${timestamp}s]</strong> ${t.text}`;
+                        const timestamp = new Date().toLocaleTimeString();
+                        const layer = t.layer === 'Layer4_16kHz' ? 'L4' : 'L5';
+                        const latency = t.latency_ms ? `(${t.latency_ms.toFixed(0)}ms)` : '';
+                        
+                        p.innerHTML = `<span class="timestamp">[${timestamp}] ${layer} ${latency}</span><span class="segment-text">${t.text}</span>`;
                         transcriptionDiv.appendChild(p);
+                        
+                        // Auto-scroll to bottom
+                        transcriptionDiv.scrollTop = transcriptionDiv.scrollHeight;
                     });
                     
                     lastTranscriptionCount = data.transcriptions.length;
-                    document.getElementById('transcriptionStatus').textContent = `Active (${lastTranscriptionCount} segments)`;
-                    log(`🎯 Transcription: ${newTranscriptions[newTranscriptions.length - 1].text.substring(0, 50)}...`, 'success');
+                    document.getElementById('segmentCount').textContent = lastTranscriptionCount;
+                    document.getElementById('transcriptionStatus').textContent = `Active (${data.frames_captured} frames)`;
+                    document.getElementById('transcriptionStatus').style.color = '#4caf50';
+                    
+                    // Log to console
+                    const latestText = newTranscriptions[newTranscriptions.length - 1].text;
+                    log(`🎯 NEW: ${latestText.substring(0, 60)}${latestText.length > 60 ? '...' : ''}`, 'success');
                 }
             } catch (err) {
                 console.error('Transcription fetch error:', err);
@@ -212,9 +312,13 @@
         
         function startTranscriptionPolling() {
             lastTranscriptionCount = 0;
-            document.getElementById('transcriptionText').innerHTML = '<p style="color: #666; font-style: italic;">Waiting for speech...</p>';
-            // Poll every 2 seconds
-            transcriptionInterval = setInterval(fetchTranscriptions, 2000);
+            document.getElementById('transcriptionText').innerHTML = '<p style="color: #999; font-style: italic;">Listening for speech...</p>';
+            document.getElementById('transcriptionStatus').textContent = 'Listening...';
+            document.getElementById('transcriptionStatus').style.color = '#2196f3';
+            document.getElementById('segmentCount').textContent = '0';
+            
+            // Poll every 1 second for faster updates
+            transcriptionInterval = setInterval(fetchTranscriptions, 1000);
             // Fetch immediately
             fetchTranscriptions();
         }
@@ -308,12 +412,12 @@
             try {
                 log('🎤 Requesting microphone access...', 'info');
                 
-                // Request audio with high quality settings
+                // Request audio with browser-level noise suppression ENABLED
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
-                        echoCancellation: false,
-                        noiseSuppression: false,
-                        autoGainControl: false,
+                        echoCancellation: true,   // ✅ Remove echo
+                        noiseSuppression: true,   // ✅ Remove background noise/hiss
+                        autoGainControl: true,    // ✅ Normalize volume
                         sampleRate: 48000,
                         channelCount: 1
                     }
@@ -492,8 +596,7 @@
                     document.getElementById('stop').disabled = false;
                     
                     // Start polling for transcriptions
-                    document.getElementById('transcriptionSection').style.display = 'block';
-                    document.getElementById('transcriptionStatus').textContent = 'Listening...';
+                    log('🎯 Starting live transcription polling...', 'info');
                     startTranscriptionPolling();
                 } else {
                     log(`❌ Connection failed: ${pc.iceConnectionState}`, 'error');

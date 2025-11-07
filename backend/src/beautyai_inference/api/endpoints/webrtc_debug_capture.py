@@ -23,7 +23,8 @@ from pydantic import BaseModel, Field
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRecorder
 import numpy as np
-import noisereduce as nr
+from scipy.signal import resample_poly, butter, sosfiltfilt
+from math import gcd
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
@@ -428,8 +429,6 @@ async def cleanup_debug_session(peer_id: str):
 async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dict):
     """Capture raw audio frames and save at each processing stage."""
     import numpy as np
-    from scipy.signal import resample_poly, butter, sosfiltfilt
-    from math import gcd
     
     print(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop", flush=True)
     logger.info(f"[DEBUG-CAPTURE] {peer_id} starting frame capture loop")
@@ -652,50 +651,34 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 layer_48khz_float.append(audio_float.copy())
                 
-                # NOISE REDUCTION: Apply spectral gating to remove microphone artifacts
-                # Uses non-stationary mode to adapt to intermittent high-frequency noise
-                # Applied at 48kHz before downsampling for maximum effectiveness
-                try:
-                    audio_float_denoised = nr.reduce_noise(
-                        y=audio_float,
-                        sr=sample_rate,
-                        stationary=False,  # Adaptive mode for intermittent noise
-                        time_constant_s=2.0,  # 2-second window for noise floor estimation
-                        freq_mask_smooth_hz=500,  # Smooth mask across 500 Hz bands
-                        time_mask_smooth_ms=50,  # Smooth mask across 50 ms time frames
-                        prop_decrease=0.8,  # Remove 80% of detected noise (preserve some dynamics)
-                        n_jobs=1  # Single-threaded for real-time processing
-                    )
-                    audio_float = audio_float_denoised
-                    
-                    if frame_count == 1:
-                        logger.info(
-                            f"[DEBUG-CAPTURE] {peer_id} Noise reduction enabled: "
-                            f"non-stationary mode, time_const=2.0s, freq_smooth=500Hz, "
-                            f"time_smooth=50ms, prop_decrease=0.8"
-                        )
-                except Exception as e:
-                    # If noise reduction fails, continue with original audio
-                    logger.warning(
-                        f"[DEBUG-CAPTURE] {peer_id} Noise reduction failed on frame {frame_count}: {e}. "
-                        f"Continuing with original audio."
-                    )
-                
-                # LAYER 3: Resample to 16kHz with anti-aliasing filter + adaptive noise gate
+                # LAYER 3: Resample to 16kHz with STRONG anti-aliasing filter + adaptive noise gate
+                # Microphone produces high-frequency hiss (>8kHz) that folds into audible crackle during downsampling
                 if sample_rate != 16000:
-                    # ANTI-ALIASING: Apply low-pass filter BEFORE downsampling
-                    # Target Nyquist: 8kHz for 16kHz output → cutoff at 7.5kHz (safety margin)
-                    # This prevents high-frequency noise (>8kHz) from folding into audible range
+                    # STRONG ANTI-ALIASING: Apply aggressive low-pass filter BEFORE downsampling
+                    # Microphone hiss above 6kHz needs to be removed to prevent crackle
                     nyquist_freq = sample_rate / 2
-                    cutoff_freq = 7500  # 7.5kHz cutoff for 16kHz target
+                    cutoff_freq = 6000  # Lower cutoff: 6kHz instead of 7.5kHz (more aggressive)
                     
                     # Only filter if we need to remove frequencies above cutoff
                     if nyquist_freq > cutoff_freq:
-                        # Butterworth low-pass filter (4th order for smooth rolloff)
+                        # 6th-order Butterworth for steeper rolloff (was 4th order)
+                        # Stronger filtering to eliminate microphone hiss before downsampling
                         normalized_cutoff = cutoff_freq / nyquist_freq
-                        sos = butter(4, normalized_cutoff, btype='low', output='sos')
+                        sos = butter(6, normalized_cutoff, btype='low', output='sos')
                         audio_float = sosfiltfilt(sos, audio_float)
                         audio_float = np.clip(audio_float, -1.0, 1.0)
+                        
+                        if frame_count == 1:
+                            print(
+                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
+                                f"6th-order Butterworth low-pass at {cutoff_freq}Hz (Nyquist={nyquist_freq}Hz) "
+                                f"to prevent hiss→crackle aliasing", 
+                                flush=True
+                            )
+                            logger.info(
+                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
+                                f"6th-order Butterworth low-pass at {cutoff_freq}Hz to prevent hiss→crackle aliasing"
+                            )
                     
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
@@ -716,18 +699,18 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
                     
                     # ADAPTIVE NOISE GATE with EMA (Exponential Moving Average)
-                    # Track noise floor using EMA for frequency-aware gating
+                    # Back to moderate settings - gate after strong anti-aliasing
                     if not hasattr(info, '_noise_ema'):
                         info['_noise_ema'] = 0.001  # Initial noise floor estimate
                     
                     frame_rms = np.sqrt(np.mean(audio_16k**2))
-                    alpha = 0.1  # EMA smoothing factor (lower = more stable)
+                    alpha = 0.1  # Standard EMA smoothing
                     
                     # Update noise floor estimate only during quiet frames
                     if frame_rms < info['_noise_ema'] * 1.5:
                         info['_noise_ema'] = alpha * frame_rms + (1 - alpha) * info['_noise_ema']
                     
-                    # Gate: Zero out frames below 2x adaptive noise floor
+                    # Standard gate threshold - anti-aliasing should have removed most noise
                     adaptive_threshold = info['_noise_ema'] * 2.0
                     if frame_rms < adaptive_threshold:
                         audio_16k = np.zeros_like(audio_16k)
