@@ -487,8 +487,10 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         flush=True,
                     )
                     start_t4 = time.time()
+                    # Get language preference from session config or default to None (auto-detect)
+                    target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
                     transcription_16k = whisper_model.transcribe_audio_bytes(
-                        audio_bytes_16k, audio_format="pcm_raw", language="en"
+                        audio_bytes_16k, audio_format="pcm_raw", language=target_language
                     )
                     latency_16k = (time.time() - start_t4) * 1000
 
@@ -512,8 +514,10 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                             flush=True,
                         )
                         start_t5 = time.time()
+                        # Use same language preference as Layer 4
+                        target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
                         transcription_48k = whisper_model.transcribe_audio_bytes(
-                            audio_bytes_48k, audio_format="pcm_raw", language="en"
+                            audio_bytes_48k, audio_format="pcm_raw", language=target_language
                         )
                         latency_48k = (time.time() - start_t5) * 1000
 
