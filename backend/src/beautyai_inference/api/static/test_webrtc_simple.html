@@ -190,6 +190,18 @@
             <span class="status-label">Segments Received:</span>
             <span class="status-value" id="segmentCount">0</span>
         </div>
+        <div class="status-item" style="background: #fff3e0;">
+            <span class="status-label">⚡ Avg Whisper Latency:</span>
+            <span class="status-value" id="avgLatency">—</span>
+        </div>
+        <div class="status-item" style="background: #e8f5e9;">
+            <span class="status-label">🏆 Best Latency:</span>
+            <span class="status-value" id="bestLatency">—</span>
+        </div>
+        <div class="status-item" style="background: #ffebee;">
+            <span class="status-label">🐌 Worst Latency:</span>
+            <span class="status-value" id="worstLatency">—</span>
+        </div>
         <div class="transcription-text" id="transcriptionText">
             <p style="color: #999; font-style: italic;">Transcriptions will appear here as you speak...</p>
         </div>
@@ -243,6 +255,7 @@
         let transcriptionInterval = null;
         let lastTranscriptionCount = 0;
         let minimumCaptureTime = 5000; // 5 seconds minimum capture time
+        let latencies = []; // Track all latencies for statistics
         
         function log(msg, type = 'info') {
             const div = document.getElementById('log');
@@ -289,6 +302,12 @@
                         const layer = t.layer === 'Layer4_16kHz' ? 'L4' : 'L5';
                         const latency = t.latency_ms ? `(${t.latency_ms.toFixed(0)}ms)` : '';
                         
+                        // Track latency statistics
+                        if (t.latency_ms && t.layer === 'Layer4_16kHz') {
+                            latencies.push(t.latency_ms);
+                            updateLatencyStats();
+                        }
+                        
                         p.innerHTML = `<span class="timestamp">[${timestamp}] ${layer} ${latency}</span><span class="segment-text">${t.text}</span>`;
                         transcriptionDiv.appendChild(p);
                         
@@ -310,12 +329,28 @@
             }
         }
         
+        function updateLatencyStats() {
+            if (latencies.length === 0) return;
+            
+            const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
+            const best = Math.min(...latencies);
+            const worst = Math.max(...latencies);
+            
+            document.getElementById('avgLatency').textContent = `${avg.toFixed(1)}ms`;
+            document.getElementById('bestLatency').textContent = `${best.toFixed(0)}ms ⚡`;
+            document.getElementById('worstLatency').textContent = `${worst.toFixed(0)}ms`;
+        }
+        
         function startTranscriptionPolling() {
             lastTranscriptionCount = 0;
+            latencies = []; // Reset latency tracking
             document.getElementById('transcriptionText').innerHTML = '<p style="color: #999; font-style: italic;">Listening for speech...</p>';
             document.getElementById('transcriptionStatus').textContent = 'Listening...';
             document.getElementById('transcriptionStatus').style.color = '#2196f3';
             document.getElementById('segmentCount').textContent = '0';
+            document.getElementById('avgLatency').textContent = '—';
+            document.getElementById('bestLatency').textContent = '—';
+            document.getElementById('worstLatency').textContent = '—';
             
             // Poll every 1 second for faster updates
             transcriptionInterval = setInterval(fetchTranscriptions, 1000);
