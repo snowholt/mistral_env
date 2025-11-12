@@ -36,6 +36,8 @@ from ...utils.dtln_wrapper import DTLNProcessor
 from ...utils.deepfilternet_wrapper import DeepFilterNetProcessor
 from ...utils.nsnet2_wrapper import SpectralGatingProcessor
 from ...utils.comb_filter import CombFilter
+from ...utils.percentile_gate import PercentileNoiseGate
+from ...utils.transient_suppressor import TransientSuppressor
 
 logger = logging.getLogger(__name__)
 
@@ -145,11 +147,13 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "data_channel": None,
             "capture_task": None,
             "layer_48khz_raw": [],
+            "layer_15_transient_48khz": [],  # NEW: Layer 1.5 - Transient Suppression @ 48kHz
             "layer_48khz_float": [],
             "layer_16khz": [],
             "layer_16khz_vad_filtered": [],  # NEW: VAD-filtered audio only (speech segments)
             "layer_48khz_vad_filtered": [],  # Layer 5: 48kHz VAD-filtered
             "layer_31_ema_16khz": [],  # EXPERIMENTAL: Layer 3.1 - EMA noise reduction @ 16kHz
+            "layer_31b_percentile_16khz": [],  # NEW: Layer 3.1b - Percentile Gate @ 16kHz
             "layer_32_rnnoise_16khz": [],  # EXPERIMENTAL: Layer 3.2 - RNNoise @ 16kHz
             "layer_33_dtln_16khz": [],  # EXPERIMENTAL: Layer 3.3 - DTLN @ 16kHz
             "layer_34_deepfilternet_16khz": [],  # EXPERIMENTAL: Layer 3.4 - DeepFilterNet @ 16kHz
@@ -244,7 +248,8 @@ async def handle_debug_offer(request: DebugOfferRequest):
         capture_info["comb_enabled"] = False
         try:
             # Target 80 Hz fundamental frequency (buffer underrun artifact)
-            comb_proc = CombFilter(sample_rate=16000, fundamental_freq=80.0, quality_factor=30.0)
+            # Q=2.0 for wider notches to reduce ringing artifacts (was 30.0)
+            comb_proc = CombFilter(sample_rate=16000, fundamental_freq=80.0, quality_factor=2.0)
             capture_info["comb_processor"] = comb_proc
             capture_info["comb_enabled"] = True
             print(f"[DEBUG-CAPTURE] {peer_id} ✅ Comb Filter initialized for experimental Layer 3.6 (80 Hz removal)", flush=True)
@@ -252,6 +257,46 @@ async def handle_debug_offer(request: DebugOfferRequest):
         except Exception as e:
             logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter not available (will skip Layer 3.6): {e}")
             print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Comb Filter", flush=True)
+        
+        # Initialize Percentile Gate for experimental Layer 3.1b comparison (replaces broken EMA)
+        capture_info["percentile_gate_processor"] = None
+        capture_info["percentile_gate_enabled"] = False
+        try:
+            percentile_gate_proc = PercentileNoiseGate(
+                sample_rate=16000,
+                window_ms=200,
+                percentile=10.0,
+                threshold_multiplier=1.5,
+                open_threshold_db=-45.0,
+                close_threshold_db=-50.0,
+                frame_size=320  # 20ms at 16kHz
+            )
+            capture_info["percentile_gate_processor"] = percentile_gate_proc
+            capture_info["percentile_gate_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Percentile Gate initialized for experimental Layer 3.1b (adaptive noise gate)", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} Percentile Gate ready: 10th percentile, hysteresis [-50, -45] dB")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Percentile Gate not available (will skip Layer 3.1b): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Percentile Gate", flush=True)
+        
+        # Initialize Transient Suppressor for Layer 1.5 (48kHz crackle removal before downsampling)
+        capture_info["transient_suppressor"] = None
+        capture_info["transient_suppressor_enabled"] = False
+        try:
+            transient_proc = TransientSuppressor(
+                sample_rate=48000,
+                kernel_size=5,  # 5-sample median filter at 48kHz
+                threshold=0.8,  # 80% above median = transient
+                energy_window=5,
+                frame_size=960  # 20ms at 48kHz
+            )
+            capture_info["transient_suppressor"] = transient_proc
+            capture_info["transient_suppressor_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Transient Suppressor initialized for Layer 1.5 (48kHz crackle removal)", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} Transient Suppressor ready: median filter kernel=5, threshold=0.8")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Transient Suppressor not available (will skip Layer 1.5): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Transient Suppressor", flush=True)
         
         # Initialize VAD service
         try:
@@ -752,6 +797,46 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 # Save raw int16
                 layer_48khz_raw.append(audio_array.copy())
                 
+                # LAYER 1.5: Transient Suppression @ 48kHz (NEW - suppress crackles BEFORE downsampling)
+                # Gemini Recommendation: Median filtering at source sample rate prevents Butterworth smearing
+                audio_transient_suppressed = audio_array.copy()
+                if info.get("transient_suppressor_enabled") and sample_rate == 48000:
+                    try:
+                        # Convert int16 to float32 for processing
+                        if np.issubdtype(audio_transient_suppressed.dtype, np.integer):
+                            dtype_info = np.iinfo(audio_transient_suppressed.dtype)
+                            scale = float(max(abs(dtype_info.min), dtype_info.max)) or 1.0
+                            audio_transient_float = audio_transient_suppressed.astype(np.float32) / scale
+                        else:
+                            audio_transient_float = audio_transient_suppressed.astype(np.float32)
+                        
+                        # Apply transient suppression
+                        transient_proc = info["transient_suppressor"]
+                        audio_transient_float = transient_proc.process_frame(audio_transient_float)
+                        
+                        # Convert back to int16 for storage
+                        audio_transient_suppressed = (np.clip(audio_transient_float, -1.0, 1.0) * 32767).astype(np.int16)
+                        
+                        # Save Layer 1.5 output
+                        info["layer_15_transient_48khz"].append(audio_transient_suppressed.copy())
+                        
+                        # Log first frame processing
+                        if frame_count == 1:
+                            energy_stats = transient_proc.get_recent_energy_stats()
+                            if energy_stats:
+                                print(
+                                    f"[DEBUG-CAPTURE] {peer_id} 🎯 Layer 1.5 Transient Suppressor ACTIVE: "
+                                    f"median={energy_stats['median']:.6f}, threshold={energy_stats['median'] * 1.8:.6f}",
+                                    flush=True
+                                )
+                        
+                        # Use transient-suppressed audio for downstream processing
+                        audio_array = audio_transient_suppressed
+                        
+                    except Exception as e:
+                        logger.warning(f"[DEBUG-CAPTURE] {peer_id} Layer 1.5 transient suppression failed: {e}")
+                        # Fall back to original audio if suppression fails
+                
                 # LAYER 2: Convert to float32
                 if np.issubdtype(audio_array.dtype, np.integer):
                     dtype_info = np.iinfo(audio_array.dtype)
@@ -841,6 +926,26 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         # Layer 3.1: EMA-processed audio (already applied via adaptive noise gate above)
                         layer_31_ema = audio_16k.copy()
                         info["layer_31_ema_16khz"].append(layer_31_ema)
+                        
+                        # Layer 3.1b: Percentile Gate processing (NEW - replaces broken EMA)
+                        # Gemini Recommendation: Percentile-based threshold with hysteresis
+                        if info.get("percentile_gate_enabled"):
+                            try:
+                                percentile_gate_proc = info["percentile_gate_processor"]
+                                layer_31b_percentile = percentile_gate_proc.process_frame(audio_16k_original.copy())
+                                info["layer_31b_percentile_16khz"].append(layer_31b_percentile)
+                                
+                                # Log first frame processing
+                                if frame_count == 1:
+                                    noise_floor_db = percentile_gate_proc.get_noise_floor_db()
+                                    if noise_floor_db is not None:
+                                        print(
+                                            f"[DEBUG-CAPTURE] {peer_id} 🚪 Layer 3.1b Percentile Gate ACTIVE: "
+                                            f"noise_floor={noise_floor_db:.1f} dB, gate_state={percentile_gate_proc.get_gate_state():.2f}",
+                                            flush=True
+                                        )
+                            except Exception as e:
+                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Layer 3.1b percentile gate failed: {e}")
                         
                         # Layer 3.2: RNNoise processing via 16k→48k→RNNoise→16k pipeline
                         # Use the original 16kHz audio BEFORE EMA noise gate was applied
@@ -1073,6 +1178,32 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 f"{len(audio_48k_raw)/actual_sample_rate:.2f}s -> {path_48k_raw}"
             )
         
+        # Save Layer 1.5: 48kHz Transient Suppressed (NEW - crackles removed before downsampling)
+        if info.get("layer_15_transient_48khz"):
+            audio_15_transient = np.concatenate(info["layer_15_transient_48khz"])
+            print(
+                f"[DEBUG-CAPTURE] {peer_id} layer1.5 samples: {len(audio_15_transient)}",
+                flush=True,
+            )
+            
+            # Ensure int16
+            if not np.issubdtype(audio_15_transient.dtype, np.integer):
+                audio_15_transient = (np.clip(audio_15_transient, -1.0, 1.0) * 32767).astype(np.int16)
+            
+            path_15_transient = debug_dir / f"layer15_transient_{actual_sample_rate}hz.wav"
+            print(f"[DEBUG-CAPTURE] {peer_id} Writing layer1.5 to: {path_15_transient}", flush=True)
+            with wave.open(str(path_15_transient), "wb") as wav:
+                wav.setnchannels(1)
+                wav.setsampwidth(2)
+                wav.setframerate(actual_sample_rate)
+                wav.writeframes(audio_15_transient.tobytes())
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer1.5 written successfully", flush=True)
+            
+            logger.info(
+                f"[DEBUG-CAPTURE] Saved Layer 1.5 ({actual_sample_rate}Hz transient suppressed): {len(audio_15_transient)} samples, "
+                f"{len(audio_15_transient)/actual_sample_rate:.2f}s -> {path_15_transient}"
+            )
+        
         # Save Layer 2: 48kHz float (normalized)
         if info.get("layer_48khz_float"):
             audio_48k_float = np.concatenate(info["layer_48khz_float"])
@@ -1201,6 +1332,29 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 logger.info(
                     f"[DEBUG-CAPTURE] Saved Layer 3.1 (EMA noise gate, 16kHz): {len(audio_31_ema)} samples, "
                     f"{duration_31:.2f}s -> {path_31_ema}"
+                )
+            
+            # Save Layer 3.1b: Percentile Gate (16kHz) - NEW: Replaces broken EMA gate
+            if info.get("layer_31b_percentile_16khz"):
+                audio_31b_percentile = np.concatenate(info["layer_31b_percentile_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.1b (Percentile Gate) samples: {len(audio_31b_percentile)}",
+                    flush=True,
+                )
+                audio_31b_percentile_int16 = (np.clip(audio_31b_percentile, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_31b_percentile = debug_dir / f"layer31b_percentile_16khz.wav"
+                with wave.open(str(path_31b_percentile), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_31b_percentile_int16.tobytes())
+                
+                duration_31b = len(audio_31b_percentile) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1b (Percentile Gate) saved: {duration_31b:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.1b (Percentile gate, 16kHz): {len(audio_31b_percentile)} samples, "
+                    f"{duration_31b:.2f}s -> {path_31b_percentile}"
                 )
             
             # Save Layer 3.2: RNNoise (16kHz)
