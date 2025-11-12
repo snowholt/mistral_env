@@ -11,6 +11,7 @@ Usage:
 
 import argparse
 import json
+import sys
 import wave
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Any
@@ -184,6 +185,83 @@ def generate_spectrogram(audio: np.ndarray, sample_rate: int, output_path: Path,
     print(f"  📊 Saved spectrogram: {output_path}")
 
 
+def process_layer(layer_name, layer_config, baseline_audio, results, args, output_dir):
+    """Process a single audio layer."""
+    layer_path = layer_config['path']
+    if not layer_path.exists():
+        print(f"⚠️  Layer {layer_name} not found: {layer_path}")
+        return
+    
+    filter_name = layer_config['filter']
+    sample_rate_tag = layer_config['sample_rate_tag']
+    description = layer_config['description']
+    
+    print(f"📂 Analyzing Layer {layer_name} [{sample_rate_tag}] ({filter_name}): {layer_path.name}")
+    print(f"   {description}")
+    print("-" * 80)
+    
+    # Load audio
+    audio, sample_rate = load_wav(layer_path)
+    duration = len(audio) / sample_rate
+    
+    print(f"  Duration: {duration:.2f}s")
+    print(f"  Sample Rate: {sample_rate} Hz")
+    print(f"  Samples: {len(audio)}")
+    
+    # Compute spectrum
+    freqs, spectrum = compute_spectrum(audio, sample_rate, max_freq=sample_rate//2)
+    
+    # SNR
+    snr = compute_snr(audio)
+    print(f"\n  📊 Signal-to-Noise Ratio: {snr:.2f} dB")
+    
+    # Aliasing detection
+    aliasing = detect_aliasing(freqs, spectrum, sample_rate)
+    print(f"\n  🎛️  Aliasing Assessment: {aliasing['assessment']}")
+    print(f"      Danger zone energy: {aliasing['danger_zone_energy_ratio']*100:.2f}%")
+    print(f"      Nyquist frequency: {aliasing['nyquist_frequency']} Hz")
+    if aliasing['aliasing_peaks']:
+        print(f"      Aliasing peaks found: {len(aliasing['aliasing_peaks'])} peaks")
+    
+    # Crackle detection
+    crackles = analyze_crackle_artifacts(audio, sample_rate)
+    print(f"\n  ⚡ Crackle Assessment: {crackles['assessment']}")
+    print(f"      Crackle events: {crackles['crackle_count']}")
+    print(f"      Crackles per second: {crackles['crackles_per_second']:.2f}")
+    print(f"      Max discontinuity: {crackles['max_discontinuity']:.6f}")
+    
+    # Comparison with baseline
+    if baseline_audio is not None and layer_name != '3':
+        comparison = compare_layers(baseline_audio, audio)
+        print(f"\n  🔄 Comparison with Layer 3 (baseline):")
+        print(f"      Correlation: {comparison['correlation']:.4f}")
+        print(f"      RMS reduction: {comparison['rms_reduction_percent']:.2f}%")
+    
+    # Store results with metadata
+    results[layer_name] = {
+        "layer": f"Layer {layer_name}",
+        "filter": filter_name,
+        "sample_rate_tag": sample_rate_tag,
+        "description": description,
+        "file_name": layer_path.name,
+        "duration_s": duration,
+        "sample_rate": sample_rate,
+        "snr_db": snr,
+        "aliasing": aliasing,
+        "crackles": crackles
+    }
+    
+    # Generate visualizations with proper naming
+    if args.visualize:
+        # Format: spectrogram_Layer3_Baseline_16kHz.png
+        spec_filename = f"spectrogram_Layer{layer_name}_{filter_name}_{sample_rate_tag}.png"
+        spectrogram_path = output_dir / spec_filename
+        plot_title = f"Layer {layer_name} - {filter_name} ({sample_rate_tag})"
+        generate_spectrogram(audio, sample_rate, spectrogram_path, plot_title)
+    
+    print()
+
+
 def main():
     parser = argparse.ArgumentParser(description='Analyze audio noise characteristics')
     parser.add_argument('--layer', type=str, choices=['all', '3', '31', '32', '4'], default='all',
@@ -199,19 +277,67 @@ def main():
     output_dir = Path(__file__).resolve().parents[1] / "reports/debug/analysis"
     output_dir.mkdir(parents=True, exist_ok=True)
     
+    # Layer configuration with metadata (path, filter_name, sample_rate)
     layers = {
-        '3': audio_dir / "layer3_16khz.wav",          # Baseline (downsampled, no noise reduction)
-        '31': audio_dir / "layer31_ema_16khz.wav",    # EMA noise gate
-        '32': audio_dir / "layer32_rnnoise_16khz.wav", # RNNoise
-        '33': audio_dir / "layer33_dtln_16khz.wav",   # DTLN
-        '34': audio_dir / "layer34_deepfilternet_16khz.wav", # DeepFilterNet
-        '35': audio_dir / "layer35_nsnet2_16khz.wav", # Spectral Gating
-        '36': audio_dir / "layer36_comb_16khz.wav",   # Comb Filter (80 Hz removal)
-        '4': audio_dir / "layer4_16khz_vad_filtered.wav" # VAD filtered
+        # 48kHz layers
+        '1': {
+            'path': audio_dir / "layer1_48000hz_raw.wav",
+            'filter': 'Raw',
+            'sample_rate_tag': '48kHz',
+            'description': 'Raw 48kHz from WebRTC'
+        },
+        '2': {
+            'path': audio_dir / "layer2_48000hz_float.wav",
+            'filter': 'Normalized',
+            'sample_rate_tag': '48kHz',
+            'description': 'Normalized 48kHz float'
+        },
+        # 16kHz layers
+        '3': {
+            'path': audio_dir / "layer3_16khz.wav",
+            'filter': 'Baseline',
+            'sample_rate_tag': '16kHz',
+            'description': 'Baseline (downsampled, no noise reduction)'
+        },
+        '31': {
+            'path': audio_dir / "layer31_ema_16khz.wav",
+            'filter': 'EMA',
+            'sample_rate_tag': '16kHz',
+            'description': 'EMA noise gate'
+        },
+        '32': {
+            'path': audio_dir / "layer32_rnnoise_16khz.wav",
+            'filter': 'RNNoise',
+            'sample_rate_tag': '16kHz',
+            'description': 'RNNoise denoiser'
+        },
+        '33': {
+            'path': audio_dir / "layer33_dtln_16khz.wav",
+            'filter': 'DTLN',
+            'sample_rate_tag': '16kHz',
+            'description': 'DTLN denoiser'
+        },
+        '35': {
+            'path': audio_dir / "layer35_nsnet2_16khz.wav",
+            'filter': 'SpectralGating',
+            'sample_rate_tag': '16kHz',
+            'description': 'Spectral Gating'
+        },
+        '36': {
+            'path': audio_dir / "layer36_comb_16khz.wav",
+            'filter': 'CombFilter_80Hz',
+            'sample_rate_tag': '16kHz',
+            'description': 'Comb Filter (80 Hz removal)'
+        }
     }
     
     if args.layer != 'all':
-        layers = {args.layer: layers[args.layer]}
+        if args.layer in layers:
+            layers = {args.layer: layers[args.layer]}
+        else:
+            print(f"❌ Invalid layer: {args.layer}")
+            print(f"Available layers: {', '.join(layers.keys())}")
+            sys.exit(1)
     
     results = {}
     
@@ -221,69 +347,31 @@ def main():
     
     # Load baseline (Layer 3) for comparison
     baseline_audio, baseline_sr = None, None
-    if (audio_dir / "layer3_16khz.wav").exists():
-        baseline_audio, baseline_sr = load_wav(audio_dir / "layer3_16khz.wav")
+    baseline_layer = layers.get('3')
+    if baseline_layer and baseline_layer['path'].exists():
+        baseline_audio, baseline_sr = load_wav(baseline_layer['path'])
     
-    for layer_name, layer_path in layers.items():
-        if not layer_path.exists():
-            print(f"⚠️  Layer {layer_name} not found: {layer_path}")
-            continue
+    # Group layers by sample rate for organized output
+    layers_48k = {k: v for k, v in layers.items() if v['sample_rate_tag'] == '48kHz'}
+    layers_16k = {k: v for k, v in layers.items() if v['sample_rate_tag'] == '16kHz'}
+    
+    # Process 48kHz layers first
+    if layers_48k:
+        print("┌" + "─"*78 + "┐")
+        print("│" + " "*25 + "48 kHz LAYERS" + " "*40 + "│")
+        print("└" + "─"*78 + "┘\n")
         
-        print(f"📂 Analyzing Layer {layer_name}: {layer_path.name}")
-        print("-" * 80)
+        for layer_name, layer_config in layers_48k.items():
+            process_layer(layer_name, layer_config, baseline_audio, results, args, output_dir)
+    
+    # Process 16kHz layers
+    if layers_16k:
+        print("\n" + "┌" + "─"*78 + "┐")
+        print("│" + " "*25 + "16 kHz LAYERS" + " "*40 + "│")
+        print("└" + "─"*78 + "┘\n")
         
-        # Load audio
-        audio, sample_rate = load_wav(layer_path)
-        duration = len(audio) / sample_rate
-        
-        print(f"  Duration: {duration:.2f}s")
-        print(f"  Sample Rate: {sample_rate} Hz")
-        print(f"  Samples: {len(audio)}")
-        
-        # Compute spectrum
-        freqs, spectrum = compute_spectrum(audio, sample_rate, max_freq=sample_rate//2)
-        
-        # SNR
-        snr = compute_snr(audio)
-        print(f"\n  📊 Signal-to-Noise Ratio: {snr:.2f} dB")
-        
-        # Aliasing detection
-        aliasing = detect_aliasing(freqs, spectrum, sample_rate)
-        print(f"\n  🎛️  Aliasing Assessment: {aliasing['assessment']}")
-        print(f"      Danger zone energy: {aliasing['danger_zone_energy_ratio']*100:.2f}%")
-        print(f"      Nyquist frequency: {aliasing['nyquist_frequency']} Hz")
-        if aliasing['aliasing_peaks']:
-            print(f"      Aliasing peaks found: {len(aliasing['aliasing_peaks'])} peaks")
-        
-        # Crackle detection
-        crackles = analyze_crackle_artifacts(audio, sample_rate)
-        print(f"\n  ⚡ Crackle Assessment: {crackles['assessment']}")
-        print(f"      Crackle events: {crackles['crackle_count']}")
-        print(f"      Crackles per second: {crackles['crackles_per_second']:.2f}")
-        print(f"      Max discontinuity: {crackles['max_discontinuity']:.6f}")
-        
-        # Comparison with baseline
-        if baseline_audio is not None and layer_name != '3':
-            comparison = compare_layers(baseline_audio, audio)
-            print(f"\n  🔄 Comparison with Layer 3 (baseline):")
-            print(f"      Correlation: {comparison['correlation']:.4f}")
-            print(f"      RMS reduction: {comparison['rms_reduction_percent']:.2f}%")
-        
-        # Store results
-        results[layer_name] = {
-            "duration_s": duration,
-            "sample_rate": sample_rate,
-            "snr_db": snr,
-            "aliasing": aliasing,
-            "crackles": crackles
-        }
-        
-        # Generate visualizations
-        if args.visualize:
-            spectrogram_path = output_dir / f"spectrogram_layer{layer_name}.png"
-            generate_spectrogram(audio, sample_rate, spectrogram_path, f"Layer {layer_name} Spectrogram")
-        
-        print()
+        for layer_name, layer_config in layers_16k.items():
+            process_layer(layer_name, layer_config, baseline_audio, results, args, output_dir)
     
     # Comparison summary
     if args.compare and '31' in results and '32' in results:
@@ -308,12 +396,24 @@ def main():
         print(f"  EMA:     {ema['aliasing']['assessment']} ({ema['aliasing']['danger_zone_energy_ratio']*100:.2f}%)")
         print(f"  RNNoise: {rnnoise['aliasing']['assessment']} ({rnnoise['aliasing']['danger_zone_energy_ratio']*100:.2f}%)")
     
-    # Save JSON report
+    # Save JSON report with metadata
     report_path = output_dir / "noise_analysis_report.json"
+    
+    # Create organized report structure
+    organized_report = {
+        "analysis_timestamp": Path(report_path).stat().st_mtime if report_path.exists() else None,
+        "summary": {
+            "total_layers_analyzed": len(results),
+            "layers_48kHz": [k for k, v in results.items() if v['sample_rate_tag'] == '48kHz'],
+            "layers_16kHz": [k for k, v in results.items() if v['sample_rate_tag'] == '16kHz']
+        },
+        "layers": results
+    }
+    
     with open(report_path, 'w') as f:
         # Convert numpy types to native Python types for JSON serialization
-        results_native = convert_to_native_types(results)
-        json.dump(results_native, f, indent=2)
+        report_native = convert_to_native_types(organized_report)
+        json.dump(report_native, f, indent=2)
     
     print("\n" + "="*80)
     print(f"✅ Analysis complete! Report saved to: {report_path}")
