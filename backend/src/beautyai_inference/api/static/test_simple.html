@@ -194,6 +194,87 @@
             display: block;
         }
         
+        .test-script {
+            margin-top: 24px;
+            padding: 20px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            border-radius: 12px;
+            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+            color: white;
+        }
+        
+        .test-script h3 {
+            margin-top: 0;
+            font-size: 18px;
+            font-weight: 600;
+            margin-bottom: 12px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        .test-script p {
+            font-size: 15px;
+            line-height: 1.8;
+            margin: 0;
+            background: rgba(255,255,255,0.1);
+            padding: 15px;
+            border-radius: 8px;
+            border-left: 4px solid rgba(255,255,255,0.5);
+            font-family: 'Courier New', monospace;
+        }
+        
+        .connection-indicator {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .connection-indicator.disconnected {
+            background: #f44336;
+            color: white;
+        }
+        
+        .connection-indicator.connecting {
+            background: #ff9800;
+            color: white;
+            animation: pulse 1.5s ease-in-out infinite;
+        }
+        
+        .connection-indicator.connected {
+            background: #4caf50;
+            color: white;
+        }
+        
+        .connection-indicator::before {
+            content: '';
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            background: currentColor;
+            animation: blink 2s ease-in-out infinite;
+        }
+        
+        .connection-indicator.connected::before {
+            animation: none;
+            box-shadow: 0 0 8px currentColor;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        @keyframes blink {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.3; }
+        }
+        
         .transcription-live {
             margin-top: 24px;
             padding: 24px;
@@ -348,11 +429,23 @@
         <h1>🎤 WebRTC Audio Debug Tool</h1>
         <p>This tool captures audio via WebRTC and saves it at multiple processing layers for debugging. <strong style="color: #ff0066; font-size: 18px; background: yellow; padding: 5px;">⚡ Version 2.3-ENHANCED (Noise Suppression + Live Transcription) - Nov 7, 17:15 UTC ⚡</strong></p>
         
-        <button class="hard-refresh-btn" onclick="hardRefresh()">🔄 Hard Refresh (Clear Cache)</button>
-        <button id="start" onclick="start()">🎤 Start Capture</button>
-        <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
+        <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;">
+            <button class="hard-refresh-btn" onclick="hardRefresh()">🔄 Hard Refresh (Clear Cache)</button>
+            <button id="start" onclick="start()">🎤 Start Capture</button>
+            <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
+            <div class="connection-indicator disconnected" id="connectionIndicator">
+                <span id="connectionIndicatorText">Disconnected</span>
+            </div>
+        </div>
         
         <canvas id="visualizer"></canvas>
+        
+        <div class="test-script">
+            <h3>📝 Suggested Test Script</h3>
+            <p>Hi there, this is a short audio test for voice detection. I'll speak softly… then a bit louder.<br>
+Sometimes I'll pause… just like this.<br>
+Let's see how clearly the system catches my voice, even with small background sounds or breathing noise.</p>
+        </div>
         
         <div class="transcription-live">
             <h3>🎯 Live Transcription Feed</h3>
@@ -423,6 +516,24 @@
         function updateStatus(field, value) {
             const el = document.getElementById(field);
             if (el) el.textContent = value;
+        }
+        
+        function updateConnectionIndicator(state) {
+            const indicator = document.getElementById('connectionIndicator');
+            const text = document.getElementById('connectionIndicatorText');
+            
+            indicator.classList.remove('disconnected', 'connecting', 'connected');
+            
+            if (state === 'connected' || state === 'completed') {
+                indicator.classList.add('connected');
+                text.textContent = '✓ Connected - Ready to speak!';
+            } else if (state === 'checking' || state === 'new') {
+                indicator.classList.add('connecting');
+                text.textContent = 'Connecting...';
+            } else {
+                indicator.classList.add('disconnected');
+                text.textContent = 'Disconnected';
+            }
         }
         
         async function fetchTranscriptions() {
@@ -644,6 +755,7 @@
                     const state = pc.iceConnectionState;
                     log(`🔌 ICE: ${state}`, state === 'connected' ? 'success' : 'info');
                     updateStatus('connectionState', state);
+                    updateConnectionIndicator(state);
                     
                     if (state === 'connected' || state === 'completed') {
                         log('🎉 Connection established! Audio is streaming to server...', 'success');
@@ -882,6 +994,7 @@
             document.getElementById('stop').disabled = true;
             updateStatus('connectionState', 'Disconnected');
             updateStatus('audioLevel', '—');
+            updateConnectionIndicator('disconnected');
         }
     </script>
 </body>

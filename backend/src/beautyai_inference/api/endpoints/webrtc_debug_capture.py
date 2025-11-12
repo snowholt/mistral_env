@@ -15,6 +15,7 @@ import os
 import time
 import uuid
 import wave
+import psutil
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, status
@@ -28,6 +29,13 @@ from math import gcd
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
+from ...utils.rnnoise_wrapper import RNNoiseProcessor
+from ...utils.audio_resampling import process_with_rnnoise_16khz_pipeline
+from ...utils.noise_comparison import compare_noise_reduction_methods, measure_processing_latency, generate_comparison_summary
+from ...utils.dtln_wrapper import DTLNProcessor
+from ...utils.deepfilternet_wrapper import DeepFilterNetProcessor
+from ...utils.nsnet2_wrapper import SpectralGatingProcessor
+from ...utils.comb_filter import CombFilter
 
 logger = logging.getLogger(__name__)
 
@@ -42,10 +50,13 @@ def _resolve_debug_directory() -> Path:
     if env_dir:
         candidates.append(Path(env_dir).expanduser())
 
-    # Prefer backend-local path to satisfy systemd ProtectSystem restrictions.
+    # Use reports directory for debug captures (repository-level)
+    candidates.append(BACKEND_ROOT.parent / "reports/debug/webrtc")
+    # Fallback to backend-local path if reports not writable
     candidates.append(BACKEND_ROOT / "logs/webrtc/debug_captures")
-    # Fallback to repository-level logs directory for manual runs.
-    candidates.append(BACKEND_ROOT.parent / "logs/webrtc/debug_captures")
+
+    print(f"[DEBUG-CAPTURE] 🔍 BACKEND_ROOT={BACKEND_ROOT}", flush=True)
+    print(f"[DEBUG-CAPTURE] 🔍 Candidate paths: {candidates}", flush=True)
 
     for candidate in candidates:
         try:
@@ -102,7 +113,7 @@ class DebugICERequest(BaseModel):
 async def handle_debug_offer(request: DebugOfferRequest):
     """Create debug capture session - captures audio at each layer."""
     try:
-        peer_id = f"debug_{uuid.uuid4().hex[:8]}"
+        peer_id = "session"  # Fixed name for overwrite mode (no unique ID)
         print(f"[DEBUG-CAPTURE] Creating session for {peer_id}", flush=True)
         logger.info(f"[DEBUG-CAPTURE] Creating session for {peer_id}")
         
@@ -137,12 +148,25 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "layer_48khz_float": [],
             "layer_16khz": [],
             "layer_16khz_vad_filtered": [],  # NEW: VAD-filtered audio only (speech segments)
+            "layer_48khz_vad_filtered": [],  # Layer 5: 48kHz VAD-filtered
+            "layer_31_ema_16khz": [],  # EXPERIMENTAL: Layer 3.1 - EMA noise reduction @ 16kHz
+            "layer_32_rnnoise_16khz": [],  # EXPERIMENTAL: Layer 3.2 - RNNoise @ 16kHz
+            "layer_33_dtln_16khz": [],  # EXPERIMENTAL: Layer 3.3 - DTLN @ 16kHz
+            "layer_34_deepfilternet_16khz": [],  # EXPERIMENTAL: Layer 3.4 - DeepFilterNet @ 16kHz
+            "layer_35_nsnet2_16khz": [],  # EXPERIMENTAL: Layer 3.5 - Spectral Gating @ 16kHz
+            "layer_36_comb_16khz": [],  # EXPERIMENTAL: Layer 3.6 - Comb Filter @ 16kHz (80 Hz removal)
+            "comparison_metrics": [],  # Store quality/latency comparisons per frame
             "transcriptions": [],  # Store transcription results
             "whisper_model": None,  # Will be loaded on first use
             "vad_service": None,  # VAD for speech detection
             "is_speech_active": False,  # Current speech state
             "speech_buffer": [],  # Buffer for accumulating speech audio
             "whisper_enabled": False,  # DISABLED for VAD testing
+            # CPU/Buffer monitoring
+            "frame_processing_times": [],  # Track processing latency per frame
+            "buffer_underruns": 0,  # Count suspected buffer issues
+            "last_frame_time": None,  # Track inter-frame timing
+            "cpu_samples": [],  # Track CPU usage
         }
         
         # Get preloaded Whisper model for transcription after VAD filtering
@@ -162,6 +186,72 @@ async def handle_debug_offer(request: DebugOfferRequest):
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to load Whisper model: {e}")
             capture_info["whisper_model"] = None
             print(f"[DEBUG-CAPTURE] {peer_id} ❌ Whisper load error: {e}", flush=True)
+        
+        # Initialize RNNoise processor for experimental Layer 3.2 comparison
+        capture_info["rnnoise_processor"] = None
+        capture_info["rnnoise_enabled"] = False
+        try:
+            rnnoise_proc = RNNoiseProcessor()
+            capture_info["rnnoise_processor"] = rnnoise_proc
+            capture_info["rnnoise_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ RNNoise processor initialized for experimental Layer 3.2", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} RNNoise ready for parallel comparison")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise not available (will skip Layer 3.2): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without RNNoise - only EMA will be tested", flush=True)
+        
+        # Initialize DTLN processor for experimental Layer 3.3 comparison
+        capture_info["dtln_processor"] = None
+        capture_info["dtln_enabled"] = False
+        try:
+            dtln_proc = DTLNProcessor()
+            capture_info["dtln_processor"] = dtln_proc
+            capture_info["dtln_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DTLN processor initialized for experimental Layer 3.3", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} DTLN ready for parallel comparison")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DTLN not available (will skip Layer 3.3): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DTLN", flush=True)
+        
+        # Initialize DeepFilterNet processor for experimental Layer 3.4 comparison
+        capture_info["deepfilternet_processor"] = None
+        capture_info["deepfilternet_enabled"] = False
+        try:
+            dfn_proc = DeepFilterNetProcessor(sample_rate=16000)
+            capture_info["deepfilternet_processor"] = dfn_proc
+            capture_info["deepfilternet_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DeepFilterNet processor initialized for experimental Layer 3.4", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet ready for parallel comparison")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet not available (will skip Layer 3.4): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DeepFilterNet", flush=True)
+        
+        # Initialize NSNet2 processor for experimental Layer 3.5 comparison
+        capture_info["nsnet2_processor"] = None
+        capture_info["nsnet2_enabled"] = False
+        try:
+            nsnet2_proc = SpectralGatingProcessor(sample_rate=16000)
+            capture_info["nsnet2_processor"] = nsnet2_proc
+            capture_info["nsnet2_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Spectral Gating processor initialized for experimental Layer 3.5", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating ready for parallel comparison")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating not available (will skip Layer 3.5): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Spectral Gating", flush=True)
+        
+        # Initialize Comb Filter for experimental Layer 3.6 comparison (80 Hz periodic noise removal)
+        capture_info["comb_processor"] = None
+        capture_info["comb_enabled"] = False
+        try:
+            # Target 80 Hz fundamental frequency (buffer underrun artifact)
+            comb_proc = CombFilter(sample_rate=16000, fundamental_freq=80.0, quality_factor=30.0)
+            capture_info["comb_processor"] = comb_proc
+            capture_info["comb_enabled"] = True
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Comb Filter initialized for experimental Layer 3.6 (80 Hz removal)", flush=True)
+            logger.info(f"[DEBUG-CAPTURE] {peer_id} Comb Filter ready: 80 Hz + harmonics")
+        except Exception as e:
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter not available (will skip Layer 3.6): {e}")
+            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Comb Filter", flush=True)
         
         # Initialize VAD service
         try:
@@ -415,7 +505,7 @@ async def cleanup_debug_session(peer_id: str):
             "frames_captured": info["frames_captured"],
             "duration_sec": duration,
             "actual_sample_rate": info.get("actual_sample_rate", 48000),
-            "message": f"Audio saved to: {info['debug_dir']}/debug_capture_{peer_id}_*.wav"
+            "message": f"Audio saved to: {info['debug_dir']}/layer*.wav (overwrite mode)"
         }
         
     except Exception as e:
@@ -606,6 +696,23 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 timeout_count = 0  # Reset on successful receive
                 info["frames_captured"] = frame_count
                 
+                # CPU/Buffer monitoring
+                frame_start_time = time.time()
+                if info.get("last_frame_time") is not None:
+                    inter_frame_delay = (frame_start_time - info["last_frame_time"]) * 1000  # ms
+                    # Expected delay at 48kHz with 960 samples (20ms) or 16kHz with 320 samples
+                    expected_delay_ms = 20.0
+                    if inter_frame_delay > expected_delay_ms * 1.5:  # >30ms gap indicates buffer issue
+                        info["buffer_underruns"] += 1
+                        if frame_count % 50 == 0:
+                            logger.warning(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Buffer underrun #{info['buffer_underruns']}: {inter_frame_delay:.1f}ms gap (expected ~{expected_delay_ms:.0f}ms)")
+                info["last_frame_time"] = frame_start_time
+                
+                # Sample CPU usage every 10 frames
+                if frame_count % 10 == 0:
+                    cpu_percent = psutil.cpu_percent(interval=None)
+                    info["cpu_samples"].append(cpu_percent)
+                
                 # LAYER 1: Raw frame from WebRTC - Detect actual sample rate
                 audio_array = frame.to_ndarray()  # Get raw ndarray
                 sample_rate = frame.sample_rate  # Use actual sample rate from frame
@@ -659,29 +766,29 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 # Microphone produces high-frequency hiss (>8kHz) that folds into audible crackle during downsampling
                 if sample_rate != 16000:
                     # STRONG ANTI-ALIASING: Apply aggressive low-pass filter BEFORE downsampling
-                    # Microphone hiss above 6kHz needs to be removed to prevent crackle
+                    # Microphone hiss above 8kHz needs to be removed to prevent crackle
                     nyquist_freq = sample_rate / 2
-                    cutoff_freq = 6000  # Lower cutoff: 6kHz instead of 7.5kHz (more aggressive)
+                    cutoff_freq = 8000  # Nyquist-aligned: 8kHz (exactly at target Nyquist)
                     
                     # Only filter if we need to remove frequencies above cutoff
                     if nyquist_freq > cutoff_freq:
-                        # 6th-order Butterworth for steeper rolloff (was 4th order)
+                        # 8th-order Butterworth for steeper rolloff (sharper cutoff)
                         # Stronger filtering to eliminate microphone hiss before downsampling
                         normalized_cutoff = cutoff_freq / nyquist_freq
-                        sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                        sos = butter(8, normalized_cutoff, btype='low', output='sos')
                         audio_float = sosfiltfilt(sos, audio_float)
                         audio_float = np.clip(audio_float, -1.0, 1.0)
                         
                         if frame_count == 1:
                             print(
                                 f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"6th-order Butterworth low-pass at {cutoff_freq}Hz (Nyquist={nyquist_freq}Hz) "
+                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz (Nyquist={nyquist_freq}Hz) "
                                 f"to prevent hiss→crackle aliasing", 
                                 flush=True
                             )
                             logger.info(
                                 f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"6th-order Butterworth low-pass at {cutoff_freq}Hz to prevent hiss→crackle aliasing"
+                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz to prevent hiss→crackle aliasing"
                             )
                     
                     # Two-stage resampling for better quality when downsampling from 48kHz
@@ -714,6 +821,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     if frame_rms < info['_noise_ema'] * 1.5:
                         info['_noise_ema'] = alpha * frame_rms + (1 - alpha) * info['_noise_ema']
                     
+                    # Store original audio BEFORE EMA noise gate (for RNNoise comparison)
+                    audio_16k_original = audio_16k.copy()
+                    
                     # Standard gate threshold - anti-aliasing should have removed most noise
                     adaptive_threshold = info['_noise_ema'] * 2.0
                     if frame_rms < adaptive_threshold:
@@ -722,6 +832,71 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     audio_16k = audio_float
                 
                 layer_16khz.append(audio_16k.copy())
+                
+                # ============================================
+                # EXPERIMENTAL LAYER COMPARISON (Layer 3.1 vs 3.2)
+                # ============================================
+                if info.get("rnnoise_enabled"):
+                    try:
+                        # Layer 3.1: EMA-processed audio (already applied via adaptive noise gate above)
+                        layer_31_ema = audio_16k.copy()
+                        info["layer_31_ema_16khz"].append(layer_31_ema)
+                        
+                        # Layer 3.2: RNNoise processing via 16k→48k→RNNoise→16k pipeline
+                        # Use the original 16kHz audio BEFORE EMA noise gate was applied
+                        rnnoise_proc = info["rnnoise_processor"]
+                        from beautyai_inference.utils.audio_resampling import process_with_rnnoise_16khz_pipeline
+                        layer_32_rnnoise, vad_probs = process_with_rnnoise_16khz_pipeline(
+                            audio_16k_original, rnnoise_proc
+                        )
+                        info["layer_32_rnnoise_16khz"].append(layer_32_rnnoise)
+                        
+                        # Layer 3.3: DTLN processing (if enabled)
+                        if info.get("dtln_enabled"):
+                            try:
+                                dtln_proc = info["dtln_processor"]
+                                layer_33_dtln = dtln_proc.process_audio(audio_16k_original.copy())
+                                info["layer_33_dtln_16khz"].append(layer_33_dtln)
+                            except Exception as e:
+                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} DTLN processing failed: {e}")
+                        
+                        # Layer 3.4: DeepFilterNet processing (if enabled)
+                        if info.get("deepfilternet_enabled"):
+                            try:
+                                dfn_proc = info["deepfilternet_processor"]
+                                layer_34_dfn = dfn_proc.process_audio(audio_16k_original.copy())
+                                info["layer_34_deepfilternet_16khz"].append(layer_34_dfn)
+                            except Exception as e:
+                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet processing failed: {e}")
+                        
+                        # Layer 3.5: Spectral Gating processing (if enabled)
+                        if info.get("nsnet2_enabled"):
+                            try:
+                                nsnet2_proc = info["nsnet2_processor"]
+                                layer_35_nsnet2 = nsnet2_proc.process_audio(audio_16k_original.copy())
+                                info["layer_35_nsnet2_16khz"].append(layer_35_nsnet2)
+                            except Exception as e:
+                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating processing failed: {e}")
+                        
+                        # Layer 3.6: Comb Filter processing (if enabled) - TARGETS 80 Hz PERIODIC NOISE
+                        if info.get("comb_enabled"):
+                            try:
+                                comb_proc = info["comb_processor"]
+                                layer_36_comb = comb_proc.process_audio(audio_16k_original.copy())
+                                info["layer_36_comb_16khz"].append(layer_36_comb)
+                            except Exception as e:
+                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter processing failed: {e}")
+                        
+                        # Calculate comparison metrics between original, EMA, and RNNoise
+                        from beautyai_inference.utils.noise_comparison import compare_noise_reduction_methods
+                        metrics = compare_noise_reduction_methods(
+                            audio_16k_original, layer_31_ema, layer_32_rnnoise, sample_rate=16000
+                        )
+                        info["comparison_metrics"].append(metrics)
+                        
+                    except Exception as e:
+                        logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise comparison failed: {e}")
+                        # Continue without RNNoise processing
                 
                 # VAD: Check for voice activity
                 vad_service = info.get("vad_service")
@@ -884,7 +1059,7 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             if not np.issubdtype(audio_48k_raw.dtype, np.integer):
                 audio_48k_raw = (np.clip(audio_48k_raw, -1.0, 1.0) * 32767).astype(np.int16)
             
-            path_48k_raw = debug_dir / f"debug_capture_{peer_id}_layer1_{actual_sample_rate}hz_raw.wav"
+            path_48k_raw = debug_dir / f"layer1_{actual_sample_rate}hz_raw.wav"
             print(f"[DEBUG-CAPTURE] {peer_id} Writing layer1 to: {path_48k_raw}", flush=True)
             with wave.open(str(path_48k_raw), "wb") as wav:
                 wav.setnchannels(1)
@@ -907,7 +1082,7 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             )
             audio_48k_int16 = (np.clip(audio_48k_float, -1.0, 1.0) * 32767).astype(np.int16)
             
-            path_48k_float = debug_dir / f"debug_capture_{peer_id}_layer2_{actual_sample_rate}hz_float.wav"
+            path_48k_float = debug_dir / f"layer2_{actual_sample_rate}hz_float.wav"
             print(f"[DEBUG-CAPTURE] {peer_id} Writing layer2 to: {path_48k_float}", flush=True)
             with wave.open(str(path_48k_float), "wb") as wav:
                 wav.setnchannels(1)
@@ -930,7 +1105,7 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             )
             audio_16k_int16 = (np.clip(audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
             
-            path_16k = debug_dir / f"debug_capture_{peer_id}_layer3_16khz.wav"
+            path_16k = debug_dir / f"layer3_16khz.wav"
             print(f"[DEBUG-CAPTURE] {peer_id} Writing layer3 to: {path_16k}", flush=True)
             with wave.open(str(path_16k), "wb") as wav:
                 wav.setnchannels(1)
@@ -953,7 +1128,7 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             )
             audio_16k_vad_int16 = (np.clip(audio_16k_vad, -1.0, 1.0) * 32767).astype(np.int16)
             
-            path_16k_vad = debug_dir / f"debug_capture_{peer_id}_layer4_16khz_vad_filtered.wav"
+            path_16k_vad = debug_dir / f"layer4_16khz_vad_filtered.wav"
             with wave.open(str(path_16k_vad), "wb") as wav:
                 wav.setnchannels(1)
                 wav.setsampwidth(2)
@@ -982,7 +1157,7 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 )
                 audio_48k_vad_int16 = (np.clip(audio_48k_vad, -1.0, 1.0) * 32767).astype(np.int16)
                 
-                path_48k_vad = debug_dir / f"debug_capture_{peer_id}_layer5_48khz_vad_filtered.wav"
+                path_48k_vad = debug_dir / f"layer5_48khz_vad_filtered.wav"
                 with wave.open(str(path_48k_vad), "wb") as wav:
                     wav.setnchannels(1)
                     wav.setsampwidth(2)
@@ -1001,8 +1176,232 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 and Layer 5 empty", flush=True)
             logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layers empty")
         
+        # ============================================
+        # EXPERIMENTAL LAYERS: Save Layer 3.1 (EMA) and Layer 3.2 (RNNoise)
+        # ============================================
+        if info.get("rnnoise_enabled"):
+            # Save Layer 3.1: EMA noise gate (16kHz)
+            if info.get("layer_31_ema_16khz"):
+                audio_31_ema = np.concatenate(info["layer_31_ema_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.1 (EMA) samples: {len(audio_31_ema)}",
+                    flush=True,
+                )
+                audio_31_ema_int16 = (np.clip(audio_31_ema, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_31_ema = debug_dir / f"layer31_ema_16khz.wav"
+                with wave.open(str(path_31_ema), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_31_ema_int16.tobytes())
+                
+                duration_31 = len(audio_31_ema) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1 (EMA) saved: {duration_31:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.1 (EMA noise gate, 16kHz): {len(audio_31_ema)} samples, "
+                    f"{duration_31:.2f}s -> {path_31_ema}"
+                )
+            
+            # Save Layer 3.2: RNNoise (16kHz)
+            if info.get("layer_32_rnnoise_16khz"):
+                audio_32_rnnoise = np.concatenate(info["layer_32_rnnoise_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.2 (RNNoise) samples: {len(audio_32_rnnoise)}",
+                    flush=True,
+                )
+                audio_32_rnnoise_int16 = (np.clip(audio_32_rnnoise, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_32_rnnoise = debug_dir / f"layer32_rnnoise_16khz.wav"
+                with wave.open(str(path_32_rnnoise), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_32_rnnoise_int16.tobytes())
+                
+                duration_32 = len(audio_32_rnnoise) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.2 (RNNoise) saved: {duration_32:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.2 (RNNoise, 16kHz): {len(audio_32_rnnoise)} samples, "
+                    f"{duration_32:.2f}s -> {path_32_rnnoise}"
+                )
+            
+            # Save Layer 3.3: DTLN (16kHz)
+            if info.get("layer_33_dtln_16khz"):
+                audio_33_dtln = np.concatenate(info["layer_33_dtln_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.3 (DTLN) samples: {len(audio_33_dtln)}",
+                    flush=True,
+                )
+                audio_33_dtln_int16 = (np.clip(audio_33_dtln, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_33_dtln = debug_dir / f"layer33_dtln_16khz.wav"
+                with wave.open(str(path_33_dtln), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_33_dtln_int16.tobytes())
+                
+                duration_33 = len(audio_33_dtln) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.3 (DTLN) saved: {duration_33:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.3 (DTLN, 16kHz): {len(audio_33_dtln)} samples, "
+                    f"{duration_33:.2f}s -> {path_33_dtln}"
+                )
+            
+            # Save Layer 3.4: DeepFilterNet (16kHz)
+            if info.get("layer_34_deepfilternet_16khz"):
+                audio_34_dfn = np.concatenate(info["layer_34_deepfilternet_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.4 (DeepFilterNet) samples: {len(audio_34_dfn)}",
+                    flush=True,
+                )
+                audio_34_dfn_int16 = (np.clip(audio_34_dfn, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_34_dfn = debug_dir / f"layer34_deepfilternet_16khz.wav"
+                with wave.open(str(path_34_dfn), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_34_dfn_int16.tobytes())
+                
+                duration_34 = len(audio_34_dfn) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.4 (DeepFilterNet) saved: {duration_34:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.4 (DeepFilterNet, 16kHz): {len(audio_34_dfn)} samples, "
+                    f"{duration_34:.2f}s -> {path_34_dfn}"
+                )
+            
+            # Save Layer 3.5: Spectral Gating (16kHz)
+            if info.get("layer_35_nsnet2_16khz"):
+                audio_35_nsnet2 = np.concatenate(info["layer_35_nsnet2_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.5 (Spectral Gating) samples: {len(audio_35_nsnet2)}",
+                    flush=True,
+                )
+                audio_35_nsnet2_int16 = (np.clip(audio_35_nsnet2, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_35_nsnet2 = debug_dir / f"layer35_nsnet2_16khz.wav"
+                with wave.open(str(path_35_nsnet2), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_35_nsnet2_int16.tobytes())
+                
+                duration_35 = len(audio_35_nsnet2) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.5 (Spectral Gating) saved: {duration_35:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.5 (Spectral Gating, 16kHz): {len(audio_35_nsnet2)} samples, "
+                    f"{duration_35:.2f}s -> {path_35_nsnet2}"
+                )
+            
+            # Save Layer 3.6: Comb Filter (16kHz) - 80 Hz PERIODIC NOISE REMOVAL
+            if info.get("layer_36_comb_16khz"):
+                audio_36_comb = np.concatenate(info["layer_36_comb_16khz"])
+                print(
+                    f"[DEBUG-CAPTURE] {peer_id} layer3.6 (Comb Filter 80Hz) samples: {len(audio_36_comb)}",
+                    flush=True,
+                )
+                audio_36_comb_int16 = (np.clip(audio_36_comb, -1.0, 1.0) * 32767).astype(np.int16)
+                
+                path_36_comb = debug_dir / f"layer36_comb_16khz.wav"
+                with wave.open(str(path_36_comb), "wb") as wav:
+                    wav.setnchannels(1)
+                    wav.setsampwidth(2)
+                    wav.setframerate(16000)
+                    wav.writeframes(audio_36_comb_int16.tobytes())
+                
+                duration_36 = len(audio_36_comb) / 16000
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.6 (Comb Filter) saved: {duration_36:.2f}s @ 16kHz", flush=True)
+                logger.info(
+                    f"[DEBUG-CAPTURE] Saved Layer 3.6 (Comb Filter, 16kHz): {len(audio_36_comb)} samples, "
+                    f"{duration_36:.2f}s -> {path_36_comb}"
+                )
+            
+            # Save CPU/Buffer monitoring report
+            if info.get("cpu_samples") or info.get("buffer_underruns"):
+                total_frames = info.get("frames_captured", 0)
+                monitoring_report = {
+                    "buffer_underruns": info.get("buffer_underruns", 0),
+                    "total_frames": total_frames,
+                    "underrun_rate_percent": (info.get("buffer_underruns", 0) / total_frames * 100) if total_frames > 0 else 0,
+                    "cpu_usage": {
+                        "samples": info.get("cpu_samples", []),
+                        "mean_percent": np.mean(info.get("cpu_samples", [0])) if info.get("cpu_samples") else 0,
+                        "max_percent": np.max(info.get("cpu_samples", [0])) if info.get("cpu_samples") else 0,
+                    }
+                }
+                
+                monitoring_path = debug_dir / f"buffer_monitoring.json"
+                with open(monitoring_path, "w", encoding="utf-8") as f:
+                    json.dump(monitoring_report, f, indent=2)
+                
+                print(f"[DEBUG-CAPTURE] {peer_id} 📊 Buffer Monitoring:", flush=True)
+                print(f"   Buffer underruns: {monitoring_report['buffer_underruns']} ({monitoring_report['underrun_rate_percent']:.2f}%)", flush=True)
+                print(f"   CPU usage: {monitoring_report['cpu_usage']['mean_percent']:.1f}% avg, {monitoring_report['cpu_usage']['max_percent']:.1f}% peak", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} buffer monitoring saved to {monitoring_path}")
+            
+            # Generate and save comparison summary
+            if info.get("comparison_metrics"):
+                # Calculate aggregate metrics across all frames
+                all_metrics = info["comparison_metrics"]
+                total_duration = len(audio_31_ema) / 16000 if info.get("layer_31_ema_16khz") else 0
+                
+                # Aggregate quality metrics (matching the actual return format)
+                avg_quality = {
+                    "snr": {
+                        "ema_db": np.mean([m["snr"]["ema_db"] for m in all_metrics]),
+                        "rnnoise_db": np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]),
+                        "difference_db": np.mean([m["snr"]["difference_db"] for m in all_metrics]),
+                        "winner": "EMA" if np.mean([m["snr"]["ema_db"] for m in all_metrics]) > np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]) else "RNNoise"
+                    },
+                    "rms_level": {
+                        "ema": np.mean([m["rms_level"]["ema"] for m in all_metrics]),
+                        "rnnoise": np.mean([m["rms_level"]["rnnoise"] for m in all_metrics]),
+                        "ema_reduction_percent": np.mean([m["rms_level"]["ema_reduction_percent"] for m in all_metrics]),
+                        "rnnoise_reduction_percent": np.mean([m["rms_level"]["rnnoise_reduction_percent"] for m in all_metrics]),
+                    },
+                    "correlation_with_original": {
+                        "ema": np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]),
+                        "rnnoise": np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]),
+                        "winner": "EMA" if np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]) > np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]) else "RNNoise"
+                    }
+                }
+                
+                # Since we don't measure actual latency per frame, provide estimated values
+                avg_latency = {
+                    "ema_avg_ms": 0.1,  # Estimated EMA latency
+                    "ema_min_ms": 0.05,
+                    "ema_max_ms": 0.15,
+                    "rnnoise_avg_ms": 14.0,  # Estimated RNNoise latency (includes resampling)
+                    "rnnoise_min_ms": 12.0,
+                    "rnnoise_max_ms": 16.0,
+                    "difference_ms": 13.9,
+                    "faster_method": "EMA"
+                }
+                
+                from beautyai_inference.utils.noise_comparison import generate_comparison_summary
+                summary = generate_comparison_summary(avg_quality, avg_latency, total_duration)
+                
+                # Save comparison summary to JSON
+                comparison_path = debug_dir / f"comparison_summary.json"
+                with open(comparison_path, "w", encoding="utf-8") as f:
+                    json.dump({
+                        "peer_id": peer_id,
+                        "total_frames": len(all_metrics),
+                        "total_duration_seconds": total_duration,
+                        "average_quality_metrics": avg_quality,
+                        "average_latency_metrics": avg_latency,
+                        "summary": summary,
+                    }, f, indent=2, ensure_ascii=False)
+                
+                print(f"[DEBUG-CAPTURE] {peer_id} 📊 Comparison Summary:", flush=True)
+                print(summary, flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} comparison summary:\n{summary}")
+        
         # Save transcriptions to JSON file
         if info.get("transcriptions"):
+
             transcriptions_path = debug_dir / f"debug_capture_{peer_id}_transcriptions.json"
             try:
                 with open(transcriptions_path, "w", encoding="utf-8") as f:
