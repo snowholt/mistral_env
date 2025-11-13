@@ -2,18 +2,23 @@
 ---
 ## Revised Expert Consultation Prompt (Gemini WebUI Submission)
 
-Title: BeautyAI Real-Time Voice Noise & Artifact Investigation (Updated Capture with Comb Filter Layer)
+Title: BeautyAI Real-Time Voice Noise & Artifact Investigation (Capture with Transient Suppressor + Percentile Gate + Comb Filter)
 
-Date: 12 Nov 2025  
+Date: 13 Nov 2025  
 Owner: Lumina Ashley (BeautyAI Arabic Voice Pipeline)  
 Target Directory for Analysis: `reports/debug/analysis`  
 Included Assets:  
 - `noise_analysis_report.json` (multi-layer metrics)  
-- Spectrograms:  
+- `buffer_monitoring.json` (timing & CPU stats)  
+- `comparison_summary.json` (EMA vs RNNoise latency/quality)  
+- `debug_capture_session_transcriptions.json` (Layer4 vs Layer5 ASR)  
+- Spectrograms (current + new layers):  
 	- `spectrogram_Layer1_Raw_48kHz.png`  
+	- `spectrogram_Layer15_TransientSuppressor_48kHz.png` *(new)*  
 	- `spectrogram_Layer2_Normalized_48kHz.png`  
 	- `spectrogram_Layer3_Baseline_16kHz.png`  
 	- `spectrogram_Layer31_EMA_16kHz.png`  
+	- `spectrogram_Layer31b_PercentileGate_16kHz.png` *(new)*  
 	- `spectrogram_Layer32_RNNoise_16kHz.png`  
 	- `spectrogram_Layer33_DTLN_16kHz.png`  
 	- `spectrogram_Layer35_SpectralGating_16kHz.png`  
@@ -24,17 +29,19 @@ We are refining a low-latency (≤50 ms budget) Arabic-first WebRTC audio pipe
 
 ### Processing Chain (Current Capture)
 1. Layer 1 (Raw 48 kHz PCM, browser)  
+1.5 Layer 1.5 Transient Suppressor @48 kHz (median filter kernel=5, adaptive energy spike removal)  
 2. Layer 2 (Normalized 48 kHz float)  
-→ 8th‑order Butterworth low-pass @8 kHz to prevent aliasing during 16 kHz downsample  
+→ 8th‑order Butterworth low-pass @8 kHz (aliasing & hiss suppression pre-downsample)  
 3. Layer 3 (Baseline 16 kHz)  
-3.1 EMA adaptive gate (alpha=0.1, threshold=2.0×EMA)  
+3.1 Layer 3.1 EMA gate (legacy; alpha=0.1; threshold=2.0×EMA)  
+3.1b Layer 3.1b Percentile Gate (NEW: 10th percentile noise floor + hysteresis -50/-45 dB)  
 3.2 RNNoise (48↔16 bridging)  
-3.3 DTLN (spectral subtraction path)  
+3.3 DTLN (two-stage denoiser)  
 3.5 Spectral Gating (noisereduce; n_fft=512, hop=160, stationary=True)  
-3.6 Comb Filter 80 Hz (experimental multi-notch IIR)  
-→ (Subsequent VAD & ASR steps omitted; focus is pre-VAD artifact removal.)
+3.6 Comb Filter 80 Hz (multi-notch Q=2.0 updated from 30.0 to reduce ringing)  
+→ (VAD + ASR follow: Layer4 16 kHz VAD speech, Layer5 48 kHz VAD speech; ASR parity tracked.)
 
-### Key Metrics (Duration ≈29.22 s each)
+### Key Metrics (Previous Capture ≈29.22 s each – BEFORE new Layers 1.5 & 3.1b)
 Format: Layer – Filter – SNR(dB) – Aliasing Danger Zone Energy Ratio – Crackles (count & per sec) – Max Discontinuity
 - 1 Raw 48 kHz: 59.29 dB | 0.008882% | 7011 (239.94/s) | 0.490  
 - 2 Normalized 48 kHz: 62.81 dB | 0.008871% | 7007 (239.80/s) | 0.490  
@@ -45,15 +52,22 @@ Format: Layer – Filter – SNR(dB) – Aliasing Danger Zone Energy Ratio – C
 - 35 Spectral Gating: 68.42 dB | 0.4864% | 2336 (79.95/s) | 0.477  
 - 36 Comb Filter 80 Hz: 66.20 dB | 0.0238% | 2338 (80.01/s) | 0.576  
 
-### Immediate Observations
-1. Crackle density bifurcates: ~240/s (48 kHz) vs ~80/s (16 kHz) → downsampling merges/transforms impulsives.  
-2. EMA layer identical to baseline → threshold never triggers (needs redesign).  
-3. RNNoise & DTLN raise SNR but crackles persist → artifacts resemble transient speech-like energy.  
-4. Spectral Gating near-baseline effect → mask or profile insufficient.  
-5. Comb Filter slashes aliasing energy (~20× reduction) but loses ~2 dB SNR and increases discontinuity (possible notch ringing).  
-6. Infinite SNR signals faulty noise floor modeling in baseline/EMA.  
-7. Aliasing ratio drop only dramatic in comb-filter layer.  
-8. Max discontinuity highest post-comb → review notch Q / cascade design.
+### New Layers (Pending Full Metric Integration)
+- 15 Transient Suppressor 48 kHz: (Expected) crackles << 240/s (target >90% reduction pre-downsample)
+- 31b Percentile Gate 16 kHz: (Expected) finite SNR; gated silence energy floor stabilization; reduced residual impulsive tails.
+*Note:* Analyzer update staged; forthcoming capture will regenerate SNR / crackle metrics including Layers 15 & 31b.
+
+### Immediate Observations (Updated w/ Runtime JSON Metrics)
+1. Buffer Health: `buffer_monitoring.json` shows 329 underruns / 1562 frames (≈21.1%); systemic timing jitter likely primary origin of 80 Hz periodic impulses—hardware / scheduling, not acoustic fan hum alone.
+2. CPU Headroom: Mean CPU 1.33% (max 4.8%) → ample budget for added transient suppression & adaptive gating without breaching <50 ms latency constraint.
+3. Metric Integrity Issues: `comparison_summary.json` reports EMA SNR = +∞, RNNoise SNR = -∞, correlations = NaN → current SNR/noise floor estimator unstable (division by near-zero floor, uninitialized buffers). Must re-implement SNR using robust floor clamp (e.g., P10 energy, epsilon floor) before comparative conclusions.
+4. EMA Ineffectiveness: Layer 3.1 identical to baseline (no crackle suppression) confirms static 2×EMA threshold fails under elevated floor; rationale for Percentile Gate (Layer 3.1b) now validated.
+5. Transient Suppression Rationale: Pre-downsample merging (~240/s → ~80/s) previously misread as suppression; Layer 1.5 now positioned to eliminate impulses before they smear into speech-like envelopes at 16 kHz.
+6. Percentile Gate Expectations: Layer 3.1b (10th percentile + hysteresis) should deliver finite SNR, reduce false open states, and enable stable silence floor tracking—pending next analyzer run.
+7. Comb Filter Status: Prior capture (Q=30) achieved ~20× aliasing danger zone reduction (0.4863% → 0.0238%) but increased max discontinuity (0.576). Q lowered to 2.0; need fresh metrics to confirm ringing reduction (<0.40 target) while preserving F0/formants.
+8. Residual Artifact Hypothesis: Remaining ‘crackles’ after denoisers likely transformed impulse envelopes; with Layer 1.5 active we expect RNNoise/DTLN spectral models to better target stationary residuals rather than mistaking broadened spikes for plosives.
+9. ASR Parity: Layer4 vs Layer5 transcriptions nearly identical (one minor lexical divergence: “catches” vs “caches”), indicating current resample + enhancement stages preserve intelligibility; latency per segment (≈66–115 ms) acceptable for buffered segments—future partial streaming could reduce perceived delay.
+10. Next Validation Pass: Run new capture to populate metrics for Layers 15 & 31b, recompute crackle counts, discontinuity distribution, percentile-based noise floor trace, and evaluate buffer underrun mitigation strategies (driver period size / jitter buffer).
 
 ### Spectrogram Review Goals (External)
 Assess:  

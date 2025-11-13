@@ -286,6 +286,12 @@ def main():
             'sample_rate_tag': '48kHz',
             'description': 'Raw 48kHz from WebRTC'
         },
+        '15': {
+            'path': audio_dir / "layer15_transient_48000hz.wav",
+            'filter': 'TransientSuppressor',
+            'sample_rate_tag': '48kHz',
+            'description': 'Transient Suppressor (crackle removal @ 48kHz)'
+        },
         '2': {
             'path': audio_dir / "layer2_48000hz_float.wav",
             'filter': 'Normalized',
@@ -304,6 +310,12 @@ def main():
             'filter': 'EMA',
             'sample_rate_tag': '16kHz',
             'description': 'EMA noise gate'
+        },
+        '31b': {
+            'path': audio_dir / "layer31b_percentile_16khz.wav",
+            'filter': 'PercentileGate',
+            'sample_rate_tag': '16kHz',
+            'description': 'Percentile Gate (adaptive noise gate)'
         },
         '32': {
             'path': audio_dir / "layer32_rnnoise_16khz.wav",
