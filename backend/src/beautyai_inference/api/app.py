@@ -39,6 +39,14 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
+# Import WebRTC lean capture router (Nov 13, 2025 - Hardened)
+try:
+    from .endpoints.webrtc_lean_capture import lean_capture_router
+    lean_capture_router_available = True
+except ImportError as e:
+    lean_capture_router_available = False
+    logger.warning(f"WebRTC lean capture router not available: {e}")
+
 # Import performance dashboard router
 try:
     from .endpoints.performance_dashboard import performance_router
@@ -233,6 +241,16 @@ if debug_capture_router_available:
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
 
+# Include WebRTC lean capture router if available (Nov 13, 2025 - Hardened)
+if lean_capture_router_available:
+    app.include_router(
+        lean_capture_router,
+        tags=["webrtc-lean"]
+    )
+    logger.info("WebRTC lean capture endpoints registered at /api/v1/webrtc/lean/voice-capture")
+else:
+    logger.warning("WebRTC lean capture endpoints not registered - module not available")
+
 # Serve debug test page
 @app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
 async def serve_debug_test_page():
@@ -297,6 +315,27 @@ async def serve_websocket_test_page():
         raise HTTPException(status_code=404, detail="WebSocket test page not found")
     except Exception as e:
         logger.error(f"Error serving WebSocket test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test_lean_capture.html", response_class=HTMLResponse)
+async def serve_lean_capture_test_page():
+    """Serve the lean capture test page with hardened architecture."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "test_lean_capture.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"Lean capture test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Lean capture test page not found")
+    except Exception as e:
+        logger.error(f"Error serving lean capture test page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
