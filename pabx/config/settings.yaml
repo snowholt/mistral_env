@@ -1,0 +1,170 @@
+# PABX System Configuration
+---
+system:
+  name: "BeautyAI PABX System"
+  version: "2.0.0"
+  environment: "production"
+
+# SIP Server Configuration
+sip:
+  # Single port mode or multi-port mode
+  mode: "single"  # Options: "single", "multi"
+  
+  # Port configuration
+  ports:
+    fxs: 5060       # FXS port (analog phone)
+    fxo: 5062       # FXO port (PSTN line)
+    additional: 5012
+  
+  # Server settings
+  server:
+    host: "0.0.0.0"
+    domain: "beautyai.local"
+    user_agent: "BeautyAI-PABX/2.0"
+  
+  # Call handling
+  call_handling:
+    auto_answer: true
+    auto_answer_delay: 1.0  # seconds
+    max_call_duration: 3600  # seconds (1 hour)
+    session_timer_enabled: false
+  
+  # RTP Configuration
+  rtp:
+    port_range_start: 10000
+    port_range_end: 20000
+    default_port: 12000
+    packet_time: 20  # milliseconds
+
+# RTP Configuration (for call manager)
+rtp:
+  port_range:
+    start: 10000
+    end: 20000
+  default_port: 12000
+  packet_time: 20  # milliseconds
+
+# HT813 Device Configuration
+ht813:
+  default_ip: "192.168.100.96"
+  web_port: 80
+  credentials:
+    username: "admin"
+    password: "admin"  # Change in production!
+  
+  # Auto-discovery settings
+  discovery:
+    enabled: true
+    subnet: "192.168.100.0/24"
+    timeout: 5
+
+# Audio Configuration
+audio:
+  # Codec preferences (order matters)
+  codecs:
+    - "PCMU"  # G.711 μ-law (payload type 0)
+    - "PCMA"  # G.711 A-law (payload type 8)
+    - "G722"  # G.722 (payload type 9)
+  
+  # Audio processing
+  sample_rate: 8000  # Hz (telephony standard)
+  channels: 1        # Mono
+  bit_depth: 16      # bits
+  
+  # PyAudio settings
+  pyaudio:
+    chunk_size: 160  # samples (20ms at 8kHz)
+    input_device: null   # null = default
+    output_device: null  # null = default
+  
+  # Test audio
+  test_files_dir: "/home/lumi/beautyai/pabx/audio/test"
+  recordings_dir: "/home/lumi/beautyai/pabx/logs/recordings"
+
+# Packet Capture Configuration
+capture:
+  # Sniffer settings
+  interface: null  # null = auto-detect
+  promiscuous: true
+  buffer_size: 65536
+  
+  # Filters
+  target_ip: "192.168.100.96"  # HT813 IP
+  capture_sip: true
+  capture_rtp: true
+  capture_rtcp: true
+  
+  # Storage
+  save_pcap: true
+  pcap_dir: "/home/lumi/beautyai/pabx/logs/pcap"
+  max_pcap_size: 104857600  # 100MB
+
+# Logging Configuration
+logging:
+  # Log levels: DEBUG, INFO, WARNING, ERROR, CRITICAL
+  level: "INFO"
+  
+  # Console logging
+  console:
+    enabled: true
+    colored: true
+    format: "%(asctime)s [%(levelname)s] %(name)s: %(message)s"
+  
+  # JSON logging (for machines)
+  json:
+    enabled: true
+    file: "/home/lumi/beautyai/pabx/logs/system/app.json"
+    rotate_size: 10485760  # 10MB
+    backup_count: 5
+  
+  # Session trace logs
+  session:
+    enabled: true
+    dir: "/home/lumi/beautyai/pabx/logs/sessions"
+    per_call_file: true
+  
+  # Systemd journal
+  journal:
+    enabled: true
+    identifier: "pabx"
+
+# API Configuration
+api:
+  host: "0.0.0.0"
+  port: 8080
+  
+  # CORS settings for React frontend
+  cors:
+    enabled: true
+    origins:
+      - "http://localhost:3000"  # React dev server
+      - "http://localhost:8080"  # Production
+      - "http://192.168.100.39:8080"
+    allow_credentials: true
+  
+  # Authentication (future)
+  auth:
+    enabled: false
+    jwt_secret: "change-me-in-production"
+  
+  # WebSocket
+  websocket:
+    enabled: true
+    ping_interval: 30
+    ping_timeout: 10
+
+# Security
+security:
+  # Service user
+  run_as_user: "lumi"
+  
+  # Capabilities for sniffer
+  sniffer_capabilities:
+    - "CAP_NET_RAW"
+    - "CAP_NET_ADMIN"
+
+# Performance
+performance:
+  max_concurrent_calls: 10
+  worker_threads: 4
+  packet_buffer_size: 1000

@@ -467,11 +467,19 @@ async def handle_lean_offer(request: LeanOfferRequest):
                 
                 # Spawn concurrent tasks
                 recv_task = asyncio.create_task(_minimal_recv_loop(track, capture_info, queue, pipeline))
-                worker_task = asyncio.create_task(_async_worker(queue, pipeline, capture_info))
+                
+                # Spawn multiple parallel worker tasks to handle frame bursts
+                # 4 workers can process frames concurrently, reducing drops during bursts
+                num_workers = 4
+                worker_tasks = [
+                    asyncio.create_task(_async_worker(queue, pipeline, capture_info))
+                    for _ in range(num_workers)
+                ]
+                
                 writer_task = asyncio.create_task(_batch_disk_writer(queue, capture_info))
                 
-                # Wait for all tasks
-                await asyncio.gather(recv_task, worker_task, writer_task)
+                # Wait for all tasks (recv, all workers, writer)
+                await asyncio.gather(recv_task, *worker_tasks, writer_task)
                 
                 # Save results
                 await _save_capture_results(capture_info)

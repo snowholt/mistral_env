@@ -1,0 +1,35 @@
+usage: ht813_audio_capture.py [-h] [--device DEVICE] [--server SERVER]
+                              [--interface INTERFACE] [--duration DURATION]
+                              [--rtp-start RTP_START] [--rtp-end RTP_END]
+                              [--output OUTPUT]
+ht813_audio_capture.py: error: argument --duration/-d: invalid int value: 'd'
+🎤 HT813 Audio Capture initialized
+   Device IP: 192.168.100.96
+   Server IP: 192.168.100.39
+   RTP Port Range: 10000-20000
+   Output Directory: captures/
+
+🎯 Starting RTP packet capture...
+   Press Ctrl+C to stop
+
+⏱️  Capturing for 60 seconds...
+
+💾 Saving captured audio sessions...
+
+📈 Total packets processed: 0
+📁 Output directory: captures/
+🎤 HT813 Audio Capture initialized
+   Device IP: 192.168.100.96
+   Server IP: 192.168.100.39
+   RTP Port Range: 10000-20000
+   Output Directory: captures/
+
+🎯 Starting RTP packet capture...
+   Press Ctrl+C to stop
+
+⏱️  Capturing for 60 seconds...
+
+💾 Saving captured audio sessions...
+
+📈 Total packets processed: 0
+📁 Output directory: captures/

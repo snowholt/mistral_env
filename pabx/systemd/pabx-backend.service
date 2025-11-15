@@ -1,0 +1,33 @@
+[Unit]
+Description=BeautyAI PABX Backend API Server
+After=network.target
+Documentation=file:///home/lumi/beautyai/pabx/README.md
+
+[Service]
+Type=simple
+User=lumi
+Group=lumi
+WorkingDirectory=/home/lumi/beautyai/pabx
+Environment="PATH=/home/lumi/beautyai/pabx/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+Environment="PYTHONUNBUFFERED=1"
+Environment="PYTHONPATH=/home/lumi/beautyai/pabx"
+ExecStart=/home/lumi/beautyai/pabx/venv/bin/python3 /home/lumi/beautyai/pabx/run_server.py --mode api
+Restart=on-failure
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pabx-backend
+
+# Security settings
+NoNewPrivileges=true
+PrivateTmp=true
+
+# Performance settings
+LimitNOFILE=65535
+
+# Network settings
+# Allow binding to privileged ports if needed
+AmbientCapabilities=CAP_NET_BIND_SERVICE CAP_NET_RAW CAP_NET_ADMIN
+
+[Install]
+WantedBy=multi-user.target

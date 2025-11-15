@@ -1,0 +1,15 @@
+🎤 HT813 Audio Capture initialized
+   Device IP: 192.168.100.96
+   Server IP: 192.168.100.39
+   RTP Port Range: 10000-20000
+   Output Directory: captures/
+
+🎯 Starting RTP packet capture...
+   Press Ctrl+C to stop
+
+⏱️  Capturing for 180 seconds...
+
+💾 Saving captured audio sessions...
+
+📈 Total packets processed: 0
+📁 Output directory: captures/
