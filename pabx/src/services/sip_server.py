@@ -228,8 +228,12 @@ class SIPServer:
             if self.on_register:
                 self.on_register(registration)
             
-            # Send 200 OK
-            self._send_response(message, SIPResponse.OK, addr)
+            # Send 200 OK with Contact header (RFC 3261 compliance)
+            additional_headers = {
+                'Contact': contact,  # Echo back the Contact header
+                'Expires': str(expires)  # Echo back the Expires value
+            }
+            self._send_response(message, SIPResponse.OK, addr, additional_headers=additional_headers)
             
         except Exception as e:
             logger.error(f"Error handling REGISTER: {e}", exc_info=True)
@@ -248,19 +252,31 @@ class SIPServer:
             from_tag = self._extract_tag(from_header)
             
             # Parse SDP for media info
-            sdp = message.sdp
-            remote_ip = sdp.get('connection', {}).get('address') if sdp else None
+            sdp = None
+            remote_ip = None
             remote_port = None
             codec = None
             
-            if sdp and 'media' in sdp:
-                for media in sdp['media']:
-                    if media.get('type') == 'audio':
-                        remote_port = media.get('port')
-                        # Get first codec
-                        if media.get('formats'):
-                            codec = media['formats'][0]
-                        break
+            # Parse SDP from message body if present
+            if message.body and message.body.strip():
+                from ..core.sip.parser import parse_sdp
+                try:
+                    sdp = parse_sdp(message.body)
+                    logger.info(f"Parsed SDP from INVITE: {sdp}")
+                except Exception as e:
+                    logger.error(f"Failed to parse SDP: {e}", exc_info=True)
+            
+            if sdp:
+                remote_ip = sdp.get('connection', {}).get('address')
+                if 'media' in sdp:
+                    for media in sdp['media']:
+                        if media.get('type') == 'audio':
+                            remote_port = media.get('port')
+                            # Get first codec
+                            if media.get('formats'):
+                                codec = media['formats'][0]
+                            break
+                logger.info(f"Extracted RTP info: remote_ip={remote_ip}, remote_port={remote_port}, codec={codec}")
             
             # Create call session
             session = CallSession(
@@ -288,7 +304,7 @@ class SIPServer:
             # Auto-answer if configured
             if self.sip_config.get('call_handling', {}).get('auto_answer', False):
                 # Generate to-tag
-                to_tag = generate_tag()
+                to_tag = SIPBuilder.generate_tag()
                 session.to_tag = to_tag
                 session.state = "ANSWERED"
                 session.answered_at = datetime.now()
@@ -360,13 +376,15 @@ class SIPServer:
         self,
         request: SIPMessage,
         status_code: SIPResponse,
-        addr: tuple
+        addr: tuple,
+        additional_headers: Optional[Dict[str, str]] = None
     ):
         """Send SIP response"""
         try:
             response = SIPBuilder.build_response(
                 request=request,
-                status_code=status_code
+                status_code=int(status_code),  # Convert enum to int
+                additional_headers=additional_headers
             )
             
             self.socket.sendto(response.encode('utf-8'), addr)
@@ -382,44 +400,25 @@ class SIPServer:
             # Get local RTP port
             local_rtp_port = self._allocate_rtp_port()
             
-            # Build SDP
-            sdp = {
-                'version': 0,
-                'origin': {
-                    'username': 'beautyai',
-                    'session_id': '0',
-                    'session_version': '0',
-                    'network_type': 'IN',
-                    'address_type': 'IP4',
-                    'address': self.host
-                },
-                'session_name': 'BeautyAI PABX',
-                'connection': {
-                    'network_type': 'IN',
-                    'address_type': 'IP4',
-                    'address': self.host
-                },
-                'media': [
-                    {
-                        'type': 'audio',
-                        'port': local_rtp_port,
-                        'protocol': 'RTP/AVP',
-                        'formats': ['0', '8'],  # PCMU, PCMA
-                        'attributes': {
-                            'rtpmap': ['0 PCMU/8000', '8 PCMA/8000']
-                        }
-                    }
-                ]
-            }
+            # Build SDP body string
+            sdp_body = SIPBuilder.build_sdp(
+                host=self.host,
+                port=local_rtp_port,
+                session_name="BeautyAI PABX",
+                codecs=[0, 8]  # PCMU, PCMA
+            )
             
-            # Build response with SDP
+            # Build Contact header
+            to_user = self._extract_user(request.to_header)
+            contact = f"<sip:{to_user}@{self.host}:{self.port}>"
+            
+            # Build response with SDP and Contact header
             response = SIPBuilder.build_response(
-                status_code=SIPResponse.OK,
+                status_code=int(SIPResponse.OK),  # Convert enum to int
                 request=request,
-                local_ip=self.host,
-                local_port=self.port,
                 to_tag=to_tag,
-                sdp=sdp
+                body=sdp_body,
+                additional_headers={'Contact': contact}
             )
             
             self.socket.sendto(response.encode('utf-8'), addr)
@@ -428,6 +427,84 @@ class SIPServer:
             
         except Exception as e:
             logger.error(f"Error sending answer: {e}", exc_info=True)
+    
+    def initiate_call(self, from_user: str, to_number: str) -> bool:
+        """
+        Initiate outbound call
+        
+        Args:
+            from_user: Calling user ID (e.g., "1001")
+            to_number: Destination phone number
+            
+        Returns:
+            True if INVITE was sent successfully
+        """
+        try:
+            # Get registration for from_user
+            if from_user not in self.registrations:
+                logger.error(f"User {from_user} not registered")
+                return False
+            
+            registration = self.registrations[from_user]
+            dest_addr = (registration.ip_address, registration.port)
+            
+            # Get server's actual IP address (not 0.0.0.0)
+            server_ip = self._get_server_ip()
+            
+            # Build INVITE request
+            request_uri = f"sip:{to_number}@{registration.ip_address}:{registration.port}"
+            from_uri = f"sip:{from_user}@{server_ip}"
+            to_uri = f"sip:{to_number}@{server_ip}"
+            
+            # Generate simple SDP
+            local_rtp_port = self._allocate_rtp_port()
+            sdp_body = SIPBuilder.build_sdp(
+                host=server_ip,
+                port=local_rtp_port,
+                session_name="BeautyAI Outbound Call",
+                codecs=[0, 8]  # PCMU, PCMA
+            )
+            
+            invite = SIPBuilder.build_request(
+                method=SIPMethod.INVITE,
+                request_uri=request_uri,
+                from_uri=from_uri,
+                to_uri=to_uri,
+                via_host=server_ip,
+                via_port=self.port,
+                contact=f"sip:{from_user}@{server_ip}:{self.port}",
+                body=sdp_body
+            )
+            
+            # Send INVITE
+            self.socket.sendto(invite.encode('utf-8'), dest_addr)
+            
+            logger.info(f"Initiated call from {from_user} to {to_number}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Error initiating call: {e}", exc_info=True)
+            return False
+    
+    def _get_server_ip(self) -> str:
+        """Get server's actual IP address"""
+        # Get from config first
+        server_config = self.config.get('server', {})
+        host = server_config.get('host')
+        
+        if host and host != '0.0.0.0':
+            return host
+        
+        # Fallback: try to determine from network
+        try:
+            # Create a dummy socket to get local IP
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect(('8.8.8.8', 80))
+            local_ip = s.getsockname()[0]
+            s.close()
+            return local_ip
+        except:
+            return '127.0.0.1'  # Final fallback
     
     def _allocate_rtp_port(self) -> int:
         """Allocate RTP port for new call"""

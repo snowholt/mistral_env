@@ -57,7 +57,11 @@ export interface CaptureStatus {
   enabled: boolean;
   running?: boolean;
   statistics?: {
-    total_packets: number;
+    running: boolean;
+    duration_seconds: number;
+    packets_captured: number;
+    packets_stored: number;
+    packets_dropped: number;
     capture_rate: number;
     packet_types: Record<string, number>;
   };

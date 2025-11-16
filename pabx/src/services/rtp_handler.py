@@ -67,13 +67,11 @@ class RTPHandler:
             
             # Create stream
             stream = RTPStream(
+                local_ip="0.0.0.0",  # Bind to all interfaces
                 local_port=local_port,
                 remote_ip=remote_ip,
                 remote_port=remote_port,
-                payload_type=payload_type,
-                sample_rate=self.audio_config.get('sample_rate', 8000),
-                channels=self.audio_config.get('channels', 1),
-                frame_size=self.audio_config.get('frame_size', 160)
+                payload_type=payload_type
             )
             
             # Set callback
