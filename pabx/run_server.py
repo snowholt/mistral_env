@@ -9,8 +9,8 @@ import signal
 import argparse
 from pathlib import Path
 
-# Add parent directory to path
-sys.path.insert(0, str(Path(__file__).parent.parent))
+# Add current directory to path for src imports
+sys.path.insert(0, str(Path(__file__).parent))
 
 from src.utils.logger import get_logger
 from src.utils.config import Config

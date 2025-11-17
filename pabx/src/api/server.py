@@ -15,7 +15,10 @@ from ..modules.sniffer import PacketCapture, SessionTracker, CaptureFilter
 from ..modules.ht813 import HT813Device
 from ..modules.syslog.receiver import SyslogReceiver, SyslogMessage
 from ..utils.config import Config
-from ..utils.logger import get_logger
+from ..utils.logger import get_logger, setup_logging
+
+# Setup logging before anything else
+setup_logging()
 
 logger = get_logger(__name__)
 
@@ -56,6 +59,7 @@ async def startup_event():
     """Initialize services on startup"""
     global call_manager, packet_capture, session_tracker, ht813_device
     
+    print("=== PABX API SERVER STARTUP EVENT CALLED ===", flush=True)
     logger.info("Starting PABX API server")
     
     # Initialize call manager

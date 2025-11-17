@@ -410,7 +410,9 @@ class SIPServer:
             
             # Build Contact header
             to_user = self._extract_user(request.to_header)
-            contact = f"<sip:{to_user}@{self.host}:{self.port}>"
+            # Use the actual IP that the client connected from (not 0.0.0.0)
+            contact_host = self.host if self.host != '0.0.0.0' else addr[0]
+            contact = f"<sip:{to_user}@{contact_host}:{self.port}>"
             
             # Build response with SDP and Contact header
             response = SIPBuilder.build_response(

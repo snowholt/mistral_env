@@ -110,13 +110,18 @@ class SessionTraceHandler(logging.Handler):
 class SystemdJournalHandler(logging.Handler):
     """Handler for systemd journal"""
     
-    PRIORITY_MAP = {
-        logging.DEBUG: journal.LOG_DEBUG,
-        logging.INFO: journal.LOG_INFO,
-        logging.WARNING: journal.LOG_WARNING,
-        logging.ERROR: journal.LOG_ERR,
-        logging.CRITICAL: journal.LOG_CRIT,
-    }
+    def __init__(self):
+        super().__init__()
+        if SYSTEMD_AVAILABLE:
+            self.PRIORITY_MAP = {
+                logging.DEBUG: journal.LOG_DEBUG,
+                logging.INFO: journal.LOG_INFO,
+                logging.WARNING: journal.LOG_WARNING,
+                logging.ERROR: journal.LOG_ERR,
+                logging.CRITICAL: journal.LOG_CRIT,
+            }
+        else:
+            self.PRIORITY_MAP = {}
     
     def emit(self, record):
         if not SYSTEMD_AVAILABLE:

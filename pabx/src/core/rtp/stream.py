@@ -18,6 +18,9 @@ except ImportError:
 from .packet import RTPPacket, RTPHeader, parse_rtp_packet, create_rtp_packet, detect_packet_loss
 from .types import CODEC_MAP, DEFAULT_PTIME
 from ..sip.parser import parse_sdp
+from ...utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 class RTPStream:
@@ -65,6 +68,10 @@ class RTPStream:
         self.packets_sent = 0
         self.packets_received = 0
         self.packets_lost = 0
+        self.bytes_sent = 0
+        self.bytes_received = 0
+        self.packet_loss = 0.0
+        self.jitter = 0.0
         
         # Codec info
         self.codec_info = CODEC_MAP.get(payload_type, {})
@@ -161,6 +168,7 @@ class RTPStream:
                 self.sequence_number = (self.sequence_number + 1) & 0xFFFF
                 self.timestamp = (self.timestamp + self.frame_size) & 0xFFFFFFFF
                 self.packets_sent += 1
+                self.bytes_sent += len(packet_bytes)
                 
             except Empty:
                 continue
@@ -190,6 +198,7 @@ class RTPStream:
                 
                 self.last_received_seq = packet.header.sequence_number
                 self.packets_received += 1
+                self.bytes_received += len(data)
                 
                 # Queue payload for playback
                 try:
@@ -234,9 +243,19 @@ class RTPStreamManager:
     def __init__(self):
         """Initialize RTP stream manager"""
         if not PYAUDIO_AVAILABLE:
-            raise ImportError("PyAudio not available - install with: pip install pyaudio")
+            logger.warning("PyAudio not available - audio I/O disabled")
+            self.pyaudio = None
+            self.streams: Dict[str, RTPStream] = {}
+            self.audio_streams: Dict[str, any] = {}
+            self.active = False
+            return
         
-        self.pyaudio = pyaudio.PyAudio()
+        try:
+            self.pyaudio = pyaudio.PyAudio()
+        except Exception as e:
+            logger.warning(f"Failed to initialize PyAudio - audio I/O disabled: {e}")
+            self.pyaudio = None
+        
         self.streams: Dict[str, RTPStream] = {}
         self.audio_streams: Dict[str, any] = {}  # PyAudio streams
         self.active = False
@@ -280,6 +299,10 @@ class RTPStreamManager:
         self.streams[stream_id] = rtp_stream
         
         # Create PyAudio streams if needed
+        if self.pyaudio is None:
+            logger.debug(f"PyAudio not available - audio I/O disabled for stream {stream_id}")
+            return rtp_stream
+        
         codec_info = CODEC_MAP.get(payload_type, {})
         sample_rate = codec_info.get('sample_rate', 8000)
         channels = codec_info.get('channels', 1)
