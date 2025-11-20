@@ -65,6 +65,8 @@ class RTPStream:
         self.sequence_number = 0
         self.timestamp = 0
         self.last_received_seq = None
+        self.last_received_timestamp = None
+        self.last_receive_time = None
         self.packets_sent = 0
         self.packets_received = 0
         self.packets_lost = 0
@@ -72,6 +74,7 @@ class RTPStream:
         self.bytes_received = 0
         self.packet_loss = 0.0
         self.jitter = 0.0
+        self.transit_time = 0.0
         
         # Codec info
         self.codec_info = CODEC_MAP.get(payload_type, {})
@@ -182,6 +185,7 @@ class RTPStream:
             try:
                 # Receive packet
                 data, addr = self.socket.recvfrom(2048)
+                receive_time = time.time()
                 
                 # Parse RTP packet
                 packet = parse_rtp_packet(data)
@@ -196,7 +200,20 @@ class RTPStream:
                     )
                     self.packets_lost += lost
                 
+                # Calculate jitter (RFC 3550 Section 6.4.1)
+                if self.last_received_timestamp is not None and self.last_receive_time is not None:
+                    # Arrival time difference (in RTP timestamp units)
+                    arrival_diff = (receive_time - self.last_receive_time) * self.sample_rate
+                    # Timestamp difference (in RTP timestamp units)
+                    timestamp_diff = packet.header.timestamp - self.last_received_timestamp
+                    # Transit time difference
+                    transit_diff = arrival_diff - timestamp_diff
+                    # Jitter calculation (smoothed absolute difference)
+                    self.jitter += (abs(transit_diff) - self.jitter) / 16.0
+                
                 self.last_received_seq = packet.header.sequence_number
+                self.last_received_timestamp = packet.header.timestamp
+                self.last_receive_time = receive_time
                 self.packets_received += 1
                 self.bytes_received += len(data)
                 

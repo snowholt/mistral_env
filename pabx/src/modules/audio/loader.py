@@ -6,14 +6,22 @@ Loads WAV, MP3, and other audio files for playback
 import numpy as np
 from pathlib import Path
 from typing import Optional, Tuple
+import wave
+import struct
 
-try:
-    import soundfile as sf
-    SOUNDFILE_AVAILABLE = True
-except ImportError:
-    SOUNDFILE_AVAILABLE = False
-    import wave
-    import struct
+# Lazy import soundfile only when needed to avoid ALSA probe delays
+SOUNDFILE_AVAILABLE = None
+
+def _check_soundfile():
+    """Check if soundfile is available (lazy check)"""
+    global SOUNDFILE_AVAILABLE
+    if SOUNDFILE_AVAILABLE is None:
+        try:
+            import soundfile as sf
+            SOUNDFILE_AVAILABLE = True
+        except ImportError:
+            SOUNDFILE_AVAILABLE = False
+    return SOUNDFILE_AVAILABLE
 
 
 class AudioLoader:
@@ -45,7 +53,7 @@ class AudioLoader:
         if not filepath.exists():
             raise FileNotFoundError(f"Audio file not found: {filepath}")
         
-        if SOUNDFILE_AVAILABLE:
+        if _check_soundfile():
             return AudioLoader._load_with_soundfile(
                 filepath, target_sample_rate, target_channels
             )
@@ -61,6 +69,7 @@ class AudioLoader:
         target_channels: int
     ) -> Tuple[np.ndarray, int]:
         """Load audio using soundfile (supports many formats)"""
+        import soundfile as sf
         
         # Load audio
         data, sample_rate = sf.read(str(filepath), dtype='float32')
@@ -172,8 +181,9 @@ class AudioLoader:
         filepath = Path(filepath)
         filepath.parent.mkdir(parents=True, exist_ok=True)
         
-        if SOUNDFILE_AVAILABLE:
+        if _check_soundfile():
             # Use soundfile if available
+            import soundfile as sf
             audio_float = audio_data.astype(np.float32) / 32767.0
             sf.write(str(filepath), audio_float, sample_rate)
         else:
@@ -195,7 +205,8 @@ class AudioLoader:
         Returns:
             Duration in seconds
         """
-        if SOUNDFILE_AVAILABLE:
+        if _check_soundfile():
+            import soundfile as sf
             info = sf.info(filepath)
             return info.duration
         else:

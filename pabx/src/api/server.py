@@ -5,10 +5,11 @@ Web API for PABX system control and monitoring
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
-from typing import List, Optional
+from typing import List, Optional, Dict
 from datetime import datetime
 import json
 import asyncio
+import time
 
 from ..services.call_manager import CallManager, Call
 from ..modules.sniffer import PacketCapture, SessionTracker, CaptureFilter
@@ -50,6 +51,9 @@ syslog_messages: List[SyslogMessage] = []  # Store recent messages
 
 # WebSocket connections
 websocket_connections: List[WebSocket] = []
+event_loop: Optional[asyncio.AbstractEventLoop] = None
+websocket_heartbeat_task: Optional[asyncio.Task] = None
+websocket_last_pong: Dict[WebSocket, float] = {}  # Track last pong time per connection
 
 
 # Lifecycle events
@@ -57,7 +61,13 @@ websocket_connections: List[WebSocket] = []
 @app.on_event("startup")
 async def startup_event():
     """Initialize services on startup"""
-    global call_manager, packet_capture, session_tracker, ht813_device
+    global call_manager, packet_capture, session_tracker, ht813_device, event_loop, websocket_heartbeat_task
+    
+    # Store the running event loop for thread-safe WebSocket broadcasting
+    event_loop = asyncio.get_running_loop()
+    
+    # Start WebSocket heartbeat monitoring
+    websocket_heartbeat_task = asyncio.create_task(websocket_heartbeat_monitor())
     
     print("=== PABX API SERVER STARTUP EVENT CALLED ===", flush=True)
     logger.info("Starting PABX API server")
@@ -102,15 +112,19 @@ async def startup_event():
         logger.info("Packet capture started")
     
     # Initialize HT813 device if configured
-    ht813_config = config.get('ht813')
-    if ht813_config:
-        ht813_device = HT813Device(
-            ip_address=ht813_config.get('ip_address'),
-            username=ht813_config.get('username', 'admin'),
-            password=ht813_config.get('password', 'admin')
-        )
-        
-        logger.info("HT813 device interface initialized")
+    # DISABLED: Web authentication causes device lockout from repeated login attempts
+    # The API will automatically use SIP registration data as fallback (no auth needed)
+    # ht813_config = config.get('ht813')
+    # if ht813_config:
+    #     ht813_device = HT813Device(
+    #         ip_address=ht813_config.get('ip_address'),
+    #         username=ht813_config.get('username', 'admin'),
+    #         password=ht813_config.get('password', 'admin')
+    #     )
+    #     
+    #     logger.info("HT813 device interface initialized")
+    
+    logger.info("HT813 web interface disabled - using SIP registration data only")
     
     # Initialize syslog receiver if configured
     syslog_config = config.get('syslog', {})
@@ -141,6 +155,14 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on shutdown"""
     logger.info("Shutting down PABX API server")
+    
+    # Cancel WebSocket heartbeat task
+    if websocket_heartbeat_task:
+        websocket_heartbeat_task.cancel()
+        try:
+            await websocket_heartbeat_task
+        except asyncio.CancelledError:
+            pass
     
     if call_manager:
         call_manager.stop()
@@ -260,6 +282,24 @@ async def get_registrations():
             }
             for user, reg in registrations.items()
         ]
+    }
+
+
+@app.get("/api/trunk/status")
+async def get_trunk_status():
+    """
+    Get SIP trunk registration status
+    
+    Returns information about outbound registration to STC provider
+    """
+    if not call_manager or not call_manager.sip_client:
+        raise HTTPException(status_code=503, detail="SIP client not initialized")
+    
+    status = call_manager.sip_client.get_registration_status()
+    
+    return {
+        "trunk": status,
+        "timestamp": datetime.now().isoformat()
     }
 
 
@@ -529,22 +569,98 @@ async def get_syslog_messages(limit: int = 100):
 
 # WebSocket endpoint
 
+async def websocket_heartbeat_monitor():
+    """
+    Monitor WebSocket connections and send periodic pings
+    
+    Sends ping every 30 seconds and removes connections that don't respond
+    within 60 seconds (stale connections).
+    """
+    PING_INTERVAL = 30  # seconds
+    TIMEOUT = 60  # seconds
+    
+    logger.info("WebSocket heartbeat monitor started")
+    
+    while True:
+        try:
+            await asyncio.sleep(PING_INTERVAL)
+            
+            current_time = time.time()
+            stale_connections = []
+            
+            for ws in list(websocket_connections):
+                try:
+                    # Check if connection is stale (no pong received)
+                    last_pong = websocket_last_pong.get(ws, current_time)
+                    
+                    if current_time - last_pong > TIMEOUT:
+                        logger.warning(f"WebSocket connection stale: {ws.client}")
+                        stale_connections.append(ws)
+                        continue
+                    
+                    # Send ping
+                    await ws.send_json({"type": "ping", "timestamp": current_time})
+                    logger.debug(f"Sent ping to WebSocket: {ws.client}")
+                    
+                except Exception as e:
+                    logger.error(f"Error sending ping to WebSocket: {e}")
+                    stale_connections.append(ws)
+            
+            # Remove stale connections
+            for ws in stale_connections:
+                if ws in websocket_connections:
+                    websocket_connections.remove(ws)
+                if ws in websocket_last_pong:
+                    del websocket_last_pong[ws]
+                
+                try:
+                    await ws.close()
+                except:
+                    pass
+            
+            if stale_connections:
+                logger.info(f"Removed {len(stale_connections)} stale WebSocket connections")
+                
+        except asyncio.CancelledError:
+            logger.info("WebSocket heartbeat monitor cancelled")
+            break
+        except Exception as e:
+            logger.error(f"Error in WebSocket heartbeat monitor: {e}", exc_info=True)
+
+
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """WebSocket for real-time events"""
     await websocket.accept()
     websocket_connections.append(websocket)
+    websocket_last_pong[websocket] = time.time()  # Initialize last pong time
     
     logger.info(f"WebSocket client connected: {websocket.client}")
     
     try:
         while True:
-            # Keep connection alive
-            await asyncio.sleep(1)
+            # Receive messages (for pong responses and other client messages)
+            try:
+                data = await asyncio.wait_for(websocket.receive_json(), timeout=1.0)
+                
+                # Handle pong response
+                if data.get("type") == "pong":
+                    websocket_last_pong[websocket] = time.time()
+                    logger.debug(f"Received pong from WebSocket: {websocket.client}")
+                    
+            except asyncio.TimeoutError:
+                # No message received, continue monitoring
+                continue
             
     except WebSocketDisconnect:
         logger.info(f"WebSocket client disconnected: {websocket.client}")
-        websocket_connections.remove(websocket)
+    except Exception as e:
+        logger.error(f"WebSocket error: {e}", exc_info=True)
+    finally:
+        if websocket in websocket_connections:
+            websocket_connections.remove(websocket)
+        if websocket in websocket_last_pong:
+            del websocket_last_pong[websocket]
 
 
 # Helper functions
@@ -584,18 +700,36 @@ def session_to_dict(session) -> dict:
 
 
 def broadcast_event(event: dict):
-    """Broadcast event to all WebSocket connections"""
-    disconnected = []
+    """
+    Broadcast event to all WebSocket connections (thread-safe)
     
-    for websocket in websocket_connections:
-        try:
-            # Use asyncio to send
-            asyncio.create_task(websocket.send_json(event))
-        except Exception as e:
-            logger.error(f"Error broadcasting to websocket: {e}")
-            disconnected.append(websocket)
+    This function can be called from any thread (e.g., SIP/RTP threads)
+    and safely broadcasts to WebSocket connections in the FastAPI event loop.
     
-    # Remove disconnected clients
-    for websocket in disconnected:
-        if websocket in websocket_connections:
-            websocket_connections.remove(websocket)
+    Args:
+        event: Event dictionary to broadcast
+    """
+    if not websocket_connections or not event_loop:
+        return
+    
+    # Create async coroutine for broadcasting
+    async def _send_to_all():
+        disconnected = []
+        
+        for websocket in websocket_connections:
+            try:
+                await websocket.send_json(event)
+            except Exception as e:
+                logger.error(f"Error broadcasting to websocket: {e}")
+                disconnected.append(websocket)
+        
+        # Remove disconnected clients
+        for websocket in disconnected:
+            if websocket in websocket_connections:
+                websocket_connections.remove(websocket)
+    
+    # Schedule the coroutine in the event loop (thread-safe)
+    try:
+        asyncio.run_coroutine_threadsafe(_send_to_all(), event_loop)
+    except Exception as e:
+        logger.error(f"Error scheduling WebSocket broadcast: {e}")

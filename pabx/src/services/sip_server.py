@@ -74,6 +74,20 @@ class SIPServer:
         self.registrations: Dict[str, Registration] = {}
         self.call_sessions: Dict[str, CallSession] = {}
         
+        # Message tracking for retransmission detection (RFC 3261)
+        # Key: (Call-ID, CSeq), Value: (timestamp, response_sent)
+        self.message_cache: Dict[tuple, tuple] = {}
+        self.message_cache_timeout = 32  # seconds (T1 * 64)
+        
+        # Retransmission timers (RFC 3261)
+        self.T1 = 0.5  # RTT estimate, 500ms
+        self.T2 = 4.0  # Maximum retransmit interval, 4s
+        
+        # Registration configuration
+        # Use shorter expiry (60s) to force frequent re-registration
+        # This ensures quick recovery after server restarts
+        self.registration_expiry = self.sip_config.get('registration_expiry', 60)
+        
         # Callbacks
         self.on_register: Optional[Callable] = None
         self.on_invite: Optional[Callable] = None
@@ -156,6 +170,35 @@ class SIPServer:
             
             logger.info(f"Received {message.method or message.status_code} from {addr[0]}:{addr[1]}")
             
+            # Check for retransmissions (RFC 3261)
+            if message.method:
+                call_id = message.get_header('Call-ID')
+                cseq = message.get_header('CSeq')
+                
+                if call_id and cseq:
+                    cache_key = (call_id, cseq)
+                    current_time = datetime.now().timestamp()
+                    
+                    # Clean old cache entries
+                    self._clean_message_cache(current_time)
+                    
+                    # Check if this is a retransmission
+                    if cache_key in self.message_cache:
+                        cached_time, cached_response = self.message_cache[cache_key]
+                        
+                        # If we've seen this message recently, it's likely a retransmission
+                        if current_time - cached_time < self.message_cache_timeout:
+                            logger.debug(f"Detected retransmission: {message.method} {call_id} {cseq}")
+                            
+                            # Resend the cached response
+                            if cached_response:
+                                self.socket.sendto(cached_response.encode('utf-8'), addr)
+                                logger.debug(f"Resent cached response for retransmission")
+                            return
+                    
+                    # Store message in cache (will be updated with response later)
+                    self.message_cache[cache_key] = (current_time, None)
+            
             # Route by method
             if message.method:
                 self._handle_request(message, addr)
@@ -169,6 +212,8 @@ class SIPServer:
         """Handle SIP request"""
         method = message.method
         
+        logger.info(f"=== REQUEST HANDLER === Method: {method}, From: {addr}")
+        
         if method == SIPMethod.REGISTER:
             self._handle_register(message, addr)
         elif method == SIPMethod.INVITE:
@@ -176,6 +221,7 @@ class SIPServer:
         elif method == SIPMethod.ACK:
             self._handle_ack(message, addr)
         elif method == SIPMethod.BYE:
+            logger.info(f"Routing to BYE handler for Call-ID: {message.get_header('Call-ID')}")
             self._handle_bye(message, addr)
         elif method == SIPMethod.CANCEL:
             self._handle_cancel(message, addr)
@@ -201,7 +247,6 @@ class SIPServer:
             from_header = message.get_header('From')
             contact = message.get_header('Contact')
             expires_header = message.get_header('Expires')
-            expires = int(expires_header) if expires_header else 3600
             
             # Parse user from From header
             user = self._extract_user(from_header)
@@ -210,11 +255,25 @@ class SIPServer:
                 self._send_response(message, SIPResponse.BAD_REQUEST, addr)
                 return
             
-            # Store registration
+            # Block HT813 registrations (device no longer in use)
+            if addr[0] == "192.168.100.96" or user in ["1001", "1002"]:
+                logger.warning(f"⚠️ Blocked REGISTER from legacy HT813 device: {user} at {addr[0]}:{addr[1]}")
+                # Send 403 Forbidden to prevent re-registration attempts
+                self._send_response(message, SIPResponse.FORBIDDEN, addr)
+                return
+            
+            # IMPORTANT: Override expiry to shorter time for quick recovery after restarts
+            # Client requests expiry, but we set our own shorter value (60s default)
+            requested_expires = int(expires_header) if expires_header else 3600
+            actual_expires = self.registration_expiry
+            
+            logger.info(f"REGISTER from user: {user} at {addr[0]}:{addr[1]} (requested: {requested_expires}s, granting: {actual_expires}s)")
+            
+            # Store registration with our shorter expiry
             registration = Registration(
                 user=user,
                 contact=contact,
-                expires=expires,
+                expires=actual_expires,
                 registered_at=datetime.now(),
                 ip_address=addr[0],
                 port=addr[1]
@@ -222,16 +281,17 @@ class SIPServer:
             
             self.registrations[user] = registration
             
-            logger.info(f"Registered user: {user} from {addr[0]}:{addr[1]}")
+            logger.info(f"✓ User {user} registered successfully, expires in {actual_expires}s")
             
             # Callback
             if self.on_register:
                 self.on_register(registration)
             
-            # Send 200 OK with Contact header (RFC 3261 compliance)
+            # Send 200 OK with Contact header and OUR expiry time (RFC 3261 compliance)
+            # The Expires value we send back tells the client when to re-register
             additional_headers = {
                 'Contact': contact,  # Echo back the Contact header
-                'Expires': str(expires)  # Echo back the Expires value
+                'Expires': str(actual_expires)  # Send OUR expiry value (not client's request)
             }
             self._send_response(message, SIPResponse.OK, addr, additional_headers=additional_headers)
             
@@ -330,6 +390,10 @@ class SIPServer:
         try:
             call_id = message.get_header('Call-ID')
             
+            logger.info(f"=== BYE HANDLER CALLED ===")
+            logger.info(f"BYE received for call-id: {call_id}")
+            logger.info(f"Active call sessions: {list(self.call_sessions.keys())}")
+            
             if call_id in self.call_sessions:
                 session = self.call_sessions[call_id]
                 session.state = "ENDED"
@@ -343,9 +407,17 @@ class SIPServer:
                 
                 # Remove session
                 del self.call_sessions[call_id]
-            
-            # Send 200 OK
-            self._send_response(message, SIPResponse.OK, addr)
+                
+                # Send 200 OK
+                self._send_response(message, SIPResponse.OK, addr)
+                logger.info(f"Sent 200 OK response for BYE")
+            else:
+                logger.warning(f"BYE received for unknown call: {call_id}")
+                logger.warning(f"Call-ID {call_id} not found in call_sessions. This might indicate the call was already cleaned up or never established")
+                # Send 200 OK anyway to gracefully handle the BYE
+                # This is more robust than sending 481
+                self._send_response(message, SIPResponse.OK, addr)
+                logger.info(f"Sent 200 OK response for BYE (unknown call)")
             
         except Exception as e:
             logger.error(f"Error handling BYE: {e}", exc_info=True)
@@ -391,6 +463,15 @@ class SIPServer:
             
             logger.debug(f"Sent {status_code} to {addr[0]}:{addr[1]}")
             
+            # Cache the response for retransmission detection
+            call_id = request.get_header('Call-ID')
+            cseq = request.get_header('CSeq')
+            
+            if call_id and cseq:
+                cache_key = (call_id, cseq)
+                current_time = datetime.now().timestamp()
+                self.message_cache[cache_key] = (current_time, response)
+            
         except Exception as e:
             logger.error(f"Error sending response: {e}", exc_info=True)
     
@@ -400,9 +481,13 @@ class SIPServer:
             # Get local RTP port
             local_rtp_port = self._allocate_rtp_port()
             
+            # Get server's actual IP (not 0.0.0.0)
+            server_ip = self._get_server_ip()
+            logger.info(f"Using server IP {server_ip} in SDP (RTP port {local_rtp_port})")
+            
             # Build SDP body string
             sdp_body = SIPBuilder.build_sdp(
-                host=self.host,
+                host=server_ip,  # Use actual IP, not bind address
                 port=local_rtp_port,
                 session_name="BeautyAI PABX",
                 codecs=[0, 8]  # PCMU, PCMA
@@ -513,6 +598,24 @@ class SIPServer:
         # Simple port allocation
         rtp_config = self.config.get('rtp')
         return rtp_config.get('port_range', {}).get('start', 10000)
+    
+    def _clean_message_cache(self, current_time: float):
+        """
+        Clean expired entries from message cache
+        
+        Args:
+            current_time: Current timestamp
+        """
+        expired_keys = [
+            key for key, (timestamp, _) in self.message_cache.items()
+            if current_time - timestamp > self.message_cache_timeout
+        ]
+        
+        for key in expired_keys:
+            del self.message_cache[key]
+        
+        if expired_keys:
+            logger.debug(f"Cleaned {len(expired_keys)} expired message cache entries")
     
     def _extract_user(self, header: str) -> str:
         """Extract user from SIP header"""

@@ -19,8 +19,24 @@ sip:
   # Server settings
   server:
     host: "0.0.0.0"
+    ip: "192.168.100.39"  # Actual server IP for SIP Contact headers
     domain: "beautyai.local"
     user_agent: "BeautyAI-PABX/2.0"
+  
+  # SIP Trunk Configuration for STC Provider
+  trunk:
+    enabled: true
+    name: "STC PSTN Trunk"
+    sip_server: "10.200.42.121"
+    sip_port: 5060
+    outbound_proxy: "10.200.42.121"
+    outbound_proxy_port: 5060
+    user_id: "+966114874423"
+    auth_id: "+966114874423@fmc.stc.com.sa"
+    auth_password: "114874423114874423"
+    domain: "fmc.stc.com.sa"
+    register: true
+    register_expiry: 3600
   
   # Call handling
   call_handling:
@@ -28,6 +44,7 @@ sip:
     auto_answer_delay: 1.0  # seconds
     max_call_duration: 3600  # seconds (1 hour)
     session_timer_enabled: false
+    auto_record: true  # Auto-record all calls
   
   # RTP Configuration
   rtp:
@@ -44,8 +61,10 @@ rtp:
   default_port: 12000
   packet_time: 20  # milliseconds
 
-# HT813 Device Configuration
+# HT813 Device Configuration (LEGACY - NOT IN USE)
+# Device removed, now using direct router NAT forwarding
 ht813:
+  enabled: false  # HT813 no longer in use
   ip_address: "192.168.100.96"
   username: "admin"
   password: "admin"  # Change in production!
@@ -53,7 +72,7 @@ ht813:
   
   # Auto-discovery settings
   discovery:
-    enabled: true
+    enabled: false  # Disabled - device not in use
     subnet: "192.168.100.0/24"
     timeout: 5
 
@@ -76,6 +95,9 @@ audio:
     input_device: null   # null = default
     output_device: null  # null = default
   
+  # Greeting audio file (played when call is answered)
+  greeting_file: "/home/lumi/beautyai/voice_tests/input_test_questions/greeting_ar.wav"
+  
   # Test audio
   test_files_dir: "/home/lumi/beautyai/pabx/audio/test"
   recordings_dir: "/home/lumi/beautyai/pabx/logs/recordings"
@@ -91,7 +113,7 @@ capture:
   buffer_size: 65536
   
   # Filters
-  target_ip: "192.168.100.96"  # HT813 IP
+  target_ip: "192.168.100.1"  # Router IP (changed from HT813)
   capture_sip: true
   capture_rtp: true
   capture_rtcp: true
@@ -104,7 +126,7 @@ capture:
 # Syslog Configuration
 syslog:
   # Enable/disable syslog receiver for HT813 device logs
-  enabled: true
+  enabled: false  # Disabled - HT813 device removed
   port: 514  # Standard syslog port (requires root or CAP_NET_BIND_SERVICE)
   # Alternative port if 514 requires privileges: 5140
 

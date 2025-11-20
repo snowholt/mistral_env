@@ -3,12 +3,14 @@ Call manager service
 Coordinate SIP and RTP for call handling
 """
 
+import os
 from typing import Optional, Dict, Callable
 from datetime import datetime
 from dataclasses import dataclass
 
 from .sip_server import SIPServer, CallSession as SIPCallSession
 from .rtp_handler import RTPHandler
+from .sip_client import SIPClient
 from ..utils.config import Config
 from ..utils.logger import get_logger
 
@@ -52,6 +54,7 @@ class CallManager:
         
         # Services
         self.sip_server = SIPServer()
+        self.sip_client = SIPClient(self.config)  # Outbound registration client
         self.rtp_handler = RTPHandler()
         
         # Active calls
@@ -84,6 +87,9 @@ class CallManager:
             # Start SIP server
             self.sip_server.start()
             
+            # Start SIP client (trunk registration)
+            self.sip_client.start()
+            
             logger.info("Call manager started")
             
         except Exception as e:
@@ -99,6 +105,7 @@ class CallManager:
             self.end_call(call_id)
         
         # Stop services
+        self.sip_client.stop()  # Unregister from trunk
         self.sip_server.stop()
         self.rtp_handler.shutdown()
         
@@ -194,6 +201,12 @@ class CallManager:
             if self.config.get('sip', {}).get('call_handling', {}).get('auto_record', False):
                 self.start_recording(call_id)
             
+            # Auto-play greeting if configured
+            greeting_file = self.config.get('audio', {}).get('greeting_file')
+            if greeting_file:
+                logger.info(f"Playing greeting audio: {greeting_file}")
+                self.play_audio(call_id, greeting_file)
+            
             return True
             
         except Exception as e:
@@ -271,9 +284,15 @@ class CallManager:
         try:
             call = self.calls[call_id]
             
-            # Generate recording filename
+            # Generate recording filename with absolute path from config
             timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
-            recording_file = f"recordings/call_{call_id}_{timestamp}.wav"
+            recordings_dir = self.config.get('audio', {}).get('recordings_dir', 'recordings')
+            
+            # Ensure recordings directory exists
+            os.makedirs(recordings_dir, exist_ok=True)
+            
+            # Create absolute path
+            recording_file = os.path.join(recordings_dir, f"call_{call_id}_{timestamp}.wav")
             
             call.recording_file = recording_file
             

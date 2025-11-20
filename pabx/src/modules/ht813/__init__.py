@@ -3,9 +3,10 @@ HT813 device integration module
 HTTP API wrapper for Grandstream HT813 ATA
 """
 
-from typing import Dict, Optional, Any, List
+from typing import Dict, Optional, Any, List, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import base64
 import requests
 from bs4 import BeautifulSoup
 
@@ -93,30 +94,77 @@ class HT813Device:
             True if authentication successful
         """
         try:
+            csrf_token, gnkey = self._fetch_login_tokens()
+        except Exception as exc:
+            logger.error(f"Unable to fetch HT813 login tokens: {exc}", exc_info=True)
+            return False
+
+        try:
             url = f"{self.base_url}/cgi-bin/dologin"
-            
+
+            encoded_password = base64.b64encode(self.password.encode("utf-8")).decode("utf-8")
+
             data = {
-                'username': self.username,
-                'password': self.password,
+                "csrf_token": csrf_token,
+                "gnkey": gnkey,
+                "username": self.username,
+                "password": encoded_password,
             }
-            
+
+            headers = {
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8",
+                "Referer": f"{self.base_url}/cgi-bin/login",
+                "X-Requested-With": "XMLHttpRequest",
+                "User-Agent": "BeautyAI-PABX/2.0 (+https://beautyai.local)",
+            }
+
             response = self.session.post(
                 url,
                 data=data,
-                timeout=self.timeout
+                headers=headers,
+                timeout=self.timeout,
+                allow_redirects=False,
             )
-            
-            if response.status_code == 200:
+
+            session_cookie = self.session.cookies.get("session_id") or response.cookies.get("session_id")
+
+            if response.status_code == 200 and session_cookie:
                 self.authenticated = True
                 logger.info(f"Authenticated with HT813 at {self.ip_address}")
                 return True
+
+            if "Remaining Attempts" in response.text or response.status_code == 503:
+                logger.warning("HT813 login locked out due to too many failed attempts. Waiting required before retrying.")
             else:
-                logger.error(f"Authentication failed: {response.status_code}")
-                return False
-                
+                logger.error(f"Authentication failed: status={response.status_code}, body_snippet={response.text[:120]}")
+            return False
+
         except Exception as e:
             logger.error(f"Error authenticating with HT813: {e}", exc_info=True)
             return False
+
+    def _fetch_login_tokens(self) -> Tuple[str, str]:
+        """Retrieve CSRF token and gnkey required for login."""
+        login_url = f"{self.base_url}/cgi-bin/login"
+
+        response = self.session.get(login_url, timeout=self.timeout)
+        response.raise_for_status()
+
+        soup = BeautifulSoup(response.text, "html.parser")
+
+        csrf_field = soup.find("input", {"name": "csrf_token"})
+        gnkey_field = soup.find("input", {"name": "gnkey"})
+
+        if not csrf_field or not gnkey_field:
+            raise ValueError("Missing csrf_token or gnkey in HT813 login page")
+
+        csrf_token = csrf_field.get("value", "").strip()
+        gnkey = gnkey_field.get("value", "").strip()
+
+        if not csrf_token or not gnkey:
+            raise ValueError("Empty csrf_token or gnkey extracted from login page")
+
+        return csrf_token, gnkey
     
     def get_status(self) -> Optional[HT813Status]:
         """

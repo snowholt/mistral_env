@@ -158,13 +158,64 @@ class RTPHandler:
         try:
             stream = self.streams[call_id]
             
-            # Load audio file
-            audio_data, sample_rate = AudioLoader.load(audio_file)
-            
-            # Send audio to stream
-            stream.send_audio(audio_data)
+            # Load audio file (resampled to 8kHz for telephony)
+            audio_data, sample_rate = AudioLoader.load(
+                audio_file,
+                target_sample_rate=8000,
+                target_channels=1
+            )
             
             logger.info(f"Playing audio on call {call_id}: {audio_file}")
+            logger.info(f"Audio loaded: {len(audio_data)} samples at {sample_rate}Hz")
+            
+            # Get codec for encoding (payload type from stream)
+            codec = get_codec(stream.payload_type)
+            if not codec:
+                logger.error(f"Unsupported codec payload type: {stream.payload_type}")
+                return False
+            
+            logger.info(f"Encoding audio with codec: {codec.name}")
+            
+            # Encode PCM to codec format (G.711 µ-law/A-law)
+            encoded_audio = codec.encode(audio_data)
+            
+            logger.info(f"Encoded audio: {len(encoded_audio)} bytes (from {len(audio_data)} samples)")
+            
+            # Start playback thread to chunk and send audio
+            def _playback_thread():
+                try:
+                    # Chunk size: 160 samples = 160 bytes for G.711 = 20ms @ 8kHz
+                    # Note: G.711 is 8-bit per sample, not 16-bit!
+                    chunk_size = 160  # bytes (160 samples * 1 byte/sample for G.711)
+                    total_chunks = (len(encoded_audio) + chunk_size - 1) // chunk_size
+                    
+                    logger.info(f"Sending {total_chunks} audio chunks (160 bytes each, 20ms)...")
+                    
+                    for i in range(0, len(encoded_audio), chunk_size):
+                        if not stream.running:
+                            break
+                        
+                        chunk = encoded_audio[i:i+chunk_size]
+                        
+                        # Pad last chunk if needed
+                        if len(chunk) < chunk_size:
+                            chunk = chunk + b'\x00' * (chunk_size - len(chunk))
+                        
+                        # Send chunk with marker on first packet
+                        stream.send_audio(chunk, marker=(i == 0))
+                        
+                        # Wait 20ms between packets (ptime)
+                        threading.Event().wait(0.020)
+                    
+                    logger.info(f"Audio playback complete for call {call_id}")
+                    
+                except Exception as e:
+                    logger.error(f"Error in playback thread: {e}", exc_info=True)
+            
+            # Start playback in background thread
+            playback_thread = threading.Thread(target=_playback_thread, daemon=True)
+            playback_thread.start()
+            
             return True
             
         except Exception as e:
@@ -198,30 +249,43 @@ class RTPHandler:
             # Start recording in thread
             def record_thread():
                 try:
-                    # Collect audio data
+                    # Collect audio data from receive queue
                     audio_data = []
                     start_time = datetime.now()
+                    
+                    logger.info(f"Recording thread started for call {call_id}")
                     
                     while stream.running:
                         # Check duration
                         if duration:
                             elapsed = (datetime.now() - start_time).total_seconds()
                             if elapsed >= duration:
+                                logger.info(f"Recording duration {duration}s reached")
                                 break
                         
-                        # Get audio from stream
-                        # Note: This is a simplified implementation
-                        # Real implementation would use stream's receive buffer
-                        threading.Event().wait(0.1)
+                        # Get audio from stream's receive queue
+                        try:
+                            audio_chunk = stream.receive_audio(timeout=0.1)
+                            if audio_chunk:
+                                audio_data.append(audio_chunk)
+                        except Exception as e:
+                            # Timeout or queue empty, continue
+                            pass
                     
-                    # Save recording
+                    # Save recording if we got any audio
                     if audio_data:
+                        # Concatenate all audio chunks
+                        full_audio = b''.join(audio_data)
+                        logger.info(f"Saving {len(full_audio)} bytes of audio to {output_file}")
+                        
                         AudioLoader.save_wav(
-                            audio_data,
+                            full_audio,
                             output_file,
                             sample_rate=stream.sample_rate
                         )
-                        logger.info(f"Saved recording: {output_file}")
+                        logger.info(f"Saved recording: {output_file} ({len(audio_data)} chunks, {len(full_audio)} bytes)")
+                    else:
+                        logger.warning(f"No audio data received for call {call_id}, recording not saved")
                     
                 except Exception as e:
                     logger.error(f"Error in recording thread: {e}", exc_info=True)
@@ -251,14 +315,18 @@ class RTPHandler:
             return None
         
         stream = self.streams[call_id]
+        stats = stream.get_statistics()
         
         return {
-            'packets_sent': stream.packets_sent,
-            'packets_received': stream.packets_received,
+            'packets_sent': stats['packets_sent'],
+            'packets_received': stats['packets_received'],
+            'packets_lost': stats['packets_lost'],
             'bytes_sent': stream.bytes_sent,
             'bytes_received': stream.bytes_received,
-            'packet_loss': stream.packet_loss,
-            'jitter': stream.jitter
+            'packet_loss_rate': stats['loss_rate'],
+            'jitter': stream.jitter,
+            'sequence_number': stats['sequence_number'],
+            'timestamp': stats['timestamp']
         }
     
     def shutdown(self):
