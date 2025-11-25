@@ -117,6 +117,22 @@ class SIPClient:
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             self.socket.settimeout(5.0)  # 5 second timeout for responses
             
+            # Bind to local port so we can receive responses
+            # Note: We can't bind to the SIP server's port (5060) if it's already in use
+            # Instead, we'll use a different port for the client socket
+            client_port = self.config.get("sip.trunk.client_port", 0)  # 0 = auto-assign
+            if client_port == 0:
+                # Let the OS assign a random port, but we need to update our headers
+                self.socket.bind(('', 0))
+                # Get the actual port assigned
+                self.local_port = self.socket.getsockname()[1]
+                logger.info(f"🔌 SIP Client bound to port {self.local_port}")
+            else:
+                # Use configured port
+                self.socket.bind((self.local_ip, client_port))
+                self.local_port = client_port
+                logger.info(f"🔌 SIP Client bound to {self.local_ip}:{self.local_port}")
+            
             self.running = True
             
             # Initialize trunk registration state
@@ -289,10 +305,16 @@ class SIPClient:
         
         register_msg = "\r\n".join(message)
         
+        # Log the exact packet being sent
+        logger.info(f"📦 REGISTER Packet Details:")
+        logger.info(f"   Destination: {sip_server}:{sip_port}")
+        logger.info(f"   Source: {self.local_ip}:{self.local_port}")
+        logger.info(f"   Packet Content:\n{register_msg}")
+        
         # Send to server
         try:
-            self.socket.sendto(register_msg.encode(), (sip_server, sip_port))
-            logger.debug(f"📤 Sent REGISTER (CSeq: {self.cseq}, Expires: {expires})")
+            bytes_sent = self.socket.sendto(register_msg.encode(), (sip_server, sip_port))
+            logger.info(f"📤 Sent REGISTER ({bytes_sent} bytes, CSeq: {self.cseq}, Expires: {expires})")
             self.cseq += 1
             
             # Wait for response

@@ -1,185 +1,636 @@
-The information extracted from the HTML, specifically the voice status and statistics, is contained within the JavaScript variable `voiceList`.
-
-Here is the extracted and organized data:
-
-## Voice Line Status and Statistics
-
-| Category | Field | Line 1 | Line 2 |
-|---|---|---|---|
-| **Voice Interfaces** | | Line 1 | Line 2 |
-| **Status** | Admin State | Disabled | Disabled |
-| | Phone Number | +966114874423 | 2001 |
-| | Registration Status | Disabled | Disabled |
-| | Call Status | Idle | Idle |
-| | Hook State | On Hook | On Hook |
-| **RTP Statistics** | Packets Sent | 0 | 0 |
-| | Packets Received | 0 | 0 |
-| | Bytes Sent | 0 | 0 |
-| | Bytes Received | 0 | 0 |
-| | Packets Lost | 0 | 0 |
-| **Incoming Calls** | Received | 0 | 0 |
-| | Answered | 0 | 0 |
-| | Connected | 0 | 0 |
-| | Failed | 0 | 0 |
-| **Outgoing Calls** | Attempted | 0 | 0 |
-| | Answered | 0 | 0 |
-| | Connected | 0 | 0 |
-| | Failed | 0 | 0 |
-
-**Summary:**
-
-Both **Line 1** and **Line 2** are currently **Disabled** and **Idle**. All packet and call statistics are at **zero (0)**.
-
-
-
+# Router Voice Configuration Documentation
+**Last Updated**: November 20, 2025  
+**Router Model**: ZNID-GPON-2428B1-0ST (Zhone/Dasan)  
+**Firmware Version**: S4.2.022
 
 ---
 
-### SIP
-The provided HTML contains configuration settings for the Voice SIP client, primarily stored in JavaScript variables.
+## 📋 Table of Contents
+1. [Network Configuration](#network-configuration)
+2. [VoIP Service Configuration](#voip-service-configuration)
+3. [SIP Configuration](#sip-configuration)
+4. [Voice Lines](#voice-lines)
+5. [Port Forwarding Rules](#port-forwarding-rules)
+6. [Firewall Rules](#firewall-rules)
+7. [VLAN Configuration](#vlan-configuration)
+8. [QoS Configuration](#qos-configuration)
+9. [Classification Rules](#classification-rules)
 
-Here is the extracted and organized information:
+---
 
-## Voice SIP Configuration Parameters
+## 🌐 Network Configuration
 
-### 1. Basic SIP Settings
+### WAN Interfaces
 
-| Field | Value | Description |
-|---|---|---|
-| **Voice Running Status** | `1` | SIP client is running (based on `voiceRunning` variable). |
-| **Bound Interface Name** | `brvlan11` | The network interface used for SIP. |
-| **Bound Interface IP** | `20.159.4.1` | The IP address of the bound interface. |
-| **Locale Selection** | `KSA` | Saudi Arabia. |
-| **Domain Name Mode** | `DomainName` | The SIP domain is specified by name, not IP (based on `am0 = "DomainName"`). |
-| **SIP Domain Name** | `fmc.stc.com.sa` | The SIP domain name (`de0`). |
-| **Address Mode** | `DomainName` | (`am0`) |
-| **Use SIP (Proxy/Registrar)** | Enabled (Implied by `enblPlar.checked = false` and `enblProxy.checked = true` in `frmLoad`) |
-| **Use SIP PLAR** | Disabled (Implied by `enblPlar.checked = false` in `frmLoad`) |
+#### Primary WAN (Internet) - PPPoE
+- **Interface**: `eth0.v10.ppp` (ppp0.10)
+- **VLAN ID**: 10
+- **Connection Type**: PPPoE_Bridged
+- **Service Name**: TR069 INTERNET
+- **Public IP**: 176.45.31.103
+- **Gateway**: 84.235.6.25
+- **Subnet Mask**: 255.255.255.255
+- **MTU**: 1492
+- **PPP Username**: `114874423@stc.net.sa`
+- **PPP LCP Echo**: 60 seconds
+- **PPP LCP Echo Retry**: 3
+- **Status**: Connected
+- **Connection Time**: 142 seconds uptime
+- **NAT**: Enabled
+- **DNS Type**: PPPoE (from ISP)
+  - Primary DNS: 84.235.6.55
+  - Secondary DNS: 84.235.57.230
 
-#### SIP Proxy/Registrar Information
+#### VoIP WAN Interface - DHCP
+- **Interface**: `brvlan11`
+- **VLAN ID**: 11
+- **Connection Type**: IP_Bridged (CPU-Bridged)
+- **IP Assignment**: DHCP (from STC VoIP network)
+- **Gateway**: 20.159.0.1
+- **Local IP**: 20.159.4.1 (assigned by DHCP)
+- **NAT**: Enabled
+- **DNS Type**: DHCP
+- **DHCP Client PID**: 5243
+- **Status**: Connected
 
-| Field | Value | Variable |
-|---|---|---|
-| **SIP Proxy** | `fmc.stc.com.sa` | `pa0` |
-| **SIP Proxy Port** | `5060` | `pp0` |
-| **SIP Outbound Proxy** | `10.200.42.121` | `oa0` |
-| **SIP Outbound Proxy Port** | `5060` | `op0` |
-| **SIP Secondary Outbound Proxy** | `0.0.0.0` | `soa0` |
-| **SIP Registrar** | `fmc.stc.com.sa` | `ra0` |
-| **SIP Registrar Port** | `5060` | `rp0` |
+### LAN Interfaces
 
-#### SIP PLAR (Private Line Automatic Ringdown) Information
+#### Main LAN Bridge
+- **Interface**: `brvlan10`
+- **VLAN ID**: 10
+- **IP Address**: 192.168.100.1
+- **Subnet Mask**: 255.255.255.0
+- **DHCP Server**: Enabled
+  - DHCP Range: 192.168.100.2 - 192.168.100.254
+- **DNS Servers**: 
+  - Primary: 84.235.6.55
+  - Secondary: 84.235.57.230
+- **IPv6**: Enabled (LAN-PD)
+- **Link-Local IPv6**: fe80::10f2:1cff:fe0e:91e3/64
 
-| Field | Value | Variable |
-|---|---|---|
-| **SIP PLAR Gateway** | `0.0.0.0` | `ga0` |
-| **SIP PLAR Port** | `5060` | `gp0` |
+#### Default Bridge
+- **Interface**: `br0`
+- **Type**: Bridged
+- **IPv6 DNS**: ::/128
 
+### Ethernet Ports
+- **eth0**: Fiber WAN (GPON)
+- **eth1**: GE1 - GigE (LAN port 1) - VLAN 10
+- **eth2**: GE2 - GigE (LAN port 2) - VLAN 10
+- **eth3**: GE3 - GigE (LAN port 3) - VLAN 10
+- **eth4**: GE4 - GigE (LAN port 4) - VLAN 10
 
+### Wireless Networks
 
-### 2. Advanced SIP Settings
+#### 2.4GHz Network
+- **SSID**: WK
+- **BSSID**: 62:F2:1C:0E:91:E4
+- **Interface**: wl0
+- **Channel**: 11
+- **Region**: GB
+- **Max Bit Rate**: Auto
+- **Security**: WPA2-PSK (AES)
+- **Password**: 0503478191
+- **SSID Broadcast**: Enabled
+- **Connected Clients**: 1
 
-| Field | Value | Variable |
-|---|---|---|
-| **Enable T38 support** | Disabled (`vbd0 = "1"` means `t38Enable.checked = false`) | `vbd0` |
-| **WAN MAC + 1** | Enabled (`wm0 = "1"`) | `wm0` |
-| **Registration Expire Timeout** | `3600` | `rt0` |
-| **Head Start Value (secs)** | `15` | `rrp0` |
-| **Registration Retry Interval** | `30` | `rrt0` |
-| **DSCP for SIP** | `40` | `tosSip0` |
-| **DSCP for RTP** | `46` | `tosRtp0` |
-| **Dtmf Relay setting** | `RFC2833` | `dr0` |
-| **Hook Flash Relay setting** | `None` | `hr0` |
-| **SIP Transport protocol** | `UDP` | `trp0` |
-| **MWI Subscribe** | Enabled (`sm0 = "1"`) | `sm0` |
-| **Switch Model** | `SoftX3000` | `swt0` |
-| **InterDigit Delay** | `5` | `idto0` |
-| **Conference URI** | (Empty) | `confuri0` |
-| **Conference Option** | `Local` | `confopt0` |
+#### 5GHz Network
+- **SSID**: WK - 5G
+- **BSSID**: 82:F2:1C:0E:91:E4
+- **Interface**: wl1
+- **Channel**: 132
+- **Region**: US
+- **Max Bit Rate**: Auto
+- **Security**: WPA2-PSK (AES)
+- **Password**: 0503478191
+- **SSID Broadcast**: Enabled
+- **Management Frame Protection**: Required
+- **Connected Clients**: 4
 
-#### Dial Plan Setting
+---
 
-| Field | Value | Variable |
-|---|---|---|
-| **Voip Dial Plan Setting** | `[2-6]xxxxxx|[7-8]0[1-9]xxxx|[7-8][1-9]xxxxx|05xxxxxxxx|0[123467][2-8]xxxxxx.T|01[123467][2-8]xxxxxx|00xxxxxx.S|1800xx|08111xxxxxx|9[034689]x|700xxxxx.T|800xxxxxxx|92xxxxxxx|1xx.T|**xx|*xx#|*xx*x.#|*xx*x.*x.#|*xx*x.*x.*x.#|*#xx*x.#|*#xx*x.*x.#|*#xx#|#xx#|#xx*x.*x.#` | `dm0` |
+## 📞 VoIP Service Configuration
 
+### Voice Service General Settings
+- **Service Instance**: 1
+- **Voice Profiles**: 18 (maximum)
+- **Bound Interface**: `brvlan11`
+- **Bound IP Address**: 20.159.4.1
+- **Region**: SA (Saudi Arabia)
+- **DTMF Method**: RFC2833
+- **Max Sessions**: 4
 
-### Lines:
-The provided HTML contains configuration settings for individual Voice SIP lines (Line 1 and Line 2), primarily stored in JavaScript variables.
+### Supported Codecs
+1. G.711 (20ms packetization)
+2. G.723 (20ms packetization)
+3. G.729 (20ms packetization)
+4. G.726 (20ms packetization) - Disabled
+5. G.722 (20ms packetization)
+6. Additional codecs (Disabled)
 
-Here is the extracted and organized information:
+---
 
-## Voice SIP Line Configurations
+## 🔊 SIP Configuration
 
-The configuration is for **2 lines** (`maxLines = 2`).
+### SIP Server Details
+- **Proxy Server**: fmc.stc.com.sa
+- **Registrar Server**: fmc.stc.com.sa
+- **Outbound Proxy**: 10.200.42.121
+- **User Agent Domain**: fmc.stc.com.sa
+- **Secondary Outbound Proxy**: 0.0.0.0 (Not configured)
+- **Music Server**: 0.0.0.0 (Not configured)
+- **Log Server**: 0.0.0.0 (Not configured)
 
-### Line 1 Configuration
+### SIP Protocol Settings
+- **Register Retry Interval**: 30 seconds
+- **DSCP Mark**: 40 (EF - Expedited Forwarding)
+- **Interdigit Timeout**: 5000 ms
+- **Address Mode**: DomainName
+- **VoIP Switch Type**: SoftX3000
 
-| Category | Field | Value | Variable |
-|---|---|---|---|
-| **Account Status** | Admin State (Line Enabled) | Disabled (`le0_0 = "0"`) | `le0_0` |
-| | User ID (Extension) | `+966114874423` | `ex0_0` |
-| | SIP PLAR User Name | `4003` | `pu0_0` |
-| | Display name | `966114874423` | `dn0_0` |
-| | Authentication name | `+966114874423@fmc.stc.com.sa` | `an0_0` |
-| | Password | `PaSsWoRd` | `pw0_0` |
-| **Audio/Codec** | Voice Sample Size (ms) | `20` | `vp0_0` |
-| | Silence Suppression (VAD) | Disabled (`ve0_0 = "0"`) | `ve0_0` |
-| | Echo Cancellation | Enabled (`ec0_0 = "1"`) | `ec0_0` |
-| | Tx Path Gain (Ingress Gain) | `-3 dB` | `ig0_0` |
-| | Rx Path Gain (Egress Gain) | `-9 dB` | `eg0_0` |
-| **Codec Preference** | Preferred Codecs List | `G.711ALaw,G.711MuLaw,G.729a,G.726_32` | `cl0_0` |
-| **Call Features** | Caller ID | Enabled (Implied by `ci0_0 = "0"`) | `ci0_0` |
-| | Call Waiting | Enabled (`cw0_0 = "1"`) | `cw0_0` |
-| | Centrex | Enabled (`ctx0_0 = "1"`) | `ctx0_0` |
-| | Three-way Calling | Enabled (`tw0_0 = "on"`) | `tw0_0` |
-| | Message Waiting (MWI) | Enabled (`mw0_0 = "1"`) | `mw0_0` |
-| | Reverse Polarity | Disabled (`rpl0_0 = "0"`) | `rpl0_0` |
-| | Phone Follows WAN | Disabled (`pfw0_0 = "0"`) | `pfw0_0` |
-| **Hot/Warm Line** | Hot/Warm Line Service | `Off` | `wle0_0` |
-| | Hot/Warm Line Number | (Empty) | `wln0_0` |
-| | Warm Line Timer (ms) | `200` | `wlt0_0` |
-| **Dialing** | PBX Dialing | Disabled (`pbx0_0 = "0"`) | `pbx0_0` |
-| | Number for PBX Dialing | `9` | `pbn0_0` |
-| | E.164 Dialing | Disabled (`e1640_0 = "0"`) | `e1640_0` |
-| | International Prefix | `011` | `eidd0_0` |
-| | Local Prefix | `1` | `eldp0_0` |
-| | Country Code | `1` | `ecc0_0` |
+### Dial Plan (Digit Map)
+```
+[2-6]xxxxxx|[7-8]0[1-9]xxxx|[7-8][1-9]xxxxx|05xxxxxxxx|0[123467][2-8]xxxxxx.T|
+01[123467][2-8]xxxxxx|00xxxxxx.S|1800xx|08111xxxxxx|9[034689]x|700xxxxx.T|
+800xxxxxxx|92xxxxxxx|1xx.T|**xx|*xx#|*xx*x.#|*xx*x.*x.#|*xx*x.*x.*x.#|
+*#xx*x.#|*#xx*x.*x.#|*#xx#|#xx#|#xx*x.*x.#
+```
 
-***
+**Pattern Explanation**:
+- `[2-6]xxxxxx` - Local 7-digit numbers
+- `[7-8]0[1-9]xxxx`, `[7-8][1-9]xxxxx` - Local 8-digit numbers
+- `05xxxxxxxx` - Saudi mobile numbers
+- `0[123467][2-8]xxxxxx.T` - National numbers with timeout
+- `00xxxxxx.S` - International calls (short dial)
+- `1800xx` - Toll-free 1800
+- `92xxxxxxx` - International (92 = Pakistan)
+- `1xx.T` - Service codes
+- `*xx`, `#xx`, etc. - Feature codes
 
-### Line 2 Configuration
+---
 
-| Category | Field | Value | Variable |
-|---|---|---|---|
-| **Account Status** | Admin State (Line Enabled) | Disabled (`le0_1 = "0"`) | `le0_1` |
-| | User ID (Extension) | `2001` | `ex0_1` |
-| | SIP PLAR User Name | `4004` | `pu0_1` |
-| | Display name | `Line2` | `dn0_1` |
-| | Authentication name | (Empty) | `an0_1` |
-| | Password | `PaSsWoRd` | `pw0_1` |
-| **Audio/Codec** | Voice Sample Size (ms) | `20` | `vp0_1` |
-| | Silence Suppression (VAD) | Disabled (`ve0_1 = "0"`) | `ve0_1` |
-| | Echo Cancellation | Enabled (`ec0_1 = "1"`) | `ec0_1` |
-| | Tx Path Gain (Ingress Gain) | `-3 dB` | `ig0_1` |
-| | Rx Path Gain (Egress Gain) | `-9 dB` | `eg0_1` |
-| **Codec Preference** | Preferred Codecs List | `G.711ALaw,G.711MuLaw,G.729a,G.726_32` | `cl0_1` |
-| **Call Features** | Caller ID | Enabled (Implied by `ci0_1 = "0"`) | `ci0_1` |
-| | Call Waiting | Enabled (`cw0_1 = "1"`) | `cw0_1` |
-| | Centrex | Enabled (`ctx0_1 = "1"`) | `ctx0_1` |
-| | Three-way Calling | Enabled (`tw0_1 = "on"`) | `tw0_1` |
-| | Message Waiting (MWI) | Enabled (`mw0_1 = "1"`) | `mw0_1` |
-| | Reverse Polarity | Disabled (`rpl0_1 = "0"`) | `rpl0_1` |
-| | Phone Follows WAN | Disabled (`pfw0_1 = "0"`) | `pfw0_1` |
-| **Hot/Warm Line** | Hot/Warm Line Service | `Off` | `wle0_1` |
-| | Hot/Warm Line Number | (Empty) | `wln0_1` |
-| | Warm Line Timer (ms) | `200` | `wlt0_1` |
-| **Dialing** | PBX Dialing | Disabled (`pbx0_1 = "0"`) | `pbx0_1` |
-| | Number for PBX Dialing | `9` | `pbn0_1` |
-| | E.164 Dialing | Disabled (`e1640_1 = "0"`) | `e1640_1` |
-| | International Prefix | `011` | `eidd0_1` |
-| | Local Prefix | `1` | `eldp0_1` |
-| | Country Code | `1` | `ecc0_1` |
+## 📱 Voice Lines
 
+### Line 1 (Primary)
+- **Status**: Disabled
+- **Directory Number**: +966114874423
+- **Physical Reference**: Port 1
+- **SIP Auth Username**: +966114874423@fmc.stc.com.sa
+- **SIP URI**: +966114874423
+- **Caller ID Name**: 966114874423
+- **Max Sessions**: 2
+- **MWI (Message Waiting Indicator)**: Enabled
+- **Anonymous Call**: Enabled
+- **Centrex Mode**: Enabled
+- **PLAR Username**: 4003
 
+**Codec Priority**:
+1. Priority 2: Codec 1 (G.711)
+2. Priority 1: Codec 2 (G.723)
+3. Priority 3: Codec 3 (G.729)
+4. Priority 99: Codec 4 (Disabled)
+5. Priority 4: Codec 5 (G.722)
 
+### Line 2 (Secondary)
+- **Status**: Disabled
+- **Directory Number**: 2001
+- **Physical Reference**: Port 0 (No physical port)
+- **CM Account Number**: 1
+- **SIP URI**: 2001
+- **Caller ID Name**: Line2
+- **Max Sessions**: 2
+- **MWI**: Enabled
+- **Anonymous Call**: Enabled
+- **Centrex Mode**: Enabled
+- **PLAR Username**: 4004
+
+**Codec Priority**: Same as Line 1
+
+---
+
+## 🔀 Port Forwarding Rules
+
+### SSH Access
+- **Name**: Ssh3
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 2223
+- **Private Port**: 22
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### BeautyAI API Ports
+- **Name**: API1
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Ports**: 8000-8003
+- **Private Ports**: 8000-8003
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### HTTPS/Secure API
+- **Name**: extern-to-intern
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 8443
+- **Private Port**: 8443
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### Additional API Port
+- **Name**: API2
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 8004
+- **Private Port**: 8004
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### Standard HTTPS
+- **Name**: extern-to-intern-443
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 443
+- **Private Port**: 443
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### Standard HTTP (Redirect)
+- **Name**: extern-to-intern-80
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 80
+- **Private Port**: 192
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+- **Note**: Port 192 suggests HTTP-to-HTTPS redirect
+
+### Testing Ports
+- **Name**: Testing port
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Ports**: 5000-5003
+- **Private Ports**: 5000-5003
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### Plex Media Server
+- **Name**: plexc
+- **Type**: Port-Remap
+- **Protocol**: TCP
+- **Public Port**: 32400
+- **Private Port**: 32400
+- **Private IP**: 192.168.100.191
+- **Status**: Enabled
+
+### FreePBX RTP (Voice Media)
+- **Name**: FreePBX
+- **Type**: Port-Range
+- **Protocol**: UDP
+- **Public Ports**: 10000-20000
+- **Private Ports**: 10000-20000
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+- **Purpose**: RTP audio streams for voice calls
+
+### WebRTC Signaling Port 1
+- **Name**: WebRTC
+- **Type**: Port-Remap
+- **Protocol**: TCP or UDP
+- **Public Port**: 9000
+- **Private Port**: 9000
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+### WebRTC Signaling Port 2
+- **Name**: WebRTC2
+- **Type**: Port-Remap
+- **Protocol**: TCP or UDP
+- **Public Port**: 9001
+- **Private Port**: 9001
+- **Private IP**: 192.168.100.39
+- **Status**: Enabled
+
+---
+
+## 🛡️ Firewall Rules
+
+### Firewall Global Settings
+- **Firewall**: Enabled
+- **TCP SYN Cookies**: Enabled (SYN flood protection)
+- **ICMP Echo DOS**: Enabled (Ping flood protection)
+- **ICMP Redirection DOS**: Enabled
+- **Land DOS**: Enabled (Same source/dest attack protection)
+- **Smurf DOS**: Enabled (Broadcast ping protection)
+- **WinNuke DOS**: Enabled
+- **Ping Sweep DOS**: Enabled
+
+### Application Layer Gateways (ALG)
+- **FTP ALG**: Disabled
+- **TFTP ALG**: Disabled
+- **SIP ALG**: Disabled (Important for VoIP!)
+- **IPsec ALG**: Enabled
+
+### Custom Firewall Rules
+
+#### WebRTC Traffic
+- **Name**: WebRTC
+- **Protocol**: TCP or UDP
+- **Source Port**: 9000
+- **Destination Port**: 9000
+- **Source IP**: 0.0.0.0 (Any)
+- **Destination IP**: 192.168.100.39
+- **Interface**: ppp0.10
+- **Status**: Enabled
+
+#### Server to VoIP Network
+- **Name**: Server to VOIP
+- **Protocol**: TCP or UDP
+- **Source Ports**: 5000-10000
+- **Destination Ports**: 5000-10000
+- **Source IP**: 192.168.100.39
+- **Destination IP**: 20.159.4.1
+- **Interface**: brvlan11
+- **Status**: Enabled
+
+#### VoIP Network to Server
+- **Name**: VOIP to Server
+- **Protocol**: TCP or UDP
+- **Source Ports**: 5000-10000
+- **Destination Ports**: 5000-10000
+- **Source IP**: 20.159.4.1
+- **Destination IP**: 192.168.100.39
+- **Interface**: brvlan11
+- **Status**: Enabled
+
+#### SIP Proxy to Server (Inbound)
+- **Name**: Proxy to server (PPP0.10)
+- **Protocol**: TCP or UDP
+- **Source Port**: 5060
+- **Destination Port**: 5060
+- **Source IP**: 10.200.42.121
+- **Destination IP**: 192.168.100.39
+- **Interface**: ppp0.10
+- **Status**: Enabled
+
+#### Server to SIP Proxy (Outbound)
+- **Name**: Server to Proxy (PPP0.10)
+- **Protocol**: TCP or UDP
+- **Source Port**: 5060
+- **Destination Port**: 5060
+- **Source IP**: 192.168.100.39
+- **Destination IP**: 10.200.42.121
+- **Interface**: ppp0.10
+- **Status**: Enabled
+
+---
+
+## 🏷️ VLAN Configuration
+
+### VLAN Mode
+- **Mode**: Normal
+- **S-TPID**: 8100 (Standard 802.1Q)
+- **Multicast Across VLANs**: Enabled
+
+### Bridge Configurations
+
+#### Bridge 1 (Default)
+- **Bridge Key**: 0
+- **Name**: Default
+- **VLAN Type**: Bridged
+- **Security**: Disabled
+
+#### Bridge 2 (Internet/TR069)
+- **Bridge Key**: 10
+- **Name**: 1_TR069_INTERNET_B_VID_10
+- **VLAN ID**: 10
+- **VLAN Type**: PPPoE_Bridged
+- **Security**: Disabled
+- **Connected Interfaces**: 
+  - eth0 (WAN)
+  - eth1-eth4 (LAN ports)
+  - wl0, wl0_1-wl0_3 (2.4GHz WiFi)
+  - wl1, wl1_1-wl1_3 (5GHz WiFi)
+
+#### Bridge 3 (VoIP)
+- **Bridge Key**: 11
+- **Name**: 2_VoIP_B_VID_11
+- **VLAN ID**: 11
+- **VLAN Type**: CPU-Bridged
+- **Security**: Disabled
+- **Connected Interfaces**: eth0 (WAN only)
+
+### VLAN Tagging
+- **All LAN ports (eth1-eth4)**: Untagged on VLAN 10
+- **WiFi interfaces**: Untagged on VLAN 10
+- **WAN (eth0)**: Tagged for VLAN 10 and 11 via OMCI
+
+---
+
+## ⚡ QoS Configuration
+
+### QoS Scheduling
+- **Type**: Combo (Weighted + Priority)
+
+### Voice Traffic Priority
+- **DSCP Mark**: 40 (EF - Expedited Forwarding)
+- **Classification**: High priority for voice packets
+
+### WMM (WiFi Multimedia) Queues
+
+#### 2.4GHz WiFi (wl0)
+1. **Voice Priority** (Queue 8): Highest priority
+2. **Voice Priority** (Queue 7): High priority
+3. **Video Priority** (Queue 6): Medium-high priority
+4. **Video Priority** (Queue 5): Medium priority
+5. **Best Effort** (Queue 4): Normal priority
+6. **Background** (Queue 3): Low priority
+7. **Background** (Queue 2): Lowest priority
+8. **Best Effort** (Queue 1): Default
+
+#### 5GHz WiFi (wl1)
+- Same queue configuration as 2.4GHz
+
+---
+
+## 🎯 Classification Rules
+
+### Ingress Classification Rules
+
+#### Rule 2: Server to VoIP
+- **Name**: Server to VOIP
+- **Source IP**: 192.168.100.39/32
+- **Source MAC Mask**: Any
+- **Destination IP**: 20.159.4.1/32
+- **VLAN Mark**: brvlan11
+- **VLAN Priority**: 0
+
+**Bindings**: LAN ports eth1-eth4 (interfaces 2-5)
+
+#### Rule 3: VoIP to Server
+- **Name**: VOIP to Server
+- **Source IP**: 20.159.4.1/32
+- **Source MAC Mask**: Any
+- **Destination IP**: 192.168.100.39/32
+- **VLAN Mark**: brvlan10
+- **VLAN Priority**: 0
+
+**Bindings**: LAN ports eth1-eth4 (interfaces 2-5)
+
+### Traffic Flow Summary
+```
+[Server: 192.168.100.39] ←→ [VoIP Network: 20.159.4.1]
+        │                              │
+        └─ VLAN 10 (brvlan10)         └─ VLAN 11 (brvlan11)
+                                       └─ SIP Proxy: 10.200.42.121
+```
+
+---
+
+## 🔧 Key Network Paths
+
+### Voice Traffic Path
+```
+BeautyAI Server (192.168.100.39)
+  ↓ [VLAN 10 → VLAN 11 Classification]
+VoIP Bridge (brvlan11 - 20.159.4.1)
+  ↓ [VLAN 11 Tagged]
+WAN Interface (eth0)
+  ↓ [GPON Fiber]
+STC VoIP Network
+  ↓
+SIP Proxy (10.200.42.121)
+  ↓
+SIP Registrar (fmc.stc.com.sa)
+```
+
+### Internet Traffic Path
+```
+LAN Devices (192.168.100.0/24)
+  ↓ [VLAN 10 Bridge]
+PPPoE Interface (ppp0.10)
+  ↓ [176.45.31.103 Public IP]
+WAN Interface (eth0.v10)
+  ↓ [VLAN 10 Tagged]
+GPON Fiber
+  ↓
+ISP Gateway (84.235.6.25)
+  ↓
+Internet
+```
+
+---
+
+## 📊 Router System Information
+
+- **Model**: ZNID-GPON-2428B1-0ST
+- **Manufacturer**: Dasan Zhone
+- **Hardware**: GPON ONT with 4x GigE LAN + 2x WiFi (2.4GHz/5GHz)
+- **Firmware**: S4.2.022
+- **Config Version**: 1
+- **Serial/FSAN**: 5a4e5453050e91e3
+- **MAC Address**: 12:F2:1C:0E:91:E3
+- **First Use Date**: 2024-09-26T21:01:51+00:00
+- **Management Server**: https://devmgmt.stc.com.sa/cwmpWeb/CPEMgt
+- **SNMP System Name**: ZNID24xxB1-Router
+
+### Management Access (LAN)
+- **HTTP**: Allowed
+- **HTTPS**: Allowed
+- **SSH**: Allowed
+- **Ping**: Allowed
+- **SNMP**: Allowed
+- **SNMP Trap**: Allowed
+
+### Management Access (WAN - ppp0.10)
+- **HTTP**: Denied
+- **HTTPS**: Denied
+- **SSH**: Denied
+- **Ping**: Allowed
+- **SNMP**: Denied
+- **SNMP Trap**: Denied
+
+---
+
+## ⚠️ Important Notes
+
+### VoIP Connectivity Issue - ROOT CAUSE IDENTIFIED! ✅
+**Current Problem**: Cannot register to STC SIP server (10.200.42.121)
+
+**ROOT CAUSE**: Server needs VLAN 11 tagged interface to access VoIP network!
+
+**Diagnosis**:
+- ✅ Router configuration is correct
+- ✅ VLAN 11 properly configured for VoIP on router
+- ✅ Firewall rules allow SIP traffic
+- ✅ Port forwarding configured for RTP media
+- ❌ **Server (192.168.100.39) is on VLAN 10 only**
+- ❌ **VoIP network (20.159.4.x) is on VLAN 11**
+- ❌ **SIP Proxy (10.200.42.121) is accessible only through VLAN 11**
+
+**Network Architecture Understanding**:
+```
+Server: 192.168.100.39
+  └─ Physical NIC: enp12s0 (connected to LAN port)
+       ├─ No VLAN tag → VLAN 10 (brvlan10) → Internet
+       └─ VLAN 11 tag → VLAN 11 (brvlan11) → VoIP Network → SIP Proxy
+```
+
+**Solution - VLAN 11 Interface Required**:
+
+The router's classification rules are designed to route traffic between VLANs, but the server needs to have **direct access to VLAN 11** to communicate with the VoIP network.
+
+**Tested Configuration** (Temporary - needs to be permanent):
+```bash
+# 1. Load VLAN kernel module
+sudo modprobe 8021q
+
+# 2. Create VLAN 11 interface
+sudo ip link add link enp12s0 name enp12s0.11 type vlan id 11
+sudo ip link set enp12s0.11 up
+
+# 3. Assign IP in VoIP network range (20.159.4.x/24)
+sudo ip addr add 20.159.4.100/24 dev enp12s0.11
+
+# 4. Add route to SIP proxy network
+sudo ip route add 10.200.42.0/24 via 20.159.0.1 dev enp12s0.11
+```
+
+**Required Action**: 
+1. ✅ **Create permanent VLAN 11 configuration** using netplan/NetworkManager
+2. ⚠️ **May need to request IP from router's VLAN 11 DHCP** (20.159.4.x range)
+3. ⚠️ **Update PABX configuration** to bind to VLAN 11 interface
+4. ⚠️ **Test SIP registration** after VLAN 11 is properly configured
+5. ⚠️ **Router's VLAN 11 might need manual IP assignment** (DHCP on VLAN 11 may be restricted)
+
+### Security Recommendations
+1. ✅ SIP ALG is disabled (good for VoIP)
+2. ✅ DOS protection enabled
+3. ⚠️ WAN management interfaces disabled (good)
+4. ⚠️ Consider limiting SSH to specific IPs instead of any source
+
+### Performance Notes
+- RTP port range (10000-20000) allows for ~500 concurrent calls
+- QoS properly prioritizes voice traffic (DSCP 40)
+- VLAN separation ensures voice quality isolation from data traffic
+
+---
+
+## 📝 Changelog
+
+### 2025-11-20 (Update 2)
+- **🎯 ROOT CAUSE IDENTIFIED**: Server needs VLAN 11 tagged interface
+- Created temporary VLAN 11 interface (enp12s0.11) for testing
+- Assigned IP 20.159.4.100/24 on VLAN 11
+- Confirmed VLAN architecture: VLAN 10 (Internet) / VLAN 11 (VoIP)
+- Next step: Permanent VLAN 11 configuration required
+
+### 2025-11-20 (Initial)
+- Initial documentation created from router backup configuration
+- Documented complete network topology
+- Identified VoIP connectivity issue to STC network
+- Documented all port forwarding and firewall rules
+
+---
+
+*This document is maintained for BeautyAI PABX system integration with STC VoIP services.*

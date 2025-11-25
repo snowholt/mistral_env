@@ -19,7 +19,7 @@ sip:
   # Server settings
   server:
     host: "0.0.0.0"
-    ip: "192.168.100.39"  # Actual server IP for SIP Contact headers
+    ip: "20.159.4.100"  # VLAN 11 IP for SIP Contact headers (changed from 192.168.100.39)
     domain: "beautyai.local"
     user_agent: "BeautyAI-PABX/2.0"
   
