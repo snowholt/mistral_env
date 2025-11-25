@@ -323,7 +323,7 @@ async def serve_lean_capture_test_page():
     """Serve the lean capture test page with hardened architecture."""
     try:
         backend_root = Path(__file__).resolve().parents[4]
-        test_page_path = backend_root / "test_lean_capture.html"
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_lean_capture.html"
         
         if not test_page_path.exists():
             raise HTTPException(status_code=404, detail=f"Lean capture test page not found at {test_page_path}")
