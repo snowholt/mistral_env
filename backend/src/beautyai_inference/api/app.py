@@ -39,13 +39,7 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
-# Import WebRTC lean capture router (Nov 13, 2025 - Hardened)
-try:
-    from .endpoints.webrtc_lean_capture import lean_capture_router
-    lean_capture_router_available = True
-except ImportError as e:
-    lean_capture_router_available = False
-    logger.warning(f"WebRTC lean capture router not available: {e}")
+
 
 # Import performance dashboard router
 try:
@@ -240,16 +234,6 @@ if debug_capture_router_available:
     logger.info("WebRTC debug capture endpoints registered at /api/v1/webrtc/debug/voice-capture")
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
-
-# Include WebRTC lean capture router if available (Nov 13, 2025 - Hardened)
-if lean_capture_router_available:
-    app.include_router(
-        lean_capture_router,
-        tags=["webrtc-lean"]
-    )
-    logger.info("WebRTC lean capture endpoints registered at /api/v1/webrtc/lean/voice-capture")
-else:
-    logger.warning("WebRTC lean capture endpoints not registered - module not available")
 
 # Serve debug test page
 @app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
