@@ -118,6 +118,151 @@ def _resolve_debug_directory() -> Path:
         detail="No writable debug capture directory available",
     )
 
+
+# ============================================================
+# CROSS-FADE AUDIO STITCHING UTILITIES
+# Eliminates crackling at frame boundaries by smoothly blending
+# the end of one frame with the start of the next.
+# ============================================================
+
+def crossfade_frames(frames: List[np.ndarray], crossfade_samples: int = 32) -> np.ndarray:
+    """
+    Concatenate audio frames with cross-fade overlap to eliminate boundary discontinuities.
+    
+    Args:
+        frames: List of audio frames (float32, -1.0 to 1.0)
+        crossfade_samples: Number of samples to cross-fade at boundaries (default: 32 = ~2ms at 16kHz)
+    
+    Returns:
+        Smoothly concatenated audio array
+    """
+    if not frames:
+        return np.array([], dtype=np.float32)
+    
+    if len(frames) == 1:
+        return frames[0].copy()
+    
+    # Calculate total output length (accounting for overlaps)
+    total_samples = sum(len(f) for f in frames) - crossfade_samples * (len(frames) - 1)
+    if total_samples <= 0:
+        return np.concatenate(frames)
+    
+    result = np.zeros(total_samples, dtype=np.float32)
+    
+    # Create fade curves (raised cosine for smooth transition)
+    fade_out = np.cos(np.linspace(0, np.pi/2, crossfade_samples)) ** 2
+    fade_in = np.sin(np.linspace(0, np.pi/2, crossfade_samples)) ** 2
+    
+    write_pos = 0
+    
+    for i, frame in enumerate(frames):
+        frame_len = len(frame)
+        
+        if frame_len == 0:
+            continue
+            
+        if i == 0:
+            # First frame: write entirely (or up to crossfade region)
+            if frame_len <= crossfade_samples:
+                result[write_pos:write_pos + frame_len] = frame
+                write_pos += frame_len
+            else:
+                non_fade_len = frame_len - crossfade_samples
+                result[write_pos:write_pos + non_fade_len] = frame[:non_fade_len]
+                # Apply fade-out to end of first frame
+                result[write_pos + non_fade_len:write_pos + frame_len] = frame[non_fade_len:] * fade_out
+                write_pos += non_fade_len
+        else:
+            # Subsequent frames: blend with previous
+            if frame_len <= crossfade_samples:
+                # Short frame: just blend what we can
+                blend_len = min(crossfade_samples, frame_len)
+                result[write_pos:write_pos + blend_len] += frame[:blend_len] * fade_in[:blend_len]
+                write_pos += blend_len
+            else:
+                # Normal frame: fade-in at start, then copy rest
+                result[write_pos:write_pos + crossfade_samples] += frame[:crossfade_samples] * fade_in
+                write_pos += crossfade_samples
+                
+                # Copy non-overlapping middle portion
+                if i < len(frames) - 1:
+                    # Not last frame: leave room for next crossfade
+                    non_fade_len = frame_len - 2 * crossfade_samples
+                    if non_fade_len > 0:
+                        result[write_pos:write_pos + non_fade_len] = frame[crossfade_samples:crossfade_samples + non_fade_len]
+                        write_pos += non_fade_len
+                        # Apply fade-out to end
+                        result[write_pos:write_pos + crossfade_samples] = frame[-crossfade_samples:] * fade_out
+                else:
+                    # Last frame: copy everything after fade-in
+                    remaining = frame_len - crossfade_samples
+                    result[write_pos:write_pos + remaining] = frame[crossfade_samples:]
+                    write_pos += remaining
+    
+    return result[:write_pos]
+
+
+def crossfade_concat_simple(frames: List[np.ndarray], overlap_samples: int = 16) -> np.ndarray:
+    """
+    Simpler cross-fade concatenation using overlap-add method.
+    
+    This is more robust for variable-length frames and handles edge cases better.
+    
+    Args:
+        frames: List of audio frames (float32, -1.0 to 1.0)
+        overlap_samples: Number of samples to overlap between frames (default: 16 = ~1ms at 16kHz)
+    
+    Returns:
+        Smoothly concatenated audio array
+    """
+    if not frames:
+        return np.array([], dtype=np.float32)
+    
+    if len(frames) == 1:
+        return frames[0].astype(np.float32).copy()
+    
+    # Filter out empty frames
+    frames = [f for f in frames if len(f) > 0]
+    if not frames:
+        return np.array([], dtype=np.float32)
+    
+    if len(frames) == 1:
+        return frames[0].astype(np.float32).copy()
+    
+    # Build result incrementally with crossfade
+    result = frames[0].astype(np.float32).copy()
+    
+    for frame in frames[1:]:
+        frame = frame.astype(np.float32)
+        frame_len = len(frame)
+        
+        if frame_len == 0:
+            continue
+        
+        # Determine actual overlap (can't exceed frame length or result length)
+        actual_overlap = min(overlap_samples, len(result), frame_len)
+        
+        if actual_overlap > 0:
+            # Create linear fade curves
+            fade_out = np.linspace(1.0, 0.0, actual_overlap, dtype=np.float32)
+            fade_in = np.linspace(0.0, 1.0, actual_overlap, dtype=np.float32)
+            
+            # Blend the overlap region
+            blended = result[-actual_overlap:] * fade_out + frame[:actual_overlap] * fade_in
+            
+            # Replace end of result with blended portion and append rest of frame
+            result = np.concatenate([
+                result[:-actual_overlap],
+                blended,
+                frame[actual_overlap:]
+            ])
+        else:
+            # No overlap possible, just concatenate
+            result = np.concatenate([result, frame])
+    
+    return result
+
+
 debug_capture_router = APIRouter(
     prefix="/api/v1/webrtc/debug/voice-capture",
     tags=["webrtc-debug"],
@@ -637,7 +782,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
             if whisper_model:
                 try:
                     # Layer 4 transcription (16kHz VAD-filtered PCM)
-                    speech_audio_16k = np.concatenate(speech_buffer_16k)
+                    # Use cross-fade concatenation to eliminate any frame boundary discontinuities
+                    speech_audio_16k = crossfade_concat_simple(speech_buffer_16k, overlap_samples=16)
                     audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
                     audio_bytes_16k = audio_int16_16k.tobytes()
                     segment_duration_16k = len(audio_int16_16k) / 16000
@@ -660,7 +806,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     latency_48k = 0.0
                     segment_duration_48k = 0.0
                     if speech_buffer_48k:
-                        speech_audio_48k = np.concatenate(speech_buffer_48k)
+                        # Use cross-fade concatenation to eliminate any frame boundary discontinuities
+                        speech_audio_48k = crossfade_concat_simple(speech_buffer_48k, overlap_samples=48)
                         speech_audio_16k_from_48k = resample_poly(
                             speech_audio_48k, up=1, down=3, window=("kaiser", 8.0)
                         )
@@ -1247,8 +1394,10 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             )
         
         # Save Layer 4: 16kHz VAD-filtered (speech only, no silence)
+        # Using cross-fade concatenation to eliminate crackling at frame boundaries
         if info.get("layer_16khz_vad_filtered"):
-            audio_16k_vad = np.concatenate(info["layer_16khz_vad_filtered"])
+            # Use 16 samples overlap (~1ms at 16kHz) to smooth frame boundaries
+            audio_16k_vad = crossfade_concat_simple(info["layer_16khz_vad_filtered"], overlap_samples=16)
             print(
                 f"[DEBUG-CAPTURE] {peer_id} layer4 (VAD-filtered) samples: {len(audio_16k_vad)}",
                 flush=True,
@@ -1276,8 +1425,10 @@ async def _save_captured_audio(peer_id: str, info: Dict):
             )
             
             # Save Layer 5: 48kHz VAD-filtered (same VAD timing, higher sample rate)
+            # Using cross-fade concatenation to eliminate crackling at frame boundaries
             if info.get("layer_48khz_vad_filtered"):
-                audio_48k_vad = np.concatenate(info["layer_48khz_vad_filtered"])
+                # Use 48 samples overlap (~1ms at 48kHz) to smooth frame boundaries
+                audio_48k_vad = crossfade_concat_simple(info["layer_48khz_vad_filtered"], overlap_samples=48)
                 print(
                     f"[DEBUG-CAPTURE] {peer_id} layer5 (VAD-filtered 48kHz) samples: {len(audio_48k_vad)}",
                     flush=True,
