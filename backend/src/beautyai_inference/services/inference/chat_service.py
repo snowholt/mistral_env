@@ -219,6 +219,22 @@ class ChatService:
                     config=generation_config
                 )
             
+            # Apply model-specific system prompt if available
+            # Check for safeguard bypass (dev/testing only)
+            disable_safeguards = generation_config.get('disable_system_prompt_safeguards', False)
+            env_disable = os.getenv('DISABLE_SYSTEM_PROMPT_SAFEGUARDS', '').lower() in ('1', 'true', 'yes')
+            
+            if disable_safeguards or env_disable:
+                logger.warning("🔓 DEVELOPER MODE: System prompt safeguards DISABLED (testing only)")
+                # Reset to default prompts (no Kesay Clinics restrictions)
+                self.prompt_builder.reset_to_default_prompts()
+            elif hasattr(model_config, 'system_prompt') and model_config.system_prompt:
+                self.prompt_builder.apply_model_system_prompt(
+                    system_prompt=model_config.system_prompt,
+                    language=response_language
+                )
+                logger.info(f"✅ Applied model-specific system prompt for language: {response_language}")
+            
             # Build prompt
             prompt, trimmed_history = self.prompt_builder.build_prompt(
                 message=message,

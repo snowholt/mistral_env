@@ -88,4 +88,6 @@ gmai.sa.backup
 nginx-beautyai-config.alibaba.conf
 nginx-beautyai-config.conf
 README.md
-backend/rnnoise
+
+# RNNoise library (compiled from source, don't track)
+backend/rnnoise/

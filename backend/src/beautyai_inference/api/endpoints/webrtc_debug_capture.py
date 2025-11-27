@@ -36,7 +36,6 @@ from ...utils.dtln_wrapper import DTLNProcessor
 from ...utils.deepfilternet_wrapper import DeepFilterNetProcessor
 from ...utils.nsnet2_wrapper import SpectralGatingProcessor
 from ...utils.comb_filter import CombFilter
-from ...utils.percentile_gate import PercentileNoiseGate
 from ...utils.transient_suppressor import TransientSuppressor
 
 logger = logging.getLogger(__name__)
@@ -258,26 +257,17 @@ async def handle_debug_offer(request: DebugOfferRequest):
             logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter not available (will skip Layer 3.6): {e}")
             print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Comb Filter", flush=True)
         
-        # Initialize Percentile Gate for experimental Layer 3.1b comparison (replaces broken EMA)
-        capture_info["percentile_gate_processor"] = None
-        capture_info["percentile_gate_enabled"] = False
-        try:
-            percentile_gate_proc = PercentileNoiseGate(
-                sample_rate=16000,
-                window_ms=200,
-                percentile=10.0,
-                threshold_multiplier=1.5,
-                open_threshold_db=-45.0,
-                close_threshold_db=-50.0,
-                frame_size=320  # 20ms at 16kHz
-            )
-            capture_info["percentile_gate_processor"] = percentile_gate_proc
-            capture_info["percentile_gate_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Percentile Gate initialized for experimental Layer 3.1b (adaptive noise gate)", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Percentile Gate ready: 10th percentile, hysteresis [-50, -45] dB")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Percentile Gate not available (will skip Layer 3.1b): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Percentile Gate", flush=True)
+        # Buffer underrun debugging metrics
+        capture_info["buffer_metrics"] = {
+            "frame_recv_times": [],
+            "frame_process_times": [],
+            "inter_frame_delays": [],
+            "processing_latencies": [],
+            "stage_timings": [],  # Breakdown by processing stage
+        }
+        capture_info["last_frame_time"] = None
+        
+        print(f"[DEBUG-CAPTURE] {peer_id} 🔍 Buffer underrun debugging ENABLED - tracking timing metrics", flush=True)
         
         # Initialize Transient Suppressor for Layer 1.5 (48kHz crackle removal before downsampling)
         capture_info["transient_suppressor"] = None
@@ -732,26 +722,50 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     timeout_count = 0
     max_consecutive_timeouts = 30  # 30 timeouts * 1s = 30 seconds total wait
     
+    # Frame accumulator for handling network jitter (router/VPN issues)
+    frame_accumulator = []
+    accumulator_target = 5  # Accumulate 5 frames (100ms) before processing
+    frames_since_last_process = 0
+    
     try:
         while True:
             try:
                 print(f"[DEBUG-CAPTURE] {peer_id} waiting for frame (timeout #{timeout_count + 1})...", flush=True)
-                frame = await asyncio.wait_for(track.recv(), timeout=1.0)
+                
+                # Track frame receive timing
+                recv_start = time.perf_counter()
+                frame = await asyncio.wait_for(track.recv(), timeout=2.0)  # Increased timeout for packet loss
+                recv_time_ms = (time.perf_counter() - recv_start) * 1000
+                
                 frame_count += 1
                 timeout_count = 0  # Reset on successful receive
                 info["frames_captured"] = frame_count
                 
-                # CPU/Buffer monitoring
+                # Track overall frame processing start
+                frame_processing_start = time.perf_counter()
+                
+                # CPU/Buffer monitoring with detailed timing
                 frame_start_time = time.time()
                 if info.get("last_frame_time") is not None:
                     inter_frame_delay = (frame_start_time - info["last_frame_time"]) * 1000  # ms
+                    info["buffer_metrics"]["inter_frame_delays"].append(inter_frame_delay)
+                    
                     # Expected delay at 48kHz with 960 samples (20ms) or 16kHz with 320 samples
                     expected_delay_ms = 20.0
                     if inter_frame_delay > expected_delay_ms * 1.5:  # >30ms gap indicates buffer issue
                         info["buffer_underruns"] += 1
-                        if frame_count % 50 == 0:
-                            logger.warning(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Buffer underrun #{info['buffer_underruns']}: {inter_frame_delay:.1f}ms gap (expected ~{expected_delay_ms:.0f}ms)")
+                        logger.warning(
+                            f"[BUFFER-UNDERRUN] {peer_id} #{info['buffer_underruns']}: "
+                            f"{inter_frame_delay:.2f}ms gap (expected ~{expected_delay_ms:.0f}ms), "
+                            f"frame={frame_count}, recv_latency={recv_time_ms:.2f}ms"
+                        )
+                        print(
+                            f"[BUFFER-UNDERRUN] {peer_id} #{info['buffer_underruns']}: "
+                            f"{inter_frame_delay:.2f}ms gap at frame {frame_count}",
+                            flush=True
+                        )
                 info["last_frame_time"] = frame_start_time
+                info["buffer_metrics"]["frame_recv_times"].append(recv_time_ms)
                 
                 # Sample CPU usage every 10 frames
                 if frame_count % 10 == 0:
@@ -879,6 +893,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
                     # Stage 2: 24kHz → 16kHz (3:2)
+                    resample_start = time.perf_counter()
                     if sample_rate == 48000:
                         # First stage: 48→24 (simpler ratio, less aliasing)
                         audio_24k = resample_poly(audio_float, 1, 2, window=('kaiser', 8.0))
@@ -893,121 +908,64 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         down = sample_rate // ratio_gcd
                         audio_16k = resample_poly(audio_float, up, down, window=('kaiser', 8.0))
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
                     
-                    # ADAPTIVE NOISE GATE with EMA (Exponential Moving Average)
-                    # Back to moderate settings - gate after strong anti-aliasing
-                    if not hasattr(info, '_noise_ema'):
-                        info['_noise_ema'] = 0.001  # Initial noise floor estimate
-                    
-                    frame_rms = np.sqrt(np.mean(audio_16k**2))
-                    alpha = 0.1  # Standard EMA smoothing
-                    
-                    # Update noise floor estimate only during quiet frames
-                    if frame_rms < info['_noise_ema'] * 1.5:
-                        info['_noise_ema'] = alpha * frame_rms + (1 - alpha) * info['_noise_ema']
-                    
-                    # Store original audio BEFORE EMA noise gate (for RNNoise comparison)
+                    # NO NOISE GATE - Removed to isolate buffer underrun issues
+                    # Keep audio as-is after resampling (only downsampling, no gating)
                     audio_16k_original = audio_16k.copy()
-                    
-                    # Standard gate threshold - anti-aliasing should have removed most noise
-                    adaptive_threshold = info['_noise_ema'] * 2.0
-                    if frame_rms < adaptive_threshold:
-                        audio_16k = np.zeros_like(audio_16k)
                 else:
                     audio_16k = audio_float
+                    audio_16k_original = audio_float.copy()
+                    resample_time_ms = 0.0
                 
                 layer_16khz.append(audio_16k.copy())
                 
+                # Track processing stage timing
+                stage_timing = {
+                    "frame": frame_count,
+                    "resample_ms": resample_time_ms,
+                    "total_ms": 0.0  # Will be calculated at end
+                }
+                
                 # ============================================
-                # EXPERIMENTAL LAYER COMPARISON (Layer 3.1 vs 3.2)
+                # OPTIONAL: EXPERIMENTAL NOISE REDUCTION (NOT FOR UNDERRUN DEBUGGING)
+                # These are kept but NOT used in Layer 3 to avoid masking buffer issues
                 # ============================================
                 if info.get("rnnoise_enabled"):
                     try:
-                        # Layer 3.1: EMA-processed audio (already applied via adaptive noise gate above)
-                        layer_31_ema = audio_16k.copy()
-                        info["layer_31_ema_16khz"].append(layer_31_ema)
-                        
-                        # Layer 3.1b: Percentile Gate processing (NEW - replaces broken EMA)
-                        # Gemini Recommendation: Percentile-based threshold with hysteresis
-                        if info.get("percentile_gate_enabled"):
-                            try:
-                                percentile_gate_proc = info["percentile_gate_processor"]
-                                layer_31b_percentile = percentile_gate_proc.process_frame(audio_16k_original.copy())
-                                info["layer_31b_percentile_16khz"].append(layer_31b_percentile)
-                                
-                                # Log first frame processing
-                                if frame_count == 1:
-                                    noise_floor_db = percentile_gate_proc.get_noise_floor_db()
-                                    if noise_floor_db is not None:
-                                        print(
-                                            f"[DEBUG-CAPTURE] {peer_id} 🚪 Layer 3.1b Percentile Gate ACTIVE: "
-                                            f"noise_floor={noise_floor_db:.1f} dB, gate_state={percentile_gate_proc.get_gate_state():.2f}",
-                                            flush=True
-                                        )
-                            except Exception as e:
-                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Layer 3.1b percentile gate failed: {e}")
-                        
-                        # Layer 3.2: RNNoise processing via 16k→48k→RNNoise→16k pipeline
-                        # Use the original 16kHz audio BEFORE EMA noise gate was applied
+                        # Layer 3.2: RNNoise processing (for comparison only, NOT used in Layer 3)
+                        rnnoise_start = time.perf_counter()
                         rnnoise_proc = info["rnnoise_processor"]
                         from beautyai_inference.utils.audio_resampling import process_with_rnnoise_16khz_pipeline
                         layer_32_rnnoise, vad_probs = process_with_rnnoise_16khz_pipeline(
                             audio_16k_original, rnnoise_proc
                         )
                         info["layer_32_rnnoise_16khz"].append(layer_32_rnnoise)
-                        
-                        # Layer 3.3: DTLN processing (if enabled)
-                        if info.get("dtln_enabled"):
-                            try:
-                                dtln_proc = info["dtln_processor"]
-                                layer_33_dtln = dtln_proc.process_audio(audio_16k_original.copy())
-                                info["layer_33_dtln_16khz"].append(layer_33_dtln)
-                            except Exception as e:
-                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} DTLN processing failed: {e}")
-                        
-                        # Layer 3.4: DeepFilterNet processing (if enabled)
-                        if info.get("deepfilternet_enabled"):
-                            try:
-                                dfn_proc = info["deepfilternet_processor"]
-                                layer_34_dfn = dfn_proc.process_audio(audio_16k_original.copy())
-                                info["layer_34_deepfilternet_16khz"].append(layer_34_dfn)
-                            except Exception as e:
-                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet processing failed: {e}")
-                        
-                        # Layer 3.5: Spectral Gating processing (if enabled)
-                        if info.get("nsnet2_enabled"):
-                            try:
-                                nsnet2_proc = info["nsnet2_processor"]
-                                layer_35_nsnet2 = nsnet2_proc.process_audio(audio_16k_original.copy())
-                                info["layer_35_nsnet2_16khz"].append(layer_35_nsnet2)
-                            except Exception as e:
-                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating processing failed: {e}")
-                        
-                        # Layer 3.6: Comb Filter processing (if enabled) - TARGETS 80 Hz PERIODIC NOISE
-                        if info.get("comb_enabled"):
-                            try:
-                                comb_proc = info["comb_processor"]
-                                layer_36_comb = comb_proc.process_audio(audio_16k_original.copy())
-                                info["layer_36_comb_16khz"].append(layer_36_comb)
-                            except Exception as e:
-                                logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter processing failed: {e}")
-                        
-                        # Calculate comparison metrics between original, EMA, and RNNoise
-                        from beautyai_inference.utils.noise_comparison import compare_noise_reduction_methods
-                        metrics = compare_noise_reduction_methods(
-                            audio_16k_original, layer_31_ema, layer_32_rnnoise, sample_rate=16000
-                        )
-                        info["comparison_metrics"].append(metrics)
+                        stage_timing["rnnoise_ms"] = (time.perf_counter() - rnnoise_start) * 1000
                         
                     except Exception as e:
-                        logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise comparison failed: {e}")
-                        # Continue without RNNoise processing
+                        logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise processing failed: {e}")
                 
-                # VAD: Check for voice activity
+                # Calculate total frame processing time BEFORE VAD
+                stage_timing["total_ms"] = (time.perf_counter() - frame_processing_start) * 1000
+                info["buffer_metrics"]["stage_timings"].append(stage_timing)
+                
+                # Log detailed timing every 50 frames
+                if frame_count % 50 == 0:
+                    print(
+                        f"[TIMING] {peer_id} Frame {frame_count}: "
+                        f"recv={recv_time_ms:.2f}ms, resample={resample_time_ms:.2f}ms, "
+                        f"total={stage_timing['total_ms']:.2f}ms",
+                        flush=True
+                    )
+                
+                # VAD: Check for voice activity (with timing)
                 vad_service = info.get("vad_service")
                 
                 if vad_service:
                     try:
+                        vad_start = time.perf_counter()
+                        
                         # Convert 16kHz float to int16 PCM for VAD
                         audio_16k_int16 = (audio_16k * 32767).astype(np.int16)
                         audio_16k_bytes = audio_16k_int16.tobytes()
@@ -1021,6 +979,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                             audio_16k_bytes,
                             metadata={"sample_rate": 16000, "language": "en"}
                         )
+                        vad_time_ms = (time.perf_counter() - vad_start) * 1000
+                        stage_timing["vad_ms"] = vad_time_ms
                         
                         # Get VAD state and probability
                         voice_state = vad_result.get("voice_state")
@@ -1568,6 +1528,125 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 logger.info(f"[DEBUG-CAPTURE] {peer_id} transcriptions saved to {transcriptions_path}")
             except Exception as json_error:
                 logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to save transcriptions JSON: {json_error}")
+        
+        # ============================================
+        # BUFFER UNDERRUN METRICS REPORT
+        # ============================================
+        buffer_metrics = info.get("buffer_metrics", {})
+        if buffer_metrics:
+            try:
+                # Calculate statistics
+                inter_frame_delays = buffer_metrics.get("inter_frame_delays", [])
+                frame_recv_times = buffer_metrics.get("frame_recv_times", [])
+                stage_timings = buffer_metrics.get("stage_timings", [])
+                
+                # Calculate delay statistics
+                if inter_frame_delays:
+                    avg_delay = np.mean(inter_frame_delays)
+                    p50_delay = np.percentile(inter_frame_delays, 50)
+                    p95_delay = np.percentile(inter_frame_delays, 95)
+                    p99_delay = np.percentile(inter_frame_delays, 99)
+                    max_delay = np.max(inter_frame_delays)
+                    underrun_count = sum(1 for d in inter_frame_delays if d > 30.0)  # >30ms = underrun
+                else:
+                    avg_delay = p50_delay = p95_delay = p99_delay = max_delay = 0
+                    underrun_count = 0
+                
+                # Calculate recv time statistics
+                if frame_recv_times:
+                    avg_recv = np.mean(frame_recv_times)
+                    p99_recv = np.percentile(frame_recv_times, 99)
+                else:
+                    avg_recv = p99_recv = 0
+                
+                # Calculate processing time statistics
+                if stage_timings:
+                    total_times = [s.get("total_ms", 0) for s in stage_timings if "total_ms" in s]
+                    resample_times = [s.get("resample_ms", 0) for s in stage_timings if "resample_ms" in s]
+                    vad_times = [s.get("vad_ms", 0) for s in stage_timings if "vad_ms" in s]
+                    
+                    if total_times:
+                        avg_proc = np.mean(total_times)
+                        p99_proc = np.percentile(total_times, 99)
+                    else:
+                        avg_proc = p99_proc = 0
+                    
+                    if resample_times:
+                        avg_resample = np.mean(resample_times)
+                        p99_resample = np.percentile(resample_times, 99)
+                    else:
+                        avg_resample = p99_resample = 0
+                    
+                    if vad_times:
+                        avg_vad = np.mean(vad_times)
+                        p99_vad = np.percentile(vad_times, 99)
+                    else:
+                        avg_vad = p99_vad = 0
+                else:
+                    avg_proc = p99_proc = avg_resample = p99_resample = avg_vad = p99_vad = 0
+                
+                # Build report
+                underrun_report = {
+                    "peer_id": peer_id,
+                    "total_frames": info.get("frames_captured", 0),
+                    "buffer_underruns": info.get("buffer_underruns", 0),
+                    "underrun_rate_percent": (underrun_count / len(inter_frame_delays) * 100) if inter_frame_delays else 0,
+                    "inter_frame_delays_ms": {
+                        "avg": round(avg_delay, 2),
+                        "p50": round(p50_delay, 2),
+                        "p95": round(p95_delay, 2),
+                        "p99": round(p99_delay, 2),
+                        "max": round(max_delay, 2),
+                        "expected": 20.0,  # 20ms expected for 48kHz/960 samples
+                    },
+                    "frame_recv_latency_ms": {
+                        "avg": round(avg_recv, 3),
+                        "p99": round(p99_recv, 3),
+                    },
+                    "processing_time_ms": {
+                        "total_avg": round(avg_proc, 2),
+                        "total_p99": round(p99_proc, 2),
+                        "resample_avg": round(avg_resample, 2),
+                        "resample_p99": round(p99_resample, 2),
+                        "vad_avg": round(avg_vad, 2),
+                        "vad_p99": round(p99_vad, 2),
+                    },
+                    "timing_summary": {
+                        "recv_overhead_significant": p99_recv > 5.0,  # >5ms recv is too slow
+                        "processing_bottleneck": p99_proc > 15.0,  # >15ms processing is slow
+                        "network_jitter_detected": p99_delay > 30.0,  # >30ms jitter = underrun
+                    },
+                    "recommendations": []
+                }
+                
+                # Add recommendations based on metrics
+                if p99_delay > 30.0:
+                    underrun_report["recommendations"].append("High frame jitter detected - check network or system load")
+                if p99_recv > 5.0:
+                    underrun_report["recommendations"].append("Frame recv() latency high - consider increasing buffer size")
+                if p99_proc > 15.0:
+                    underrun_report["recommendations"].append("Processing bottleneck - consider optimizing resampling or VAD")
+                if underrun_count > 0:
+                    underrun_report["recommendations"].append(f"{underrun_count} buffer underruns detected - audio artifacts likely")
+                if not underrun_report["recommendations"]:
+                    underrun_report["recommendations"].append("✅ No significant timing issues detected")
+                
+                # Save report to reports directory
+                reports_dir = Path("/home/lumi/beautyai/reports")
+                reports_dir.mkdir(parents=True, exist_ok=True)
+                report_path = reports_dir / f"buffer_underrun_report_{peer_id}.json"
+                
+                with open(report_path, "w", encoding="utf-8") as f:
+                    json.dump(underrun_report, f, indent=2)
+                
+                print(f"[BUFFER-REPORT] {peer_id} 📊 Buffer underrun report saved to: {report_path}", flush=True)
+                print(f"[BUFFER-REPORT] Underruns: {underrun_count}/{len(inter_frame_delays)} frames ({underrun_report['underrun_rate_percent']:.2f}%)", flush=True)
+                print(f"[BUFFER-REPORT] Frame delays - Avg: {avg_delay:.2f}ms, P99: {p99_delay:.2f}ms, Max: {max_delay:.2f}ms", flush=True)
+                print(f"[BUFFER-REPORT] Processing - Avg: {avg_proc:.2f}ms, P99: {p99_proc:.2f}ms", flush=True)
+                logger.info(f"[BUFFER-REPORT] {peer_id} Buffer underrun report saved: {report_path}")
+                
+            except Exception as report_error:
+                logger.error(f"[BUFFER-REPORT] {peer_id} Failed to save buffer report: {report_error}")
         
         logger.info(f"[DEBUG-CAPTURE] {peer_id} all layers saved to {debug_dir}")
         
