@@ -32,6 +32,36 @@ import numpy as np
 from scipy.signal import resample_poly, butter, sosfiltfilt
 from math import gcd
 
+# ============================================================
+# AIORTC JITTER BUFFER TUNING
+# Default: capacity=16 (320ms), prefetch=4 (80ms)
+# Tuned:   capacity=64 (1280ms), prefetch=16 (320ms)
+# This helps with high-latency VPN connections (Canada→KSA)
+# ============================================================
+import aiortc.rtcrtpreceiver
+from aiortc.jitterbuffer import JitterBuffer
+
+# Environment variable configuration for flexibility
+AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "64"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "16"))
+
+# Check if patch already applied (in case debug_capture loaded first)
+if not hasattr(aiortc.rtcrtpreceiver, '_beautyai_jitter_patched'):
+    _original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
+    
+    def _patched_RTCRtpReceiver_init(self, kind, transport):
+        """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
+        _original_RTCRtpReceiver_init(self, kind, transport)
+        if kind == "audio":
+            self._RTCRtpReceiver__jitter_buffer = JitterBuffer(
+                capacity=AIORTC_AUDIO_JITTER_CAPACITY, 
+                prefetch=AIORTC_AUDIO_JITTER_PREFETCH
+            )
+    
+    aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
+    aiortc.rtcrtpreceiver._beautyai_jitter_patched = True
+    logger.info(f"[AIORTC-TUNED] Jitter buffer patch applied: capacity={AIORTC_AUDIO_JITTER_CAPACITY}, prefetch={AIORTC_AUDIO_JITTER_PREFETCH}")
+
 from ...utils.frame_queue import BoundedFrameQueue, FramePacket
 from ...utils.lean_pipeline import LeanPipeline
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
