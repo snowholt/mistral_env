@@ -146,14 +146,20 @@ async def handle_offer(request: OfferRequest):
         # Initialize VAD
         try:
             vad_config = WebRTCVADConfig()
-            vad_config.silero_sensitivity = 0.3
+            # CRITICAL FIX: Override extremely low default thresholds (0.002) that cause noise to be detected as speech
+            vad_config.language_thresholds = {
+                "ar": 0.3, 
+                "en": 0.3,
+                "default": 0.3
+            }
+            vad_config.silero_sensitivity = 0.3 # Kept for reference, though service uses language_thresholds
             vad_config.post_speech_silence_ms = 700
             vad_config.min_speech_duration_ms = 50
             
             vad_service = WebRTCVADService(session_id, language="en", config=vad_config)
             if await vad_service.initialize():
                 session_context["vad_service"] = vad_service
-                print(f"[LEAN-VOICE] ✅ VAD Initialized", flush=True)
+                print(f"[LEAN-VOICE] ✅ VAD Initialized (Threshold: 0.3)", flush=True)
             else:
                 print(f"[LEAN-VOICE] ❌ VAD Init Failed", flush=True)
         except Exception as e:
@@ -335,6 +341,28 @@ async def _process_audio_track(session_id: str, track: MediaStreamTrack, context
         print(f"[LEAN-VOICE] ⏹️ Audio loop ended for {session_id}", flush=True)
         await _cleanup_session(session_id)
 
+def _is_hallucination(text: str) -> bool:
+    """Check if the transcript is a known Whisper hallucination."""
+    text = text.strip().lower()
+    
+    # Common hallucinations on silence
+    hallucinations = [
+        "amen", "amen.", "thank you", "thank you.", "you", "you.", 
+        "bye", "bye.", "mbc", "subtitles by", "copyright", "©"
+    ]
+    
+    # Check for exact matches or repetitions
+    if text in hallucinations:
+        return True
+        
+    # Check for repeated words (e.g., "Amen. Amen. Amen.")
+    if "amen" in text and len(text.split()) > 3:
+        # Heuristic: if it's mostly "amen"
+        if text.count("amen") > len(text.split()) / 2:
+            return True
+            
+    return False
+
 async def _process_speech_segment(session_id: str, audio_data: np.ndarray, context: Dict):
     """Handle STT and schedule LLM generation."""
     whisper = context.get("whisper_model")
@@ -362,6 +390,11 @@ async def _process_speech_segment(session_id: str, audio_data: np.ndarray, conte
         if not text or not text.strip():
             return
             
+        # Filter Hallucinations
+        if _is_hallucination(text):
+            print(f"[LEAN-VOICE] 🗑️ Ignored hallucination: {text}", flush=True)
+            return
+
         print(f"[LEAN-VOICE] 📝 User (Partial): {text}", flush=True)
         
         # Send Partial Transcript to Client
@@ -435,7 +468,13 @@ async def _trigger_llm_response(session_id: str, context: Dict):
         
         def generate_and_enqueue():
             try:
-                generator = llm.create_completion(
+                # Ensure model is loaded
+                if not llm.model:
+                    print(f"[LEAN-VOICE] 🔄 Loading LLM model...", flush=True)
+                    llm.load_model()
+                
+                # Use the underlying llama_cpp model for streaming
+                generator = llm.model.create_completion(
                     prompt,
                     max_tokens=512,
                     stop=["<|im_end|>"],
