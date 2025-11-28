@@ -1,653 +1,484 @@
 """
-WebRTC Voice Signaling Endpoints.
+WebRTC Voice Endpoint (Lean Implementation)
 
-This module provides FastAPI endpoints for WebRTC voice-to-voice signaling,
-including SDP offer/answer exchange, ICE candidate handling, and connection lifecycle.
+Optimized for low CPU usage and high network resilience.
+- Jitter Buffer: 128 packets (approx 2.5s) to handle network jitter.
+- VAD: Silero VAD for accurate speech detection.
+- STT: Faster-Whisper (Turbo) for transcription.
+- LLM: Qwen (via Llama.cpp) for response generation.
+- Output: Text response via Data Channel (TTS disabled for performance).
 
-Created for WebRTC MVP Migration - Phase B
 Author: BeautyAI Framework
-Date: October 15, 2025
+Date: November 2025
 """
 
 import asyncio
+import json
 import logging
+import os
 import time
 import uuid
+import re
+import psutil
 from typing import Dict, Any, Optional, List
-from fastapi import APIRouter, HTTPException, Depends, WebSocket, status
-from pydantic import BaseModel, Field, validator
+from fastapi import APIRouter, HTTPException, status
+from pydantic import BaseModel, Field
 
-from ...core.webrtc_connection_pool import WebRTCConnectionPool, get_webrtc_pool
-from ...core.webrtc_session_manager import WebRTCSessionManager, get_webrtc_session_manager
-from ...core.config_manager import get_config_manager
+from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
+from aiortc.contrib.media import MediaRecorder
+import numpy as np
+from scipy.signal import resample_poly
+
+# ============================================================
+# AIORTC JITTER BUFFER TUNING (CRITICAL FIX)
+# ============================================================
+import aiortc.rtcrtpreceiver
+from aiortc.jitterbuffer import JitterBuffer
+
+# Store original __init__ for potential restoration
+_original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
+
+# Environment variable configuration
+AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "128"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "32"))
+
+def _patched_RTCRtpReceiver_init(self, kind, transport):
+    """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
+    _original_RTCRtpReceiver_init(self, kind, transport)
+    if kind == "audio":
+        self._RTCRtpReceiver__jitter_buffer = JitterBuffer(
+            capacity=AIORTC_AUDIO_JITTER_CAPACITY, 
+            prefetch=AIORTC_AUDIO_JITTER_PREFETCH
+        )
+        print(f"[LEAN-VOICE] 🔧 Jitter Buffer: capacity={AIORTC_AUDIO_JITTER_CAPACITY}, prefetch={AIORTC_AUDIO_JITTER_PREFETCH}", flush=True)
+
+# Apply the monkey-patch
+aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
+
+# ============================================================
+# IMPORTS
+# ============================================================
+from ...core.persistent_model_manager import get_persistent_model_manager
+from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 
 logger = logging.getLogger(__name__)
 
-# Create router with tags for documentation
 webrtc_voice_router = APIRouter(
     prefix="/api/v1/webrtc/voice",
-    tags=["webrtc-voice"],
-    responses={
-        404: {"description": "Not found"},
-        500: {"description": "Internal server error"}
-    }
+    tags=["webrtc-voice-lean"],
 )
 
+# Store active connections
+_active_connections: Dict[str, Dict[str, Any]] = {}
 
-# ============================================================================
-# Pydantic Models for Request/Response
-# ============================================================================
+class OfferRequest(BaseModel):
+    sdp: str = Field(..., min_length=10)
+    type: str = Field(default="offer")
 
-class SDPOfferRequest(BaseModel):
-    """Request model for SDP offer exchange."""
-    
-    sdp: str = Field(
-        ..., 
-        description="Session Description Protocol offer in string format",
-        min_length=10,
-        max_length=50000
-    )
-    type: str = Field(
-        default="offer",
-        description="SDP type (must be 'offer')",
-        pattern="^offer$"
-    )
-    language: Optional[str] = Field(
-        default="ar",
-        description="Conversation language (ar, en)",
-        pattern="^(ar|en)$"
-    )
-    user_id: Optional[str] = Field(
-        default=None,
-        description="Optional user identifier",
-        max_length=255
-    )
-    session_metadata: Optional[Dict[str, Any]] = Field(
-        default_factory=dict,
-        description="Optional session metadata"
-    )
-    
-    @validator('sdp')
-    def validate_sdp_content(cls, v):
-        """Validate SDP contains required fields."""
-        if not v or len(v.strip()) == 0:
-            raise ValueError("SDP offer cannot be empty")
-        
-        # Basic SDP validation - check for required lines
-        required_fields = ['v=', 'm=', 'c=']
-        for field in required_fields:
-            if field not in v:
-                raise ValueError(f"SDP missing required field: {field}")
-        
-        return v
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "sdp": "v=0\r\no=- 123456 2 IN IP4 127.0.0.1\r\ns=-\r\nt=0 0\r\n...",
-                "type": "offer",
-                "language": "ar",
-                "user_id": "user_123",
-                "session_metadata": {"client": "web", "version": "1.0"}
-            }
-        }
-
-
-class SDPAnswerResponse(BaseModel):
-    """Response model for SDP answer."""
-    
-    sdp: str = Field(
-        ...,
-        description="Session Description Protocol answer"
-    )
-    type: str = Field(
-        default="answer",
-        description="SDP type"
-    )
-    peer_id: str = Field(
-        ...,
-        description="Unique peer connection identifier"
-    )
-    session_id: str = Field(
-        ...,
-        description="Voice session identifier"
-    )
-    ice_servers: List[Dict[str, Any]] = Field(
-        default_factory=list,
-        description="ICE servers configuration (STUN/TURN)"
-    )
-    created_at: float = Field(
-        default_factory=time.time,
-        description="Timestamp when answer was created"
-    )
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "sdp": "v=0\r\no=- 789012 2 IN IP4 192.168.1.1\r\ns=-\r\nt=0 0\r\n...",
-                "type": "answer",
-                "peer_id": "peer_abc123",
-                "session_id": "session_xyz789",
-                "ice_servers": [
-                    {"urls": "stun:stun.l.google.com:19302"}
-                ],
-                "created_at": 1697385600.0
-            }
-        }
-
-
-class ICECandidateRequest(BaseModel):
-    """Request model for ICE candidate exchange."""
-    
-    peer_id: str = Field(
-        ...,
-        description="Peer connection identifier",
-        min_length=1,
-        max_length=255
-    )
-    candidate: str = Field(
-        ...,
-        description="ICE candidate string",
-        min_length=1,
-        max_length=2000
-    )
-    sdp_mid: Optional[str] = Field(
-        default=None,
-        description="Media stream identification tag"
-    )
-    sdp_m_line_index: Optional[int] = Field(
-        default=None,
-        description="Media line index",
-        ge=0
-    )
-    
-    @validator('candidate')
-    def validate_candidate_format(cls, v):
-        """Validate ICE candidate format."""
-        if not v or len(v.strip()) == 0:
-            raise ValueError("ICE candidate cannot be empty")
-        
-        # Basic validation - check for 'candidate:' prefix
-        if not v.strip().startswith('candidate:'):
-            raise ValueError("Invalid ICE candidate format (must start with 'candidate:')")
-        
-        return v
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "peer_id": "peer_abc123",
-                "candidate": "candidate:1 1 UDP 2122260223 192.168.1.100 54321 typ host",
-                "sdp_mid": "0",
-                "sdp_m_line_index": 0
-            }
-        }
-
-
-class ICECandidateResponse(BaseModel):
-    """Response model for ICE candidate acknowledgment."""
-    
-    peer_id: str = Field(..., description="Peer connection identifier")
-    candidate_index: int = Field(..., description="Candidate index")
-    accepted: bool = Field(default=True, description="Whether candidate was accepted")
-    message: str = Field(default="ICE candidate accepted", description="Status message")
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "peer_id": "peer_abc123",
-                "candidate_index": 0,
-                "accepted": True,
-                "message": "ICE candidate accepted"
-            }
-        }
-
-
-class ConnectionStatusResponse(BaseModel):
-    """Response model for connection status."""
-    
-    peer_id: str
+class OfferResponse(BaseModel):
+    sdp: str
+    type: str = "answer"
     session_id: str
-    connection_state: str
-    ice_connection_state: str
-    ice_gathering_state: str
-    created_at: float
-    last_activity: float
-    data_channel_state: str
-    data_channel_label: Optional[str] = None
-    data_channel_present: bool
-    data_channel_last_updated: Optional[float] = None
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "peer_id": "peer_abc123",
-                "session_id": "session_xyz789",
-                "connection_state": "connected",
-                "ice_connection_state": "connected",
-                "ice_gathering_state": "complete",
-                "created_at": 1697385600.0,
-                "last_activity": 1697385620.0,
-                "data_channel_state": "open",
-                "data_channel_label": "client_receive",
-                "data_channel_present": True,
-                "data_channel_last_updated": 1697385620.0
-            }
+
+class ICERequest(BaseModel):
+    session_id: str
+    candidate: str
+    sdp_mid: Optional[str] = None
+    sdp_m_line_index: Optional[int] = None
+
+@webrtc_voice_router.post("/offer", response_model=OfferResponse)
+async def handle_offer(request: OfferRequest):
+    """Create WebRTC session (Lean Mode)."""
+    try:
+        session_id = str(uuid.uuid4())
+        print(f"[LEAN-VOICE] 🚀 Creating session {session_id}", flush=True)
+        
+        # RTC Configuration
+        config = RTCConfiguration(
+            iceServers=[
+                RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
+                RTCIceServer(
+                    urls=["turn:dev.gmai.sa:15478"],
+                    username="beautyai",
+                    credential="beautyai2025"
+                ),
+            ]
+        )
+        pc = RTCPeerConnection(configuration=config)
+        
+        # Session Context
+        session_context = {
+            "pc": pc,
+            "session_id": session_id,
+            "start_time": time.time(),
+            "audio_track": None,
+            "data_channel": None,
+            "processing_task": None,
+            "vad_service": None,
+            "whisper_model": None,
+            "llm_model": None,
+            "speech_buffer": [],
+            "transcript_buffer": [],  # Buffer for aggregated transcripts
+            "turn_timer_task": None,  # Task for 2s silence timer
+            "loop": asyncio.get_event_loop()
         }
-
-
-class CleanupResponse(BaseModel):
-    """Response model for connection cleanup."""
-    
-    peer_id: str
-    cleaned_up: bool
-    message: str
-    
-    class Config:
-        json_schema_extra = {
-            "example": {
-                "peer_id": "peer_abc123",
-                "cleaned_up": True,
-                "message": "Connection cleaned up successfully"
-            }
-        }
-
-
-# ============================================================================
-# Endpoints
-# ============================================================================
-
-@webrtc_voice_router.post(
-    "/offer",
-    response_model=SDPAnswerResponse,
-    summary="Handle SDP Offer",
-    description="Process SDP offer from client and return SDP answer with peer_id",
-    status_code=status.HTTP_200_OK
-)
-async def handle_sdp_offer(
-    request: SDPOfferRequest,
-    connection_pool: WebRTCConnectionPool = Depends(get_webrtc_pool),
-    session_manager: WebRTCSessionManager = Depends(get_webrtc_session_manager)
-) -> SDPAnswerResponse:
-    """
-    Handle SDP offer from WebRTC client.
-    
-    This endpoint:
-    1. Validates the SDP offer
-    2. Creates a new RTCPeerConnection
-    3. Generates SDP answer
-    4. Creates voice session
-    5. Returns answer with peer_id for future communication
-    
-    Args:
-        request: SDP offer request with optional metadata
-        connection_pool: WebRTC connection pool dependency
-        session_manager: WebRTC session manager dependency
         
-    Returns:
-        SDPAnswerResponse with SDP answer and identifiers
-        
-    Raises:
-        HTTPException: If offer processing fails
-    """
-    try:
-        # Generate unique peer_id
-        peer_id = f"peer_{uuid.uuid4().hex[:12]}"
-
-        requested_language = (request.language or "ar").strip().lower()
-        if requested_language not in {"ar", "en"}:
-            logger.warning(
-                "[WebRTC] Unsupported language '%s' in offer for %s; defaulting to 'ar'",
-                requested_language,
-                peer_id,
-            )
-            requested_language = "ar"
-
-        logger.info(
-            "[WebRTC] handle_sdp_offer start | peer_id=%s | language=%s",
-            peer_id,
-            requested_language,
-        )
-        
-        # Get WebRTC configuration from environment
-        import os
-        webrtc_enabled = os.getenv('WEBRTC_ENABLED', '1') == '1'
-        
-        # Check if WebRTC is enabled
-        if not webrtc_enabled:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="WebRTC voice service is currently disabled. Please enable it in configuration."
-            )
-        
-        # Create voice session first to get session_id
+        # Load Models (Persistent)
         try:
-            start_session = time.time()
-            session_metadata = dict(request.session_metadata or {})
-            session_metadata.setdefault("requested_language", requested_language)
-
-            session_id = await session_manager.create_session(
-                peer_id=peer_id,
-                language=requested_language,
-                user_id=request.user_id,
-                metadata=session_metadata
-            )
-            logger.debug(
-                "[WebRTC] (%s) Session created session_id=%s (%.2f ms)",
-                peer_id,
-                session_id,
-                (time.time() - start_session) * 1000,
-            )
+            model_manager = get_persistent_model_manager()
+            session_context["whisper_model"] = model_manager.get_whisper_model()
+            session_context["llm_model"] = model_manager.get_llm_model()
+            
+            if session_context["whisper_model"]:
+                print(f"[LEAN-VOICE] ✅ Whisper Model Loaded", flush=True)
+            else:
+                print(f"[LEAN-VOICE] ⚠️ Whisper Model NOT Available", flush=True)
+                
+            if session_context["llm_model"]:
+                print(f"[LEAN-VOICE] ✅ LLM Model Loaded", flush=True)
+            else:
+                print(f"[LEAN-VOICE] ⚠️ LLM Model NOT Available", flush=True)
+                
         except Exception as e:
-            logger.error(f"[WebRTC] Failed to create voice session for {peer_id}: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to create voice session: {str(e)}"
-            )
-        
-        # Create RTCPeerConnection and process offer
+            logger.error(f"[LEAN-VOICE] Model load error: {e}")
+            print(f"[LEAN-VOICE] ❌ Model load error: {e}", flush=True)
+
+        # Initialize VAD
         try:
-            start_pc = time.time()
-            answer_sdp, ice_servers = await connection_pool.create_peer_connection(
-                peer_id=peer_id,
-                offer_sdp=request.sdp,
-                user_id=request.user_id,
-                language=requested_language
-            )
-            logger.debug(
-                "[WebRTC] (%s) create_peer_connection completed (%.2f ms)",
-                peer_id,
-                (time.time() - start_pc) * 1000,
-            )
+            vad_config = WebRTCVADConfig()
+            vad_config.silero_sensitivity = 0.3
+            vad_config.post_speech_silence_ms = 700
+            vad_config.min_speech_duration_ms = 50
+            
+            vad_service = WebRTCVADService(session_id, language="en", config=vad_config)
+            if await vad_service.initialize():
+                session_context["vad_service"] = vad_service
+                print(f"[LEAN-VOICE] ✅ VAD Initialized", flush=True)
+            else:
+                print(f"[LEAN-VOICE] ❌ VAD Init Failed", flush=True)
         except Exception as e:
-            logger.error(f"[WebRTC] Failed to create peer connection for {peer_id}: {e}", exc_info=True)
-            # Clean up session on connection failure
-            await session_manager.cleanup_session(peer_id)
-            raise HTTPException(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                detail=f"Failed to process SDP offer: {str(e)}"
-            )
-        
-        logger.info(
-            "[WebRTC] handle_sdp_offer complete | peer_id=%s | session_id=%s",
-            peer_id,
-            session_id,
+            logger.error(f"[LEAN-VOICE] VAD error: {e}")
+
+        # Handle Tracks
+        @pc.on("track")
+        async def on_track(track: MediaStreamTrack):
+            if track.kind == "audio":
+                print(f"[LEAN-VOICE] 🎤 Audio track received", flush=True)
+                session_context["audio_track"] = track
+                session_context["processing_task"] = asyncio.create_task(
+                    _process_audio_track(session_id, track, session_context)
+                )
+
+        # Handle Data Channel
+        @pc.on("datachannel")
+        def on_datachannel(channel):
+            print(f"[LEAN-VOICE] 📡 Data channel received: {channel.label}", flush=True)
+            session_context["data_channel"] = channel
+            
+            @channel.on("message")
+            def on_message(message):
+                print(f"[LEAN-VOICE] 📨 Message from client: {message}", flush=True)
+
+        # Connection State Monitoring
+        @pc.on("connectionstatechange")
+        async def on_connectionstatechange():
+            print(f"[LEAN-VOICE] 🔄 Connection state: {pc.connectionState}", flush=True)
+            if pc.connectionState in ["failed", "closed"]:
+                await _cleanup_session(session_id)
+
+        # SDP Negotiation
+        await pc.setRemoteDescription(
+            RTCSessionDescription(sdp=request.sdp, type=request.type)
         )
+        answer = await pc.createAnswer()
+        await pc.setLocalDescription(answer)
         
-        # Return SDP answer with identifiers
-        return SDPAnswerResponse(
-            sdp=answer_sdp,
-            type="answer",
-            peer_id=peer_id,
-            session_id=session_id,
-            ice_servers=ice_servers,
-            created_at=time.time()
+        _active_connections[session_id] = session_context
+        
+        return OfferResponse(
+            sdp=pc.localDescription.sdp,
+            session_id=session_id
         )
-        
-    except HTTPException:
-        raise
+
     except Exception as e:
-        logger.error(f"[WebRTC] Unexpected error handling SDP offer: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
+        logger.error(f"[LEAN-VOICE] Offer error: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
 
-
-@webrtc_voice_router.post(
-    "/ice",
-    response_model=ICECandidateResponse,
-    summary="Handle ICE Candidate",
-    description="Process ICE candidate from client for trickle ICE",
-    status_code=status.HTTP_200_OK
-)
-async def handle_ice_candidate(
-    request: ICECandidateRequest,
-    connection_pool: WebRTCConnectionPool = Depends(get_webrtc_pool)
-) -> ICECandidateResponse:
-    """
-    Handle ICE candidate from WebRTC client.
-    
-    This endpoint supports trickle ICE by accepting candidates
-    after the initial offer/answer exchange.
-    
-    Args:
-        request: ICE candidate request
-        connection_pool: WebRTC connection pool dependency
-        
-    Returns:
-        ICECandidateResponse with acknowledgment
-        
-    Raises:
-        HTTPException: If candidate processing fails
-    """
+@webrtc_voice_router.post("/ice")
+async def handle_ice(request: ICERequest):
+    """Handle ICE candidates."""
     try:
-        logger.debug(f"[WebRTC] Handling ICE candidate for peer_id={request.peer_id}")
+        if request.session_id not in _active_connections:
+            raise HTTPException(status_code=404, detail="Session not found")
         
-        # Check if peer connection exists
-        if not await connection_pool.peer_exists(request.peer_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Peer connection not found: {request.peer_id}"
+        pc = _active_connections[request.session_id]["pc"]
+        
+        # Parse candidate (simplified)
+        parts = request.candidate.split()
+        if len(parts) < 8 or 'typ' not in parts:
+            return {"status": "ignored", "reason": "malformed"}
+            
+        candidate = RTCIceCandidate(
+            component=int(parts[1]),
+            foundation=parts[0].split(':')[1],
+            ip=parts[4],
+            port=int(parts[5]),
+            priority=int(parts[3]),
+            protocol=parts[2].upper(),
+            type=parts[parts.index('typ') + 1],
+            sdpMid=request.sdp_mid,
+            sdpMLineIndex=request.sdp_m_line_index
+        )
+        await pc.addIceCandidate(candidate)
+        return {"status": "ok"}
+        
+    except Exception as e:
+        logger.error(f"[LEAN-VOICE] ICE error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def _process_audio_track(session_id: str, track: MediaStreamTrack, context: Dict):
+    """Main audio processing loop."""
+    print(f"[LEAN-VOICE] ▶️ Starting audio processing loop for {session_id}", flush=True)
+    
+    frame_count = 0
+    speech_buffer_16k = []
+    
+    try:
+        while True:
+            try:
+                # 1. Receive Frame (with timeout for network issues)
+                frame = await asyncio.wait_for(track.recv(), timeout=2.0)
+                frame_count += 1
+                
+                # 2. Convert to 16kHz Mono (Standard for VAD/Whisper)
+                audio_data = frame.to_ndarray()
+                
+                # Stereo to Mono
+                if audio_data.ndim > 1:
+                    audio_data = audio_data.mean(axis=1)
+                
+                # Resample if needed
+                if frame.sample_rate != 16000:
+                    # Simple resampling (fast)
+                    num_samples = int(len(audio_data) * 16000 / frame.sample_rate)
+                    audio_16k = resample_poly(audio_data, 16000, frame.sample_rate)
+                else:
+                    audio_16k = audio_data
+
+                # Ensure float32 for VAD/Whisper
+                audio_16k = audio_16k.astype(np.float32)
+                if np.abs(audio_16k).max() > 1.0:
+                    audio_16k /= 32768.0 # Normalize int16 to float
+
+                # 3. VAD Processing
+                vad_service = context.get("vad_service")
+                if vad_service:
+                    # Convert to int16 bytes for VAD service
+                    audio_int16 = (np.clip(audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
+                    
+                    vad_result = await vad_service.process_audio_chunk(
+                        audio_int16.tobytes(),
+                        metadata={"sample_rate": 16000}
+                    )
+                    
+                    state = vad_result.get("voice_state")
+                    
+                    # Accumulate Speech
+                    if state in [VADState.VOICE_START, VADState.VOICE_ACTIVE, VADState.VOICE_END_PENDING]:
+                        # Cancel any pending turn timer if user starts speaking again
+                        if context.get("turn_timer_task"):
+                            print(f"[LEAN-VOICE] 🛑 User interrupted silence, cancelling turn timer", flush=True)
+                            context["turn_timer_task"].cancel()
+                            context["turn_timer_task"] = None
+                            
+                        speech_buffer_16k.append(audio_16k)
+                        
+                    # End of Speech -> Process
+                    elif state == VADState.VOICE_END:
+                        if speech_buffer_16k:
+                            # Process in background to not block audio loop
+                            full_audio = np.concatenate(speech_buffer_16k)
+                            asyncio.create_task(_process_speech_segment(session_id, full_audio, context))
+                            speech_buffer_16k = []
+                            
+            except asyncio.TimeoutError:
+                continue
+            except Exception as e:
+                if "End of file" in str(e):
+                    break
+                print(f"[LEAN-VOICE] Frame error: {e}", flush=True)
+                break
+                
+    except Exception as e:
+        logger.error(f"[LEAN-VOICE] Loop error: {e}")
+    finally:
+        print(f"[LEAN-VOICE] ⏹️ Audio loop ended for {session_id}", flush=True)
+        await _cleanup_session(session_id)
+
+async def _process_speech_segment(session_id: str, audio_data: np.ndarray, context: Dict):
+    """Handle STT and schedule LLM generation."""
+    whisper = context.get("whisper_model")
+    dc = context.get("data_channel")
+    loop = context.get("loop")
+    
+    if not whisper:
+        return
+
+    try:
+        # 1. Transcribe (Run in executor to avoid blocking)
+        # Convert float32 array to int16 bytes for Whisper
+        audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
+        audio_bytes = audio_int16.tobytes()
+        
+        start_time = time.time()
+        print(f"[LEAN-VOICE] 🗣️ Transcribing {len(audio_data)/16000:.2f}s...", flush=True)
+        
+        text = await loop.run_in_executor(
+            None, 
+            lambda: whisper.transcribe_audio_bytes(audio_bytes, audio_format="pcm_raw", language="en")
+        )
+        whisper_time = (time.time() - start_time) * 1000
+        
+        if not text or not text.strip():
+            return
+            
+        print(f"[LEAN-VOICE] 📝 User (Partial): {text}", flush=True)
+        
+        # Send Partial Transcript to Client
+        if dc and dc.readyState == "open":
+            dc.send(json.dumps({
+                "type": "transcription", 
+                "text": text, 
+                "role": "user",
+                "metrics": {"whisper_ms": whisper_time}
+            }))
+            
+        # 2. Aggregate and Schedule Turn
+        context["transcript_buffer"].append(text)
+        
+        # Cancel existing timer if any
+        if context.get("turn_timer_task"):
+            context["turn_timer_task"].cancel()
+            
+        # Schedule new timer (2 seconds silence)
+        context["turn_timer_task"] = asyncio.create_task(_wait_for_silence_and_respond(session_id, context))
+                
+    except Exception as e:
+        logger.error(f"[LEAN-VOICE] Processing error: {e}")
+        print(f"[LEAN-VOICE] ❌ Processing error: {e}", flush=True)
+
+async def _wait_for_silence_and_respond(session_id: str, context: Dict):
+    """Wait for 2 seconds of silence, then trigger LLM."""
+    try:
+        await asyncio.sleep(2.0)
+        
+        # If we get here, no new speech interrupted us
+        await _trigger_llm_response(session_id, context)
+        
+    except asyncio.CancelledError:
+        # Timer was cancelled by new speech
+        pass
+    except Exception as e:
+        logger.error(f"[LEAN-VOICE] Timer error: {e}")
+
+async def _trigger_llm_response(session_id: str, context: Dict):
+    """Generate and stream LLM response."""
+    llm = context.get("llm_model")
+    dc = context.get("data_channel")
+    loop = context.get("loop")
+    buffer = context.get("transcript_buffer", [])
+    
+    if not buffer or not llm:
+        return
+        
+    full_text = " ".join(buffer)
+    context["transcript_buffer"] = [] # Clear buffer
+    context["turn_timer_task"] = None
+    
+    print(f"[LEAN-VOICE] 🤖 Generating response for: {full_text}", flush=True)
+    
+    # Notify client: Processing (Disable Mic)
+    if dc and dc.readyState == "open":
+        dc.send(json.dumps({"type": "state", "state": "processing"}))
+        
+    try:
+        # Construct Prompt with /no_think to disable thinking mode
+        prompt = f"<|im_start|>system\nYou are a helpful AI assistant. /no_think<|im_end|>\n<|im_start|>user\n{full_text}<|im_end|>\n<|im_start|>assistant\n"
+        
+        start_time = time.time()
+        token_count = 0
+        
+        # Run generation in executor (Streaming)
+        # Note: Llama.cpp create_completion with stream=True returns a generator
+        # We need to iterate it in a way that doesn't block the event loop
+        
+        def generate_stream():
+            return llm.create_completion(
+                prompt,
+                max_tokens=512,
+                stop=["<|im_end|>"],
+                stream=True
             )
+            
+        stream_generator = await loop.run_in_executor(None, generate_stream)
         
-        # Add ICE candidate to peer connection
+        full_response = ""
+        
+        for chunk in stream_generator:
+            delta = chunk["choices"][0]["text"]
+            full_response += delta
+            token_count += 1
+            
+            # Filter <think> tags if they leak through
+            clean_delta = delta
+            if "<think>" in full_response or "</think>" in full_response:
+                 # Simple suppression: don't send if inside think block
+                 # This is a naive implementation; for robust streaming filtering we'd need a state machine
+                 # For now, let's just strip the tags from the final output if needed, 
+                 # but for streaming, we send raw delta unless it contains the tag itself
+                 clean_delta = delta.replace("<think>", "").replace("</think>", "")
+            
+            if clean_delta and dc and dc.readyState == "open":
+                dc.send(json.dumps({
+                    "type": "response_chunk", 
+                    "text": clean_delta, 
+                    "role": "assistant"
+                }))
+                # Small yield to let event loop breathe
+                await asyncio.sleep(0)
+                
+        total_time = time.time() - start_time
+        tps = token_count / total_time if total_time > 0 else 0
+        
+        print(f"[LEAN-VOICE] 🤖 AI ({tps:.1f} t/s): {full_response[:50]}...", flush=True)
+        
+        # Send Final Metrics and State
+        if dc and dc.readyState == "open":
+            dc.send(json.dumps({
+                "type": "metrics",
+                "llm_time_ms": total_time * 1000,
+                "tokens_per_sec": tps,
+                "total_tokens": token_count
+            }))
+            dc.send(json.dumps({"type": "state", "state": "listening"}))
+            
+    except Exception as e:
+        logger.error(f"[LEAN-VOICE] LLM error: {e}")
+        print(f"[LEAN-VOICE] ❌ LLM error: {e}", flush=True)
+        if dc and dc.readyState == "open":
+            dc.send(json.dumps({"type": "state", "state": "listening"})) # Reset state on error
+
+async def _cleanup_session(session_id: str):
+    """Clean up session resources."""
+    if session_id in _active_connections:
+        ctx = _active_connections.pop(session_id)
+        print(f"[LEAN-VOICE] 🧹 Cleaning up session {session_id}", flush=True)
         try:
-            candidate_index = await connection_pool.add_ice_candidate(
-                peer_id=request.peer_id,
-                candidate=request.candidate,
-                sdp_mid=request.sdp_mid,
-                sdp_m_line_index=request.sdp_m_line_index
-            )
+            if ctx["pc"]:
+                await ctx["pc"].close()
+            if ctx["processing_task"]:
+                ctx["processing_task"].cancel()
+            if ctx.get("turn_timer_task"):
+                ctx["turn_timer_task"].cancel()
         except Exception as e:
-            logger.error(f"[WebRTC] Failed to add ICE candidate for {request.peer_id}: {e}", exc_info=True)
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid ICE candidate: {str(e)}"
-            )
-        
-        logger.debug(f"[WebRTC] ICE candidate added successfully: peer_id={request.peer_id}, index={candidate_index}")
-        
-        return ICECandidateResponse(
-            peer_id=request.peer_id,
-            candidate_index=candidate_index,
-            accepted=True,
-            message="ICE candidate accepted"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[WebRTC] Unexpected error handling ICE candidate: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@webrtc_voice_router.get(
-    "/{peer_id}/status",
-    response_model=ConnectionStatusResponse,
-    summary="Get Connection Status",
-    description="Retrieve current status of a WebRTC peer connection",
-    status_code=status.HTTP_200_OK
-)
-async def get_connection_status(
-    peer_id: str,
-    connection_pool: WebRTCConnectionPool = Depends(get_webrtc_pool),
-    session_manager: WebRTCSessionManager = Depends(get_webrtc_session_manager)
-) -> ConnectionStatusResponse:
-    """
-    Get current status of a WebRTC peer connection.
-    
-    Args:
-        peer_id: Peer connection identifier
-        connection_pool: WebRTC connection pool dependency
-        session_manager: WebRTC session manager dependency
-        
-    Returns:
-        ConnectionStatusResponse with current status
-        
-    Raises:
-        HTTPException: If peer connection not found
-    """
-    try:
-        # Check if peer connection exists
-        if not await connection_pool.peer_exists(peer_id):
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Peer connection not found: {peer_id}"
-            )
-        
-        # Update activity timestamp to prevent idle cleanup during status polling
-        async with connection_pool._lock:
-            if peer_id in connection_pool._connections:
-                connection_pool._connections[peer_id].update_activity()
-        
-        # Get connection status
-        status_info = await connection_pool.get_connection_status(peer_id)
-        
-        # Get session info
-        session_info = await session_manager.get_session_by_peer(peer_id)
-        
-        return ConnectionStatusResponse(
-            peer_id=peer_id,
-            session_id=session_info.get('session_id', 'unknown'),
-            connection_state=status_info.get('connection_state', 'unknown'),
-            ice_connection_state=status_info.get('ice_connection_state', 'unknown'),
-            ice_gathering_state=status_info.get('ice_gathering_state', 'unknown'),
-            created_at=status_info.get('created_at', time.time()),
-            last_activity=status_info.get('last_activity', time.time()),
-            data_channel_state=status_info.get('data_channel_state', 'absent'),
-            data_channel_label=status_info.get('data_channel_label'),
-            data_channel_present=status_info.get('data_channel_present', False),
-            data_channel_last_updated=status_info.get('data_channel_last_updated')
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[WebRTC] Error getting connection status for {peer_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error: {str(e)}"
-        )
-
-
-@webrtc_voice_router.delete(
-    "/{peer_id}",
-    response_model=CleanupResponse,
-    summary="Cleanup Connection",
-    description="Close and cleanup a WebRTC peer connection and associated session",
-    status_code=status.HTTP_200_OK
-)
-async def cleanup_connection(
-    peer_id: str,
-    connection_pool: WebRTCConnectionPool = Depends(get_webrtc_pool),
-    session_manager: WebRTCSessionManager = Depends(get_webrtc_session_manager)
-) -> CleanupResponse:
-    """
-    Cleanup a WebRTC peer connection and associated voice session.
-    
-    This endpoint:
-    1. Closes the RTCPeerConnection
-    2. Removes peer from connection pool
-    3. Cleans up voice session
-    4. Releases resources
-    
-    Args:
-        peer_id: Peer connection identifier
-        connection_pool: WebRTC connection pool dependency
-        session_manager: WebRTC session manager dependency
-        
-    Returns:
-        CleanupResponse with cleanup confirmation
-        
-    Raises:
-        HTTPException: If cleanup fails
-    """
-    try:
-        logger.info(f"[WebRTC] Cleaning up connection: peer_id={peer_id}")
-        
-        # Check if peer connection exists
-        if not await connection_pool.peer_exists(peer_id):
-            # Connection already cleaned up or never existed
-            logger.warning(f"[WebRTC] Peer connection not found during cleanup: {peer_id}")
-            return CleanupResponse(
-                peer_id=peer_id,
-                cleaned_up=True,
-                message="Connection already cleaned up or not found"
-            )
-        
-        # Remove peer connection
-        try:
-            await connection_pool.remove_peer_connection(peer_id)
-        except Exception as e:
-            logger.error(f"[WebRTC] Error removing peer connection {peer_id}: {e}", exc_info=True)
-            # Continue with session cleanup even if peer removal fails
-        
-        # Cleanup voice session
-        try:
-            await session_manager.cleanup_session(peer_id)
-        except Exception as e:
-            logger.error(f"[WebRTC] Error cleaning up session for {peer_id}: {e}", exc_info=True)
-            # Don't raise - peer connection is already cleaned up
-        
-        logger.info(f"[WebRTC] Successfully cleaned up connection: peer_id={peer_id}")
-        
-        return CleanupResponse(
-            peer_id=peer_id,
-            cleaned_up=True,
-            message="Connection cleaned up successfully"
-        )
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"[WebRTC] Unexpected error during cleanup for {peer_id}: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Internal server error during cleanup: {str(e)}"
-        )
-
-
-@webrtc_voice_router.get(
-    "/health",
-    summary="WebRTC Health Check",
-    description="Check if WebRTC signaling service is healthy",
-    status_code=status.HTTP_200_OK
-)
-async def webrtc_health_check(
-    connection_pool: WebRTCConnectionPool = Depends(get_webrtc_pool)
-) -> Dict[str, Any]:
-    """
-    Health check endpoint for WebRTC signaling service.
-    
-    Returns:
-        Health status including active connections count
-    """
-    try:
-        # Get WebRTC configuration from environment
-        import os
-        webrtc_enabled = os.getenv('WEBRTC_ENABLED', '1') == '1'
-        
-        pool_stats = await connection_pool.get_pool_stats()
-        
-        return {
-            "status": "healthy",
-            "enabled": webrtc_enabled,
-            "active_connections": pool_stats.get('active_connections', 0),
-            "total_connections": pool_stats.get('total_connections', 0),
-            "timestamp": time.time()
-        }
-    except Exception as e:
-        logger.error(f"[WebRTC] Health check failed: {e}", exc_info=True)
-        return {
-            "status": "unhealthy",
-            "error": str(e),
-            "timestamp": time.time()
-        }
-
-
-# Export router
-__all__ = ['webrtc_voice_router']
+            logger.error(f"[LEAN-VOICE] Cleanup error: {e}")

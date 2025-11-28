@@ -30,8 +30,8 @@ from math import gcd
 # ============================================================
 # AIORTC JITTER BUFFER TUNING
 # Default: capacity=16 (320ms), prefetch=4 (80ms)
-# Tuned:   capacity=64 (1280ms), prefetch=16 (320ms)
-# This helps with high-latency VPN connections (Canada→KSA)
+# Tuned:   capacity=128 (2560ms), prefetch=32 (640ms)
+# Increased to 128 to handle severe network jitter and packet loss
 # ============================================================
 import aiortc.rtcrtpreceiver
 from aiortc.jitterbuffer import JitterBuffer
@@ -40,8 +40,8 @@ from aiortc.jitterbuffer import JitterBuffer
 _original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
 
 # Environment variable configuration for flexibility
-AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "64"))
-AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "16"))
+AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "128"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "32"))
 
 def _patched_RTCRtpReceiver_init(self, kind, transport):
     """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
@@ -61,7 +61,7 @@ def _patched_RTCRtpReceiver_init(self, kind, transport):
 
 # Apply the monkey-patch
 aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
-print("[AIORTC-TUNED] ✅ Jitter buffer patch applied (capacity=64, prefetch=16)", flush=True)
+print("[AIORTC-TUNED] ✅ Jitter buffer patch applied (capacity=128, prefetch=32)", flush=True)
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
@@ -161,7 +161,8 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
                 RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
                 RTCIceServer(
-                    urls=["turn:188.48.209.107:15478"],
+                    # ✅ DYNAMIC TURN SERVER: Uses dev.gmai.sa which always points to current IP
+                    urls=["turn:dev.gmai.sa:15478"],
                     username="beautyai",
                     credential="beautyai2025"
                 ),

@@ -496,7 +496,14 @@ Let's see how clearly the system catches my voice, even with small background so
             window.location.reload(true);
         }
         
-        const API = 'https://192.168.1.39:8443';
+        // ✅ DYNAMIC API URL: Automatically handles proxy paths
+        // If we are at /api/test_simple.html (dev.gmai.sa), we need to append /api to the base
+        // so that calls go to /api/api/v1/... which Nginx strips to /api/v1/...
+        const isProxy = window.location.pathname.includes('/api/');
+        const API = isProxy ? window.location.origin + '/api' : window.location.origin;
+        
+        console.log(`%c🌍 API Endpoint: ${API}`, 'color: #2196f3; font-weight: bold;');
+        
         let pc, stream, peerId, audioContext, analyser, dataArray;
         let startTime = null;
         let durationInterval = null;
@@ -713,12 +720,13 @@ Let's see how clearly the system catches my voice, even with small background so
             try {
                 log('🎤 Requesting microphone access...', 'info');
                 
-                // Request audio with browser-level noise suppression ENABLED
+                // Request audio with browser-level noise suppression DISABLED (Pure Audio)
+                // This prevents the browser from "gating" the audio (inserting silence) which sounds like crackling
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
-                        echoCancellation: true,   // ✅ Remove echo
-                        noiseSuppression: true,   // ✅ Remove background noise/hiss
-                        autoGainControl: true,    // ✅ Normalize volume
+                        echoCancellation: false,   // ❌ DISABLED: Causes gating/ducking
+                        noiseSuppression: false,   // ❌ DISABLED: Causes spectral artifacts/crackling
+                        autoGainControl: false,    // ❌ DISABLED: Causes pumping/noise floor issues
                         sampleRate: 48000,
                         channelCount: 1
                     }
@@ -735,7 +743,8 @@ Let's see how clearly the system catches my voice, even with small background so
                         { urls: 'stun:stun.l.google.com:19302' },
                         { urls: 'stun:stun1.l.google.com:19302' },
                         { 
-                            urls: 'turn:188.48.209.107:15478',
+                            // ✅ DYNAMIC TURN SERVER: Uses dev.gmai.sa which always points to current IP
+                            urls: 'turn:dev.gmai.sa:15478',
                             username: 'beautyai',
                             credential: 'beautyai2025'
                         }

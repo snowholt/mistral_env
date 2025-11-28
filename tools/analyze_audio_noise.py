@@ -436,7 +436,7 @@ def process_layer(layer_name, layer_config, baseline_audio, results, args, outpu
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze audio noise characteristics')
-    parser.add_argument('--layer', type=str, choices=['all', '1', '3', '4', '5', '31', '32'], default='all',
+    parser.add_argument('--layer', type=str, default='all',
                         help='Which layer to analyze (default: all)')
     parser.add_argument('--visualize', action='store_true',
                         help='Generate spectrograms and plots')
@@ -445,12 +445,21 @@ def main():
     args = parser.parse_args()
     
     # Define paths
-    audio_dir = Path(__file__).resolve().parents[1] / "reports/debug/webrtc"
-    output_dir = Path(__file__).resolve().parents[1] / "reports/debug/analysis"
+    workspace_root = Path(__file__).resolve().parents[1]
+    audio_dir = workspace_root / "reports/debug/webrtc"
+    vad_debug_dir = workspace_root / "backend/logs/webrtc/vad_debug"
+    output_dir = workspace_root / "reports/debug/analysis"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Layer configuration with metadata (path, filter_name, sample_rate)
     layers = {
+        # VAD Debug Layer
+        'vad': {
+            'path': vad_debug_dir / "20251128-171357_session_00_silero.wav",
+            'filter': 'SileroVAD',
+            'sample_rate_tag': '16kHz',
+            'description': 'Silero VAD Debug Output'
+        },
         # 48kHz layers (raw WebRTC audio)
         '1': {
             'path': audio_dir / "layer1_48000hz_raw.wav",
