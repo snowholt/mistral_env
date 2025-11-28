@@ -253,9 +253,19 @@ async def _process_audio_track(session_id: str, track: MediaStreamTrack, context
                 # 2. Convert to 16kHz Mono (Standard for VAD/Whisper)
                 audio_data = frame.to_ndarray()
                 
+                # DEBUG: Log frame details periodically
+                if frame_count % 100 == 0:
+                    print(f"[LEAN-VOICE] Frame #{frame_count}: fmt={frame.format.name}, rate={frame.sample_rate}, shape={audio_data.shape}", flush=True)
+
                 # Stereo to Mono
                 if audio_data.ndim > 1:
-                    audio_data = audio_data.mean(axis=1)
+                    # Check if planar (channels, samples) or packed (samples, channels)
+                    if audio_data.shape[0] < audio_data.shape[1]:
+                        # Planar: (channels, samples) -> mean over channels (axis 0)
+                        audio_data = audio_data.mean(axis=0)
+                    else:
+                        # Packed: (samples, channels) -> mean over channels (axis 1)
+                        audio_data = audio_data.mean(axis=1)
                 
                 # Resample if needed
                 if frame.sample_rate != 16000:
@@ -304,10 +314,20 @@ async def _process_audio_track(session_id: str, track: MediaStreamTrack, context
             except asyncio.TimeoutError:
                 continue
             except Exception as e:
-                if "End of file" in str(e):
+                # Handle MediaStreamError (track ended) gracefully
+                if "MediaStreamError" in str(type(e).__name__) or "End of file" in str(e):
+                    print(f"[LEAN-VOICE] ⏹️ Track ended (MediaStreamError)", flush=True)
                     break
-                print(f"[LEAN-VOICE] Frame error: {e}", flush=True)
-                break
+                
+                # Log other errors but try to continue if possible
+                import traceback
+                traceback.print_exc()
+                print(f"[LEAN-VOICE] ⚠️ Frame error: {e!r}", flush=True)
+                
+                # Break if connection is closed
+                if context["pc"].connectionState in ["closed", "failed"]:
+                    break
+                continue
                 
     except Exception as e:
         logger.error(f"[LEAN-VOICE] Loop error: {e}")
@@ -405,26 +425,40 @@ async def _trigger_llm_response(session_id: str, context: Dict):
         # Construct Prompt with /no_think to disable thinking mode
         prompt = f"<|im_start|>system\nYou are a helpful AI assistant. /no_think<|im_end|>\n<|im_start|>user\n{full_text}<|im_end|>\n<|im_start|>assistant\n"
         
+        print(f"[LEAN-VOICE] 🧠 Prompt: {prompt!r}", flush=True)
+        
         start_time = time.time()
         token_count = 0
         
-        # Run generation in executor (Streaming)
-        # Note: Llama.cpp create_completion with stream=True returns a generator
-        # We need to iterate it in a way that doesn't block the event loop
+        # Streaming Queue
+        queue = asyncio.Queue()
         
-        def generate_stream():
-            return llm.create_completion(
-                prompt,
-                max_tokens=512,
-                stop=["<|im_end|>"],
-                stream=True
-            )
-            
-        stream_generator = await loop.run_in_executor(None, generate_stream)
+        def generate_and_enqueue():
+            try:
+                generator = llm.create_completion(
+                    prompt,
+                    max_tokens=512,
+                    stop=["<|im_end|>"],
+                    stream=True
+                )
+                for chunk in generator:
+                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                loop.call_soon_threadsafe(queue.put_nowait, None) # Sentinel
+            except Exception as e:
+                print(f"[LEAN-VOICE] ❌ Generation thread error: {e}", flush=True)
+                loop.call_soon_threadsafe(queue.put_nowait, None)
+
+        # Start generation in thread (Non-blocking)
+        loop.run_in_executor(None, generate_and_enqueue)
         
         full_response = ""
+        print(f"[LEAN-VOICE] 🔄 Starting generation loop...", flush=True)
         
-        for chunk in stream_generator:
+        while True:
+            chunk = await queue.get()
+            if chunk is None:
+                break
+                
             delta = chunk["choices"][0]["text"]
             full_response += delta
             token_count += 1
@@ -432,10 +466,6 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             # Filter <think> tags if they leak through
             clean_delta = delta
             if "<think>" in full_response or "</think>" in full_response:
-                 # Simple suppression: don't send if inside think block
-                 # This is a naive implementation; for robust streaming filtering we'd need a state machine
-                 # For now, let's just strip the tags from the final output if needed, 
-                 # but for streaming, we send raw delta unless it contains the tag itself
                  clean_delta = delta.replace("<think>", "").replace("</think>", "")
             
             if clean_delta and dc and dc.readyState == "open":
@@ -444,8 +474,6 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                     "text": clean_delta, 
                     "role": "assistant"
                 }))
-                # Small yield to let event loop breathe
-                await asyncio.sleep(0)
                 
         total_time = time.time() - start_time
         tps = token_count / total_time if total_time > 0 else 0
@@ -463,6 +491,8 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             dc.send(json.dumps({"type": "state", "state": "listening"}))
             
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         logger.error(f"[LEAN-VOICE] LLM error: {e}")
         print(f"[LEAN-VOICE] ❌ LLM error: {e}", flush=True)
         if dc and dc.readyState == "open":
