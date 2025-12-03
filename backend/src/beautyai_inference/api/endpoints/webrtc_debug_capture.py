@@ -67,11 +67,6 @@ from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.audio_resampling import process_with_rnnoise_16khz_pipeline
-from ...utils.noise_comparison import compare_noise_reduction_methods, measure_processing_latency, generate_comparison_summary
-from ...utils.dtln_wrapper import DTLNProcessor
-from ...utils.deepfilternet_wrapper import DeepFilterNetProcessor
-from ...utils.nsnet2_wrapper import SpectralGatingProcessor
-from ...utils.comb_filter import CombFilter
 from ...utils.transient_suppressor import TransientSuppressor
 
 logger = logging.getLogger(__name__)
@@ -184,19 +179,11 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "data_channel": None,
             "capture_task": None,
             "layer_48khz_raw": [],
-            "layer_15_transient_48khz": [],  # NEW: Layer 1.5 - Transient Suppression @ 48kHz
+            "layer_15_transient_48khz": [],  # Layer 1.5 - Transient Suppression @ 48kHz
             "layer_48khz_float": [],
             "layer_16khz": [],
-            "layer_16khz_vad_filtered": [],  # NEW: VAD-filtered audio only (speech segments)
-            "layer_48khz_vad_filtered": [],  # Layer 5: 48kHz VAD-filtered
-            "layer_31_ema_16khz": [],  # EXPERIMENTAL: Layer 3.1 - EMA noise reduction @ 16kHz
-            "layer_31b_percentile_16khz": [],  # NEW: Layer 3.1b - Percentile Gate @ 16kHz
-            "layer_32_rnnoise_16khz": [],  # EXPERIMENTAL: Layer 3.2 - RNNoise @ 16kHz
-            "layer_33_dtln_16khz": [],  # EXPERIMENTAL: Layer 3.3 - DTLN @ 16kHz
-            "layer_34_deepfilternet_16khz": [],  # EXPERIMENTAL: Layer 3.4 - DeepFilterNet @ 16kHz
-            "layer_35_nsnet2_16khz": [],  # EXPERIMENTAL: Layer 3.5 - Spectral Gating @ 16kHz
-            "layer_36_comb_16khz": [],  # EXPERIMENTAL: Layer 3.6 - Comb Filter @ 16kHz (80 Hz removal)
-            "comparison_metrics": [],  # Store quality/latency comparisons per frame
+            "layer_16khz_vad_filtered": [],  # VAD-filtered audio only (speech segments)
+            "layer_32_rnnoise_16khz": [],  # Layer 3.2 - RNNoise @ 16kHz (primary noise reduction)
             "transcriptions": [],  # Store transcription results
             "whisper_model": None,  # Will be loaded on first use
             "vad_service": None,  # VAD for speech detection
@@ -240,60 +227,6 @@ async def handle_debug_offer(request: DebugOfferRequest):
         except Exception as e:
             logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise not available (will skip Layer 3.2): {e}")
             print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without RNNoise - only EMA will be tested", flush=True)
-        
-        # Initialize DTLN processor for experimental Layer 3.3 comparison
-        capture_info["dtln_processor"] = None
-        capture_info["dtln_enabled"] = False
-        try:
-            dtln_proc = DTLNProcessor()
-            capture_info["dtln_processor"] = dtln_proc
-            capture_info["dtln_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DTLN processor initialized for experimental Layer 3.3", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} DTLN ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DTLN not available (will skip Layer 3.3): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DTLN", flush=True)
-        
-        # Initialize DeepFilterNet processor for experimental Layer 3.4 comparison
-        capture_info["deepfilternet_processor"] = None
-        capture_info["deepfilternet_enabled"] = False
-        try:
-            dfn_proc = DeepFilterNetProcessor(sample_rate=16000)
-            capture_info["deepfilternet_processor"] = dfn_proc
-            capture_info["deepfilternet_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DeepFilterNet processor initialized for experimental Layer 3.4", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet not available (will skip Layer 3.4): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DeepFilterNet", flush=True)
-        
-        # Initialize NSNet2 processor for experimental Layer 3.5 comparison
-        capture_info["nsnet2_processor"] = None
-        capture_info["nsnet2_enabled"] = False
-        try:
-            nsnet2_proc = SpectralGatingProcessor(sample_rate=16000)
-            capture_info["nsnet2_processor"] = nsnet2_proc
-            capture_info["nsnet2_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Spectral Gating processor initialized for experimental Layer 3.5", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating not available (will skip Layer 3.5): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Spectral Gating", flush=True)
-        
-        # Initialize Comb Filter for experimental Layer 3.6 comparison (80 Hz periodic noise removal)
-        capture_info["comb_processor"] = None
-        capture_info["comb_enabled"] = False
-        try:
-            # Target 80 Hz fundamental frequency (buffer underrun artifact)
-            # Q=2.0 for wider notches to reduce ringing artifacts (was 30.0)
-            comb_proc = CombFilter(sample_rate=16000, fundamental_freq=80.0, quality_factor=2.0)
-            capture_info["comb_processor"] = comb_proc
-            capture_info["comb_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Comb Filter initialized for experimental Layer 3.6 (80 Hz removal)", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Comb Filter ready: 80 Hz + harmonics")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter not available (will skip Layer 3.6): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Comb Filter", flush=True)
         
         # Buffer underrun debugging metrics
         capture_info["buffer_metrics"] = {
@@ -601,21 +534,18 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     layer_48khz_float = info.setdefault("layer_48khz_float", [])
     layer_16khz = info.setdefault("layer_16khz", [])
     layer_16khz_vad_filtered = info.setdefault("layer_16khz_vad_filtered", [])  # Layer 4: 16kHz VAD-filtered
-    layer_48khz_vad_filtered = info.setdefault("layer_48khz_vad_filtered", [])  # Layer 5: 48kHz VAD-filtered (NEW!)
     
-    # Speech buffers for VAD-filtered segments (both 16kHz and 48kHz)
+    # Speech buffer for VAD-filtered segments (16kHz only - Layer 5 removed)
     speech_buffer_16k = []  # Layer 4 (16kHz)
-    speech_buffer_48k = []  # Layer 5 (48kHz)
     
     def finalize_speech_segment(reason: str, frame_index: int) -> None:
-        """Flush buffered speech into VAD layers and trigger Whisper if enabled."""
+        """Flush buffered speech into VAD layer and trigger Whisper if enabled."""
         if not speech_buffer_16k:
             return
 
         total_samples_16k = int(sum(len(chunk) for chunk in speech_buffer_16k))
         if total_samples_16k == 0:
             speech_buffer_16k.clear()
-            speech_buffer_48k.clear()
             return
 
         speech_duration = total_samples_16k / 16000
@@ -625,12 +555,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         )
         logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech segment ({reason}): {speech_duration:.2f}s")
 
-        # Persist buffered audio into Layer 4 and Layer 5 collections
+        # Persist buffered audio into Layer 4 collection
         for speech_frame in speech_buffer_16k:
             layer_16khz_vad_filtered.append(speech_frame.copy())
-
-        for speech_frame_48k in speech_buffer_48k:
-            layer_48khz_vad_filtered.append(speech_frame_48k.copy())
 
         speech_segments_count = info.get("speech_segments_count", 0)
 
@@ -645,7 +572,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     segment_duration_16k = len(audio_int16_16k) / 16000
 
                     print(
-                        f"[WHISPER-L4] {peer_id} 🎤 Transcribing Layer 4 (16kHz) segment #{speech_segments_count}: "
+                        f"[WHISPER] {peer_id} 🎤 Transcribing segment #{speech_segments_count}: "
                         f"{len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...",
                         flush=True,
                     )
@@ -656,33 +583,6 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         audio_bytes_16k, audio_format="pcm_raw", language=target_language
                     )
                     latency_16k = (time.time() - start_t4) * 1000
-
-                    # Layer 5 transcription (48kHz VAD-filtered resampled for Whisper)
-                    transcription_48k = None
-                    latency_48k = 0.0
-                    segment_duration_48k = 0.0
-                    if speech_buffer_48k:
-                        speech_audio_48k = np.concatenate(speech_buffer_48k)
-                        speech_audio_16k_from_48k = resample_poly(
-                            speech_audio_48k, up=1, down=3, window=("kaiser", 8.0)
-                        )
-                        speech_audio_16k_from_48k = np.clip(speech_audio_16k_from_48k, -1.0, 1.0)
-                        audio_int16_48k = (speech_audio_16k_from_48k * 32767).astype(np.int16)
-                        audio_bytes_48k = audio_int16_48k.tobytes()
-                        segment_duration_48k = len(audio_int16_48k) / 16000
-
-                        print(
-                            f"[WHISPER-L5] {peer_id} 🎤 Transcribing Layer 5 (48kHz→16kHz) segment #{speech_segments_count}: "
-                            f"{len(audio_int16_48k)} samples ({segment_duration_48k:.2f}s)...",
-                            flush=True,
-                        )
-                        start_t5 = time.time()
-                        # Use same language preference as Layer 4
-                        target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
-                        transcription_48k = whisper_model.transcribe_audio_bytes(
-                            audio_bytes_48k, audio_format="pcm_raw", language=target_language
-                        )
-                        latency_48k = (time.time() - start_t5) * 1000
 
                     if transcription_16k and transcription_16k.strip():
                         info.setdefault("transcriptions", []).append(
@@ -697,44 +597,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                             }
                         )
                         print(
-                            f"[WHISPER-L4] {peer_id} ✅ Layer 4 Segment #{speech_segments_count} ({latency_16k:.0f}ms): "
+                            f"[WHISPER] {peer_id} ✅ Segment #{speech_segments_count} ({latency_16k:.0f}ms): "
                             f"\"{transcription_16k}\"",
-                            flush=True,
-                        )
-
-                    if transcription_48k and transcription_48k.strip():
-                        info.setdefault("transcriptions", []).append(
-                            {
-                                "segment_number": speech_segments_count,
-                                "frame_index": frame_index,
-                                "timestamp": time.time() - info["start_time"],
-                                "layer": "Layer5_48kHz",
-                                "text": transcription_48k,
-                                "duration_s": segment_duration_48k,
-                                "latency_ms": latency_48k,
-                            }
-                        )
-                        print(
-                            f"[WHISPER-L5] {peer_id} ✅ Layer 5 Segment #{speech_segments_count} ({latency_48k:.0f}ms): "
-                            f"\"{transcription_48k}\"",
-                            flush=True,
-                        )
-
-                    if transcription_16k and transcription_48k:
-                        match = (
-                            "✅ MATCH"
-                            if transcription_16k.strip().lower() == transcription_48k.strip().lower()
-                            else "⚠️ DIFFERENT"
-                        )
-                        print(
-                            f"[WHISPER-COMPARE] {peer_id} Segment #{speech_segments_count}: {match}",
-                            flush=True,
-                        )
-                        print(f"  L4 (16kHz): \"{transcription_16k}\"", flush=True)
-                        print(f"  L5 (48kHz): \"{transcription_48k}\"", flush=True)
-                    elif transcription_16k or transcription_48k:
-                        print(
-                            f"[WHISPER] {peer_id} ⚠️ Segment #{speech_segments_count}: One layer empty",
                             flush=True,
                         )
 
@@ -749,12 +613,11 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     )
         else:
             print(
-                f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz) and Layer 5 (48kHz)",
+                f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz)",
                 flush=True,
             )
 
         speech_buffer_16k.clear()
-        speech_buffer_48k.clear()
 
     frame_count = 0
     timeout_count = 0
@@ -1041,12 +904,10 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                             print(f"[DEBUG-CAPTURE] {peer_id} 🎤 Speech started (frame {frame_count}, segment #{segments_count})", flush=True)
                             logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech detected at frame {frame_count}")
                             speech_buffer_16k.clear()
-                            speech_buffer_48k.clear()
                         
                         # ACCUMULATE AUDIO: During speech AND during pending silence (to keep full segment)
                         if voice_state in [VADState.VOICE_START, VADState.VOICE_ACTIVE, VADState.VOICE_END_PENDING]:
                             speech_buffer_16k.append(audio_16k.copy())  # Layer 4 buffer
-                            speech_buffer_48k.append(audio_float.copy())  # Layer 5 buffer (48kHz float)
                         
                         # VOICE_END: Speech confirmed ended (after waiting post_speech_silence_ms)
                         # This only fires AFTER silence threshold, so segments are properly grouped!
@@ -1112,28 +973,26 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         transcriptions = info.get("transcriptions", [])
         if transcriptions:
             layer4_count = sum(1 for t in transcriptions if t.get("layer") == "Layer4_16kHz")
-            layer5_count = sum(1 for t in transcriptions if t.get("layer") == "Layer5_48kHz")
-            print(f"[WHISPER-SUMMARY] {peer_id} 📝 Transcribed {layer4_count} Layer 4 (16kHz) + {layer5_count} Layer 5 (48kHz) segments:", flush=True)
+            print(f"[WHISPER-SUMMARY] {peer_id} 📝 Transcribed {layer4_count} segments:", flush=True)
             for i, trans in enumerate(transcriptions, 1):
                 layer_tag = trans.get("layer", "Unknown")
                 print(f"  [{i}] {layer_tag} ({trans.get('latency_ms', 0):.0f}ms) \"{trans.get('text', '')}\"", flush=True)
-            logger.info(f"[WHISPER-SUMMARY] {peer_id} completed {layer4_count} L4 + {layer5_count} L5 transcriptions")
+            logger.info(f"[WHISPER-SUMMARY] {peer_id} completed {layer4_count} transcriptions")
         elif info.get("whisper_enabled", False):
             print(f"[WHISPER-SUMMARY] {peer_id} ⚠️ No transcriptions (all segments were silence/empty)", flush=True)
         
         vad_filtered_l4_count = len(info.get("layer_16khz_vad_filtered", []))
-        vad_filtered_l5_count = len(info.get("layer_48khz_vad_filtered", []))
         
         print(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}",
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD={vad_filtered_l4_count}",
             flush=True
         )
         logger.info(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}"
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD={vad_filtered_l4_count}"
         )
 
 
@@ -1276,85 +1135,14 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 f"[DEBUG-CAPTURE] Saved Layer 4 (16kHz VAD-filtered, speech only): {len(audio_16k_vad)} samples, "
                 f"{duration_speech:.2f}s ({speech_ratio:.1f}% of total) -> {path_16k_vad}"
             )
-            
-            # Save Layer 5: 48kHz VAD-filtered (same VAD timing, higher sample rate)
-            if info.get("layer_48khz_vad_filtered"):
-                audio_48k_vad = np.concatenate(info["layer_48khz_vad_filtered"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer5 (VAD-filtered 48kHz) samples: {len(audio_48k_vad)}",
-                    flush=True,
-                )
-                audio_48k_vad_int16 = (np.clip(audio_48k_vad, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_48k_vad = debug_dir / f"layer5_48khz_vad_filtered.wav"
-                with wave.open(str(path_48k_vad), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(48000)
-                    wav.writeframes(audio_48k_vad_int16.tobytes())
-                
-                duration_speech_48k = len(audio_48k_vad) / 48000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 5 saved: {duration_speech_48k:.2f}s @ 48kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 5 (48kHz VAD-filtered, speech only): {len(audio_48k_vad)} samples, "
-                    f"{duration_speech_48k:.2f}s -> {path_48k_vad}"
-                )
-            else:
-                print(f"[DEBUG-CAPTURE] {peer_id} Layer 5 (48kHz VAD-filtered) empty", flush=True)
         else:
-            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 and Layer 5 empty", flush=True)
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layers empty")
+            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 empty", flush=True)
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layer empty")
         
         # ============================================
-        # EXPERIMENTAL LAYERS: Save Layer 3.1 (EMA) and Layer 3.2 (RNNoise)
+        # Save Layer 3.2: RNNoise (primary noise reduction)
         # ============================================
         if info.get("rnnoise_enabled"):
-            # Save Layer 3.1: EMA noise gate (16kHz)
-            if info.get("layer_31_ema_16khz"):
-                audio_31_ema = np.concatenate(info["layer_31_ema_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.1 (EMA) samples: {len(audio_31_ema)}",
-                    flush=True,
-                )
-                audio_31_ema_int16 = (np.clip(audio_31_ema, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_31_ema = debug_dir / f"layer31_ema_16khz.wav"
-                with wave.open(str(path_31_ema), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_31_ema_int16.tobytes())
-                
-                duration_31 = len(audio_31_ema) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1 (EMA) saved: {duration_31:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.1 (EMA noise gate, 16kHz): {len(audio_31_ema)} samples, "
-                    f"{duration_31:.2f}s -> {path_31_ema}"
-                )
-            
-            # Save Layer 3.1b: Percentile Gate (16kHz) - NEW: Replaces broken EMA gate
-            if info.get("layer_31b_percentile_16khz"):
-                audio_31b_percentile = np.concatenate(info["layer_31b_percentile_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.1b (Percentile Gate) samples: {len(audio_31b_percentile)}",
-                    flush=True,
-                )
-                audio_31b_percentile_int16 = (np.clip(audio_31b_percentile, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_31b_percentile = debug_dir / f"layer31b_percentile_16khz.wav"
-                with wave.open(str(path_31b_percentile), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_31b_percentile_int16.tobytes())
-                
-                duration_31b = len(audio_31b_percentile) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1b (Percentile Gate) saved: {duration_31b:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.1b (Percentile gate, 16kHz): {len(audio_31b_percentile)} samples, "
-                    f"{duration_31b:.2f}s -> {path_31b_percentile}"
-                )
-            
             # Save Layer 3.2: RNNoise (16kHz)
             if info.get("layer_32_rnnoise_16khz"):
                 audio_32_rnnoise = np.concatenate(info["layer_32_rnnoise_16khz"])
@@ -1376,98 +1164,6 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 logger.info(
                     f"[DEBUG-CAPTURE] Saved Layer 3.2 (RNNoise, 16kHz): {len(audio_32_rnnoise)} samples, "
                     f"{duration_32:.2f}s -> {path_32_rnnoise}"
-                )
-            
-            # Save Layer 3.3: DTLN (16kHz)
-            if info.get("layer_33_dtln_16khz"):
-                audio_33_dtln = np.concatenate(info["layer_33_dtln_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.3 (DTLN) samples: {len(audio_33_dtln)}",
-                    flush=True,
-                )
-                audio_33_dtln_int16 = (np.clip(audio_33_dtln, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_33_dtln = debug_dir / f"layer33_dtln_16khz.wav"
-                with wave.open(str(path_33_dtln), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_33_dtln_int16.tobytes())
-                
-                duration_33 = len(audio_33_dtln) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.3 (DTLN) saved: {duration_33:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.3 (DTLN, 16kHz): {len(audio_33_dtln)} samples, "
-                    f"{duration_33:.2f}s -> {path_33_dtln}"
-                )
-            
-            # Save Layer 3.4: DeepFilterNet (16kHz)
-            if info.get("layer_34_deepfilternet_16khz"):
-                audio_34_dfn = np.concatenate(info["layer_34_deepfilternet_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.4 (DeepFilterNet) samples: {len(audio_34_dfn)}",
-                    flush=True,
-                )
-                audio_34_dfn_int16 = (np.clip(audio_34_dfn, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_34_dfn = debug_dir / f"layer34_deepfilternet_16khz.wav"
-                with wave.open(str(path_34_dfn), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_34_dfn_int16.tobytes())
-                
-                duration_34 = len(audio_34_dfn) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.4 (DeepFilterNet) saved: {duration_34:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.4 (DeepFilterNet, 16kHz): {len(audio_34_dfn)} samples, "
-                    f"{duration_34:.2f}s -> {path_34_dfn}"
-                )
-            
-            # Save Layer 3.5: Spectral Gating (16kHz)
-            if info.get("layer_35_nsnet2_16khz"):
-                audio_35_nsnet2 = np.concatenate(info["layer_35_nsnet2_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.5 (Spectral Gating) samples: {len(audio_35_nsnet2)}",
-                    flush=True,
-                )
-                audio_35_nsnet2_int16 = (np.clip(audio_35_nsnet2, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_35_nsnet2 = debug_dir / f"layer35_nsnet2_16khz.wav"
-                with wave.open(str(path_35_nsnet2), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_35_nsnet2_int16.tobytes())
-                
-                duration_35 = len(audio_35_nsnet2) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.5 (Spectral Gating) saved: {duration_35:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.5 (Spectral Gating, 16kHz): {len(audio_35_nsnet2)} samples, "
-                    f"{duration_35:.2f}s -> {path_35_nsnet2}"
-                )
-            
-            # Save Layer 3.6: Comb Filter (16kHz) - 80 Hz PERIODIC NOISE REMOVAL
-            if info.get("layer_36_comb_16khz"):
-                audio_36_comb = np.concatenate(info["layer_36_comb_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.6 (Comb Filter 80Hz) samples: {len(audio_36_comb)}",
-                    flush=True,
-                )
-                audio_36_comb_int16 = (np.clip(audio_36_comb, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_36_comb = debug_dir / f"layer36_comb_16khz.wav"
-                with wave.open(str(path_36_comb), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_36_comb_int16.tobytes())
-                
-                duration_36 = len(audio_36_comb) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.6 (Comb Filter) saved: {duration_36:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.6 (Comb Filter, 16kHz): {len(audio_36_comb)} samples, "
-                    f"{duration_36:.2f}s -> {path_36_comb}"
                 )
             
             # Save CPU/Buffer monitoring report
@@ -1492,64 +1188,6 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 print(f"   Buffer underruns: {monitoring_report['buffer_underruns']} ({monitoring_report['underrun_rate_percent']:.2f}%)", flush=True)
                 print(f"   CPU usage: {monitoring_report['cpu_usage']['mean_percent']:.1f}% avg, {monitoring_report['cpu_usage']['max_percent']:.1f}% peak", flush=True)
                 logger.info(f"[DEBUG-CAPTURE] {peer_id} buffer monitoring saved to {monitoring_path}")
-            
-            # Generate and save comparison summary
-            if info.get("comparison_metrics"):
-                # Calculate aggregate metrics across all frames
-                all_metrics = info["comparison_metrics"]
-                total_duration = len(audio_31_ema) / 16000 if info.get("layer_31_ema_16khz") else 0
-                
-                # Aggregate quality metrics (matching the actual return format)
-                avg_quality = {
-                    "snr": {
-                        "ema_db": np.mean([m["snr"]["ema_db"] for m in all_metrics]),
-                        "rnnoise_db": np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]),
-                        "difference_db": np.mean([m["snr"]["difference_db"] for m in all_metrics]),
-                        "winner": "EMA" if np.mean([m["snr"]["ema_db"] for m in all_metrics]) > np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]) else "RNNoise"
-                    },
-                    "rms_level": {
-                        "ema": np.mean([m["rms_level"]["ema"] for m in all_metrics]),
-                        "rnnoise": np.mean([m["rms_level"]["rnnoise"] for m in all_metrics]),
-                        "ema_reduction_percent": np.mean([m["rms_level"]["ema_reduction_percent"] for m in all_metrics]),
-                        "rnnoise_reduction_percent": np.mean([m["rms_level"]["rnnoise_reduction_percent"] for m in all_metrics]),
-                    },
-                    "correlation_with_original": {
-                        "ema": np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]),
-                        "rnnoise": np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]),
-                        "winner": "EMA" if np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]) > np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]) else "RNNoise"
-                    }
-                }
-                
-                # Since we don't measure actual latency per frame, provide estimated values
-                avg_latency = {
-                    "ema_avg_ms": 0.1,  # Estimated EMA latency
-                    "ema_min_ms": 0.05,
-                    "ema_max_ms": 0.15,
-                    "rnnoise_avg_ms": 14.0,  # Estimated RNNoise latency (includes resampling)
-                    "rnnoise_min_ms": 12.0,
-                    "rnnoise_max_ms": 16.0,
-                    "difference_ms": 13.9,
-                    "faster_method": "EMA"
-                }
-                
-                from beautyai_inference.utils.noise_comparison import generate_comparison_summary
-                summary = generate_comparison_summary(avg_quality, avg_latency, total_duration)
-                
-                # Save comparison summary to JSON
-                comparison_path = debug_dir / f"comparison_summary.json"
-                with open(comparison_path, "w", encoding="utf-8") as f:
-                    json.dump({
-                        "peer_id": peer_id,
-                        "total_frames": len(all_metrics),
-                        "total_duration_seconds": total_duration,
-                        "average_quality_metrics": avg_quality,
-                        "average_latency_metrics": avg_latency,
-                        "summary": summary,
-                    }, f, indent=2, ensure_ascii=False)
-                
-                print(f"[DEBUG-CAPTURE] {peer_id} 📊 Comparison Summary:", flush=True)
-                print(summary, flush=True)
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} comparison summary:\n{summary}")
         
         # Save transcriptions to JSON file
         if info.get("transcriptions"):

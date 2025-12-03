@@ -4,7 +4,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>Simple WebRTC Test v2.3-ENHANCED (Nov 7 17:15)</title>
+    <title>WebRTC Debug Tool v3.0 - 16kHz Mono (Nov 29 2025)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -718,17 +718,19 @@ Let's see how clearly the system catches my voice, even with small background so
         
         async function start() {
             try {
-                log('🎤 Requesting microphone access...', 'info');
+                log('🎤 Requesting microphone access (16kHz mono)...', 'info');
                 
                 // Request audio with browser-level noise suppression DISABLED (Pure Audio)
                 // This prevents the browser from "gating" the audio (inserting silence) which sounds like crackling
+                // ✅ Force 16kHz mono to skip server-side resampling
                 stream = await navigator.mediaDevices.getUserMedia({ 
                     audio: {
+                        channelCount: 1,           // 🔊 Force mono
+                        sampleRate: 16000,         // 🔊 Force 16kHz (Whisper native)
+                        sampleSize: 16,            // 🔊 16-bit samples
                         echoCancellation: false,   // ❌ DISABLED: Causes gating/ducking
                         noiseSuppression: false,   // ❌ DISABLED: Causes spectral artifacts/crackling
-                        autoGainControl: false,    // ❌ DISABLED: Causes pumping/noise floor issues
-                        sampleRate: 48000,
-                        channelCount: 1
+                        autoGainControl: false     // ❌ DISABLED: Causes pumping/noise floor issues
                     }
                 });
                 

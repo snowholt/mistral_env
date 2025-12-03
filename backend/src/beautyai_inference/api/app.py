@@ -259,25 +259,25 @@ async def serve_debug_test_page():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/test_simple.html", response_class=HTMLResponse)
-async def serve_simple_test_page():
-    """Serve the simplified WebRTC test page for connection debugging."""
+@app.get("/webrtc_debug.html", response_class=HTMLResponse)
+async def serve_webrtc_debug_page():
+    """Serve the WebRTC debug page for connection and audio testing."""
     try:
         # Path to the static file we just copied
         backend_root = Path(__file__).resolve().parents[4]
-        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_simple.html"
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "webrtc_debug.html"
         
         if not test_page_path.exists():
-            raise HTTPException(status_code=404, detail=f"Simple test page not found at {test_page_path}")
+            raise HTTPException(status_code=404, detail=f"WebRTC debug page not found at {test_page_path}")
         
         with open(test_page_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Simple WebRTC test page not found")
+        raise HTTPException(status_code=404, detail="WebRTC debug page not found")
     except Exception as e:
-        logger.error(f"Error serving simple test page: {e}")
+        logger.error(f"Error serving WebRTC debug page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
