@@ -25,14 +25,22 @@
 
         .chat-box { height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #fafafa; margin-bottom: 20px; display: flex; flex-direction: column; gap: 10px; }
         
-        .message { max-width: 80%; padding: 10px 15px; border-radius: 18px; line-height: 1.4; position: relative; }
+        .message { max-width: 80%; padding: 10px 15px; border-radius: 18px; line-height: 1.6; position: relative; }
         .message.user { align-self: flex-end; background: #1a73e8; color: white; border-bottom-right-radius: 4px; }
         .message.assistant { align-self: flex-start; background: white; border: 1px solid #ddd; border-bottom-left-radius: 4px; }
         .message.system { align-self: center; background: #eee; color: #666; font-size: 0.85em; padding: 5px 10px; }
         
-        .metrics-panel { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; font-size: 0.9em; color: #555; }
+        /* RTL Support for Arabic */
+        .message.rtl { direction: rtl; text-align: right; font-family: 'Segoe UI', 'Tahoma', 'Arial', sans-serif; }
+        .message.user.rtl { align-self: flex-start; border-bottom-right-radius: 18px; border-bottom-left-radius: 4px; }
+        .message.assistant.rtl { align-self: flex-end; border-bottom-left-radius: 18px; border-bottom-right-radius: 4px; }
+        
+        .metrics-panel { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; font-size: 0.9em; color: #555; }
         .metric-card { background: white; padding: 10px; border-radius: 6px; border: 1px solid #eee; text-align: center; }
         .metric-value { font-size: 1.2em; font-weight: bold; color: #1a73e8; display: block; }
+        
+        /* Speaking indicator */
+        .status-indicator.speaking { background: #9c27b0; animation: pulse 0.5s infinite; }
     </style>
 </head>
 <body>
@@ -66,11 +74,15 @@
             </div>
             <div class="metric-card">
                 <span class="metric-value" id="latencyMetric">-</span>
-                Latency (ms)
+                LLM (ms)
             </div>
             <div class="metric-card">
                 <span class="metric-value" id="whisperMetric">-</span>
-                STT Time (ms)
+                STT (ms)
+            </div>
+            <div class="metric-card">
+                <span class="metric-value" id="ttsMetric">-</span>
+                TTS (ms)
             </div>
         </div>
     </div>
@@ -82,6 +94,8 @@
         let currentAssistantMessage = null;
         let sessionId = null;
         let iceCandidateQueue = [];
+        let audioPlayer = null;  // For TTS playback
+        let isMicMuted = false;  // Track mic state
 
         const startBtn = document.getElementById('startBtn');
         const stopBtn = document.getElementById('stopBtn');
@@ -228,7 +242,84 @@
                     document.getElementById('tpsMetric').innerText = msg.tokens_per_sec.toFixed(1);
                     document.getElementById('latencyMetric').innerText = Math.round(msg.llm_time_ms);
                 }
+                else if (msg.type === 'mic_control') {
+                    // Handle microphone mute/unmute commands
+                    handleMicControl(msg.action);
+                }
+                else if (msg.type === 'tts_audio') {
+                    // Play TTS audio
+                    playTTSAudio(msg.audio, msg.format, msg.tts_time_ms);
+                }
             };
+        }
+
+        function handleMicControl(action) {
+            if (!localStream) return;
+            
+            const audioTrack = localStream.getAudioTracks()[0];
+            if (!audioTrack) return;
+            
+            if (action === 'mute') {
+                audioTrack.enabled = false;
+                isMicMuted = true;
+                console.log("🔇 Microphone muted (server request)");
+            } else if (action === 'unmute') {
+                audioTrack.enabled = true;
+                isMicMuted = false;
+                console.log("🎤 Microphone unmuted (server request)");
+            }
+        }
+
+        function playTTSAudio(base64Audio, format, ttsTimeMs) {
+            try {
+                console.log("🔊 Playing TTS audio...");
+                
+                // Update TTS metric
+                document.getElementById('ttsMetric').innerText = Math.round(ttsTimeMs);
+                
+                // Decode base64 to binary
+                const binaryString = atob(base64Audio);
+                const bytes = new Uint8Array(binaryString.length);
+                for (let i = 0; i < binaryString.length; i++) {
+                    bytes[i] = binaryString.charCodeAt(i);
+                }
+                
+                // Create blob and audio URL
+                const blob = new Blob([bytes], { type: 'audio/wav' });
+                const audioUrl = URL.createObjectURL(blob);
+                
+                // Stop any previous audio
+                if (audioPlayer) {
+                    audioPlayer.pause();
+                    audioPlayer = null;
+                }
+                
+                // Create and play audio
+                audioPlayer = new Audio(audioUrl);
+                
+                audioPlayer.onended = () => {
+                    console.log("🔊 TTS playback finished");
+                    URL.revokeObjectURL(audioUrl);
+                    audioPlayer = null;
+                };
+                
+                audioPlayer.onerror = (e) => {
+                    console.error("❌ TTS playback error:", e);
+                    URL.revokeObjectURL(audioUrl);
+                    audioPlayer = null;
+                };
+                
+                audioPlayer.play().then(() => {
+                    console.log("🔊 TTS playback started");
+                }).catch(e => {
+                    console.error("❌ TTS play failed:", e);
+                    // Try to show a notification if autoplay blocked
+                    addMessage("system", "⚠️ Click anywhere to enable audio playback");
+                });
+                
+            } catch (e) {
+                console.error("❌ TTS audio error:", e);
+            }
         }
 
         function handleStateChange(state) {
@@ -236,22 +327,34 @@
             if (state === 'processing') {
                 statusDot.className = "status-indicator processing";
                 statusText.innerText = "Thinking...";
-                vadStatus.innerText = "Mic Muted (Processing)";
-                // Ideally we would mute the mic track here, but for now we rely on server ignoring it
-                // or we can disable the track locally:
-                if (localStream) localStream.getAudioTracks()[0].enabled = false;
+                vadStatus.innerText = "🔇 Mic Muted";
+            } else if (state === 'speaking') {
+                statusDot.className = "status-indicator speaking";
+                statusText.innerText = "🔊 Speaking...";
+                vadStatus.innerText = "🔇 Mic Muted (TTS)";
             } else if (state === 'listening') {
                 statusDot.className = "status-indicator connected";
-                statusText.innerText = "Listening...";
-                vadStatus.innerText = "Mic Active";
-                if (localStream) localStream.getAudioTracks()[0].enabled = true;
+                statusText.innerText = "🎤 Listening...";
+                vadStatus.innerText = "🎤 Mic Active";
                 currentAssistantMessage = null; // Reset for next turn
             }
+        }
+
+        // Detect if text contains Arabic characters
+        function isArabic(text) {
+            const arabicPattern = /[\u0600-\u06FF\u0750-\u077F\u08A0-\u08FF]/;
+            return arabicPattern.test(text);
         }
 
         function addMessage(role, text) {
             const div = document.createElement('div');
             div.className = `message ${role}`;
+            
+            // Apply RTL for Arabic text
+            if (isArabic(text)) {
+                div.classList.add('rtl');
+            }
+            
             div.innerText = text;
             chatBox.appendChild(div);
             chatBox.scrollTop = chatBox.scrollHeight;
@@ -263,6 +366,12 @@
                 currentAssistantMessage = addMessage("assistant", "");
             }
             currentAssistantMessage.innerText += chunk;
+            
+            // Check if we should apply RTL (do this once when Arabic is first detected)
+            if (!currentAssistantMessage.classList.contains('rtl') && isArabic(currentAssistantMessage.innerText)) {
+                currentAssistantMessage.classList.add('rtl');
+            }
+            
             chatBox.scrollTop = chatBox.scrollHeight;
         }
 

@@ -80,7 +80,8 @@ from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.transient_suppressor import TransientSuppressor
-from ...utils.transcription_cleaner import filter_whisper_output
+from ...utils.transcription_cleaner import filter_whisper_output, clean_llm_response_for_tts
+import base64
 
 logger = logging.getLogger(__name__)
 
@@ -162,10 +163,12 @@ async def handle_offer(request: OfferRequest):
             "vad_service": None,
             "whisper_model": None,
             "llm_model": None,
+            "tts_model": None,
             "rnnoise_processor": None,
             "transient_suppressor": None,
             "transcript_buffer": [],
             "turn_timer_task": None,
+            "is_speaking": False,  # Track if TTS is playing
             "loop": asyncio.get_event_loop(),
             # Debug capture buffers
             "debug_capture_enabled": ENABLE_DEBUG_CAPTURE,
@@ -178,6 +181,7 @@ async def handle_offer(request: OfferRequest):
             model_manager = get_persistent_model_manager()
             session_context["whisper_model"] = model_manager.get_whisper_model()
             session_context["llm_model"] = model_manager.get_llm_model()
+            session_context["tts_model"] = model_manager.get_tts_engine()
 
             if session_context["whisper_model"]:
                 print("[VOICE] ✅ Whisper Model Loaded", flush=True)
@@ -188,6 +192,11 @@ async def handle_offer(request: OfferRequest):
                 print("[VOICE] ✅ LLM Model Loaded", flush=True)
             else:
                 print("[VOICE] ⚠️ LLM Model NOT Available", flush=True)
+            
+            if session_context["tts_model"]:
+                print("[VOICE] ✅ TTS Model Loaded (Edge TTS)", flush=True)
+            else:
+                print("[VOICE] ⚠️ TTS Model NOT Available", flush=True)
 
         except Exception as e:
             logger.error(f"[VOICE] Model load error: {e}")
@@ -650,11 +659,13 @@ async def _wait_for_silence_and_respond(session_id: str, context: Dict):
 
 
 async def _trigger_llm_response(session_id: str, context: Dict):
-    """Generate and stream LLM response."""
+    """Generate LLM response and synthesize TTS audio."""
     llm = context.get("llm_model")
+    tts = context.get("tts_model")
     dc = context.get("data_channel")
     loop = context.get("loop")
     buffer = context.get("transcript_buffer", [])
+    language = context.get("language", "ar")
 
     if not buffer or not llm:
         return
@@ -665,14 +676,26 @@ async def _trigger_llm_response(session_id: str, context: Dict):
 
     print(f"[VOICE] 🤖 Generating response for: {full_text}", flush=True)
 
-    # Notify client: Processing
+    # Notify client: Processing (also signals to mute mic)
     if dc and dc.readyState == "open":
         dc.send(json.dumps({"type": "state", "state": "processing"}))
+        # Tell client to mute microphone capture
+        dc.send(json.dumps({"type": "mic_control", "action": "mute"}))
+    
+    context["is_speaking"] = True
 
     try:
+        # Build prompt with instruction for natural speech (avoid numbered lists)
+        system_prompt = (
+            "You are a helpful AI assistant having a voice conversation. "
+            "Respond naturally and conversationally. "
+            "When listing items, use words like 'first', 'second', 'next', 'also', 'finally' instead of numbers. "
+            "Keep responses concise and suitable for spoken dialogue. "
+            "/no_think"
+        )
+        
         prompt = (
-            f"<|im_start|>system\n"
-            f"You are a helpful AI assistant. /no_think<|im_end|>\n"
+            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
             f"<|im_start|>user\n{full_text}<|im_end|>\n"
             f"<|im_start|>assistant\n"
         )
@@ -712,7 +735,7 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             full_response += delta
             token_count += 1
 
-            # Filter <think> tags
+            # Filter <think> tags for display
             clean_delta = delta.replace("<think>", "").replace("</think>", "")
 
             if clean_delta and dc and dc.readyState == "open":
@@ -726,30 +749,103 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                     )
                 )
 
-        total_time = time.time() - start_time
-        tps = token_count / total_time if total_time > 0 else 0
+        llm_time = time.time() - start_time
+        tps = token_count / llm_time if llm_time > 0 else 0
 
-        print(f"[VOICE] 🤖 AI ({tps:.1f} t/s): {full_response[:50]}...", flush=True)
+        print(f"[VOICE] 🤖 AI ({tps:.1f} t/s): {full_response[:80]}...", flush=True)
 
-        # Send Final Metrics
+        # Send LLM Metrics
         if dc and dc.readyState == "open":
             dc.send(
                 json.dumps(
                     {
                         "type": "metrics",
-                        "llm_time_ms": total_time * 1000,
+                        "llm_time_ms": llm_time * 1000,
                         "tokens_per_sec": tps,
                         "total_tokens": token_count,
                     }
                 )
             )
+
+        # ============================================================
+        # TTS SYNTHESIS
+        # ============================================================
+        if tts and full_response.strip():
+            try:
+                # Clean the response for TTS (remove markdown, convert bullet points)
+                tts_text = clean_llm_response_for_tts(full_response, language=language)
+                
+                if tts_text:
+                    print(f"[VOICE] 🔊 Synthesizing TTS ({len(tts_text)} chars, lang={language})...", flush=True)
+                    
+                    # Notify client: TTS starting
+                    if dc and dc.readyState == "open":
+                        dc.send(json.dumps({"type": "state", "state": "speaking"}))
+                    
+                    tts_start = time.time()
+                    
+                    # Generate TTS audio (Edge TTS returns WAV file path)
+                    audio_path = await loop.run_in_executor(
+                        None,
+                        lambda: tts.text_to_speech(
+                            tts_text,
+                            language=language,
+                            gender="female"
+                        )
+                    )
+                    
+                    tts_time = (time.time() - tts_start) * 1000
+                    print(f"[VOICE] 🔊 TTS generated in {tts_time:.0f}ms: {audio_path}", flush=True)
+                    
+                    # Read the audio file and send as base64
+                    if audio_path and os.path.exists(audio_path):
+                        with open(audio_path, 'rb') as f:
+                            audio_data = f.read()
+                        
+                        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+                        
+                        # Send audio to client
+                        if dc and dc.readyState == "open":
+                            dc.send(
+                                json.dumps(
+                                    {
+                                        "type": "tts_audio",
+                                        "audio": audio_b64,
+                                        "format": "wav",
+                                        "language": language,
+                                        "tts_time_ms": tts_time,
+                                    }
+                                )
+                            )
+                            print(f"[VOICE] 📤 Sent TTS audio ({len(audio_data)} bytes)", flush=True)
+                        
+                        # Clean up temp file
+                        try:
+                            os.remove(audio_path)
+                        except:
+                            pass
+                    else:
+                        print(f"[VOICE] ⚠️ TTS audio file not found: {audio_path}", flush=True)
+                        
+            except Exception as e:
+                import traceback
+                traceback.print_exc()
+                logger.error(f"[VOICE] TTS error: {e}")
+                print(f"[VOICE] ❌ TTS error: {e}", flush=True)
+
+        # Signal ready to listen again
+        context["is_speaking"] = False
+        if dc and dc.readyState == "open":
+            dc.send(json.dumps({"type": "mic_control", "action": "unmute"}))
             dc.send(json.dumps({"type": "state", "state": "listening"}))
 
     except Exception as e:
         import traceback
         traceback.print_exc()
         logger.error(f"[VOICE] LLM error: {e}")
+        context["is_speaking"] = False
         if dc and dc.readyState == "open":
+            dc.send(json.dumps({"type": "mic_control", "action": "unmute"}))
             dc.send(json.dumps({"type": "state", "state": "listening"}))
 
 

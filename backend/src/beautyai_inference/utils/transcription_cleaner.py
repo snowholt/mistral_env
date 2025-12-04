@@ -304,3 +304,135 @@ def filter_whisper_output(text: str, language: str = "ar") -> str:
         return ""
     
     return result.cleaned_text
+
+
+# ============================================================
+# TTS TEXT PREPROCESSOR
+# ============================================================
+
+def preprocess_for_tts(text: str, language: str = "ar") -> str:
+    """
+    Preprocess LLM response text for natural TTS synthesis.
+    
+    Converts markdown formatting and numbered lists into natural speech patterns
+    to avoid robotic-sounding output like "one, two, three" bullet points.
+    
+    Args:
+        text: LLM response text (may contain markdown)
+        language: Language code for language-specific ordinals
+        
+    Returns:
+        Text optimized for TTS synthesis
+    """
+    if not text or not text.strip():
+        return ""
+    
+    cleaned = text.strip()
+    
+    # Define ordinal mappings for different languages
+    ordinals = {
+        "ar": {
+            "1": "أولاً",
+            "2": "ثانياً", 
+            "3": "ثالثاً",
+            "4": "رابعاً",
+            "5": "خامساً",
+            "6": "سادساً",
+            "7": "سابعاً",
+            "8": "ثامناً",
+            "9": "تاسعاً",
+            "10": "عاشراً",
+        },
+        "en": {
+            "1": "First",
+            "2": "Second",
+            "3": "Third",
+            "4": "Fourth",
+            "5": "Fifth",
+            "6": "Sixth",
+            "7": "Seventh",
+            "8": "Eighth",
+            "9": "Ninth",
+            "10": "Tenth",
+        }
+    }
+    
+    lang_ordinals = ordinals.get(language, ordinals["en"])
+    
+    # Remove markdown bold/italic: **text** → text, *text* → text
+    cleaned = re.sub(r'\*\*([^*]+)\*\*', r'\1', cleaned)
+    cleaned = re.sub(r'\*([^*]+)\*', r'\1', cleaned)
+    
+    # Remove markdown headers: ### Title → Title
+    cleaned = re.sub(r'^#{1,6}\s*', '', cleaned, flags=re.MULTILINE)
+    
+    # Remove markdown links: [text](url) → text
+    cleaned = re.sub(r'\[([^\]]+)\]\([^)]+\)', r'\1', cleaned)
+    
+    # Remove markdown code blocks: ```code``` → code
+    cleaned = re.sub(r'```[^`]*```', '', cleaned, flags=re.DOTALL)
+    cleaned = re.sub(r'`([^`]+)`', r'\1', cleaned)
+    
+    # Convert numbered lists at line start: "1. Item" → "First, Item"
+    # Pattern: start of line, optional whitespace, number, period/parenthesis, space
+    def replace_numbered_list(match):
+        number = match.group(1)
+        content = match.group(2)
+        ordinal = lang_ordinals.get(number, f"Point {number}")
+        # Add comma for natural speech pause
+        return f"{ordinal}، {content}" if language == "ar" else f"{ordinal}, {content}"
+    
+    cleaned = re.sub(r'^[\s]*(\d{1,2})[\.\)]\s*(.+)$', replace_numbered_list, cleaned, flags=re.MULTILINE)
+    
+    # Convert bullet points: "- Item" or "• Item" → "Item" (with natural pause)
+    cleaned = re.sub(r'^[\s]*[-•]\s*(.+)$', r'\1.', cleaned, flags=re.MULTILINE)
+    
+    # Remove excessive newlines (replace 2+ newlines with single period/pause)
+    cleaned = re.sub(r'\n{2,}', '. ', cleaned)
+    
+    # Replace single newlines with space
+    cleaned = re.sub(r'\n', ' ', cleaned)
+    
+    # Remove multiple spaces
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    
+    # Remove leading/trailing periods that don't make sense
+    cleaned = re.sub(r'^[.\s]+', '', cleaned)
+    cleaned = re.sub(r'[.\s]+$', '', cleaned)
+    
+    # Add final period if not present (for natural TTS ending)
+    if cleaned and not cleaned[-1] in '.!?،؟':
+        cleaned += '.' if language != "ar" else '.'
+    
+    return cleaned.strip()
+
+
+def clean_llm_response_for_tts(text: str, language: str = "ar") -> str:
+    """
+    Clean LLM response specifically for TTS output.
+    
+    This function:
+    1. Removes <think> tags and their content
+    2. Preprocesses markdown for natural speech
+    3. Ensures clean output for TTS synthesis
+    
+    Args:
+        text: Raw LLM response
+        language: Language code
+        
+    Returns:
+        Clean text ready for TTS synthesis
+    """
+    if not text:
+        return ""
+    
+    # Remove <think>...</think> tags and content
+    cleaned = re.sub(r'<think>.*?</think>', '', text, flags=re.DOTALL)
+    
+    # Remove any remaining think tags (malformed)
+    cleaned = re.sub(r'</?think>', '', cleaned)
+    
+    # Preprocess for TTS
+    cleaned = preprocess_for_tts(cleaned, language)
+    
+    return cleaned
