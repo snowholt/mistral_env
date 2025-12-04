@@ -136,6 +136,7 @@ from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.audio_resampling import process_with_rnnoise_16khz_pipeline
 from ...utils.transient_suppressor import TransientSuppressor
+from ...utils.transcription_cleaner import filter_whisper_output
 
 logger = logging.getLogger(__name__)
 
@@ -631,7 +632,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
             
             # Run blocking inference in thread pool to avoid blocking main loop
             target_language = info.get("language", None)
-            transcription = await loop.run_in_executor(
+            raw_transcription = await loop.run_in_executor(
                 None, 
                 partial(
                     whisper_model.transcribe_audio_bytes,
@@ -642,6 +643,11 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
             )
             
             latency_ms = (time.time() - start_t) * 1000
+            
+            # Apply repetition filter to clean Whisper output
+            transcription = filter_whisper_output(raw_transcription, language=target_language) if raw_transcription else ""
+            if raw_transcription and transcription != raw_transcription:
+                print(f"[WHISPER] {peer_id} 🧹 Cleaned: '{raw_transcription}' → '{transcription}'", flush=True)
             
             if transcription and transcription.strip():
                 info.setdefault("transcriptions", []).append({

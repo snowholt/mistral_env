@@ -80,6 +80,7 @@ from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.transient_suppressor import TransientSuppressor
+from ...utils.transcription_cleaner import filter_whisper_output
 
 logger = logging.getLogger(__name__)
 
@@ -586,7 +587,7 @@ async def _process_speech_segment(
         duration = len(audio_data) / 16000
         print(f"[VOICE] 🗣️ Transcribing {duration:.2f}s (lang={language})...", flush=True)
 
-        text = await loop.run_in_executor(
+        raw_text = await loop.run_in_executor(
             None,
             lambda: whisper.transcribe_audio_bytes(
                 audio_bytes, audio_format="pcm_raw", language=language
@@ -594,6 +595,14 @@ async def _process_speech_segment(
         )
         whisper_time = (time.time() - start_time) * 1000
 
+        if not raw_text or not raw_text.strip():
+            return
+
+        # Apply repetition filter to clean Whisper output
+        text = filter_whisper_output(raw_text, language=language)
+        if text != raw_text:
+            print(f"[VOICE] 🧹 Cleaned: '{raw_text}' → '{text}'", flush=True)
+        
         if not text or not text.strip():
             return
 

@@ -46,6 +46,11 @@
         </div>
 
         <div class="controls">
+            <label for="langSelect" style="font-weight: 600; margin-right: 8px;">Language:</label>
+            <select id="langSelect" style="padding: 8px 12px; border-radius: 6px; border: 1px solid #ccc; margin-right: 15px; font-size: 14px;">
+                <option value="ar" selected>🇸🇦 Arabic (العربية)</option>
+                <option value="en">🇬🇧 English</option>
+            </select>
             <button id="startBtn" onclick="startSession()">Start Microphone</button>
             <button id="stopBtn" onclick="stopSession()">Stop Session</button>
         </div>
@@ -145,11 +150,14 @@
                     }
                 };
 
+                // Get selected language
+                const selectedLanguage = document.getElementById('langSelect').value;
+                
                 // Send to Server
                 const response = await fetch('/api/v1/webrtc/voice/offer', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sdp: pc.localDescription.sdp, type: "offer" })
+                    body: JSON.stringify({ sdp: pc.localDescription.sdp, type: "offer", language: selectedLanguage })
                 });
 
                 if (!response.ok) throw new Error("Server rejected offer");
@@ -164,10 +172,13 @@
                     sendIceCandidate(sessionId, candidate);
                 }
 
+                // Disable language selector during session
+                document.getElementById('langSelect').disabled = true;
+                
                 // Note: Status update moved to onconnectionstatechange
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
-                addMessage("system", "Connected! Speak naturally. I will wait 2s after you stop talking.");
+                addMessage("system", `Connected! Language: ${selectedLanguage.toUpperCase()}. Speak naturally. I will wait 2s after you stop talking.`);
 
             } catch (e) {
                 console.error(e);
@@ -264,6 +275,7 @@
             startBtn.style.display = 'inline-block';
             startBtn.disabled = false;
             stopBtn.style.display = 'none';
+            document.getElementById('langSelect').disabled = false;
             addMessage("system", "Session ended.");
         }
     </script>
