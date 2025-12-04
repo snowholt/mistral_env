@@ -110,6 +110,7 @@ _active_connections: Dict[str, Dict[str, Any]] = {}
 class OfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
+    language: str = Field(default="ar", description="Language code (ar, en)")
 
 
 class OfferResponse(BaseModel):
@@ -133,7 +134,7 @@ async def handle_offer(request: OfferRequest):
     """Create WebRTC session with optimized audio pipeline."""
     try:
         session_id = str(uuid.uuid4())
-        print(f"[VOICE] 🚀 Creating session {session_id}", flush=True)
+        print(f"[VOICE] 🚀 Creating session {session_id} (language={request.language})", flush=True)
 
         # RTC Configuration
         config = RTCConfiguration(
@@ -152,6 +153,7 @@ async def handle_offer(request: OfferRequest):
         session_context = {
             "pc": pc,
             "session_id": session_id,
+            "language": request.language,
             "start_time": time.time(),
             "audio_track": None,
             "data_channel": None,
@@ -232,11 +234,11 @@ async def handle_offer(request: OfferRequest):
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
             vad_config.enable_debug_dump = False  # Disable VAD internal dumping
 
-            vad_service = WebRTCVADService(session_id, language="en", config=vad_config)
+            vad_service = WebRTCVADService(session_id, language=request.language, config=vad_config)
             if await vad_service.initialize():
                 session_context["vad_service"] = vad_service
                 print(
-                    "[VOICE] ✅ VAD Initialized (silero=0.3, thresh=0.1, sustained=2)",
+                    f"[VOICE] ✅ VAD Initialized (silero=0.3, thresh=0.1, sustained=2, lang={request.language})",
                     flush=True,
                 )
             else:
@@ -570,6 +572,7 @@ async def _process_speech_segment(
     whisper = context.get("whisper_model")
     dc = context.get("data_channel")
     loop = context.get("loop")
+    language = context.get("language", "ar")
 
     if not whisper:
         return
@@ -581,12 +584,12 @@ async def _process_speech_segment(
 
         start_time = time.time()
         duration = len(audio_data) / 16000
-        print(f"[VOICE] 🗣️ Transcribing {duration:.2f}s...", flush=True)
+        print(f"[VOICE] 🗣️ Transcribing {duration:.2f}s (lang={language})...", flush=True)
 
         text = await loop.run_in_executor(
             None,
             lambda: whisper.transcribe_audio_bytes(
-                audio_bytes, audio_format="pcm_raw", language="en"
+                audio_bytes, audio_format="pcm_raw", language=language
             ),
         )
         whisper_time = (time.time() - start_time) * 1000

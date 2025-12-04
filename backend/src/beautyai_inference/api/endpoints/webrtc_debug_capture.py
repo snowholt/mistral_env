@@ -16,6 +16,7 @@ import time
 import uuid
 import wave
 import psutil
+from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, status
@@ -193,6 +194,7 @@ _debug_connections: Dict[str, Dict[str, Any]] = {}
 class DebugOfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
+    language: str = Field(default="ar", description="Language code (ar, en)")
 
 
 class DebugOfferResponse(BaseModel):
@@ -239,6 +241,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
         capture_info = {
             "pc": pc,
             "peer_id": peer_id,
+            "language": request.language,
             "debug_dir": debug_dir,
             "frames_captured": 0,
             "start_time": time.time(),
@@ -348,7 +351,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
             vad_config.enable_debug_dump = False  # Disable VAD internal dumping (we handle it here)
             
-            vad_service = WebRTCVADService(peer_id, language="en", config=vad_config)
+            vad_service = WebRTCVADService(peer_id, language=request.language, config=vad_config)
             
             # CRITICAL: Initialize the VAD (loads Silero model)
             vad_initialized = await vad_service.initialize()
@@ -356,7 +359,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 raise RuntimeError("VAD initialization failed - Silero model not loaded")
             
             capture_info["vad_service"] = vad_service
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero sens=0.3, post_silence=700ms, sustained=2 frames, thresh=0.1)", flush=True)
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero sens=0.3, post_silence=700ms, sustained=2 frames, thresh=0.1, lang={request.language})", flush=True)
             logger.info(f"[DEBUG-CAPTURE] {peer_id} VAD service ready with balanced settings")
         except Exception as e:
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to initialize VAD: {e}")
@@ -614,6 +617,48 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     # Speech buffer for VAD-filtered segments (16kHz only - Layer 5 removed)
     speech_buffer_16k = []  # Layer 4 (16kHz)
     
+    # Define background task for transcription (non-blocking)
+    async def _run_transcription_task(audio_bytes, segment_num, frame_idx, duration_s):
+        try:
+            whisper_model = info.get("whisper_model")
+            if not whisper_model:
+                return
+
+            print(f"[WHISPER] {peer_id} 🎤 Transcribing segment #{segment_num} (background): {len(audio_bytes)} bytes...", flush=True)
+            
+            loop = asyncio.get_running_loop()
+            start_t = time.time()
+            
+            # Run blocking inference in thread pool to avoid blocking main loop
+            target_language = info.get("language", None)
+            transcription = await loop.run_in_executor(
+                None, 
+                partial(
+                    whisper_model.transcribe_audio_bytes,
+                    audio_bytes,
+                    audio_format="pcm_raw",
+                    language=target_language
+                )
+            )
+            
+            latency_ms = (time.time() - start_t) * 1000
+            
+            if transcription and transcription.strip():
+                info.setdefault("transcriptions", []).append({
+                    "segment_number": segment_num,
+                    "frame_index": frame_idx,
+                    "timestamp": time.time() - info["start_time"],
+                    "layer": "Layer4_16kHz",
+                    "text": transcription,
+                    "duration_s": duration_s,
+                    "latency_ms": latency_ms,
+                })
+                print(f"[WHISPER] {peer_id} ✅ Segment #{segment_num} ({latency_ms:.0f}ms): \"{transcription}\"", flush=True)
+                
+        except Exception as e:
+            logger.error(f"[WHISPER] {peer_id} Background transcription error: {e}", exc_info=True)
+            print(f"[WHISPER] {peer_id} ❌ Background transcription error: {e}", flush=True)
+
     def finalize_speech_segment(reason: str, frame_index: int) -> None:
         """Flush buffered speech into VAD layer and trigger Whisper if enabled."""
         if not speech_buffer_16k:
@@ -640,53 +685,19 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         if info.get("whisper_enabled", False):
             whisper_model = info.get("whisper_model")
             if whisper_model:
-                try:
-                    # Layer 4 transcription (16kHz VAD-filtered PCM)
-                    speech_audio_16k = np.concatenate(speech_buffer_16k)
-                    audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
-                    audio_bytes_16k = audio_int16_16k.tobytes()
-                    segment_duration_16k = len(audio_int16_16k) / 16000
+                # Layer 4 transcription (16kHz VAD-filtered PCM)
+                speech_audio_16k = np.concatenate(speech_buffer_16k)
+                audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
+                audio_bytes_16k = audio_int16_16k.tobytes()
+                segment_duration_16k = len(audio_int16_16k) / 16000
 
-                    print(
-                        f"[WHISPER] {peer_id} 🎤 Transcribing segment #{speech_segments_count}: "
-                        f"{len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...",
-                        flush=True,
-                    )
-                    start_t4 = time.time()
-                    # Get language preference from session config or default to None (auto-detect)
-                    target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
-                    transcription_16k = whisper_model.transcribe_audio_bytes(
-                        audio_bytes_16k, audio_format="pcm_raw", language=target_language
-                    )
-                    latency_16k = (time.time() - start_t4) * 1000
-
-                    if transcription_16k and transcription_16k.strip():
-                        info.setdefault("transcriptions", []).append(
-                            {
-                                "segment_number": speech_segments_count,
-                                "frame_index": frame_index,
-                                "timestamp": time.time() - info["start_time"],
-                                "layer": "Layer4_16kHz",
-                                "text": transcription_16k,
-                                "duration_s": segment_duration_16k,
-                                "latency_ms": latency_16k,
-                            }
-                        )
-                        print(
-                            f"[WHISPER] {peer_id} ✅ Segment #{speech_segments_count} ({latency_16k:.0f}ms): "
-                            f"\"{transcription_16k}\"",
-                            flush=True,
-                        )
-
-                except Exception as transcribe_error:  # pragma: no cover - logging path
-                    print(
-                        f"[WHISPER] {peer_id} ❌ Segment #{speech_segments_count} transcription error: {transcribe_error}",
-                        flush=True,
-                    )
-                    logger.error(
-                        f"[WHISPER] {peer_id} transcription error: {transcribe_error}",
-                        exc_info=True,
-                    )
+                # Fire and forget background task!
+                asyncio.create_task(_run_transcription_task(
+                    audio_bytes_16k, 
+                    speech_segments_count, 
+                    frame_index, 
+                    segment_duration_16k
+                ))
         else:
             print(
                 f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz)",
@@ -1170,7 +1181,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         # Process through VAD
                         vad_result = await vad_service.process_audio_chunk(
                             audio_16k_bytes,
-                            metadata={"sample_rate": 16000, "language": "en"}
+                            metadata={"sample_rate": 16000, "language": info.get("language", "ar")}
                         )
                         vad_time_ms = (time.perf_counter() - vad_start) * 1000
                         stage_timing["vad_ms"] = vad_time_ms

@@ -225,12 +225,12 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
         """
         try:
             normalized_language = self._normalize_language_hint(language)
-            language_for_generation = normalized_language or "english"
+            language_for_generation = normalized_language or "arabic"
 
             if normalized_language:
                 logger.debug(f"Transcribing with specified language: {normalized_language}")
             else:
-                logger.debug("Language hint missing or auto; defaulting to english")
+                logger.debug("Language hint missing or auto; defaulting to arabic")
 
             forced_decoder_ids = None
             if self.processor is not None:
