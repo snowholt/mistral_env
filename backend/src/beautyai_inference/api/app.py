@@ -400,6 +400,19 @@ async def preload_voice_models():
                 logger.warning(f"⚠️ Error pre-loading {model_name}: {e}")
                 continue
         
+        # Pre-load Whisper model for WebRTC voice endpoints (prevents cold start)
+        try:
+            from ..core.persistent_model_manager import get_persistent_model_manager
+            persistent_mgr = get_persistent_model_manager()
+            logger.info("⏳ Pre-loading Whisper model for WebRTC voice services...")
+            whisper_loaded = await persistent_mgr.ensure_whisper_loaded()
+            if whisper_loaded:
+                logger.info("✅ Whisper model pre-loaded successfully (WebRTC ready)")
+            else:
+                logger.warning("⚠️ Whisper model pre-load failed - WebRTC will have cold start delay")
+        except Exception as e:
+            logger.warning(f"⚠️ Error pre-loading Whisper model: {e}")
+        
         logger.info("🎯 Model pre-loading completed - WebSocket services ready for fast responses")
         
     except Exception as e:

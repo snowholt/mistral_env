@@ -369,6 +369,10 @@
             <span class="status-value" id="peerId">—</span>
         </div>
         <div class="status-item">
+            <span class="status-label">Sample Rate</span>
+            <span class="status-value" id="sampleRate">—</span>
+        </div>
+        <div class="status-item">
             <span class="status-label">Connection</span>
             <span class="status-value" id="connectionState">Disconnected</span>
         </div>
@@ -735,6 +739,17 @@ Let's see how clearly the system catches my voice, even with small background so
                 });
                 
                 log('✅ Got microphone access', 'success');
+                
+                // Get sample rate
+                const audioTrack = stream.getAudioTracks()[0];
+                const settings = audioTrack.getSettings();
+                if (settings.sampleRate) {
+                    updateStatus('sampleRate', `${settings.sampleRate} Hz`);
+                    log(`📊 Microphone Sample Rate: ${settings.sampleRate} Hz`, 'info');
+                } else {
+                    updateStatus('sampleRate', 'Unknown');
+                    log(`⚠️ Could not detect microphone sample rate`, 'warn');
+                }
                 
                 // Setup visualization
                 setupAudioVisualization(stream);

@@ -24,8 +24,19 @@ from pydantic import BaseModel, Field
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRecorder
 import numpy as np
-from scipy.signal import resample_poly, butter, sosfiltfilt
+from scipy.signal import resample_poly, butter, sosfiltfilt, sosfilt, sosfilt_zi
 from math import gcd
+
+# ============================================================
+# OPTIONAL: TorchAudio for stateful resampling (best practice)
+# ============================================================
+try:
+    import torch
+    import torchaudio
+    TORCHAUDIO_AVAILABLE = True
+except ImportError:
+    TORCHAUDIO_AVAILABLE = False
+    print("[AUDIO-RESAMPLE] ⚠️ torchaudio not available, falling back to scipy", flush=True)
 
 # ============================================================
 # AIORTC JITTER BUFFER TUNING
@@ -41,7 +52,42 @@ _original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
 
 # Environment variable configuration for flexibility
 AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "128"))
-AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "32"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "50"))
+
+# ============================================================
+# MINIMAL MODE: Simplified pipeline for debugging crackling
+# When enabled with 16kHz browser audio:
+#   Browser 16kHz (mono) → Butterworth 8kHz → VAD → Layer 4 → Whisper
+# Skips: Resampling (already 16kHz), RNNoise (isolate root cause)
+# Keeps: All timing metrics, buffer underrun tracking, debug captures
+# ============================================================
+VOICE_MINIMAL_MODE = os.getenv("VOICE_MINIMAL_MODE", "0") == "1"
+
+# ============================================================
+# AUDIO PROCESSING MODE FLAGS (For diagnosing crackling)
+# ============================================================
+# Mode 1: VOICE_NO_BUTTERWORTH=1
+#   - Bypasses Butterworth filter entirely
+#   - Tests if crackling is from stateless sosfiltfilt
+#   - Relies only on resample_poly's built-in anti-aliasing
+# ============================================================
+VOICE_NO_BUTTERWORTH = os.getenv("VOICE_NO_BUTTERWORTH", "0") == "1"
+
+# ============================================================
+# Mode 2: VOICE_STATEFUL_FILTER=1
+#   - Uses sosfilt with persistent zi state (not sosfiltfilt)
+#   - Maintains filter state across chunks for seamless processing
+#   - Fixes boundary discontinuities causing crackling
+# ============================================================
+VOICE_STATEFUL_FILTER = os.getenv("VOICE_STATEFUL_FILTER", "0") == "1"
+
+# ============================================================
+# Mode 3: VOICE_TORCHAUDIO_RESAMPLE=1 (Best Practice)
+#   - Uses torchaudio.transforms.Resample (stateful, GPU-accelerated)
+#   - Removes Butterworth entirely (Resample has built-in anti-aliasing)
+#   - Recommended for production use
+# ============================================================
+VOICE_TORCHAUDIO_RESAMPLE = os.getenv("VOICE_TORCHAUDIO_RESAMPLE", "0") == "1"
 
 def _patched_RTCRtpReceiver_init(self, kind, transport):
     """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
@@ -62,6 +108,27 @@ def _patched_RTCRtpReceiver_init(self, kind, transport):
 # Apply the monkey-patch
 aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
 print("[AIORTC-TUNED] ✅ Jitter buffer patch applied (capacity=128, prefetch=32)", flush=True)
+
+# Log audio processing mode at startup
+if VOICE_TORCHAUDIO_RESAMPLE:
+    if TORCHAUDIO_AVAILABLE:
+        print("[AUDIO-MODE] 🚀 TORCHAUDIO RESAMPLE: Using stateful torchaudio.transforms.Resample (best practice)", flush=True)
+        print("[AUDIO-MODE]    Pipeline: 48kHz → torchaudio.Resample → VAD → Whisper (no Butterworth)", flush=True)
+    else:
+        print("[AUDIO-MODE] ⚠️ TORCHAUDIO requested but not available, falling back to scipy", flush=True)
+        VOICE_TORCHAUDIO_RESAMPLE = False  # Disable if not available
+elif VOICE_STATEFUL_FILTER:
+    print("[AUDIO-MODE] 🔧 STATEFUL FILTER: Using sosfilt with persistent zi state (fixes crackling)", flush=True)
+    print("[AUDIO-MODE]    Pipeline: 48kHz → stateful sosfilt → resample_poly → VAD → Whisper", flush=True)
+elif VOICE_NO_BUTTERWORTH:
+    print("[AUDIO-MODE] 🧪 NO BUTTERWORTH: Bypassing filter entirely (testing mode)", flush=True)
+    print("[AUDIO-MODE]    Pipeline: 48kHz → resample_poly only → VAD → Whisper", flush=True)
+elif VOICE_MINIMAL_MODE:
+    print("[AUDIO-MODE] 🔬 MINIMAL MODE: Simplified pipeline for debugging", flush=True)
+    print("[AUDIO-MODE]    Skipping: RNNoise, Transient Suppressor (isolate root cause)", flush=True)
+else:
+    print("[AUDIO-MODE] ❌ FULL PIPELINE: Using stateless sosfiltfilt + resample_poly (may crackle)", flush=True)
+    print("[AUDIO-MODE]    ⚠️ To fix crackling, set VOICE_TORCHAUDIO_RESAMPLE=1 or VOICE_STATEFUL_FILTER=1", flush=True)
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
@@ -195,6 +262,14 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "buffer_underruns": 0,  # Count suspected buffer issues
             "last_frame_time": None,  # Track inter-frame timing
             "cpu_samples": [],  # Track CPU usage
+            # ============================================
+            # STATEFUL AUDIO PROCESSING (Fix for crackling)
+            # ============================================
+            # Stateful Butterworth filter state (for VOICE_STATEFUL_FILTER mode)
+            "butterworth_sos": None,  # Will be initialized on first frame
+            "butterworth_zi": None,   # Filter state (zi) for sosfilt
+            # TorchAudio resampler (for VOICE_TORCHAUDIO_RESAMPLE mode)
+            "torchaudio_resampler": None,  # Will be initialized on first frame
         }
         
         # Get preloaded Whisper model for transcription after VAD filtering
@@ -271,6 +346,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
             vad_config.warmup_filter_duration_ms = 200  # Filter initial 200ms noise
             vad_config.min_sustained_speech_frames = 2  # Need 2 consecutive frames to confirm speech
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
+            vad_config.enable_debug_dump = False  # Disable VAD internal dumping (we handle it here)
             
             vad_service = WebRTCVADService(peer_id, language="en", config=vad_config)
             
@@ -714,8 +790,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 # LAYER 1.5: Transient Suppression @ 48kHz (NEW - suppress crackles BEFORE downsampling)
                 # Gemini Recommendation: Median filtering at source sample rate prevents Butterworth smearing
+                # MINIMAL MODE: Skip transient suppression to isolate root cause
                 audio_transient_suppressed = audio_array.copy()
-                if info.get("transient_suppressor_enabled") and sample_rate == 48000:
+                if info.get("transient_suppressor_enabled") and sample_rate == 48000 and not VOICE_MINIMAL_MODE:
                     try:
                         # Convert int16 to float32 for processing
                         if np.issubdtype(audio_transient_suppressed.dtype, np.integer):
@@ -751,6 +828,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     except Exception as e:
                         logger.warning(f"[DEBUG-CAPTURE] {peer_id} Layer 1.5 transient suppression failed: {e}")
                         # Fall back to original audio if suppression fails
+                elif VOICE_MINIMAL_MODE and frame_count == 1:
+                    print(f"[MINIMAL-MODE] {peer_id} ⏭️ Transient Suppressor skipped to isolate root cause", flush=True)
                 
                 # LAYER 2: Convert to float32
                 if np.issubdtype(audio_array.dtype, np.integer):
@@ -762,18 +841,226 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 layer_48khz_float.append(audio_float.copy())
                 
-                # LAYER 3: Resample to 16kHz with STRONG anti-aliasing filter + adaptive noise gate
-                # Microphone produces high-frequency hiss (>8kHz) that folds into audible crackle during downsampling
-                if sample_rate != 16000:
-                    # STRONG ANTI-ALIASING: Apply aggressive low-pass filter BEFORE downsampling
-                    # Microphone hiss above 8kHz needs to be removed to prevent crackle
+                # LAYER 3: Resample to 16kHz with proper anti-aliasing
+                # ============================================================
+                # AUDIO PROCESSING MODES (in order of preference):
+                # 1. VOICE_TORCHAUDIO_RESAMPLE: Best practice - stateful torchaudio.Resample
+                # 2. VOICE_STATEFUL_FILTER: Fix for crackling - stateful sosfilt + resample_poly
+                # 3. VOICE_NO_BUTTERWORTH: Test mode - skip filter, use resample_poly only
+                # 4. VOICE_MINIMAL_MODE: Debug mode - simplified pipeline
+                # 5. Default (FULL MODE): Original stateless sosfiltfilt (may crackle)
+                # ============================================================
+                resample_start = time.perf_counter()
+                
+                # ============================================================
+                # MODE 1: TorchAudio Resample (Best Practice - Stateful, GPU-accelerated)
+                # ============================================================
+                if VOICE_TORCHAUDIO_RESAMPLE and TORCHAUDIO_AVAILABLE and sample_rate != 16000:
+                    # Initialize resampler on first frame (lazy init for correct sample rate)
+                    if info.get("torchaudio_resampler") is None:
+                        # Create torchaudio Resample with high-quality settings
+                        # lowpass_filter_width=64 provides excellent anti-aliasing
+                        # rolloff=0.99 means filter starts rolling off at 99% of Nyquist
+                        info["torchaudio_resampler"] = torchaudio.transforms.Resample(
+                            orig_freq=sample_rate,
+                            new_freq=16000,
+                            lowpass_filter_width=64,  # High quality anti-aliasing
+                            rolloff=0.99,             # Near-Nyquist rolloff
+                            resampling_method="sinc_interp_kaiser",
+                            dtype=torch.float32
+                        )
+                        print(
+                            f"[TORCHAUDIO] {peer_id} 🚀 Initialized Resample: "
+                            f"{sample_rate}Hz → 16kHz (kaiser, width=64, rolloff=0.99)",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[TORCHAUDIO] {peer_id} Stateful resampler ready: "
+                            f"{sample_rate}→16000Hz, no Butterworth needed"
+                        )
+                    
+                    # Convert to torch tensor and resample
+                    audio_tensor = torch.from_numpy(audio_float).unsqueeze(0)  # Add batch dim
+                    resampler = info["torchaudio_resampler"]
+                    audio_16k_tensor = resampler(audio_tensor)
+                    audio_16k = audio_16k_tensor.squeeze(0).numpy()
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[TORCHAUDIO] {peer_id} ✅ First frame processed: "
+                            f"{len(audio_float)} → {len(audio_16k)} samples",
+                            flush=True
+                        )
+                
+                # ============================================================
+                # MODE 2: Stateful sosfilt (Fixes crackling from boundary discontinuities)
+                # ============================================================
+                elif VOICE_STATEFUL_FILTER and sample_rate != 16000:
+                    nyquist_freq = sample_rate / 2
+                    cutoff_freq = 7500  # Conservative cutoff below 8kHz Nyquist
+                    
+                    # Initialize filter on first frame (lazy init for correct sample rate)
+                    if info.get("butterworth_sos") is None:
+                        normalized_cutoff = cutoff_freq / nyquist_freq
+                        sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                        info["butterworth_sos"] = sos
+                        # Initialize filter state (zi) to steady-state for DC=0
+                        info["butterworth_zi"] = sosfilt_zi(sos) * 0.0  # Start at zero
+                        print(
+                            f"[STATEFUL-FILTER] {peer_id} 🔧 Initialized: "
+                            f"6th-order Butterworth @ {cutoff_freq}Hz with persistent state",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[STATEFUL-FILTER] {peer_id} Stateful filter ready: "
+                            f"sosfilt with zi state persists across chunks"
+                        )
+                    
+                    # Apply stateful filter - zi persists across frames!
+                    sos = info["butterworth_sos"]
+                    zi = info["butterworth_zi"]
+                    audio_filtered, info["butterworth_zi"] = sosfilt(sos, audio_float, zi=zi)
+                    audio_filtered = np.clip(audio_filtered, -1.0, 1.0)
+                    
+                    # Single-stage resample 48→16 (resample_poly is still stateless but 
+                    # with good anti-aliasing it's less problematic than the filter)
+                    if sample_rate == 48000:
+                        audio_16k = resample_poly(audio_filtered, 1, 3, window=('kaiser', 8.0))
+                    else:
+                        ratio_gcd = gcd(sample_rate, 16000)
+                        up = 16000 // ratio_gcd
+                        down = sample_rate // ratio_gcd
+                        audio_16k = resample_poly(audio_filtered, up, down, window=('kaiser', 8.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[STATEFUL-FILTER] {peer_id} ✅ First frame: "
+                            f"stateful sosfilt → resample_poly({sample_rate}→16000)",
+                            flush=True
+                        )
+                
+                # ============================================================
+                # MODE 3: No Butterworth (Test if filter is the crackling source)
+                # ============================================================
+                elif VOICE_NO_BUTTERWORTH and sample_rate != 16000:
+                    # Skip Butterworth entirely - rely on resample_poly's built-in anti-aliasing
+                    # The kaiser window in resample_poly provides some anti-aliasing
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[NO-BUTTERWORTH] {peer_id} 🧪 ACTIVE: Skipping Butterworth filter entirely",
+                            flush=True
+                        )
+                        print(
+                            f"[NO-BUTTERWORTH] {peer_id}    Pipeline: {sample_rate}Hz → resample_poly only → 16kHz",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[NO-BUTTERWORTH] {peer_id} Testing without Butterworth filter"
+                        )
+                    
+                    # Direct resample with strong kaiser window for anti-aliasing
+                    if sample_rate == 48000:
+                        # Two-stage for better quality: 48→24→16
+                        audio_24k = resample_poly(audio_float, 1, 2, window=('kaiser', 10.0))
+                        audio_24k = np.clip(audio_24k, -1.0, 1.0)
+                        audio_16k = resample_poly(audio_24k, 2, 3, window=('kaiser', 10.0))
+                    else:
+                        ratio_gcd = gcd(sample_rate, 16000)
+                        up = 16000 // ratio_gcd
+                        down = sample_rate // ratio_gcd
+                        audio_16k = resample_poly(audio_float, up, down, window=('kaiser', 10.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                # ============================================================
+                # MODE 4: MINIMAL MODE (Simplified debug pipeline)
+                # ============================================================
+                elif VOICE_MINIMAL_MODE and sample_rate == 16000:
+                    # MINIMAL MODE + 16kHz input: Only apply Butterworth, no resample
+                    nyquist_freq = sample_rate / 2  # 8kHz
+                    cutoff_freq = 7000  # Slightly below Nyquist for 16kHz
+                    
+                    # Apply 6th-order Butterworth lowpass (gentler than 8th for 16kHz)
+                    normalized_cutoff = cutoff_freq / nyquist_freq
+                    sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                    audio_16k = sosfiltfilt(sos, audio_float)
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} 🔬 ACTIVE (16kHz input): "
+                            f"Browser 16kHz → 6th-order Butterworth @ {cutoff_freq}Hz → VAD → Whisper",
+                            flush=True
+                        )
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} ⏭️ SKIPPED: Resampling (already 16kHz), RNNoise (isolate root cause)",
+                            flush=True
+                        )
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                elif VOICE_MINIMAL_MODE and sample_rate == 48000:
+                    # MINIMAL MODE + 48kHz input: Simple single-stage resample (browsers ignore 16kHz request)
+                    # Pipeline: 48kHz → Butterworth 8kHz → Direct resample 48→16 → VAD → Whisper
+                    nyquist_freq = sample_rate / 2  # 24kHz
+                    cutoff_freq = 7500  # Conservative: below 8kHz Nyquist of 16kHz
+                    
+                    # Apply 6th-order Butterworth (gentler than production 8th-order)
+                    normalized_cutoff = cutoff_freq / nyquist_freq
+                    sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                    audio_float = sosfiltfilt(sos, audio_float)
+                    audio_float = np.clip(audio_float, -1.0, 1.0)
+                    
+                    # SIMPLE SINGLE-STAGE RESAMPLE: 48kHz → 16kHz directly (ratio 1:3)
+                    # This is simpler than production two-stage (48→24→16)
+                    audio_16k = resample_poly(audio_float, 1, 3, window=('kaiser', 5.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} 🔬 ACTIVE (48kHz input): "
+                            f"Browser 48kHz → 6th-order Butterworth @ {cutoff_freq}Hz → "
+                            f"Single-stage resample (1:3) → VAD → Whisper",
+                            flush=True
+                        )
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} ⏭️ SKIPPED: Two-stage resample, RNNoise, Transient Suppressor",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[MINIMAL-MODE] {peer_id} Simplified 48kHz pipeline: "
+                            f"Butterworth {cutoff_freq}Hz → 48→16 direct → VAD"
+                        )
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                # ============================================================
+                # MODE 5: FULL MODE (Original - stateless, may crackle)
+                # ============================================================
+                elif sample_rate != 16000:
+                    # FULL MODE: Resample from 48kHz (or other) to 16kHz
+                    # ⚠️ WARNING: This uses stateless sosfiltfilt which causes crackling!
+                    # Use VOICE_TORCHAUDIO_RESAMPLE=1 or VOICE_STATEFUL_FILTER=1 instead
                     nyquist_freq = sample_rate / 2
                     cutoff_freq = 8000  # Nyquist-aligned: 8kHz (exactly at target Nyquist)
                     
                     # Only filter if we need to remove frequencies above cutoff
                     if nyquist_freq > cutoff_freq:
                         # 8th-order Butterworth for steeper rolloff (sharper cutoff)
-                        # Stronger filtering to eliminate microphone hiss before downsampling
+                        # ⚠️ sosfiltfilt is STATELESS - resets every 20ms chunk = CRACKLING!
                         normalized_cutoff = cutoff_freq / nyquist_freq
                         sos = butter(8, normalized_cutoff, btype='low', output='sos')
                         audio_float = sosfiltfilt(sos, audio_float)
@@ -781,20 +1068,23 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         
                         if frame_count == 1:
                             print(
-                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz (Nyquist={nyquist_freq}Hz) "
-                                f"to prevent hiss→crackle aliasing", 
+                                f"[FULL-MODE] {peer_id} ⚠️ Using STATELESS sosfiltfilt (may crackle!): "
+                                f"8th-order Butterworth @ {cutoff_freq}Hz", 
                                 flush=True
                             )
-                            logger.info(
-                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz to prevent hiss→crackle aliasing"
+                            print(
+                                f"[FULL-MODE] {peer_id} 💡 To fix: Set VOICE_TORCHAUDIO_RESAMPLE=1 "
+                                f"or VOICE_STATEFUL_FILTER=1",
+                                flush=True
+                            )
+                            logger.warning(
+                                f"[FULL-MODE] {peer_id} Using stateless sosfiltfilt - "
+                                f"consider enabling VOICE_TORCHAUDIO_RESAMPLE or VOICE_STATEFUL_FILTER"
                             )
                     
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
                     # Stage 2: 24kHz → 16kHz (3:2)
-                    resample_start = time.perf_counter()
                     if sample_rate == 48000:
                         # First stage: 48→24 (simpler ratio, less aliasing)
                         audio_24k = resample_poly(audio_float, 1, 2, window=('kaiser', 8.0))
@@ -811,10 +1101,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
                     resample_time_ms = (time.perf_counter() - resample_start) * 1000
                     
-                    # NO NOISE GATE - Removed to isolate buffer underrun issues
-                    # Keep audio as-is after resampling (only downsampling, no gating)
                     audio_16k_original = audio_16k.copy()
                 else:
+                    # 16kHz input but NOT minimal mode: just pass through
                     audio_16k = audio_float
                     audio_16k_original = audio_float.copy()
                     resample_time_ms = 0.0
@@ -831,8 +1120,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 # ============================================
                 # OPTIONAL: EXPERIMENTAL NOISE REDUCTION (NOT FOR UNDERRUN DEBUGGING)
                 # These are kept but NOT used in Layer 3 to avoid masking buffer issues
+                # MINIMAL MODE: Skip RNNoise entirely to isolate root cause of crackling
                 # ============================================
-                if info.get("rnnoise_enabled"):
+                if info.get("rnnoise_enabled") and not VOICE_MINIMAL_MODE:
                     try:
                         # Layer 3.2: RNNoise processing (for comparison only, NOT used in Layer 3)
                         rnnoise_start = time.perf_counter()
@@ -846,6 +1136,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         
                     except Exception as e:
                         logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise processing failed: {e}")
+                elif VOICE_MINIMAL_MODE and frame_count == 1:
+                    print(f"[MINIMAL-MODE] {peer_id} ⏭️ RNNoise skipped to isolate root cause", flush=True)
                 
                 # Calculate total frame processing time BEFORE VAD
                 stage_timing["total_ms"] = (time.perf_counter() - frame_processing_start) * 1000

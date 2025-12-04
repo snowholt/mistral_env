@@ -537,6 +537,18 @@ def main():
         }
     }
     
+    # Filter out layers that don't exist to avoid errors
+    existing_layers = {}
+    for k, v in layers.items():
+        if v['path'].exists():
+            existing_layers[k] = v
+        else:
+            # Only warn if user specifically requested this layer
+            if args.layer == k:
+                print(f"⚠️  Layer {k} not found: {v['path']}")
+    
+    layers = existing_layers
+    
     if args.layer != 'all':
         if args.layer in layers:
             layers = {args.layer: layers[args.layer]}

@@ -53,7 +53,7 @@ import aiortc.rtcrtpreceiver
 _original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
 
 AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "128"))
-AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "32"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "50"))
 
 
 def _patched_RTCRtpReceiver_init(self, kind, transport):
@@ -88,7 +88,7 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Environment variables for feature toggles
 ENABLE_TRANSIENT_SUPPRESSOR = os.getenv("VOICE_TRANSIENT_SUPPRESSOR", "0") == "1"
-ENABLE_DEBUG_CAPTURE = os.getenv("VOICE_DEBUG_CAPTURE", "1") == "1"
+ENABLE_DEBUG_CAPTURE = os.getenv("VOICE_DEBUG_CAPTURE", "0") == "1"
 DEBUG_CAPTURE_DIR = Path(os.getenv("VOICE_DEBUG_CAPTURE_DIR", "/home/lumi/beautyai/reports/debug/voice"))
 
 # Ensure debug directory exists
@@ -230,6 +230,7 @@ async def handle_offer(request: OfferRequest):
             vad_config.warmup_filter_duration_ms = 200  # Filter initial 200ms noise
             vad_config.min_sustained_speech_frames = 2  # Need 2 consecutive frames (not 3!)
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
+            vad_config.enable_debug_dump = False  # Disable VAD internal dumping
 
             vad_service = WebRTCVADService(session_id, language="en", config=vad_config)
             if await vad_service.initialize():
