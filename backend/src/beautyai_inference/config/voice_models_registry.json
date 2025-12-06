@@ -128,6 +128,41 @@
         "supports_torch_compile": true
       }
     },
+
+    "genius-whisper-arabic": {
+      "model_id": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/whisper/whisper",
+      "engine_type": "whisper_genius_arabic",
+      "type": "speech_to_text",
+      "description": "Genius AI fine-tuned Arabic Whisper (based on Large v3, 3.01GB local storage)",
+      "supported_languages": ["ar"],
+      "gpu_enabled": true,
+      "performance_profile": "genius_arabic_specialized",
+      "documentation": {
+        "base_model": "https://huggingface.co/openai/whisper-large-v3",
+        "fine_tuning": "Genius AI custom Arabic voice dataset",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "3.01GB local storage",
+        "speed": "Optimized for Arabic speech recognition",
+        "architecture": "Whisper Large v3 architecture, fine-tuned on Arabic dataset",
+        "optimization": "Local-only loading, Arabic-specific fine-tuning",
+        "performance": "Enhanced Arabic transcription with dialect support"
+      },
+      "training_details": {
+        "dataset": "Genius AI custom Arabic voice dataset",
+        "fine_tuning_date": "2025-12-06",
+        "base_model": "openai/whisper-large-v3",
+        "optimization_target": "Arabic speech recognition accuracy"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 8,
+        "recommended_vram_gb": 12,
+        "supports_flash_attention": true,
+        "supports_torch_compile": true,
+        "local_storage": true
+      }
+    },
     
     "edge-tts": {
       "model_id": "microsoft/edge-tts",
@@ -146,12 +181,47 @@
         "latency": "~200-500ms per sentence",
         "cost": "Free (no API key required for edge-tts library)"
       }
+    },
+
+    "genius-xtts-arabic": {
+      "model_id": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/xtts/GPT_XTTS_v2.0_LJSpeech_FT-December-01-2025_08+00PM-2b091fe",
+      "engine_type": "xtts",
+      "type": "text_to_speech",
+      "description": "Genius AI fine-tuned Coqui XTTS v2 - Arabic voice cloning and synthesis",
+      "supported_languages": ["ar", "en", "multilingual"],
+      "gpu_enabled": true,
+      "performance_profile": "genius_arabic_tts",
+      "documentation": {
+        "base_model": "https://huggingface.co/coqui/XTTS-v2",
+        "coqui_tts": "https://github.com/coqui-ai/TTS",
+        "fine_tuning": "Genius AI custom Arabic voice dataset"
+      },
+      "model_info": {
+        "size": "5.6GB local storage (per checkpoint)",
+        "latency": "50-150ms for streaming",
+        "quality": "High-quality voice cloning with Arabic support",
+        "streaming": true,
+        "voice_cloning": true,
+        "sample_rate": 24000
+      },
+      "training_details": {
+        "dataset": "Genius AI custom Arabic voice dataset",
+        "fine_tuning_date": "2025-12-01",
+        "base_model": "coqui/XTTS-v2",
+        "optimization_target": "Arabic voice synthesis and cloning"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 6,
+        "recommended_vram_gb": 10,
+        "supports_streaming": true,
+        "local_storage": true
+      }
     }
   },
 
   "default_models": {
-    "stt": "whisper-large-v3-turbo",
-    "tts": "edge-tts"
+    "stt": "genius-whisper-arabic",
+    "tts": "genius-xtts-arabic"
   },
 
   "voice_settings": {
