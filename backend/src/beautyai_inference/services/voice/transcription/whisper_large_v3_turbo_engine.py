@@ -250,36 +250,6 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 logger.error("Whisper pipeline not initialized")
                 return ""
 
-            model_ref = getattr(self.pipe, "model", None)
-            if model_ref is None:
-                logger.error("Whisper pipeline missing model reference")
-                return ""
-
-            generation_config = model_ref.generation_config
-            generation_config.max_new_tokens = 256
-            generation_config.num_beams = 1
-            generation_config.do_sample = False
-            generation_config.temperature = 0.0
-            generation_config.no_speech_threshold = 0.25
-            generation_config.condition_on_prev_tokens = False
-            generation_config.return_timestamps = False
-            generation_config.logprob_threshold = None
-            generation_config.compression_ratio_threshold = None
-            generation_config.language = language_for_generation
-            generation_config.task = "transcribe"
-
-            if forced_decoder_ids:
-                generation_config.forced_decoder_ids = forced_decoder_ids
-                model_ref.config.forced_decoder_ids = forced_decoder_ids
-                logger.debug(
-                    "Applied forced decoder prompt ids for %s transcribe task",
-                    language_for_generation,
-                )
-            else:
-                logger.warning(
-                    "Falling back to default whisper prompt; forced decoder ids unavailable"
-                )
-
             logger.info(
                 f"[WHISPER] Using turbo engine in {language_for_generation} transcribe mode"
             )
@@ -289,9 +259,29 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 "sampling_rate": 16000,
             }
 
+            # Build generate_kwargs for model.generate() call
+            # These are passed to the underlying model's generate() method
+            generate_kwargs = {
+                "language": language_for_generation,
+                "task": "transcribe",
+                "max_new_tokens": 256,
+                "num_beams": 1,
+                "do_sample": False,
+                "temperature": 0.0,
+                "condition_on_prev_tokens": False,
+            }
+            
+            # Add forced_decoder_ids if available for more robust language enforcement
+            if forced_decoder_ids:
+                generate_kwargs["forced_decoder_ids"] = forced_decoder_ids
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} with decoder_ids")
+            else:
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} via generate_kwargs")
+
             result = self.pipe(
                 audio_input,
                 return_timestamps=False,
+                generate_kwargs=generate_kwargs,
             )
 
             transcribed_text = result.get("text", "").strip() if result else ""
