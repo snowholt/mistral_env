@@ -7,7 +7,9 @@ This package contains TTS engines:
 """
 
 from .edge_tts_engine import EdgeTTSEngine
+from .xtts_engine import XTTSEngine
 
 __all__ = [
     "EdgeTTSEngine",
+    "XTTSEngine",
 ]
