@@ -15,6 +15,7 @@ from .whisper_large_v3_engine import WhisperLargeV3Engine
 from .whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
 from .whisper_arabic_turbo_engine import WhisperArabicTurboEngine
 from .whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
+from .whisper_genius_arabic_engine import WhisperGeniusArabicEngine
 
 __all__ = [
     "BaseWhisperEngine",
@@ -22,4 +23,5 @@ __all__ = [
     "WhisperLargeV3TurboEngine",
     "WhisperArabicTurboEngine",
     "WhisperFinetunedArabicEngine",
+    "WhisperGeniusArabicEngine",
 ]
