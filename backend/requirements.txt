@@ -1,6 +1,7 @@
 # Core dependencies
 torch>=2.0.0
-transformers>=4.36.0
+# Transformers locked to <4.37 for Coqui TTS compatibility (BeamSearchScorer required)
+transformers>=4.36.0,<4.37.0
 accelerate>=0.25.0
 bitsandbytes>=0.41.0
 psutil>=5.9.0
@@ -25,6 +26,8 @@ pydub>=0.25.0
 python-json-logger>=2.0.7
 scipy>=1.10.0
 noisereduce>=2.0.0
+pydantic-settings>=2.0.0
+watchdog>=2.0.0
 
 # WebRTC dependencies (Phase A - WebRTC Migration)
 aiortc>=1.5.0
