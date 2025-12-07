@@ -149,6 +149,7 @@ class WhisperGeniusArabicEngine(BaseWhisperEngine):
                 tokenizer=self.processor.tokenizer,
                 feature_extractor=self.processor.feature_extractor,
                 device=self.device,
+                torch_dtype=self.torch_dtype,
             )
             
             # Apply Arabic-specific optimizations
@@ -219,8 +220,6 @@ class WhisperGeniusArabicEngine(BaseWhisperEngine):
                 "max_new_tokens": 256,
                 "num_beams": 1,
                 "do_sample": False,
-                "temperature": 0.0,
-                "condition_on_prev_tokens": False,
             }
             
             # Get forced decoder IDs for Arabic

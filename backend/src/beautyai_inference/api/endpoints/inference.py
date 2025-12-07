@@ -118,7 +118,8 @@ async def chat_completion(
         if persistent_model_manager:
             try:
                 # Check if PersistentModelManager has a compatible LLM loaded
-                persistent_llm_model = await persistent_model_manager.get_llm_model()
+                # FIXED: get_llm_model is synchronous, do not await
+                persistent_llm_model = persistent_model_manager.get_llm_model()
                 if persistent_llm_model:
                     # Check if the requested model matches or can use the persistent model
                     persistent_config = persistent_model_manager.preload_config

@@ -120,7 +120,7 @@ class LlamaCppEngine(ModelInterface):
             "model_path": model_path,
             "n_gpu_layers": n_gpu_layers,
             "n_ctx": n_ctx,
-            "verbose": False,
+            "verbose": True,
         }
         
         # Add only essential parameters that are known to work
@@ -130,6 +130,8 @@ class LlamaCppEngine(ModelInterface):
                 "n_batch": n_batch,  # Use config value for maximum speed
                 "n_threads": n_threads,  # Use config value for optimal threading
             })
+            # Apply optimized GPU settings
+            model_params.update(gpu_settings)
             logger.info(f"Using OPTIMIZED GPU parameters: n_gpu_layers={n_gpu_layers}, n_batch={n_batch}, n_threads={n_threads}")
         else:
             # CPU-only parameters - still use config values

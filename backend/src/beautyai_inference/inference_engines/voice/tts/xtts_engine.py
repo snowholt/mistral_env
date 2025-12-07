@@ -149,6 +149,7 @@ class XTTSEngine(ModelInterface):
             logger.info(f"Loading model checkpoint: {model_file.name}")
             self.model.load_checkpoint(
                 self.xtts_config,
+                checkpoint_dir=str(self.model_path),  # Directory containing all model files
                 checkpoint_path=str(model_file),
                 vocab_path=str(vocab_file) if vocab_file.exists() else None,
                 eval=True,

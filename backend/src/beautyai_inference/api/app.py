@@ -347,76 +347,27 @@ async def serve_lean_test_page():
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
     try:
-        # Import model services here to avoid circular imports
-        from ..services.model import ModelLifecycleService, RegistryService  
-        from ..config.configuration_manager import ConfigurationManager
-        from ..config.config_manager import AppConfig
-        from pathlib import Path
+        logger.info("🚀 Starting Genius AI model preloading from preload_config.json...")
         
-        # Initialize services
-        lifecycle_service = ModelLifecycleService()
-        registry_service = RegistryService()
-        config_manager = ConfigurationManager()
-        # Note: Config is already loaded during ConfigurationManager initialization
+        # Use PersistentModelManager to preload models from config
+        from ..core.persistent_model_manager import get_persistent_model_manager
+        persistent_mgr = get_persistent_model_manager()
         
-        # Create AppConfig object and point it to the comprehensive model registry
-        app_config = AppConfig()
-        # Set the correct path to the comprehensive model registry
-        app_config.models_file = str(Path(__file__).parent.parent / "config" / "model_registry.json")
-        app_config.load_model_registry()  # Load from the comprehensive model registry
-       
-        # Models to pre-load for voice services
-        essential_models = [
-            "qwen3-unsloth-q4ks",            # Main chat model
-            # Don't pre-load whisper model here - let SimpleVoiceService handle it with base model
-        ]
+        # Preload all models defined in preload_config.json
+        success = await persistent_mgr.preload_models()
         
-        logger.info(f"🔄 Pre-loading {len(essential_models)} essential models...")
+        if success:
+            logger.info("✅ All Genius AI models pre-loaded successfully from config")
+            logger.info("🎯 Models ready: qwen3-unsloth-q4ks, genius-whisper-arabic, genius-xtts-arabic")
+        else:
+            logger.warning("⚠️ Some models failed to preload - check logs for details")
         
-        for model_name in essential_models:
-            try:
-                logger.info(f"⏳ Loading {model_name}...")
-                
-                # Get model config from registry
-                model_config = registry_service.get_model(app_config, model_name)
-                if not model_config:
-                    logger.warning(f"⚠️ Model '{model_name}' not found in registry, skipping")
-                    continue
-                
-                # Check if already loaded
-                if lifecycle_service.model_manager.is_model_loaded(model_name):
-                    logger.info(f"✅ Model '{model_name}' already loaded")
-                    continue
-                
-                # Load the model
-                success, error_msg = lifecycle_service.load_model(model_config, show_progress=False)
-                
-                if success:
-                    logger.info(f"✅ Successfully pre-loaded {model_name}")
-                else:
-                    logger.warning(f"⚠️ Failed to pre-load {model_name}: {error_msg}")
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Error pre-loading {model_name}: {e}")
-                continue
-        
-        # Pre-load Whisper model for WebRTC voice endpoints (prevents cold start)
-        try:
-            from ..core.persistent_model_manager import get_persistent_model_manager
-            persistent_mgr = get_persistent_model_manager()
-            logger.info("⏳ Pre-loading Whisper model for WebRTC voice services...")
-            whisper_loaded = await persistent_mgr.ensure_whisper_loaded()
-            if whisper_loaded:
-                logger.info("✅ Whisper model pre-loaded successfully (WebRTC ready)")
-            else:
-                logger.warning("⚠️ Whisper model pre-load failed - WebRTC will have cold start delay")
-        except Exception as e:
-            logger.warning(f"⚠️ Error pre-loading Whisper model: {e}")
-        
-        logger.info("🎯 Model pre-loading completed - WebSocket services ready for fast responses")
+        return success
         
     except Exception as e:
         logger.error(f"❌ Critical error during model pre-loading: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
 
 

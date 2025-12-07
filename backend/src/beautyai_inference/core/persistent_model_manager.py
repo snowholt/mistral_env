@@ -255,7 +255,7 @@ class PersistentModelManager:
             bool: True if loaded successfully
         """
         try:
-            if model_type == "whisper":
+            if model_type in ("whisper", "stt"):
                 return await self._preload_whisper_model(model_config)
             elif model_type == "llm":
                 return await self._preload_llm_model(model_config)
@@ -270,70 +270,96 @@ class PersistentModelManager:
             return False
     
     async def _preload_whisper_model(self, config: Dict[str, Any]) -> bool:
-        """Preload Whisper model using existing ModelManager."""
+        """Preload Genius Whisper model using ModelManager."""
         try:
-            # Use existing ModelManager's get_streaming_whisper method
+            model_id = config.get('model_id', 'genius-whisper-arabic')
+            self.logger.info(f"Preloading Genius Whisper model: {model_id}")
+            
+            # Use ModelManager's get_streaming_whisper with proper model name
             whisper_engine = self._model_manager.get_streaming_whisper(
-                model_name=config.get('model_id'),
-                language="auto"
+                model_name=model_id,
+                language="ar"  # Arabic for Genius AI model
             )
             
             if whisper_engine:
                 self._preloaded_models['whisper'] = whisper_engine
-                self.logger.info(f"Whisper model preloaded: {config.get('model_id')}")
+                self._preloaded_models['stt'] = whisper_engine  # Alias for compatibility
+                self.logger.info(f"✅ Genius Whisper model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to preload Whisper model")
+                self.logger.error(f"Failed to preload Genius Whisper model: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading Whisper model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     async def _preload_llm_model(self, config: Dict[str, Any]) -> bool:
-        """Preload LLM model using existing ModelManager."""
+        """Preload LLM model using ModelManager registry."""
         try:
-            from ..config.config_manager import ModelConfig
+            from ..config.config_manager import AppConfig, ModelRegistry
+            from pathlib import Path
             
-            # Use the fastest model from config or fallback to qwen3-unsloth-q4ks
-            fastest_model_name = config.get('model_path', 'qwen3-unsloth-q4ks')
+            # Get model ID from config
+            model_id = config.get('model_id', 'qwen3-unsloth-q4ks')
+            self.logger.info(f"Preloading LLM model from registry: {model_id}")
             
-            # Create model config for the fastest model
-            model_config = ModelConfig(
-                name=fastest_model_name,
-                model_id=fastest_model_name,  # Use model name as ID for registry lookup
-                engine_type="llama.cpp"  # Correct engine type for GGUF models
-            )
+            # Load the model registry
+            config_dir = Path(__file__).parent.parent / "config"
+            registry_file = config_dir / "model_registry.json"
+            
+            if not registry_file.exists():
+                self.logger.error(f"Model registry file not found: {registry_file}")
+                return False
+            
+            model_registry = ModelRegistry.load_from_file(registry_file)
+            model_config = model_registry.get_model(model_id)
+            
+            if not model_config:
+                self.logger.error(f"Model '{model_id}' not found in registry")
+                return False
+            
+            self.logger.info(f"Loaded registry config for {model_id}: engine={model_config.engine_type}, path={getattr(model_config, 'model_path', 'N/A')}")
             
             # Load model using ModelManager
             model_instance = self._model_manager.load_model(model_config)
             if model_instance:
                 self._preloaded_models['llm'] = model_instance
-                self.logger.info(f"LLM model preloaded: {fastest_model_name}")
+                self.logger.info(f"✅ LLM model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to load LLM model instance")
+                self.logger.error(f"Failed to load LLM model instance: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading LLM model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     async def _preload_tts_model(self, config: Dict[str, Any]) -> bool:
-        """Preload TTS model (Edge TTS is always available)."""
+        """Preload Genius XTTS TTS model."""
         try:
-            # Edge TTS doesn't need preloading, just mark as available
-            tts_engine = self._model_manager.get_tts_engine()
+            model_id = config.get('model_id', 'genius-xtts-arabic')
+            self.logger.info(f"Preloading Genius XTTS model: {model_id}")
+            
+            # Get TTS engine for Genius XTTS
+            tts_engine = self._model_manager.get_tts_engine(model_name=model_id)
+            
             if tts_engine:
                 self._preloaded_models['tts'] = tts_engine
-                self.logger.info("TTS engine ready (Edge TTS)")
+                self.logger.info(f"✅ Genius XTTS model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to get TTS engine")
+                self.logger.error(f"Failed to preload Genius XTTS model: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading TTS model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     def get_whisper_model(self) -> Optional[Any]:

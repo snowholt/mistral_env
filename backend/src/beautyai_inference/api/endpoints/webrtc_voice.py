@@ -194,7 +194,8 @@ async def handle_offer(request: OfferRequest):
                 print("[VOICE] ⚠️ LLM Model NOT Available", flush=True)
             
             if session_context["tts_model"]:
-                print("[VOICE] ✅ TTS Model Loaded (Edge TTS)", flush=True)
+                tts_type = type(session_context["tts_model"]).__name__
+                print(f"[VOICE] ✅ TTS Model Loaded ({tts_type})", flush=True)
             else:
                 print("[VOICE] ⚠️ TTS Model NOT Available", flush=True)
 
@@ -784,14 +785,27 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                     
                     tts_start = time.time()
                     
-                    # Generate TTS audio (Edge TTS returns WAV file path)
+                    # Determine TTS arguments based on engine type
+                    tts_args = {"text": tts_text, "language": language}
+                    tts_type = type(tts).__name__
+                    
+                    if tts_type == "EdgeTTSEngine":
+                        tts_args["gender"] = "female"
+                    elif tts_type == "XTTSEngine":
+                        # Check for speaker reference
+                        if not getattr(tts, "speaker_embedding", None):
+                            # Fallback to a known test file if available
+                            fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                            if fallback_wav.exists():
+                                print(f"[VOICE] ⚠️ XTTS missing speaker ref, using fallback: {fallback_wav}", flush=True)
+                                tts_args["speaker_wav"] = str(fallback_wav)
+                            else:
+                                print("[VOICE] ⚠️ XTTS missing speaker ref and no fallback found!", flush=True)
+                    
+                    # Generate TTS audio
                     audio_path = await loop.run_in_executor(
                         None,
-                        lambda: tts.text_to_speech(
-                            tts_text,
-                            language=language,
-                            gender="female"
-                        )
+                        lambda: tts.text_to_speech(**tts_args)
                     )
                     
                     tts_time = (time.time() - tts_start) * 1000

@@ -815,6 +815,7 @@ class ModelManager:
     def _create_whisper_engine(self, whisper_config: Any):
         """Create a Whisper engine instance based on configuration."""
         try:
+            from pathlib import Path
             engine_type = whisper_config.engine_type.lower()
             
             if engine_type == "whisper_large_v3_turbo":
@@ -831,7 +832,9 @@ class ModelManager:
                 return WhisperFinetunedArabicEngine()
             elif engine_type == "whisper_genius_arabic":
                 from ..inference_engines.voice.stt import WhisperGeniusArabicEngine
-                return WhisperGeniusArabicEngine()
+                # For Genius Arabic, model_id is actually the directory path
+                model_path = Path(whisper_config.model_id) if whisper_config.model_id else None
+                return WhisperGeniusArabicEngine(model_path=model_path)
             else:
                 logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
                 from ..inference_engines.voice.stt import WhisperLargeV3TurboEngine
@@ -1065,8 +1068,22 @@ class ModelManager:
                 elif engine_type == "xtts":
                     from ..inference_engines.voice.tts import XTTSEngine
                     from ..config.config_manager import ModelConfig
-                    config = ModelConfig(name=model_name, model_id=model_entry.get("model_id", model_name), engine_type=engine_type)
-                    engine = XTTSEngine(config)
+                    from pathlib import Path
+                    
+                    # For XTTS, model_id is actually the directory path
+                    model_path_str = model_entry.get("model_id", model_name)
+                    model_path = Path(model_path_str)
+                    
+                    # Create config with model_id as name reference
+                    config = ModelConfig(
+                        name=model_name,
+                        model_id=model_name,  # Use name as model_id reference
+                        engine_type=engine_type
+                    )
+                    
+                    # Pass model_path directly to XTTSEngine
+                    engine = XTTSEngine(model_config=config, model_path=model_path)
+                    logger.info(f"Creating XTTS engine with path: {model_path}")
                 else:
                     logger.warning(f"Unknown TTS engine_type '{engine_type}', attempting Edge TTS fallback")
                     from ..inference_engines.voice.tts import EdgeTTSEngine
