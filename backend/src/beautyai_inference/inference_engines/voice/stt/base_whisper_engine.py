@@ -13,6 +13,7 @@ import logging
 import tempfile
 import time
 import io
+import os
 import contextlib
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional, List
@@ -39,6 +40,21 @@ class BaseWhisperEngine(ABC):
     
     def __init__(self):
         """Initialize base engine with hardware detection and optimization."""
+        # Configure Triton cache directory to a writable location
+        # This fixes "Read-only file system" errors when running as a service with ProtectHome=read-only
+        try:
+            # Use a path within the writable backend directory
+            # We need to find the backend directory relative to this file or use a fixed path
+            # Using fixed path based on project structure for reliability
+            triton_cache_dir = "/home/lumi/beautyai/backend/logs/triton_cache"
+            os.makedirs(triton_cache_dir, exist_ok=True)
+            os.environ["TRITON_CACHE_DIR"] = triton_cache_dir
+            # Only log if not already set to avoid spamming from subclasses
+            if os.environ.get("TRITON_CACHE_DIR") == triton_cache_dir:
+                pass # Already set
+        except Exception as e:
+            logger.warning(f"Failed to set TRITON_CACHE_DIR: {e}")
+
         # Hardware detection and optimization
         self.device = "cuda:0" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16 if torch.cuda.is_available() else torch.float32

@@ -435,6 +435,12 @@
         
         <div style="display: flex; align-items: center; gap: 16px; flex-wrap: wrap; margin-bottom: 20px;">
             <button class="hard-refresh-btn" onclick="hardRefresh()">🔄 Hard Refresh (Clear Cache)</button>
+            
+            <select id="languageSelect" style="padding: 12px; border-radius: 25px; border: 1px solid #ccc; font-size: 15px; cursor: pointer;">
+                <option value="ar" selected>Arabic (ar)</option>
+                <option value="en">English (en)</option>
+            </select>
+
             <button id="start" onclick="start()">🎤 Start Capture</button>
             <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
             <div class="connection-indicator disconnected" id="connectionIndicator">
@@ -446,9 +452,9 @@
         
         <div class="test-script">
             <h3>📝 Suggested Test Script</h3>
-            <p>Hi there, this is a short audio test for voice detection. I'll speak softly… then a bit louder.<br>
-Sometimes I'll pause… just like this.<br>
-Let's see how clearly the system catches my voice, even with small background sounds or breathing noise.</p>
+            <p id="scriptText">مرحباً، هذا اختبار صوتي قصير للكشف عن الصوت. سأتحدث بهدوء... ثم بصوت أعلى قليلاً.<br>
+أحياناً سأتوقف قليلاً... تماماً مثل هذا.<br>
+لنرى مدى وضوح التقاط النظام لصوتي، حتى مع الأصوات الخلفية البسيطة أو صوت التنفس.</p>
         </div>
         
         <div class="transcription-live">
@@ -855,11 +861,17 @@ Let's see how clearly the system catches my voice, even with small background so
                 const offer = await pc.createOffer();
                 await pc.setLocalDescription(offer);
                 
-                log('📤 Sending offer to server...', 'info');
+                const selectedLanguage = document.getElementById('languageSelect').value;
+                log(`📤 Sending offer to server (Language: ${selectedLanguage})...`, 'info');
+                
                 const resp = await fetch(`${API}/api/v1/webrtc/debug/voice-capture/offer`, {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sdp: offer.sdp, type: 'offer' })
+                    body: JSON.stringify({ 
+                        sdp: offer.sdp, 
+                        type: 'offer',
+                        language: selectedLanguage
+                    })
                 });
                 
                 if (!resp.ok) {
@@ -1022,6 +1034,25 @@ Let's see how clearly the system catches my voice, even with small background so
             updateStatus('audioLevel', '—');
             updateConnectionIndicator('disconnected');
         }
+
+        // Language selection handler
+        document.getElementById('languageSelect').addEventListener('change', function(e) {
+            const scriptText = document.getElementById('scriptText');
+            if (e.target.value === 'ar') {
+                scriptText.innerHTML = `مرحباً، هذا اختبار صوتي قصير للكشف عن الصوت. سأتحدث بهدوء... ثم بصوت أعلى قليلاً.<br>
+أحياناً سأتوقف قليلاً... تماماً مثل هذا.<br>
+لنرى مدى وضوح التقاط النظام لصوتي، حتى مع الأصوات الخلفية البسيطة أو صوت التنفس.`;
+                document.dir = "rtl";
+            } else {
+                scriptText.innerHTML = `Hi there, this is a short audio test for voice detection. I'll speak softly… then a bit louder.<br>
+Sometimes I'll pause… just like this.<br>
+Let's see how clearly the system catches my voice, even with small background sounds or breathing noise.`;
+                document.dir = "ltr";
+            }
+        });
+        
+        // Set initial direction
+        document.dir = "rtl";
     </script>
 </body>
 </html>

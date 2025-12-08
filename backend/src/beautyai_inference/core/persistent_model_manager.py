@@ -362,23 +362,46 @@ class PersistentModelManager:
             self.logger.error(traceback.format_exc())
             return False
     
-    def get_whisper_model(self) -> Optional[Any]:
+    def get_whisper_model(self, language: Optional[str] = None) -> Optional[Any]:
         """
         Get persistent Whisper model instance.
+        
+        Args:
+            language: Optional language code to request specific model capabilities
         
         Returns:
             Persistent Whisper model instance or None if not loaded
         """
+        # Check if we have a preloaded model
         if 'whisper' in self._preloaded_models:
-            return self._preloaded_models['whisper']
+            model = self._preloaded_models['whisper']
+            
+            # If language is specified and NOT Arabic, check if current model is Arabic-only
+            if language and language.lower() not in ('ar', 'arabic', 'auto'):
+                # Check if the loaded model is the Genius Arabic one
+                is_arabic_model = False
+                if hasattr(model, '_get_engine_name'):
+                    engine_name = model._get_engine_name()
+                    if engine_name in ('whisper_genius_arabic', 'whisper_finetuned_arabic'):
+                        is_arabic_model = True
+                
+                if is_arabic_model:
+                    self.logger.info(f"Requested language '{language}' but preloaded model is Arabic-only. Fetching multilingual model via ModelManager.")
+                    # Fallback to ModelManager to get a suitable model (e.g. turbo)
+                    return self._model_manager.get_streaming_whisper(language=language)
+            
+            return model
         
         # Fallback to ModelManager if not preloaded
         self.logger.warning("Whisper model not preloaded, using ModelManager fallback")
-        whisper_engine = self._model_manager.get_streaming_whisper()
-        if whisper_engine:
+        whisper_engine = self._model_manager.get_streaming_whisper(language=language)
+        
+        # Only cache if it's the default/Arabic one to avoid polluting preloaded cache with temp models
+        if whisper_engine and (not language or language.lower() in ('ar', 'arabic', 'auto')):
             # Cache for subsequent callers so we do not reload per connection
             self._preloaded_models['whisper'] = whisper_engine
             self.logger.info("Cached Whisper engine obtained via fallback for reuse")
+            
         return whisper_engine
 
     async def ensure_whisper_loaded(

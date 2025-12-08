@@ -280,12 +280,20 @@ async def handle_debug_offer(request: DebugOfferRequest):
         capture_info["whisper_enabled"] = False  # Will be set to True if model loads successfully
         try:
             model_manager = get_persistent_model_manager()
-            whisper_engine = model_manager.get_whisper_model()
+            # Pass requested language to ensure we get a capable model (e.g. English vs Arabic)
+            whisper_engine = model_manager.get_whisper_model(language=request.language)
             if whisper_engine:
                 capture_info["whisper_model"] = whisper_engine
                 capture_info["whisper_enabled"] = True
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Loaded persistent Whisper Turbo model", flush=True)
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} using persistent Whisper Turbo (whisper-large-v3-turbo)")
+                
+                # Get model info for logging
+                model_info = {}
+                if hasattr(whisper_engine, "get_model_info"):
+                    model_info = whisper_engine.get_model_info()
+                
+                model_id = model_info.get("model_id", "Unknown Whisper Model")
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Loaded persistent model: {model_id}", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} using persistent model: {model_id}")
             else:
                 print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not preloaded, transcription disabled", flush=True)
                 logger.warning(f"[DEBUG-CAPTURE] {peer_id} Whisper model not available - ensure model is preloaded on startup")
@@ -1573,33 +1581,33 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 # Build report
                 underrun_report = {
                     "peer_id": peer_id,
-                    "total_frames": info.get("frames_captured", 0),
-                    "buffer_underruns": info.get("buffer_underruns", 0),
-                    "underrun_rate_percent": (underrun_count / len(inter_frame_delays) * 100) if inter_frame_delays else 0,
+                    "total_frames": int(info.get("frames_captured", 0)),
+                    "buffer_underruns": int(info.get("buffer_underruns", 0)),
+                    "underrun_rate_percent": float((underrun_count / len(inter_frame_delays) * 100) if inter_frame_delays else 0),
                     "inter_frame_delays_ms": {
-                        "avg": round(avg_delay, 2),
-                        "p50": round(p50_delay, 2),
-                        "p95": round(p95_delay, 2),
-                        "p99": round(p99_delay, 2),
-                        "max": round(max_delay, 2),
+                        "avg": float(round(avg_delay, 2)),
+                        "p50": float(round(p50_delay, 2)),
+                        "p95": float(round(p95_delay, 2)),
+                        "p99": float(round(p99_delay, 2)),
+                        "max": float(round(max_delay, 2)),
                         "expected": 20.0,  # 20ms expected for 48kHz/960 samples
                     },
                     "frame_recv_latency_ms": {
-                        "avg": round(avg_recv, 3),
-                        "p99": round(p99_recv, 3),
+                        "avg": float(round(avg_recv, 3)),
+                        "p99": float(round(p99_recv, 3)),
                     },
                     "processing_time_ms": {
-                        "total_avg": round(avg_proc, 2),
-                        "total_p99": round(p99_proc, 2),
-                        "resample_avg": round(avg_resample, 2),
-                        "resample_p99": round(p99_resample, 2),
-                        "vad_avg": round(avg_vad, 2),
-                        "vad_p99": round(p99_vad, 2),
+                        "total_avg": float(round(avg_proc, 2)),
+                        "total_p99": float(round(p99_proc, 2)),
+                        "resample_avg": float(round(avg_resample, 2)),
+                        "resample_p99": float(round(p99_resample, 2)),
+                        "vad_avg": float(round(avg_vad, 2)),
+                        "vad_p99": float(round(p99_vad, 2)),
                     },
                     "timing_summary": {
-                        "recv_overhead_significant": p99_recv > 5.0,  # >5ms recv is too slow
-                        "processing_bottleneck": p99_proc > 15.0,  # >15ms processing is slow
-                        "network_jitter_detected": p99_delay > 30.0,  # >30ms jitter = underrun
+                        "recv_overhead_significant": bool(p99_recv > 5.0),  # >5ms recv is too slow
+                        "processing_bottleneck": bool(p99_proc > 15.0),  # >15ms processing is slow
+                        "network_jitter_detected": bool(p99_delay > 30.0),  # >30ms jitter = underrun
                     },
                     "recommendations": []
                 }

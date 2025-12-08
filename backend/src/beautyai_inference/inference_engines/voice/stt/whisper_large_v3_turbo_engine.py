@@ -18,6 +18,7 @@ Date: 2025-01-30
 
 import logging
 import time
+import os
 from typing import Dict, Any, Optional
 from enum import Enum
 from contextlib import contextmanager
@@ -65,6 +66,17 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
         """Initialize Whisper Large v3 Turbo engine with speed-focused configuration."""
         super().__init__()
         
+        # Configure Triton cache directory to a writable location
+        # This fixes "Read-only file system" errors when running as a service with ProtectHome=read-only
+        try:
+            # Use a path within the writable backend directory
+            triton_cache_dir = "/home/lumi/beautyai/backend/logs/triton_cache"
+            os.makedirs(triton_cache_dir, exist_ok=True)
+            os.environ["TRITON_CACHE_DIR"] = triton_cache_dir
+            logger.info(f"Set TRITON_CACHE_DIR to {triton_cache_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to set TRITON_CACHE_DIR: {e}")
+
         # Engine-specific configuration
         self.pipe = None
         self.compiled_model = None
@@ -86,7 +98,10 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
     
     def _check_torch_compile_support(self) -> bool:
         """Check if torch.compile is available and recommended."""
-        # Disable torch.compile for faster startup and better stability
+        # Enable torch.compile for maximum speed on Linux/CUDA
+        # DISABLED: Causing CUDAGraphs memory overwrite errors in production
+        # import sys
+        # return sys.platform == "linux" and torch.cuda.is_available()
         return False
     
     def _load_model_implementation(self, model_id: str) -> bool:
@@ -141,12 +156,13 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 model=self.model,
                 tokenizer=self.processor.tokenizer,
                 feature_extractor=self.processor.feature_extractor,
-                device=self.device
+                device=self.device,
+                torch_dtype=self.torch_dtype
             )
             
-            # Skip torch.compile for now to avoid compatibility issues
-            logger.info("Skipping torch.compile to ensure compatibility")
-            self.supports_torch_compile = False
+            # Perform warmup if torch.compile is enabled to avoid first-inference latency
+            if self.supports_torch_compile:
+                self._warmup_model()
             
             logger.info("✅ Whisper Large v3 Turbo model loaded successfully")
             return True
@@ -268,7 +284,6 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 "num_beams": 1,
                 "do_sample": False,
                 "temperature": 0.0,
-                "condition_on_prev_tokens": False,
             }
             
             # Add forced_decoder_ids if available for more robust language enforcement
@@ -309,7 +324,6 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
         params = {
             "max_new_tokens": 256,  # Reduced for speed
             "num_beams": 1,  # Greedy search for maximum speed
-            "condition_on_prev_tokens": False,  # Disable for speed
             "compression_ratio_threshold": 2.4,
             "temperature": 0.0,  # Deterministic for speed
             "logprob_threshold": -1.0,

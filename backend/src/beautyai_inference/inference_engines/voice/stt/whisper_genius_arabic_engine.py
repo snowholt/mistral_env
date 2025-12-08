@@ -220,6 +220,8 @@ class WhisperGeniusArabicEngine(BaseWhisperEngine):
                 "max_new_tokens": 256,
                 "num_beams": 1,
                 "do_sample": False,
+                "repetition_penalty": 1.2,
+                "no_repeat_ngram_size": 3,
             }
             
             # Get forced decoder IDs for Arabic

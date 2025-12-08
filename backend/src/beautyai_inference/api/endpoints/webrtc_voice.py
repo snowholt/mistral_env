@@ -112,7 +112,7 @@ _active_connections: Dict[str, Dict[str, Any]] = {}
 class OfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
-    language: str = Field(default="ar", description="Language code (ar, en)")
+    language: Optional[str] = Field(default=None, description="Language code (ar, en)")
 
 
 class OfferResponse(BaseModel):
@@ -136,7 +136,9 @@ async def handle_offer(request: OfferRequest):
     """Create WebRTC session with optimized audio pipeline."""
     try:
         session_id = str(uuid.uuid4())
-        print(f"[VOICE] 🚀 Creating session {session_id} (language={request.language})", flush=True)
+        # Default to English if not specified (fixes language mixing issue)
+        target_language = request.language or "en"
+        print(f"[VOICE] 🚀 Creating session {session_id} (language={target_language})", flush=True)
 
         # RTC Configuration
         config = RTCConfiguration(
@@ -155,7 +157,7 @@ async def handle_offer(request: OfferRequest):
         session_context = {
             "pc": pc,
             "session_id": session_id,
-            "language": request.language,
+            "language": target_language,
             "start_time": time.time(),
             "audio_track": None,
             "data_channel": None,
@@ -245,11 +247,11 @@ async def handle_offer(request: OfferRequest):
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
             vad_config.enable_debug_dump = False  # Disable VAD internal dumping
 
-            vad_service = WebRTCVADService(session_id, language=request.language, config=vad_config)
+            vad_service = WebRTCVADService(session_id, language=target_language, config=vad_config)
             if await vad_service.initialize():
                 session_context["vad_service"] = vad_service
                 print(
-                    f"[VOICE] ✅ VAD Initialized (silero=0.3, thresh=0.1, sustained=2, lang={request.language})",
+                    f"[VOICE] ✅ VAD Initialized (silero=0.3, thresh=0.1, sustained=2, lang={target_language})",
                     flush=True,
                 )
             else:

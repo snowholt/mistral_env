@@ -5,6 +5,7 @@ Handle SIP protocol operations and call management
 
 import socket
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Dict, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -93,6 +94,9 @@ class SIPServer:
         self.on_invite: Optional[Callable] = None
         self.on_bye: Optional[Callable] = None
         
+        # Thread pool for message handling
+        self.executor = ThreadPoolExecutor(max_workers=50, thread_name_prefix="SIPWorker")
+        
         logger.info(f"SIP server initialized on {self.host}:{self.port}")
     
     def start(self):
@@ -131,6 +135,8 @@ class SIPServer:
         
         if self.thread:
             self.thread.join(timeout=2)
+            
+        self.executor.shutdown(wait=False)
         
         logger.info("SIP server stopped")
     
@@ -143,12 +149,8 @@ class SIPServer:
                 # Receive message
                 data, addr = self.socket.recvfrom(65535)
                 
-                # Process in separate thread to not block receive
-                threading.Thread(
-                    target=self._handle_message,
-                    args=(data, addr),
-                    daemon=True
-                ).start()
+                # Process in thread pool
+                self.executor.submit(self._handle_message, data, addr)
                 
             except Exception as e:
                 if self.running:
