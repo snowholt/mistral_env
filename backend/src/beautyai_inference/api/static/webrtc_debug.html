@@ -4,7 +4,7 @@
     <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
     <meta http-equiv="Pragma" content="no-cache">
     <meta http-equiv="Expires" content="0">
-    <title>WebRTC Debug Tool v3.0 - 16kHz Mono (Nov 29 2025)</title>
+    <title>WebRTC Debug Tool v4.0 - Model Comparison (Dec 8 2025)</title>
     <style>
         * {
             box-sizing: border-box;
@@ -441,6 +441,28 @@
                 <option value="en">English (en)</option>
             </select>
 
+            <select id="modelSelect" style="padding: 12px; border-radius: 25px; border: 1px solid #ccc; font-size: 15px; cursor: pointer; min-width: 200px;">
+                <option value="auto" selected>🤖 Auto (Preloaded)</option>
+                <option value="genius-whisper-arabic">🎯 Genius Arabic (3GB)</option>
+                <option value="whisper-large-v3-turbo">⚡ Large v3 Turbo (Fast)</option>
+                <option value="whisper-large-v3">🎓 Large v3 (Accurate)</option>
+                <option value="whisper-arabic-turbo">🌍 Arabic Turbo (HF)</option>
+                <option value="beautyai-whisper-turbo">💄 BeautyAI Turbo</option>
+            </select>
+
+            <label style="display: flex; align-items: center; gap: 6px; padding: 8px 16px; background: #f0f4ff; border-radius: 25px; cursor: pointer; font-size: 14px;">
+                <input type="checkbox" id="compareMode" style="width: 18px; height: 18px; cursor: pointer;">
+                <span>🔬 Compare Mode</span>
+            </label>
+
+            <select id="modelSelectB" style="padding: 12px; border-radius: 25px; border: 1px solid #ccc; font-size: 15px; cursor: pointer; min-width: 200px; display: none;">
+                <option value="whisper-large-v3-turbo" selected>⚡ Model B: Large v3 Turbo</option>
+                <option value="genius-whisper-arabic">🎯 Model B: Genius Arabic</option>
+                <option value="whisper-large-v3">🎓 Model B: Large v3</option>
+                <option value="whisper-arabic-turbo">🌍 Model B: Arabic Turbo</option>
+                <option value="beautyai-whisper-turbo">💄 Model B: BeautyAI Turbo</option>
+            </select>
+
             <button id="start" onclick="start()">🎤 Start Capture</button>
             <button id="stop" onclick="stop()" disabled>🛑 Stop Capture</button>
             <div class="connection-indicator disconnected" id="connectionIndicator">
@@ -486,8 +508,21 @@
     
     <script>
         // VERSION DETECTION - MUST BE FIRST LINE
-        console.log('%c🚀 WebRTC Debug Tool v2.3-ENHANCED LOADED (Nov 7, 17:15 UTC)', 'background: #00ff00; color: #000; font-size: 20px; font-weight: bold; padding: 10px;');
-        console.log('%c✨ NEW: Browser noise suppression + Live transcriptions + Hard refresh button!', 'background: #9c27b0; color: #fff; font-size: 16px; padding: 5px;');
+        console.log('%c🚀 WebRTC Debug Tool v4.0-MODEL-COMPARE LOADED (Dec 8 2025)', 'background: #00ff00; color: #000; font-size: 20px; font-weight: bold; padding: 10px;');
+        console.log('%c✨ NEW: Whisper Model Selection + A/B Comparison Mode!', 'background: #9c27b0; color: #fff; font-size: 16px; padding: 5px;');
+
+        // Compare mode toggle handler
+        document.addEventListener('DOMContentLoaded', function() {
+            const compareCheckbox = document.getElementById('compareMode');
+            const modelSelectB = document.getElementById('modelSelectB');
+            
+            compareCheckbox.addEventListener('change', function() {
+                modelSelectB.style.display = this.checked ? 'inline-block' : 'none';
+                if (this.checked) {
+                    log('🔬 Compare Mode enabled - will test 2 models simultaneously', 'info');
+                }
+            });
+        });
         
         /**
          * Hard refresh function - clears cache and reloads
@@ -520,7 +555,8 @@
         let transcriptionInterval = null;
         let lastTranscriptionCount = 0;
         let minimumCaptureTime = 5000; // 5 seconds minimum capture time
-        let latencies = []; // Track all latencies for statistics
+        let latenciesA = []; // Track Model A latencies
+        let latenciesB = []; // Track Model B latencies
         
         function log(msg, type = 'info') {
             const div = document.getElementById('log');
@@ -561,6 +597,7 @@
                 if (!resp.ok) return;
                 
                 const data = await resp.json();
+                const compareMode = document.getElementById('compareMode').checked;
                 
                 if (data.whisper_available === false) {
                     document.getElementById('transcriptionStatus').textContent = 'Whisper not available';
@@ -582,16 +619,29 @@
                     newTranscriptions.forEach(t => {
                         const p = document.createElement('p');
                         const timestamp = new Date().toLocaleTimeString();
-                        const layer = t.layer === 'Layer4_16kHz' ? 'L4' : 'L5';
                         const latency = t.latency_ms ? `(${t.latency_ms.toFixed(0)}ms)` : '';
                         
-                        // Track latency statistics
-                        if (t.latency_ms && t.layer === 'Layer4_16kHz') {
-                            latencies.push(t.latency_ms);
-                            updateLatencyStats();
+                        // Determine model badge and styling for compare mode
+                        let modelBadge = '';
+                        let modelColor = '#3498db';
+                        if (t.model === 'A') {
+                            modelBadge = `<span style="background: #2ecc71; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 8px;">🅰️ ${t.model_name || 'Model A'}</span>`;
+                            modelColor = '#2ecc71';
+                            latenciesA.push(t.latency_ms);
+                        } else if (t.model === 'B') {
+                            modelBadge = `<span style="background: #9b59b6; color: white; padding: 2px 8px; border-radius: 10px; font-size: 11px; margin-right: 8px;">🅱️ ${t.model_name || 'Model B'}</span>`;
+                            modelColor = '#9b59b6';
+                            latenciesB.push(t.latency_ms);
+                        } else {
+                            // Legacy/non-compare mode
+                            latenciesA.push(t.latency_ms);
                         }
                         
-                        p.innerHTML = `<span class="timestamp">[${timestamp}] ${layer} ${latency}</span><span class="segment-text">${t.text}</span>`;
+                        // Update latency stats
+                        updateLatencyStats();
+                        
+                        p.style.borderLeftColor = modelColor;
+                        p.innerHTML = `${modelBadge}<span class="timestamp">[${timestamp}] ${latency}</span><span class="segment-text">${t.text}</span>`;
                         transcriptionDiv.appendChild(p);
                         
                         // Auto-scroll to bottom
@@ -605,7 +655,8 @@
                     
                     // Log to console
                     const latestText = newTranscriptions[newTranscriptions.length - 1].text;
-                    log(`🎯 NEW: ${latestText.substring(0, 60)}${latestText.length > 60 ? '...' : ''}`, 'success');
+                    const latestModel = newTranscriptions[newTranscriptions.length - 1].model || '';
+                    log(`🎯 ${latestModel ? '[' + latestModel + '] ' : ''}NEW: ${latestText.substring(0, 60)}${latestText.length > 60 ? '...' : ''}`, 'success');
                 }
             } catch (err) {
                 console.error('Transcription fetch error:', err);
@@ -613,20 +664,52 @@
         }
         
         function updateLatencyStats() {
-            if (latencies.length === 0) return;
+            const compareMode = document.getElementById('compareMode').checked;
             
-            const avg = latencies.reduce((a, b) => a + b, 0) / latencies.length;
-            const best = Math.min(...latencies);
-            const worst = Math.max(...latencies);
-            
-            document.getElementById('avgLatency').textContent = `${avg.toFixed(1)}ms`;
-            document.getElementById('bestLatency').textContent = `${best.toFixed(0)}ms ⚡`;
-            document.getElementById('worstLatency').textContent = `${worst.toFixed(0)}ms`;
+            if (compareMode && (latenciesA.length > 0 || latenciesB.length > 0)) {
+                // Compare mode: Show stats for both models
+                let statsText = '';
+                
+                if (latenciesA.length > 0) {
+                    const avgA = latenciesA.reduce((a, b) => a + b, 0) / latenciesA.length;
+                    const bestA = Math.min(...latenciesA);
+                    statsText += `🅰️ ${avgA.toFixed(0)}ms`;
+                }
+                
+                if (latenciesB.length > 0) {
+                    const avgB = latenciesB.reduce((a, b) => a + b, 0) / latenciesB.length;
+                    const bestB = Math.min(...latenciesB);
+                    if (statsText) statsText += ' | ';
+                    statsText += `🅱️ ${avgB.toFixed(0)}ms`;
+                }
+                
+                document.getElementById('avgLatency').textContent = statsText || '—';
+                
+                // Show comparison in best/worst
+                if (latenciesA.length > 0 && latenciesB.length > 0) {
+                    const avgA = latenciesA.reduce((a, b) => a + b, 0) / latenciesA.length;
+                    const avgB = latenciesB.reduce((a, b) => a + b, 0) / latenciesB.length;
+                    const winner = avgA < avgB ? '🅰️ wins!' : (avgB < avgA ? '🅱️ wins!' : 'Tie!');
+                    const diff = Math.abs(avgA - avgB).toFixed(0);
+                    document.getElementById('bestLatency').textContent = `${winner} (${diff}ms)`;
+                    document.getElementById('worstLatency').textContent = `A:${latenciesA.length} B:${latenciesB.length}`;
+                }
+            } else if (latenciesA.length > 0) {
+                // Single model mode
+                const avg = latenciesA.reduce((a, b) => a + b, 0) / latenciesA.length;
+                const best = Math.min(...latenciesA);
+                const worst = Math.max(...latenciesA);
+                
+                document.getElementById('avgLatency').textContent = `${avg.toFixed(1)}ms`;
+                document.getElementById('bestLatency').textContent = `${best.toFixed(0)}ms ⚡`;
+                document.getElementById('worstLatency').textContent = `${worst.toFixed(0)}ms`;
+            }
         }
         
         function startTranscriptionPolling() {
             lastTranscriptionCount = 0;
-            latencies = []; // Reset latency tracking
+            latenciesA = []; // Reset Model A latency tracking
+            latenciesB = []; // Reset Model B latency tracking
             document.getElementById('transcriptionText').innerHTML = '<p style="color: #999; font-style: italic;">Listening for speech...</p>';
             document.getElementById('transcriptionStatus').textContent = 'Listening...';
             document.getElementById('transcriptionStatus').style.color = '#2196f3';
@@ -862,7 +945,11 @@
                 await pc.setLocalDescription(offer);
                 
                 const selectedLanguage = document.getElementById('languageSelect').value;
-                log(`📤 Sending offer to server (Language: ${selectedLanguage})...`, 'info');
+                const selectedModel = document.getElementById('modelSelect').value;
+                const compareMode = document.getElementById('compareMode').checked;
+                const selectedModelB = compareMode ? document.getElementById('modelSelectB').value : null;
+                
+                log(`📤 Sending offer to server (Language: ${selectedLanguage}, Model: ${selectedModel}${compareMode ? ', ModelB: ' + selectedModelB : ''})...`, 'info');
                 
                 const resp = await fetch(`${API}/api/v1/webrtc/debug/voice-capture/offer`, {
                     method: 'POST',
@@ -870,7 +957,10 @@
                     body: JSON.stringify({ 
                         sdp: offer.sdp, 
                         type: 'offer',
-                        language: selectedLanguage
+                        language: selectedLanguage,
+                        model: selectedModel === 'auto' ? null : selectedModel,
+                        compare_mode: compareMode,
+                        model_b: selectedModelB
                     })
                 });
                 

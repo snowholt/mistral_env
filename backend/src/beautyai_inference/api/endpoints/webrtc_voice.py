@@ -8,16 +8,17 @@ Audio processing pipeline:
 - Resampling: Single-stage 48kHz → 16kHz (with debug capture option)
 - Noise Reduction: RNNoise (16→48→RNNoise→16 pipeline)
 - VAD: Silero VAD with threshold 0.2
-- STT: Faster-Whisper (Turbo)
-- LLM: Qwen (via Llama.cpp)
-- Output: Text response via Data Channel
+- STT: Whisper Large v3 Turbo (openai/whisper-large-v3-turbo, 809M params)
+- LLM: Qwen3 14B Q4_K_S (via Llama.cpp, ~8GB VRAM)
+- TTS: Genius XTTS v2 Arabic (Coqui TTS fine-tuned, voice cloning)
+- Output: Text + Audio response via Data Channel
 
 Pipeline Flow:
     48kHz Raw → [Transient Suppressor] → Float32 → Butterworth → Resample 16kHz
-    → RNNoise (16→48→denoise→16) → VAD → Whisper → LLM
+    → RNNoise (16→48→denoise→16) → VAD → Whisper → LLM → XTTS
 
 Author: BeautyAI Framework
-Date: November 2025
+Date: December 2025
 """
 
 import asyncio
@@ -796,13 +797,19 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                     elif tts_type == "XTTSEngine":
                         # Check for speaker reference
                         if not getattr(tts, "speaker_embedding", None):
-                            # Fallback to a known test file if available
-                            fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                            # Use Arabic speaker reference for proper pronunciation
+                            # Language-specific speaker reference selection
+                            if language == "ar":
+                                fallback_wav = Path("/home/lumi/beautyai/voice_tests/input_test_questions/q1.wav")
+                            else:
+                                # English or other languages use English speaker
+                                fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                            
                             if fallback_wav.exists():
-                                print(f"[VOICE] ⚠️ XTTS missing speaker ref, using fallback: {fallback_wav}", flush=True)
+                                print(f"[VOICE] 🔊 Using speaker ref for {language}: {fallback_wav.name}", flush=True)
                                 tts_args["speaker_wav"] = str(fallback_wav)
                             else:
-                                print("[VOICE] ⚠️ XTTS missing speaker ref and no fallback found!", flush=True)
+                                print(f"[VOICE] ⚠️ XTTS speaker ref not found: {fallback_wav}!", flush=True)
                     
                     # Generate TTS audio
                     audio_path = await loop.run_in_executor(

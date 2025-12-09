@@ -196,6 +196,9 @@ class DebugOfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
     language: str = Field(default="ar", description="Language code (ar, en)")
+    model: Optional[str] = Field(default=None, description="Whisper model to use (e.g., genius-whisper-arabic, whisper-large-v3-turbo)")
+    compare_mode: bool = Field(default=False, description="Enable A/B model comparison")
+    model_b: Optional[str] = Field(default=None, description="Second model for A/B comparison")
 
 
 class DebugOfferResponse(BaseModel):
@@ -257,6 +260,10 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "layer_32_rnnoise_16khz": [],  # Layer 3.2 - RNNoise @ 16kHz (primary noise reduction)
             "transcriptions": [],  # Store transcription results
             "whisper_model": None,  # Will be loaded on first use
+            "whisper_model_b": None,  # Second model for A/B comparison
+            "compare_mode": request.compare_mode,  # A/B comparison mode flag
+            "model_a_name": request.model or "auto",  # Model A name for display
+            "model_b_name": request.model_b,  # Model B name for display
             "vad_service": None,  # VAD for speech detection
             "is_speech_active": False,  # Current speech state
             "speech_buffer": [],  # Buffer for accumulating speech audio
@@ -277,11 +284,26 @@ async def handle_debug_offer(request: DebugOfferRequest):
         }
         
         # Get preloaded Whisper model for transcription after VAD filtering
+        # Now supports explicit model selection and A/B comparison mode
         capture_info["whisper_enabled"] = False  # Will be set to True if model loads successfully
         try:
             model_manager = get_persistent_model_manager()
-            # Pass requested language to ensure we get a capable model (e.g. English vs Arabic)
-            whisper_engine = model_manager.get_whisper_model(language=request.language)
+            
+            # Determine which model to load (explicit selection or auto)
+            selected_model = request.model  # None means use preloaded/auto
+            
+            if selected_model:
+                # User explicitly selected a model - use ModelManager to load it
+                print(f"[DEBUG-CAPTURE] {peer_id} 🎯 Loading user-selected model: {selected_model}", flush=True)
+                from ...core.model_manager import ModelManager
+                mm = ModelManager()
+                whisper_engine = mm.get_streaming_whisper(model_name=selected_model, language=request.language)
+                capture_info["model_a_name"] = selected_model
+            else:
+                # Use preloaded model (default behavior)
+                whisper_engine = model_manager.get_whisper_model(language=request.language)
+                capture_info["model_a_name"] = "preloaded"
+            
             if whisper_engine:
                 capture_info["whisper_model"] = whisper_engine
                 capture_info["whisper_enabled"] = True
@@ -291,12 +313,34 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 if hasattr(whisper_engine, "get_model_info"):
                     model_info = whisper_engine.get_model_info()
                 
-                model_id = model_info.get("model_id", "Unknown Whisper Model")
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Loaded persistent model: {model_id}", flush=True)
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} using persistent model: {model_id}")
+                model_id = model_info.get("model_id", capture_info["model_a_name"])
+                capture_info["model_a_name"] = model_id  # Update with actual model ID
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Model A loaded: {model_id}", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} using Model A: {model_id}")
             else:
-                print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not preloaded, transcription disabled", flush=True)
+                print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not available, transcription disabled", flush=True)
                 logger.warning(f"[DEBUG-CAPTURE] {peer_id} Whisper model not available - ensure model is preloaded on startup")
+            
+            # Load second model for A/B comparison if enabled
+            if request.compare_mode and request.model_b:
+                print(f"[DEBUG-CAPTURE] {peer_id} 🔬 Loading Model B for comparison: {request.model_b}", flush=True)
+                from ...core.model_manager import ModelManager
+                mm = ModelManager()
+                whisper_engine_b = mm.get_streaming_whisper(model_name=request.model_b, language=request.language)
+                
+                if whisper_engine_b:
+                    capture_info["whisper_model_b"] = whisper_engine_b
+                    model_info_b = {}
+                    if hasattr(whisper_engine_b, "get_model_info"):
+                        model_info_b = whisper_engine_b.get_model_info()
+                    model_id_b = model_info_b.get("model_id", request.model_b)
+                    capture_info["model_b_name"] = model_id_b
+                    print(f"[DEBUG-CAPTURE] {peer_id} ✅ Model B loaded: {model_id_b}", flush=True)
+                    logger.info(f"[DEBUG-CAPTURE] {peer_id} using Model B: {model_id_b}")
+                else:
+                    print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Model B ({request.model_b}) failed to load", flush=True)
+                    capture_info["compare_mode"] = False  # Disable compare mode if Model B fails
+                    
         except Exception as e:
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to load Whisper model: {e}")
             capture_info["whisper_model"] = None
@@ -627,47 +671,102 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     speech_buffer_16k = []  # Layer 4 (16kHz)
     
     # Define background task for transcription (non-blocking)
+    # Now supports A/B model comparison mode
     async def _run_transcription_task(audio_bytes, segment_num, frame_idx, duration_s):
         try:
             whisper_model = info.get("whisper_model")
+            whisper_model_b = info.get("whisper_model_b")
+            compare_mode = info.get("compare_mode", False)
+            
             if not whisper_model:
                 return
 
             print(f"[WHISPER] {peer_id} 🎤 Transcribing segment #{segment_num} (background): {len(audio_bytes)} bytes...", flush=True)
             
             loop = asyncio.get_running_loop()
-            start_t = time.time()
-            
-            # Run blocking inference in thread pool to avoid blocking main loop
             target_language = info.get("language", None)
-            raw_transcription = await loop.run_in_executor(
-                None, 
-                partial(
-                    whisper_model.transcribe_audio_bytes,
-                    audio_bytes,
-                    audio_format="pcm_raw",
-                    language=target_language
+            
+            # Helper function to run transcription and return result with timing
+            async def transcribe_with_model(model, model_label, model_name_key):
+                start_t = time.time()
+                raw_transcription = await loop.run_in_executor(
+                    None, 
+                    partial(
+                        model.transcribe_audio_bytes,
+                        audio_bytes,
+                        audio_format="pcm_raw",
+                        language=target_language
+                    )
                 )
-            )
-            
-            latency_ms = (time.time() - start_t) * 1000
-            
-            # Apply repetition filter to clean Whisper output
-            transcription = filter_whisper_output(raw_transcription, language=target_language) if raw_transcription else ""
-            if raw_transcription and transcription != raw_transcription:
-                print(f"[WHISPER] {peer_id} 🧹 Cleaned: '{raw_transcription}' → '{transcription}'", flush=True)
-            
-            if transcription and transcription.strip():
-                info.setdefault("transcriptions", []).append({
-                    "segment_number": segment_num,
-                    "frame_index": frame_idx,
-                    "timestamp": time.time() - info["start_time"],
-                    "layer": "Layer4_16kHz",
-                    "text": transcription,
-                    "duration_s": duration_s,
+                latency_ms = (time.time() - start_t) * 1000
+                
+                # Apply repetition filter to clean Whisper output
+                transcription = filter_whisper_output(raw_transcription, language=target_language) if raw_transcription else ""
+                if raw_transcription and transcription != raw_transcription:
+                    print(f"[WHISPER] {peer_id} 🧹 Model {model_label} cleaned: '{raw_transcription}' → '{transcription}'", flush=True)
+                
+                return {
+                    "label": model_label,
+                    "model_name": info.get(model_name_key, f"Model {model_label}"),
+                    "transcription": transcription,
                     "latency_ms": latency_ms,
-                })
-                print(f"[WHISPER] {peer_id} ✅ Segment #{segment_num} ({latency_ms:.0f}ms): \"{transcription}\"", flush=True)
+                    "timestamp": time.time() - info["start_time"],
+                }
+            
+            # Run models in PARALLEL if compare mode is enabled
+            if compare_mode and whisper_model_b:
+                print(f"[WHISPER] {peer_id} 🔬 Running A/B comparison in PARALLEL...", flush=True)
+                
+                # Create tasks for both models
+                task_a = transcribe_with_model(whisper_model, "A", "model_a_name")
+                task_b = transcribe_with_model(whisper_model_b, "B", "model_b_name")
+                
+                # Run both in parallel with asyncio.gather
+                results = await asyncio.gather(task_a, task_b, return_exceptions=True)
+                
+                # Process results
+                for result in results:
+                    if isinstance(result, Exception):
+                        print(f"[WHISPER] {peer_id} ❌ Model transcription error: {result}", flush=True)
+                        continue
+                    
+                    if result["transcription"] and result["transcription"].strip():
+                        info.setdefault("transcriptions", []).append({
+                            "segment_number": segment_num,
+                            "frame_index": frame_idx,
+                            "timestamp": result["timestamp"],
+                            "layer": "Layer4_16kHz",
+                            "model": result["label"],
+                            "model_name": result["model_name"],
+                            "text": result["transcription"],
+                            "duration_s": duration_s,
+                            "latency_ms": result["latency_ms"],
+                        })
+                        print(f"[WHISPER] {peer_id} ✅ Model {result['label']} #{segment_num} ({result['latency_ms']:.0f}ms): \"{result['transcription']}\"", flush=True)
+                
+                # Log comparison summary (find A and B results)
+                result_a = next((r for r in results if not isinstance(r, Exception) and r["label"] == "A"), None)
+                result_b = next((r for r in results if not isinstance(r, Exception) and r["label"] == "B"), None)
+                if result_a and result_b:
+                    latency_diff = result_a["latency_ms"] - result_b["latency_ms"]
+                    print(f"[WHISPER] {peer_id} 🔬 PARALLEL Compare: A={result_a['latency_ms']:.0f}ms vs B={result_b['latency_ms']:.0f}ms (diff={latency_diff:+.0f}ms)", flush=True)
+            else:
+                # Single model mode (Model A only)
+                result = await transcribe_with_model(whisper_model, "A", "model_a_name")
+                
+                if result["transcription"] and result["transcription"].strip():
+                    info.setdefault("transcriptions", []).append({
+                        "segment_number": segment_num,
+                        "frame_index": frame_idx,
+                        "timestamp": result["timestamp"],
+                        "layer": "Layer4_16kHz",
+                        "model": "A",
+                        "model_name": result["model_name"],
+                        "text": result["transcription"],
+                        "duration_s": duration_s,
+                        "latency_ms": result["latency_ms"],
+                    })
+                    print(f"[WHISPER] {peer_id} ✅ Model A #{segment_num} ({result['latency_ms']:.0f}ms): \"{result['transcription']}\"", flush=True)
                 
         except Exception as e:
             logger.error(f"[WHISPER] {peer_id} Background transcription error: {e}", exc_info=True)

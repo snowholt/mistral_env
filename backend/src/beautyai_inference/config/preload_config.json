@@ -3,15 +3,15 @@
   "description": "Preload configuration for BeautyAI - 3 Genius AI models persistent on GPU",
   "models": {
     "stt": {
-      "model_id": "genius-whisper-arabic",
-      "model_path": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/whisper/whisper",
+      "model_id": "whisper-large-v3-turbo",
+      "model_path": "openai/whisper-large-v3-turbo",
       "device": "cuda",
       "compute_type": "float16",
       "priority": 1,
-      "engine_type": "whisper_genius_arabic",
-      "optimization_level": "gpu_accuracy",
-      "target_latency_ms": 1000,
-      "description": "Genius AI fine-tuned Arabic Whisper (3.01GB, 1.51GB VRAM)"
+      "engine_type": "whisper_large_v3_turbo",
+      "optimization_level": "gpu_speed",
+      "target_latency_ms": 500,
+      "description": "OpenAI Whisper Large v3 Turbo - 4x faster (809M params, ~1.5GB VRAM)"
     },
     "llm": {
       "model_id": "qwen3-unsloth-q4ks",

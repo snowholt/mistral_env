@@ -220,7 +220,7 @@
   },
 
   "default_models": {
-    "stt": "genius-whisper-arabic",
+    "stt": "whisper-large-v3-turbo",
     "tts": "genius-xtts-arabic"
   },
 
