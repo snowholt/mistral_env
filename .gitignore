@@ -59,7 +59,7 @@ logs/
 *.pcm
 vad_testting_temp/
 backend/vad_testting_temp/
-
+tests/webrtc/xtts_whisper_test_outputs/
 # Model state files
 **/loaded_models_state.json
 
