@@ -44,7 +44,8 @@ tests/openai_validation/validation_results.json
 # OS specific files
 .DS_Store
 Thumbs.db
-
+tests/Wahtsapp_unpacked/
+tests/Wahtsapp.zip
 # Log files
 *.log
 
@@ -92,3 +93,4 @@ README.md
 
 # RNNoise library (compiled from source, don't track)
 backend/rnnoise/
+backend/.env

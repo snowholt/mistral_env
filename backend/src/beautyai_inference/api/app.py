@@ -39,6 +39,17 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
+# Import WhatsApp Manager routers
+try:
+    from .endpoints.whatsapp_auth import whatsapp_auth_router
+    from .endpoints.whatsapp_manager import whatsapp_manager_router
+    from .endpoints.whatsapp_webhook import whatsapp_webhook_router
+    from .endpoints.whatsapp_inbox_ws import whatsapp_inbox_ws_router
+    whatsapp_routers_available = True
+except ImportError as e:
+    whatsapp_routers_available = False
+    logger.warning(f"WhatsApp Manager routers not available: {e}")
+
 
 
 # Import performance dashboard router
@@ -91,6 +102,26 @@ tags_metadata = [
     {
         "name": "performance",
         "description": "📊 **Performance Monitoring** - Real-time performance metrics, alerts, and system analytics."
+    },
+    {
+        "name": "whatsapp-auth",
+        "description": "🔐 **WhatsApp Auth** - User authentication for WhatsApp Manager SaaS platform. "
+                      "JWT-based registration, login, and token management."
+    },
+    {
+        "name": "whatsapp-manager",
+        "description": "📱 **WhatsApp Manager** - Meta Embedded Signup, AI agent configuration, and inbox management. "
+                      "Protected endpoints for business owners to configure their WhatsApp automation."
+    },
+    {
+        "name": "whatsapp-webhook",
+        "description": "🔔 **WhatsApp Webhook** - Public endpoint for receiving incoming WhatsApp messages from Meta. "
+                      "Integrates with LLM for AI-powered auto-replies."
+    },
+    {
+        "name": "whatsapp-inbox-ws",
+        "description": "💬 **WhatsApp Inbox WebSocket** - Real-time inbox updates via WebSocket. "
+                      "Authenticated connections receive live message notifications."
     }
 ]
 
@@ -234,6 +265,20 @@ if debug_capture_router_available:
     logger.info("WebRTC debug capture endpoints registered at /api/v1/webrtc/debug/voice-capture")
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
+
+# Include WhatsApp Manager routers if available
+if whatsapp_routers_available:
+    app.include_router(whatsapp_auth_router, tags=["whatsapp-auth"])
+    app.include_router(whatsapp_manager_router, tags=["whatsapp-manager"])
+    app.include_router(whatsapp_webhook_router, tags=["whatsapp-webhook"])
+    app.include_router(whatsapp_inbox_ws_router, tags=["whatsapp-inbox-ws"])
+    logger.info("✅ WhatsApp Manager endpoints registered:")
+    logger.info("   - Auth: /api/v1/whatsapp/auth/*")
+    logger.info("   - Manager: /api/v1/whatsapp/*")
+    logger.info("   - Webhook: /api/v1/whatsapp/webhook")
+    logger.info("   - Inbox WS: /api/v1/whatsapp/inbox/ws")
+else:
+    logger.warning("WhatsApp Manager endpoints not registered - modules not available")
 
 # Serve debug test page
 @app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
@@ -379,6 +424,16 @@ async def startup_event():
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
     
+    # Initialize WhatsApp Manager database if available
+    if whatsapp_routers_available:
+        try:
+            from ..database.connection import init_db
+            await init_db()
+            logger.info("📱 WhatsApp Manager database initialized successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize WhatsApp database: {e}")
+            logger.info("📱 WhatsApp Manager may have limited functionality")
+    
     # Initialize WebRTC connection pool if available (Phase B - WebRTC Migration)
     if webrtc_router_available:
         try:
@@ -433,6 +488,15 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("🛑 BeautyAI Inference API shutting down...")
+    
+    # Close WhatsApp Manager database connections
+    if whatsapp_routers_available:
+        try:
+            from ..database.connection import close_db
+            await close_db()
+            logger.info("📱 WhatsApp Manager database connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing WhatsApp database: {e}")
     
     # Shutdown WebRTC connection pool if available (Phase B - WebRTC Migration)
     if webrtc_router_available:

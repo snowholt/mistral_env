@@ -29,6 +29,19 @@ noisereduce>=2.0.0
 pydantic-settings>=2.0.0
 watchdog>=2.0.0
 
+# Database (PostgreSQL + SQLAlchemy for WhatsApp Manager)
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
+
+# Auth (JWT + Password Hashing for WhatsApp Manager)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
+
+# HTTP Client (for Meta WhatsApp API)
+httpx>=0.26.0
+
 # WebRTC dependencies (Phase A - WebRTC Migration)
 aiortc>=1.5.0
 pyee>=11.0.0
