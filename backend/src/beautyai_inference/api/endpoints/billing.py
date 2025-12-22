@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database.session import get_db
+from ...database.connection import get_db
 from ...database.models import User, Subscription, SubscriptionStatus, Plan
 from ..endpoints.whatsapp_auth import get_current_user
 from ...services.billing import StripeService, get_stripe_service, handle_stripe_webhook

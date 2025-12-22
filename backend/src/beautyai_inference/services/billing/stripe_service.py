@@ -14,7 +14,7 @@ from typing import Optional, List
 from datetime import datetime, timezone
 
 import stripe
-from stripe.error import StripeError
+from stripe import StripeError
 
 logger = logging.getLogger(__name__)
 

@@ -25,7 +25,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...database.session import get_db
+from ...database.connection import get_db
 from ...database.models import (
     User, Customer, KnowledgeBase, Document, Chunk, DocumentStatus
 )
@@ -399,7 +399,7 @@ async def _process_document_background(
     file_type: str,
 ):
     """Background task to process document."""
-    from ...database.session import async_session_factory
+    from ...database.connection import async_session_factory
     
     async with async_session_factory() as db:
         try:
