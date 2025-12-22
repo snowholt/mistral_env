@@ -42,16 +42,26 @@ const defaultConfig: Required<WidgetConfig> = {
 
 export default function ChatWidget(props: WidgetConfig) {
   const config = { ...defaultConfig, ...props };
+  const isDemoMode = config.widgetToken === 'demo';
   
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>([]);
   const [inputValue, setInputValue] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [sessionToken, setSessionToken] = useState<string | null>(null);
+  const [sessionToken, setSessionToken] = useState<string | null>(isDemoMode ? 'demo-session' : null);
   const [error, setError] = useState<string | null>(null);
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Demo mode responses
+  const demoResponses = [
+    "شكراً لتواصلك معنا! 🌟 يسعدنا مساعدتك. كيف يمكنني خدمتك؟",
+    "نعم، يمكننا مساعدتك في ذلك! هل تود معرفة المزيد عن خدماتنا؟",
+    "خدماتنا تشمل أتمتة المحادثات عبر الواتساب والويب باستخدام الذكاء الاصطناعي.",
+    "للتسجيل، اضغط على زر 'ابدأ مجاناً' في الصفحة الرئيسية.",
+    "نحن هنا لمساعدتك! هل لديك أسئلة أخرى؟",
+  ];
 
   // Initialize session and show welcome message
   useEffect(() => {
@@ -66,8 +76,10 @@ export default function ChatWidget(props: WidgetConfig) {
         },
       ]);
       
-      // Create session
-      createSession();
+      // Create session (skip for demo mode)
+      if (!isDemoMode) {
+        createSession();
+      }
     }
   }, [isOpen]);
 
@@ -90,20 +102,22 @@ export default function ChatWidget(props: WidgetConfig) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           widget_token: config.widgetToken,
-          visitor_id: getVisitorId(),
           page_url: window.location.href,
-          referrer: document.referrer,
         }),
       });
 
       if (response.ok) {
         const data = await response.json();
         setSessionToken(data.session_token);
+        console.log('Session created successfully:', data.session_token);
       } else {
-        console.error('Failed to create chat session');
+        const errorData = await response.json().catch(() => ({ detail: 'Unknown error' }));
+        console.error('Failed to create chat session:', errorData);
+        setError(`Failed to initialize chat: ${errorData.detail || 'Please try again'}`);
       }
     } catch (err) {
       console.error('Error creating chat session:', err);
+      setError('Unable to connect to chat service. Please check your internet connection.');
     }
   };
 
@@ -132,6 +146,21 @@ export default function ChatWidget(props: WidgetConfig) {
     setIsLoading(true);
     setError(null);
 
+    // Demo mode - simulate AI response
+    if (isDemoMode) {
+      await new Promise(resolve => setTimeout(resolve, 800 + Math.random() * 700));
+      const randomResponse = demoResponses[Math.floor(Math.random() * demoResponses.length)];
+      const assistantMessage: Message = {
+        id: (Date.now() + 1).toString(),
+        role: 'assistant',
+        content: randomResponse,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, assistantMessage]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       const response = await fetch(`${config.apiUrl}/api/v1/webchat/message`, {
         method: 'POST',
@@ -147,7 +176,7 @@ export default function ChatWidget(props: WidgetConfig) {
         const assistantMessage: Message = {
           id: (Date.now() + 1).toString(),
           role: 'assistant',
-          content: data.response,
+          content: data.ai_response,
           timestamp: new Date(),
         };
         setMessages((prev) => [...prev, assistantMessage]);
