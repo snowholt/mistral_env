@@ -16,23 +16,23 @@ const Footer = () => {
       { name: getTranslation("pricing", language), href: "#" }
     ],*/
     [getTranslation("company", language)]: [
-      { name: getTranslation("about", language), href: "#about" },
-      //{ name: getTranslation("careers", language), href: "#" },
-      //{ name: getTranslation("press", language), href: "#" },
-      { name: getTranslation("contact", language), href: "#contact" },
-      { name: getTranslation("solution", language), href: "#case-studies" }
+      { name: getTranslation("home", language), href: "./#home" },
+      { name: getTranslation("caseStudies", language), href: "./#case-studies" },
+      { name: getTranslation("services", language), href: "./#services" },
+      { name: getTranslation("about", language), href: "./#about" },
+      { name: getTranslation("contact", language), href: "./#contact" }
     ],
     /*[getTranslation("resources", language)]: [
       { name: getTranslation("blog", language), href: "#" },
       { name: getTranslation("helpCenter", language), href: "#" },
       { name: getTranslation("community", language), href: "#" }
     ],*/
-    /*[getTranslation("legal", language)]: [
-      { name: getTranslation("privacyPolicy", language), href: "#" },
-      { name: getTranslation("termsOfService", language), href: "#" },
-      { name: getTranslation("cookiePolicy", language), href: "#" },
-      { name: getTranslation("security", language), href: "#" }
-    ]*/
+    [getTranslation("legal", language)]: [
+      { name: getTranslation("privacyPolicy", language), href: "/privacy-Policy" },
+      { name: getTranslation("termsOfService", language), href: "/terms" },
+      /*{ name: getTranslation("cookiePolicy", language), href: "#" },
+      { name: getTranslation("security", language), href: "#" }*/
+    ]
   });
 
   const footerLinks = getFooterLinks();
@@ -75,7 +75,7 @@ const Footer = () => {
             {/* Company Info */}
             <div className="lg:col-span-2">
               <div className="text-2xl font-bold bg-gradient-primary bg-clip-text text-transparent mb-4">
-                AI Agent Pro
+                Genius AI
               </div>
               <p className="text-muted-foreground mb-6 max-w-md">
                 {getTranslation("companyInfo", language)}

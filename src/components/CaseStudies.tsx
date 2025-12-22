@@ -11,37 +11,53 @@ const CaseStudies = () => {
 
   const caseStudies = [
     {
-      company: "TechCorp Solutions",
-      industry: "SaaS",
+      company: language === 'ar' ? "سِنا" : "S.I.N.A",
+      industry: language === 'ar' ? "عميل ذكاء صناعي صوتي" : "Voice AI Agent",
       image: analyticsImage,
       challenge: language === 'ar' ? 
-        "إدارة أكثر من 10,000 استفسار يومي من العملاء مع فريق دعم محدود" :
-        "Managing 10,000+ daily customer inquiries with limited support staff",
+        "تواجه العديد من الشركات صعوبة في تقديم دعم عملاء سلس وفعّال عبر القنوات الصوتية، مما يؤدي إلى فترات انتظار طويلة وتجارب عملاء سيئة." :
+        "Many businesses struggle to provide seamless, real-time customer support through voice channels, leading to long wait times and poor customer experiences.",
       solution: language === 'ar' ?
-        "تنفيذ وكلاء الذكاء الاصطناعي للتعامل مع الدعم من المستوى الأول وتوجيه القضايا المعقدة" :
-        "Implemented AI agents to handle tier-1 support and route complex issues",
+        "يسرع وكيل الذكاء الاصطناعي من الصوت إلى الصوت دعم العملاء من خلال تقديم ردود فورية ودقيقة، مما يقلل من فترات الانتظار ويعزز رضا العملاء." :
+        "Our Voice-to-Voice AI Agent streamlines customer service by offering instant, accurate voice-based responses, reducing wait times and enhancing customer satisfaction.",
       results: [
         { metric: getTranslation("waitingTime", language), improvement: language === 'ar' ? "أسرع بنسبة 95%" : "95% faster", icon: Clock },
         //{ metric: getTranslation("waitingTime", language), improvement: "95%", icon: Users },
         { metric: getTranslation("costSavings", language), improvement: language === 'ar' ? "65% تكلفة أقل" : "65% Cost Reduction", icon: TrendingUp }
       ]
-    }/*,
+    },
     {
-      company: "RetailMax",
-      industry: language === 'ar' ? "التجارة الإلكترونية" : "E-commerce",
+      company:  language === 'ar' ? "سِنا واتساب" : "S.I.N.A Whatsapp",
+      industry: language === 'ar' ? "العميل الذكي للواتساب" : "Whatsapp Smart Agent",
       image: aiServiceImage,
       challenge: language === 'ar' ?
-        "ارتفاع معدل التخلي عن عربة التسوق بسبب بطء أوقات استجابة دعم العملاء" :
-        "High cart abandonment due to slow customer support response times",
+        "واجه الشركات صعوبة في إدارة كميات كبيرة من التفاعلات مع العملاء على منصات المراسلة مثل WhatsApp، مما يؤدي إلى الفرص الضائعة وتأخير الردود." :
+        "Businesses find it difficult to manage high volumes of customer interactions on messaging platforms like WhatsApp, leading to missed opportunities and delayed responses.",
       solution: language === 'ar' ?
-        "مساعدي تسوق بالذكاء الاصطناعي على مدار الساعة لمساعدة العملاء في أسئلة المنتجات" :
-        "24/7 AI shopping assistants to help customers with product questions",
+        "يقوم وكيل الذكاء الاصطناعي في WhatsApp بأتمتة المحادثات، مما يضمن الرد الفوري، والتفاعل الشخصي، وزيادة التفاعل مع العملاء على المنصة." :
+        "The WhatsApp AI Agent automates conversations, ensuring instant replies, personalized interactions, and higher customer engagement on the platform.",
       results: [
         { metric: getTranslation("cartConversion", language), improvement: "+32%", icon: TrendingUp },
         { metric: getTranslation("supportTickets", language), improvement: language === 'ar' ? "انخفاض بنسبة 68%" : "68% reduction", icon: Users },
         { metric: getTranslation("revenueImpact", language), improvement: language === 'ar' ? "+5.2 مليون دولار" : "+$5.2M", icon: TrendingUp }
       ]
-    }*/
+    },
+    {
+      company:  language === 'ar' ? "سِنا روبوت الدردشة" : "S.I.N.A Chatbot",
+      industry: language === 'ar' ? "نموذج لغوي خبير" : "Subject Matter Expert LLM",
+      image: aiServiceImage,
+      challenge: language === 'ar' ?
+        "يطالب العملاء بردود فورية على المواقع الإلكترونية والتطبيقات، لكن العديد من الشركات لا تزال تعتمد على أنظمة قديمة وبطيئة مما يزعج المستخدمين." :
+        "Customers demand instant responses on websites and apps, but many companies still rely on slow, outdated systems that frustrate users.",
+      solution: language === 'ar' ?
+        "يوفر وكيل الذكاء الاصطناعي للدردشة ردود فعل فورية وذكية لزوار الموقع الإلكتروني، مما يعزز التفاعل ويقلل من الإحباط مع دعم آلي سريع." :
+        "Our Chatbot AI Agent provides real-time, intelligent responses to website visitors, improving engagement and reducing customer frustration with fast, automated support.",
+      results: [
+        { metric: getTranslation("cartConversion", language), improvement: "+32%", icon: TrendingUp },
+        { metric: getTranslation("supportTickets", language), improvement: language === 'ar' ? "انخفاض بنسبة 68%" : "68% reduction", icon: Users },
+        { metric: getTranslation("revenueImpact", language), improvement: language === 'ar' ? "+5.2 مليون دولار" : "+$5.2M", icon: TrendingUp }
+      ]
+    }
   ];
 {/*
   const testimonials = [
@@ -76,9 +92,10 @@ const CaseStudies = () => {
         </div>
 
         {/* Case Studies */}
-        <div className="space-y-16 mb-20">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8">
           {caseStudies.map((study, index) => (
-            <div key={index} className={`grid grid-cols-1 lg:grid-cols-2 gap-12 items-center ${index % 2 === 1 ? 'lg:grid-flow-col-dense' : ''}`}>
+            <div key={index} className={`"grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-8"`}>
+              <Card className={`group hover:shadow-elegant transition-all duration-300 hover:-translate-y- px-4 py-4`}>
               <div className={index % 2 === 1 ? 'lg:col-start-2' : ''}>
                 <div className="space-y-4">
                   <div className="inline-block bg-primary/10 text-primary px-3 py-1 rounded-full text-sm font-medium">
@@ -95,7 +112,7 @@ const CaseStudies = () => {
                       <p className="text-muted-foreground">{study.solution}</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
+                  {/*<div className="grid grid-cols-1 sm:grid-cols-3 gap-4 pt-4">
                     {study.results.map((result, resultIndex) => (
                       <div key={resultIndex} className="text-center p-4 bg-card rounded-lg border">
                         <result.icon className="h-8 w-8 text-primary mx-auto mb-2" />
@@ -103,16 +120,16 @@ const CaseStudies = () => {
                         <div className="text-sm text-muted-foreground">{result.metric}</div>
                       </div>
                     ))}
-                  </div>
+                  </div>*/}
                 </div>
               </div>
-              <div className={index % 2 === 1 ? 'lg:col-start-1' : ''}>
+              {/*<div className={index % 2 === 1 ? 'lg:col-start-1' : ''}>
                 <img
                   src={study.image}
                   alt={`${study.company} case study`}
                   className="w-full h-auto rounded-lg shadow-elegant"
                 />
-              </div>
+              </div>*/}</Card>
             </div>
           ))}
         </div>

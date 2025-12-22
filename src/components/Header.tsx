@@ -10,11 +10,11 @@ const Header = () => {
   const { language, toggleLanguage, isRTL } = useLanguage();
 
   const navigation = [
-    { name: getTranslation("home", language), href: "#home" },
-    { name: getTranslation("services", language), href: "#services" },
-    { name: getTranslation("solution", language), href: "#case-studies" },
-    { name: getTranslation("about", language), href: "#about" },
-    { name: getTranslation("contact", language), href: "#contact" },
+    { name: getTranslation("home", language), href: "./#home" },
+    { name: getTranslation("caseStudies", language), href: "./#case-studies" },
+    { name: getTranslation("services", language), href: "./#services" },
+    { name: getTranslation("about", language), href: "./#about" },
+    { name: getTranslation("contact", language), href: "./#contact" },
   ];
 
   return (
@@ -54,9 +54,11 @@ const Header = () => {
               <Globe size={16} />
               {getTranslation("language", language)}
             </Button>
-            {/*<Button variant="outline" size="sm">
-              {getTranslation("signIn", language)}
-            </Button>*/}
+            <a href="/login">
+              <Button variant="outline" size="sm">
+                {getTranslation("signIn", language)}
+              </Button>
+            </a>
             <a href="#contact">
             <Button variant="cta" size="sm">
               {getTranslation("requestDemo", language)}
@@ -97,9 +99,11 @@ const Header = () => {
                   <Globe size={16} />
                   {getTranslation("language", language)}
                 </Button>
-                {/*<Button variant="outline" className="w-full">
-                  {getTranslation("signIn", language)}
-                </Button>*/}
+                <a href="/login" className="block">
+                  <Button variant="outline" className="w-full">
+                    {getTranslation("signIn", language)}
+                  </Button>
+                </a>
                 <Button variant="cta" className="w-full">
                   {getTranslation("requestDemo", language)}
                 </Button>

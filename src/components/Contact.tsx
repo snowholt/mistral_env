@@ -43,8 +43,8 @@ const Contact = () => {
 
       if (response.ok) {
         toast({
-          title: "Message sent successfully!",
-          description: "We'll get back to you within 24 hours.",
+          title: language === 'ar' ? "تم ارسال طلبك" : "Message sent successfully!",
+          description: language === 'ar' ? "سيتم التواصل معكم خلال 24 ساعة" : "We'll get back to you within 24 hours.",
         });
         setFormData({
           firstName: "",
@@ -57,13 +57,13 @@ const Contact = () => {
         });
       } else {
         const errorData = await response.json();
-        throw new Error(errorData.message || 'Something went wrong.');
+        throw new Error(errorData.message || language === 'ar' ? "حدث خطأ 504" : 'Something went wrong.');
       }
     } catch (error: any) {
-      console.error('Submission error:', error);
+      console.error( language === 'ar' ? "حدث حطأ 505" : 'Submission error:', error);
       toast({
-        title: "Submission Failed",
-        description: `There was an error sending your message. Please try again.`,
+        title: language === 'ar' ? "حدث حطأ" : 'Submission error:',
+        description: language === 'ar' ? "حدث خطأ عند ارسال الطب، الرجاء المحاولة في وقت لاحق" : `There was an error sending your message. Please try again.`,
         variant: "destructive"
       });
     } finally {
@@ -78,34 +78,34 @@ const Contact = () => {
   const contactInfo = [
     {
       icon: Mail,
-      title: "Email",
+      title: language ==='ar' ? "البريد الالكتروني" : "Email",
       details: "info@gmai.sa",
-      description: "Send us an email anytime",
+      description: language ==='ar' ? "تواصل بأي وقت" : "Send us an email anytime",
       action: "mailto:info@gmai.sa"
     },
     {
       icon: Phone,
-      title: "Phone",
-      details: "+966 (50) 015 9743",
-      description: "Sun-Thu from 8am to 6pm",
-      action: "tel:+966500159743"
+      title: language ==='ar' ? "الهاتف" :"Phone",
+      details: language ==='ar' ? "0544669879" : "+966 (54) 466 9879",
+      description: language ==='ar' ? "الأحد حتى الخميس 8:00 ص حتى 6:00 م" : "Sun-Thu from 8am to 6pm",
+      action: "tel:+966544669879"
     },
     {
       icon: MessageCircle,
       title: "Whatsapp",
-      details: "+966 (50) 015 9743",
-      description: "Sun-Thu from 8am to 6pm",
-      action: "https://wa.me/966500159743"
+      details: language ==='ar' ? "0544669879" : "+966 (54) 466 9879",
+      description: language ==='ar' ? "الأحد حتى الخميس 8:00 ص حتى 6:00 م" : "Sun-Thu from 8am to 6pm",
+      action: "https://wa.me/966544669879"
     },
     {
       icon: MapPin,
-      title: "Office",
-      details: "Riyadh, Saudi Arabia",
-      description: "Bander Bin Abdulaziz, Al-Andalus Dist",
+      title: language ==='ar' ? "الموقع" : "Office",
+      details: language ==='ar' ? "الرياض، المملكة العربية السعودية" :"Riyadh, Saudi Arabia",
+      description: language ==='ar' ? "طريق الامير بندر بن عبدالعزيز، حي الاندلس" : "Bander Bin Abdulaziz, Al-Andalus Dist",
       action: "https://maps.app.goo.gl/NzTLx7qrRhmVCF2N9"
     }
   ];
-
+  
   return (
     <section id="contact" className="py-20">
       <div className="container mx-auto px-4 sm:px-6 lg:px-8">
@@ -122,10 +122,10 @@ const Contact = () => {
           {/* Contact Information */}
           <div className="space-y-8">
             <div>
-              <h3 className="text-2xl font-bold text-foreground mb-6">Get in Touch</h3>
+              <h3 className="text-2xl font-bold text-foreground mb-6">
+                {getTranslation("contactFormTitle", language)}</h3>
               <p className="text-muted-foreground mb-8">
-                Ready to see how AI Agent Pro can transform your customer service? 
-                Contact us today for a personalized demo.
+                {getTranslation("contactInfo", language)}
               </p>
             </div>
 
@@ -151,99 +151,101 @@ const Contact = () => {
           <div className="lg:col-span-2">
             <Card className="shadow-elegant">
               <CardHeader>
-                <CardTitle className="text-2xl">Request a Demo</CardTitle>
+                <CardTitle className="text-2xl">
+                  {getTranslation("formTitle", language)}</CardTitle>
                 <CardDescription>
-                  Fill out the form below and we'll get back to you within 24 hours
+                  {getTranslation("formDesc", language)}
                 </CardDescription>
               </CardHeader>
               <CardContent>
                 <form onSubmit={handleSubmit} className="space-y-6">
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="firstName">First Name *</Label>
+                      <Label htmlFor="firstName">
+                        {getTranslation("firstName", language)} *</Label>
                       <Input
                         id="firstName"
                         required
                         value={formData.firstName}
                         onChange={(e) => handleInputChange("firstName", e.target.value)}
-                        placeholder="Enter your first name"
+                        placeholder={language === 'ar' ? "ادخل اسمك الاول" : "Enter your first name"}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="lastName">Last Name</Label>
+                      <Label htmlFor="lastName">{getTranslation("lastName", language)}</Label>
                       <Input
                         id="lastName"
                         value={formData.lastName}
                         onChange={(e) => handleInputChange("lastName", e.target.value)}
-                        placeholder="Enter your last name"
+                        placeholder={language === 'ar' ? "ادخل اسمك الاخير" : "Enter your last name"}
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="email">Email *</Label>
+                      <Label htmlFor="email">{getTranslation("email", language)} *</Label>
                       <Input
                         id="email"
                         type="email"
                         required
                         value={formData.email}
                         onChange={(e) => handleInputChange("email", e.target.value)}
-                        placeholder="Enter your email address"
+                        placeholder= {language === 'ar' ? "ادخل بريدك الالكتروني" : "Enter your email address"}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="phonenumber">Phone Number</Label>
+                      <Label htmlFor="phonenumber">{getTranslation("phoneNum", language)}</Label>
                       <Input
                         id="phonenumber"
                         type="tel"
                         value={formData.phonenumber}
                         onChange={(e) => handleInputChange("phonenumber", e.target.value)}
-                        placeholder="Enter your phone number"
+                        placeholder={language === 'ar' ? "ادخل رقم الجوال" : "Enter your phone number"}
                       />
                     </div>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div className="space-y-2">
-                      <Label htmlFor="company">Company *</Label>
+                      <Label htmlFor="company">{getTranslation("companyForm", language)} *</Label>
                       <Input
                         id="company"
                         required
                         value={formData.company}
                         onChange={(e) => handleInputChange("company", e.target.value)}
-                        placeholder="Enter your company name"
+                        placeholder={language === 'ar' ? "ادخل اسم الشركة" : "Enter your company name"}
                       />
                     </div>
                     <div className="space-y-2">
-                      <Label htmlFor="companySize">Company Size</Label>
+                      <Label htmlFor="companySize">{getTranslation("companySize", language)}</Label>
                       <Select value={formData.companySize} onValueChange={(value) => handleInputChange("companySize", value)}>
                         <SelectTrigger>
-                          <SelectValue placeholder="Select company size" />
+                          <SelectValue placeholder={language === 'ar' ? "اختر حجم الشركة" : "Select company size"} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="1-10">1-10 employees</SelectItem>
-                          <SelectItem value="11-50">11-50 employees</SelectItem>
-                          <SelectItem value="51-200">51-200 employees</SelectItem>
-                          <SelectItem value="201-1000">201-1000 employees</SelectItem>
-                          <SelectItem value="1000+">1000+ employees</SelectItem>
+                          <SelectItem value="1-10">{language === 'ar' ? "1-10 موظف" : "1-10 employees"}</SelectItem>
+                          <SelectItem value="11-50">{language === 'ar' ? "11-50 موظف" : "11-50 employees"}</SelectItem>
+                          <SelectItem value="51-200">{language === 'ar' ? "51-200 موظف" : "51-200 employees"}</SelectItem>
+                          <SelectItem value="201-1000">{language === 'ar' ? "201-1000 موظف" : "201-1000 employees"}</SelectItem>
+                          <SelectItem value="1000+">{language === 'ar' ? "1000+ موظف" : "1000+ employees"}</SelectItem>
                         </SelectContent>
                       </Select>
                     </div>
                   </div>
 
                   <div className="space-y-2">
-                    <Label htmlFor="message">Message</Label>
+                    <Label htmlFor="message">{getTranslation("message", language)}</Label>
                     <Textarea
                       id="message"
                       value={formData.message}
                       onChange={(e) => handleInputChange("message", e.target.value)}
-                      placeholder="Tell us about your customer service challenges and goals..."
+                      placeholder={language === 'ar' ? "أخبرنا عنك" : "Tell us about your customer service challenges and goals..."}
                       rows={4}
                     />
                   </div>
 
                   <Button type="submit" variant="cta" size="lg" className="w-full group" disabled={isSubmitting}>
                     <Send className={`mr-2 h-5 w-5 ${isSubmitting ? 'animate-pulse' : ''}`} />
-                    {isSubmitting ? "Sending..." : "Send Message"}
+                    {isSubmitting ? "Sending... | جار الارسال" : "Send Message | ارسل الطلب"}
                   </Button>
                 </form>
               </CardContent>
