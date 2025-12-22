@@ -175,6 +175,8 @@ default_cors_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://portal.gmai.sa",
+    "https://dev.gmai.sa",
 ]
 
 allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")

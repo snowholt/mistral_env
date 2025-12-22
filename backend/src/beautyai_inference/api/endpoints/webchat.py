@@ -171,7 +171,7 @@ async def validate_widget_token(
     )
     
     # Update token usage stats
-    widget_token.last_used_at = datetime.now(timezone.utc)
+    widget_token.last_used_at = datetime.now()
     widget_token.request_count += 1
     
     return widget_token, customer
@@ -239,7 +239,7 @@ async def create_session(
         referrer=http_request.headers.get("referer"),
         user_agent=http_request.headers.get("user-agent"),
         ip_address=http_request.client.host if http_request.client else None,
-        expires_at=datetime.now(timezone.utc) + timedelta(hours=2),
+        expires_at=datetime.now() + timedelta(hours=2),
     )
     
     db.add(session)
@@ -294,9 +294,9 @@ async def send_message(
     db.add(user_message)
     
     # Update session activity
-    session.last_message_at = datetime.now(timezone.utc)
+    session.last_message_at = datetime.now()
     # Extend session expiration on activity
-    session.expires_at = datetime.now(timezone.utc) + timedelta(hours=2)
+    session.expires_at = datetime.now() + timedelta(hours=2)
     
     await db.flush()
     
@@ -334,7 +334,7 @@ async def send_message(
         customer_id=customer.id,
         event_type=UsageEventType.WEBCHAT_MESSAGE,
         quantity=1,
-        metadata={
+        event_metadata={
             "session_id": session.id,
             "input_tokens": input_tokens,
             "output_tokens": output_tokens,
@@ -416,7 +416,7 @@ async def generate_ai_response(
     conversation_history: List[dict],
 ) -> tuple[str, int, int]:
     """
-    Generate AI response using customer's agent config.
+    Generate AI response using customer's agent config with persistent Qwen3-14B model.
     
     Returns: (response_text, input_tokens, output_tokens)
     """
@@ -425,37 +425,58 @@ async def generate_ai_response(
     if agent_config:
         system_prompt = agent_config.system_prompt
     else:
-        system_prompt = f"You are {customer.name}'s AI assistant. Be helpful, accurate, and concise."
+        system_prompt = f"""أنت مساعد ذكاء اصطناعي لشركة {customer.name}.
+
+مهمتك:
+- الرد بطريقة ودية ومهنية باللغة العربية
+- تقديم معلومات دقيقة ومفيدة
+- مساعدة العملاء في استفساراتهم
+- كن واضحاً ومختصراً في الردود"""
     
     # Build messages for LLM
     messages = [{"role": "system", "content": system_prompt}]
     messages.extend(conversation_history)
     
-    # Try to use the inference service
+    # Use persistent Qwen3-14B model directly
     try:
-        from ...services.inference import InferenceService
+        from ...core.persistent_model_manager import get_persistent_model_manager
+        from ...inference_engines.llamacpp_engine import LlamaCppEngine
         
-        # Get inference service instance
-        inference_service = InferenceService.get_instance()
+        # Get persistent model manager
+        persistent_mgr = get_persistent_model_manager()
         
-        response = await inference_service.chat(
-            messages=messages,
-            max_tokens=500,
-            temperature=0.7,
-        )
+        # Get the persistent LLM model (Qwen3-14B)
+        llm_model = persistent_mgr.get_llm_model()
         
-        return response.content, response.input_tokens, response.output_tokens
-        
-    except ImportError:
-        # Fallback: Use direct LLM call if inference service not available
-        logger.warning("InferenceService not available, using fallback")
-        
-        # Simple fallback response
+        if llm_model and isinstance(llm_model, LlamaCppEngine):
+            logger.info(f"Using persistent Qwen3-14B model for webchat")
+            
+            # Generate response using persistent model chat method
+            content = llm_model.chat(
+                messages=messages,
+                max_tokens=500,
+                temperature=0.7,
+                top_p=0.95,
+                top_k=40,
+                repeat_penalty=1.1,
+                enable_thinking=False,  # Explicitly disable thinking mode
+            )
+            
+            # Llama.cpp chat() returns just the string content
+            # Token counts not available from chat method
+            input_tokens = 0  # Could be estimated
+            output_tokens = 0  # Could be estimated
+            
+            return content, input_tokens, output_tokens
+        else:
+            logger.warning("Persistent LLM model not available, using fallback")
+            raise Exception("Persistent model not loaded")
+            
+    except Exception as e:
+        logger.error(f"AI generation error: {e}")
+        # Fallback response
         return (
-            "مرحباً! كيف يمكنني مساعدتك اليوم؟",
+            "عذراً، حدث خطأ مؤقت. يرجى المحاولة مرة أخرى.",
             0,
             0
         )
-    except Exception as e:
-        logger.error(f"AI generation error: {e}")
-        raise
