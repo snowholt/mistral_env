@@ -1,27 +1,65 @@
 """
-SQLAlchemy models for WhatsApp Manager.
+SQLAlchemy models for BeautyAI SaaS Platform.
 
-Defines all database tables for multi-tenant WhatsApp automation:
-- User: SaaS platform authentication
+Defines all database tables for multi-tenant WhatsApp + Web Chat automation:
+
+Core Entities:
+- User: SaaS platform authentication (with admin role for @gmai.sa domain)
 - Customer: Business accounts (tenants)
 - WhatsAppAccount: Connected WhatsApp Business accounts
 - AgentConfig: AI agent configuration with system prompts
 - Conversation: WhatsApp chat threads
 - Message: Individual messages with source tracking
+
+Subscription & Billing:
+- Plan: Subscription plans with pricing and limits
+- Subscription: Customer subscriptions with Stripe integration
+- UsageEvent: Token/message usage tracking for metering
+
+Knowledge Base (RAG):
+- KnowledgeBase: Customer knowledge collections
+- Document: Uploaded documents
+- Chunk: Embedded text chunks with pgvector
+
+Web Chat Widget:
+- WidgetToken: API keys for embedding chat widget
+- WebChatSession: Widget chat sessions
+- WebChatMessage: Widget chat messages
+
+Admin:
+- AdminInvite: Invite codes for @gmai.sa admin onboarding
 """
 
 import enum
-from datetime import datetime, timedelta
-from typing import Optional, List
+import secrets
+import hashlib
+from datetime import datetime, timedelta, timezone
+from typing import Optional, List, Any
+from decimal import Decimal
 
 from sqlalchemy import (
     Column, Integer, String, Text, Boolean, DateTime, 
-    ForeignKey, Enum, UniqueConstraint, Index
+    ForeignKey, Enum, UniqueConstraint, Index, Float,
+    Numeric, JSON, LargeBinary
 )
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
+from sqlalchemy.dialects.postgresql import ARRAY
 
 from .connection import Base
+
+# Try to import pgvector, fall back gracefully if not installed
+try:
+    from pgvector.sqlalchemy import Vector
+    PGVECTOR_AVAILABLE = True
+except ImportError:
+    Vector = None
+    PGVECTOR_AVAILABLE = False
+
+
+# ============================================================================
+# Enums
+# ============================================================================
 
 
 class MessageSource(enum.Enum):
@@ -40,11 +78,51 @@ class MessageStatus(enum.Enum):
     FAILED = "failed"
 
 
+class UserRole(enum.Enum):
+    """User roles for RBAC."""
+    USER = "user"      # Regular customer
+    ADMIN = "admin"    # Platform administrator (@gmai.sa domain)
+
+
+class SubscriptionStatus(enum.Enum):
+    """Subscription lifecycle status."""
+    TRIAL = "trial"
+    ACTIVE = "active"
+    PAST_DUE = "past_due"
+    CANCELED = "canceled"
+    EXPIRED = "expired"
+
+
+class UsageEventType(enum.Enum):
+    """Types of usage events for metering."""
+    WHATSAPP_MESSAGE_IN = "whatsapp_message_in"
+    WHATSAPP_MESSAGE_OUT = "whatsapp_message_out"
+    WEBCHAT_MESSAGE = "webchat_message"
+    LLM_TOKENS = "llm_tokens"
+    VOICE_MINUTES = "voice_minutes"
+    RAG_QUERY = "rag_query"
+    DOCUMENT_UPLOAD = "document_upload"
+
+
+class DocumentStatus(enum.Enum):
+    """Document processing status."""
+    PENDING = "pending"
+    PROCESSING = "processing"
+    INDEXED = "indexed"
+    FAILED = "failed"
+
+
+# ============================================================================
+# Core Entities
+# ============================================================================
+
+
 class User(Base):
     """
     SaaS platform user account.
     
     Users can own multiple Customers (businesses).
+    Admin role is automatically assigned for @gmai.sa email domain.
     """
     __tablename__ = "users"
     
@@ -53,8 +131,22 @@ class User(Base):
     password_hash: Mapped[str] = mapped_column(String(255), nullable=False)
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     
+    # Role-based access control
+    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
+    
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Email verification
+    verification_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    verification_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Password reset
+    reset_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    reset_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Stripe integration
+    stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -62,8 +154,49 @@ class User(Base):
     # Relationships
     customers: Mapped[List["Customer"]] = relationship("Customer", back_populates="user", lazy="selectin")
     
+    def is_admin(self) -> bool:
+        """Check if user has admin role."""
+        return self.role == UserRole.ADMIN
+    
+    @classmethod
+    def should_be_admin(cls, email: str) -> bool:
+        """Check if email should automatically get admin role."""
+        return email.lower().endswith("@gmai.sa")
+    
+    def generate_verification_token(self) -> str:
+        """Generate a new email verification token."""
+        token = secrets.token_urlsafe(32)
+        self.verification_token = hashlib.sha256(token.encode()).hexdigest()
+        self.verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+        return token  # Return unhashed token to send in email
+    
+    def verify_verification_token(self, token: str) -> bool:
+        """Verify the email verification token."""
+        if not self.verification_token or not self.verification_token_expires:
+            return False
+        if datetime.now(timezone.utc) > self.verification_token_expires:
+            return False
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        return secrets.compare_digest(self.verification_token, token_hash)
+    
+    def generate_reset_token(self) -> str:
+        """Generate a new password reset token."""
+        token = secrets.token_urlsafe(32)
+        self.reset_token = hashlib.sha256(token.encode()).hexdigest()
+        self.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        return token  # Return unhashed token to send in email
+    
+    def verify_reset_token(self, token: str) -> bool:
+        """Verify the password reset token."""
+        if not self.reset_token or not self.reset_token_expires:
+            return False
+        if datetime.now(timezone.utc) > self.reset_token_expires:
+            return False
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        return secrets.compare_digest(self.reset_token, token_hash)
+    
     def __repr__(self) -> str:
-        return f"<User(id={self.id}, email='{self.email}')>"
+        return f"<User(id={self.id}, email='{self.email}', role={self.role.value})>"
 
 
 class Customer(Base):
@@ -81,12 +214,31 @@ class Customer(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     email: Mapped[str] = mapped_column(String(255), unique=True, nullable=False)
     
+    # Business settings
+    timezone: Mapped[str] = mapped_column(String(50), default="Asia/Riyadh")
+    locale: Mapped[str] = mapped_column(String(10), default="ar-SA")
+    
+    # Widget customization (colors/logo only per requirements)
+    widget_primary_color: Mapped[str] = mapped_column(String(7), default="#10B981")  # Emerald green
+    widget_secondary_color: Mapped[str] = mapped_column(String(7), default="#F3F4F6")
+    widget_logo_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    widget_greeting_message: Mapped[str] = mapped_column(String(500), default="مرحباً! كيف يمكنني مساعدتك اليوم؟")
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="customers")
     whatsapp_accounts: Mapped[List["WhatsAppAccount"]] = relationship("WhatsAppAccount", back_populates="customer", lazy="selectin")
     agent_config: Mapped[Optional["AgentConfig"]] = relationship("AgentConfig", back_populates="customer", uselist=False, lazy="selectin")
+    subscription: Mapped[Optional["Subscription"]] = relationship("Subscription", back_populates="customer", uselist=False, lazy="selectin")
+    knowledge_bases: Mapped[List["KnowledgeBase"]] = relationship("KnowledgeBase", back_populates="customer", lazy="selectin")
+    widget_tokens: Mapped[List["WidgetToken"]] = relationship("WidgetToken", back_populates="customer", lazy="selectin")
+    usage_events: Mapped[List["UsageEvent"]] = relationship("UsageEvent", back_populates="customer", lazy="noload")
+    webchat_sessions: Mapped[List["WebChatSession"]] = relationship("WebChatSession", back_populates="customer", lazy="noload")
     
     def __repr__(self) -> str:
         return f"<Customer(id={self.id}, name='{self.name}')>"
@@ -303,3 +455,472 @@ class Message(Base):
     def __repr__(self) -> str:
         preview = self.content[:30] + "..." if len(self.content) > 30 else self.content
         return f"<Message(id={self.id}, source={self.source.value}, preview='{preview}')>"
+
+
+# ============================================================================
+# Subscription & Billing (Stripe Integration)
+# ============================================================================
+
+
+class Plan(Base):
+    """
+    Subscription plans with pricing and usage limits.
+    """
+    __tablename__ = "plans"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Plan identity
+    name: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    stripe_price_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    
+    # Pricing (SAR)
+    price_monthly: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
+    price_yearly: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 2), nullable=True)
+    
+    # Usage limits (per month)
+    message_limit: Mapped[int] = mapped_column(Integer, default=1000)
+    token_limit: Mapped[int] = mapped_column(Integer, default=100000)
+    whatsapp_accounts_limit: Mapped[int] = mapped_column(Integer, default=1)
+    knowledge_base_docs_limit: Mapped[int] = mapped_column(Integer, default=10)
+    
+    # Features JSON (flexible feature flags)
+    features: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_public: Mapped[bool] = mapped_column(Boolean, default=True)  # Show in pricing page
+    
+    # Ordering
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    subscriptions: Mapped[List["Subscription"]] = relationship("Subscription", back_populates="plan", lazy="noload")
+    
+    def __repr__(self) -> str:
+        return f"<Plan(id={self.id}, name='{self.name}', price={self.price_monthly} SAR)>"
+
+
+class Subscription(Base):
+    """
+    Customer subscription with Stripe integration.
+    """
+    __tablename__ = "subscriptions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, unique=True)
+    plan_id: Mapped[int] = mapped_column(Integer, ForeignKey("plans.id", ondelete="RESTRICT"), nullable=False)
+    
+    # Stripe identifiers
+    stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
+    
+    # Status
+    status: Mapped[SubscriptionStatus] = mapped_column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIAL)
+    
+    # Billing period
+    current_period_start: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    current_period_end: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    trial_ends_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Usage tracking (reset each period)
+    messages_used: Mapped[int] = mapped_column(Integer, default=0)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Cancellation
+    cancel_at_period_end: Mapped[bool] = mapped_column(Boolean, default=False)
+    canceled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="subscription")
+    plan: Mapped["Plan"] = relationship("Plan", back_populates="subscriptions", lazy="selectin")
+    
+    def is_active(self) -> bool:
+        """Check if subscription allows service usage."""
+        if self.status in [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]:
+            return datetime.now(timezone.utc) < self.current_period_end.replace(tzinfo=timezone.utc)
+        return False
+    
+    def has_message_quota(self) -> bool:
+        """Check if message limit is not exceeded."""
+        return self.messages_used < self.plan.message_limit
+    
+    def has_token_quota(self) -> bool:
+        """Check if token limit is not exceeded."""
+        return self.tokens_used < self.plan.token_limit
+    
+    def __repr__(self) -> str:
+        return f"<Subscription(id={self.id}, customer_id={self.customer_id}, status={self.status.value})>"
+
+
+class UsageEvent(Base):
+    """
+    Usage event tracking for billing and analytics.
+    """
+    __tablename__ = "usage_events"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Event details
+    event_type: Mapped[UsageEventType] = mapped_column(Enum(UsageEventType), nullable=False)
+    quantity: Mapped[int] = mapped_column(Integer, default=1)
+    
+    # Optional metadata
+    event_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    
+    __table_args__ = (
+        Index('ix_usage_events_customer_type_date', 'customer_id', 'event_type', 'created_at'),
+    )
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="usage_events")
+    
+    def __repr__(self) -> str:
+        return f"<UsageEvent(id={self.id}, type={self.event_type.value}, qty={self.quantity})>"
+
+
+# ============================================================================
+# Knowledge Base (RAG with pgvector)
+# ============================================================================
+
+
+class KnowledgeBase(Base):
+    """
+    Customer knowledge base collection for RAG.
+    """
+    __tablename__ = "knowledge_bases"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # KB identity
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Embedding settings
+    embedding_model: Mapped[str] = mapped_column(String(100), default="text-embedding-3-small")
+    embedding_dimensions: Mapped[int] = mapped_column(Integer, default=1536)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        UniqueConstraint('customer_id', 'name', name='uq_kb_customer_name'),
+    )
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="knowledge_bases")
+    documents: Mapped[List["Document"]] = relationship("Document", back_populates="knowledge_base", lazy="selectin", cascade="all, delete-orphan")
+    
+    def __repr__(self) -> str:
+        return f"<KnowledgeBase(id={self.id}, name='{self.name}')>"
+
+
+class Document(Base):
+    """
+    Uploaded document for knowledge base.
+    """
+    __tablename__ = "documents"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    knowledge_base_id: Mapped[int] = mapped_column(Integer, ForeignKey("knowledge_bases.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Document identity
+    filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    original_filename: Mapped[str] = mapped_column(String(500), nullable=False)
+    content_type: Mapped[str] = mapped_column(String(100), nullable=False)
+    file_size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    
+    # Content hash for deduplication
+    content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    
+    # Processing status
+    status: Mapped[DocumentStatus] = mapped_column(Enum(DocumentStatus), default=DocumentStatus.PENDING)
+    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Stats
+    chunk_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    processed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    knowledge_base: Mapped["KnowledgeBase"] = relationship("KnowledgeBase", back_populates="documents")
+    chunks: Mapped[List["Chunk"]] = relationship("Chunk", back_populates="document", lazy="noload", cascade="all, delete-orphan")
+    
+    def __repr__(self) -> str:
+        return f"<Document(id={self.id}, filename='{self.original_filename}', status={self.status.value})>"
+
+
+class Chunk(Base):
+    """
+    Text chunk with embedding for vector search.
+    
+    Uses pgvector for similarity search.
+    """
+    __tablename__ = "chunks"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    document_id: Mapped[int] = mapped_column(Integer, ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Chunk content
+    text: Mapped[str] = mapped_column(Text, nullable=False)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)  # Order within document
+    
+    # Metadata
+    chunk_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    token_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Embedding vector - stored as JSON array (pgvector column added via migration if available)
+    # When pgvector is available, use: embedding = Column(Vector(1536))
+    embedding_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    
+    __table_args__ = (
+        Index('ix_chunks_document_index', 'document_id', 'chunk_index'),
+    )
+    
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="chunks")
+    
+    def __repr__(self) -> str:
+        preview = self.text[:50] + "..." if len(self.text) > 50 else self.text
+        return f"<Chunk(id={self.id}, doc_id={self.document_id}, preview='{preview}')>"
+
+
+# Add pgvector column if available (added via Alembic migration)
+if PGVECTOR_AVAILABLE and Vector is not None:
+    Chunk.embedding = Column(Vector(1536), nullable=True)
+
+
+# ============================================================================
+# Web Chat Widget
+# ============================================================================
+
+
+class WidgetToken(Base):
+    """
+    API tokens for embedding chat widget on customer websites.
+    """
+    __tablename__ = "widget_tokens"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Token identity
+    name: Mapped[str] = mapped_column(String(100), nullable=False)  # e.g., "Production", "Staging"
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    token_prefix: Mapped[str] = mapped_column(String(8), nullable=False)  # For identification without exposing full token
+    
+    # Security settings
+    domain_whitelist: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String(255)), nullable=True)  # NULL = allow all
+    rate_limit_per_minute: Mapped[int] = mapped_column(Integer, default=60)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Usage tracking
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    request_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="widget_tokens")
+    
+    @classmethod
+    def generate_token(cls) -> tuple[str, str, str]:
+        """
+        Generate a new widget token.
+        
+        Returns: (full_token, token_hash, token_prefix)
+        """
+        token = f"wt_{secrets.token_urlsafe(32)}"
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        token_prefix = token[:10]
+        return token, token_hash, token_prefix
+    
+    @classmethod
+    def hash_token(cls, token: str) -> str:
+        """Hash a token for lookup."""
+        return hashlib.sha256(token.encode()).hexdigest()
+    
+    def is_valid(self) -> bool:
+        """Check if token is valid for use."""
+        if not self.is_active:
+            return False
+        if self.expires_at and datetime.now(timezone.utc) > self.expires_at.replace(tzinfo=timezone.utc):
+            return False
+        return True
+    
+    def is_domain_allowed(self, domain: str) -> bool:
+        """Check if request domain is whitelisted."""
+        if not self.domain_whitelist:
+            return True  # No whitelist = allow all
+        return domain.lower() in [d.lower() for d in self.domain_whitelist]
+    
+    def __repr__(self) -> str:
+        return f"<WidgetToken(id={self.id}, prefix='{self.token_prefix}...', active={self.is_active})>"
+
+
+class WebChatSession(Base):
+    """
+    Chat session for website widget visitors.
+    """
+    __tablename__ = "webchat_sessions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Session identity
+    session_token: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    
+    # Visitor info (optional, for analytics)
+    visitor_id: Mapped[Optional[str]] = mapped_column(String(64), nullable=True)  # Browser fingerprint or cookie ID
+    visitor_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    visitor_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # Context
+    page_url: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    referrer: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)  # IPv6 compatible
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_message_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    
+    __table_args__ = (
+        Index('ix_webchat_sessions_customer_active', 'customer_id', 'is_active'),
+    )
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="webchat_sessions")
+    messages: Mapped[List["WebChatMessage"]] = relationship("WebChatMessage", back_populates="session", lazy="selectin", order_by="WebChatMessage.created_at", cascade="all, delete-orphan")
+    
+    @classmethod
+    def generate_session_token(cls) -> str:
+        """Generate a unique session token."""
+        return secrets.token_urlsafe(48)
+    
+    def is_valid(self) -> bool:
+        """Check if session is still valid."""
+        if not self.is_active:
+            return False
+        return datetime.now(timezone.utc) < self.expires_at.replace(tzinfo=timezone.utc)
+    
+    def __repr__(self) -> str:
+        return f"<WebChatSession(id={self.id}, customer_id={self.customer_id}, active={self.is_active})>"
+
+
+class WebChatMessage(Base):
+    """
+    Message in a web chat session.
+    """
+    __tablename__ = "webchat_messages"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("webchat_sessions.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Content
+    content: Mapped[str] = mapped_column(Text, nullable=False)
+    
+    # Role: user (visitor) or assistant (AI)
+    role: Mapped[str] = mapped_column(String(20), nullable=False)  # "user" or "assistant"
+    
+    # Token usage (for metering)
+    input_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    output_tokens: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Metadata
+    message_metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    
+    # Relationships
+    session: Mapped["WebChatSession"] = relationship("WebChatSession", back_populates="messages")
+    
+    def __repr__(self) -> str:
+        preview = self.content[:30] + "..." if len(self.content) > 30 else self.content
+        return f"<WebChatMessage(id={self.id}, role={self.role}, preview='{preview}')>"
+
+
+# ============================================================================
+# Admin
+# ============================================================================
+
+
+class AdminInvite(Base):
+    """
+    Invite codes for admin onboarding.
+    
+    Only users with @gmai.sa email can use invites to become admins.
+    """
+    __tablename__ = "admin_invites"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Invite identity
+    code: Mapped[str] = mapped_column(String(64), nullable=False, unique=True, index=True)
+    
+    # Created by
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    
+    # Usage
+    max_uses: Mapped[int] = mapped_column(Integer, default=1)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Target email (optional - restrict to specific email)
+    target_email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    @classmethod
+    def generate_code(cls) -> str:
+        """Generate a unique invite code."""
+        return f"admin_{secrets.token_urlsafe(24)}"
+    
+    def is_valid(self, email: Optional[str] = None) -> bool:
+        """Check if invite is valid for use."""
+        if not self.is_active:
+            return False
+        if self.use_count >= self.max_uses:
+            return False
+        if self.expires_at and datetime.now(timezone.utc) > self.expires_at.replace(tzinfo=timezone.utc):
+            return False
+        if self.target_email and email and email.lower() != self.target_email.lower():
+            return False
+        return True
+    
+    def use(self) -> None:
+        """Mark invite as used."""
+        self.use_count += 1
+        if self.use_count >= self.max_uses:
+            self.is_active = False
+    
+    def __repr__(self) -> str:
+        return f"<AdminInvite(id={self.id}, uses={self.use_count}/{self.max_uses}, active={self.is_active})>"

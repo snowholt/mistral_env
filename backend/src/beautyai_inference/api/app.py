@@ -280,6 +280,46 @@ if whatsapp_routers_available:
 else:
     logger.warning("WhatsApp Manager endpoints not registered - modules not available")
 
+# Include Admin router
+try:
+    from .endpoints.admin import admin_router
+    app.include_router(admin_router, tags=["admin"])
+    logger.info("✅ Admin endpoints registered at /api/v1/admin/*")
+except ImportError as e:
+    logger.warning(f"Admin router not available: {e}")
+
+# Include Web Chat Widget router
+try:
+    from .endpoints.webchat import webchat_router
+    app.include_router(webchat_router, tags=["webchat"])
+    logger.info("✅ Web Chat Widget endpoints registered at /api/v1/webchat/*")
+except ImportError as e:
+    logger.warning(f"Web Chat Widget router not available: {e}")
+
+# Include Billing router
+try:
+    from .endpoints.billing import router as billing_router
+    app.include_router(billing_router, tags=["billing"])
+    logger.info("✅ Billing endpoints registered at /api/v1/billing/*")
+except ImportError as e:
+    logger.warning(f"Billing router not available: {e}")
+
+# Include Knowledge Base router
+try:
+    from .endpoints.knowledge_base import router as kb_router
+    app.include_router(kb_router, tags=["knowledge-base"])
+    logger.info("✅ Knowledge Base endpoints registered at /api/v1/kb/*")
+except ImportError as e:
+    logger.warning(f"Knowledge Base router not available: {e}")
+
+# Include Prometheus Metrics router
+try:
+    from .endpoints.metrics import router as metrics_router
+    app.include_router(metrics_router, tags=["metrics"])
+    logger.info("✅ Prometheus Metrics endpoints registered at /metrics")
+except ImportError as e:
+    logger.warning(f"Metrics router not available: {e}")
+
 # Serve debug test page
 @app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
 async def serve_debug_test_page():

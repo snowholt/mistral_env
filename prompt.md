@@ -1,5 +1,5 @@
 
-# Planning Prompt: Integrate BeautyAI into gmai.sa Website (Do Not Break Landing Page)
+# Planning: Integrate BeautyAI into gmai.sa Website (Do Not Break Landing Page)
 
 You are a senior full‑stack architect and delivery lead. Your job is to produce a clear, manager-friendly but technically correct implementation plan to integrate **BeautyAI** (WhatsApp automation + web chatbot + client/admin dashboards) into our existing production website.
 

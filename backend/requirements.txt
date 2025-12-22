@@ -29,18 +29,38 @@ noisereduce>=2.0.0
 pydantic-settings>=2.0.0
 watchdog>=2.0.0
 
-# Database (PostgreSQL + SQLAlchemy for WhatsApp Manager)
+# Database (PostgreSQL + SQLAlchemy + pgvector for RAG)
 sqlalchemy>=2.0.0
 asyncpg>=0.29.0
 psycopg2-binary>=2.9.0
 alembic>=1.13.0
+pgvector>=0.2.0
 
-# Auth (JWT + Password Hashing for WhatsApp Manager)
+# Auth (JWT + Password Hashing)
 python-jose[cryptography]>=3.3.0
 passlib[bcrypt]>=1.7.0
 
 # HTTP Client (for Meta WhatsApp API)
 httpx>=0.26.0
+
+# Payment Processing (Stripe)
+stripe>=7.0.0
+
+# Email Service (Alibaba DirectMail)
+alibabacloud-dm20151123>=1.0.0
+alibabacloud-tea-openapi>=0.3.0
+
+# Redis (Caching & Rate Limiting)
+redis>=5.0.0
+aioredis>=2.0.0
+
+# Knowledge Base (Embeddings & Document Processing)
+sentence-transformers>=2.2.0
+pymupdf>=1.23.0
+python-docx>=1.0.0
+
+# Prometheus Metrics
+prometheus-client>=0.19.0
 
 # WebRTC dependencies (Phase A - WebRTC Migration)
 aiortc>=1.5.0
