@@ -569,7 +569,7 @@ class UsageEvent(Base):
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Event details
-    event_type: Mapped[UsageEventType] = mapped_column(Enum(UsageEventType), nullable=False)
+    event_type: Mapped[UsageEventType] = mapped_column(Enum(UsageEventType, values_callable=lambda x: [e.value for e in x]), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     
     # Optional metadata
