@@ -42,9 +42,11 @@ from sqlalchemy import (
     ForeignKey, Enum, UniqueConstraint, Index, Float,
     Numeric, JSON, LargeBinary
 )
+from sqlalchemy.types import TypeDecorator
 from sqlalchemy.orm import relationship, Mapped, mapped_column
 from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import ARRAY
+from sqlalchemy.dialects.postgresql import ENUM as PG_ENUM
 
 from .connection import Base
 
@@ -112,6 +114,40 @@ class DocumentStatus(enum.Enum):
     FAILED = "failed"
 
 
+class StringEnumType(TypeDecorator):
+    """
+    Persist Enum values as strings in the database.
+    Handles conversion between Python Enum objects and database strings.
+    For Postgres, uses native ENUM type to avoid casting errors.
+    """
+    impl = String
+    cache_ok = True
+
+    def __init__(self, enum_class, name=None, **kwargs):
+        self.enum_class = enum_class
+        self.name = name
+        super().__init__(**kwargs)
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql' and self.name:
+            values = [e.value for e in self.enum_class]
+            return dialect.type_descriptor(PG_ENUM(*values, name=self.name, create_type=False))
+        else:
+            return dialect.type_descriptor(String())
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return None
+        if isinstance(value, self.enum_class):
+            return value.value
+        return str(value)
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return None
+        return self.enum_class(value)
+
+
 # ============================================================================
 # Core Entities
 # ============================================================================
@@ -132,7 +168,7 @@ class User(Base):
     full_name: Mapped[str] = mapped_column(String(255), nullable=False)
     
     # Role-based access control
-    role: Mapped[UserRole] = mapped_column(Enum(UserRole), default=UserRole.USER)
+    role: Mapped[UserRole] = mapped_column(StringEnumType(UserRole, name='userrole'), default=UserRole.USER)
     
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     is_verified: Mapped[bool] = mapped_column(Boolean, default=False)
@@ -167,14 +203,14 @@ class User(Base):
         """Generate a new email verification token."""
         token = secrets.token_urlsafe(32)
         self.verification_token = hashlib.sha256(token.encode()).hexdigest()
-        self.verification_token_expires = datetime.now(timezone.utc) + timedelta(hours=24)
+        self.verification_token_expires = (datetime.now(timezone.utc) + timedelta(hours=24)).replace(tzinfo=None)
         return token  # Return unhashed token to send in email
     
     def verify_verification_token(self, token: str) -> bool:
         """Verify the email verification token."""
         if not self.verification_token or not self.verification_token_expires:
             return False
-        if datetime.now(timezone.utc) > self.verification_token_expires:
+        if datetime.now(timezone.utc).replace(tzinfo=None) > self.verification_token_expires:
             return False
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         return secrets.compare_digest(self.verification_token, token_hash)
@@ -183,14 +219,14 @@ class User(Base):
         """Generate a new password reset token."""
         token = secrets.token_urlsafe(32)
         self.reset_token = hashlib.sha256(token.encode()).hexdigest()
-        self.reset_token_expires = datetime.now(timezone.utc) + timedelta(hours=1)
+        self.reset_token_expires = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(tzinfo=None)
         return token  # Return unhashed token to send in email
     
     def verify_reset_token(self, token: str) -> bool:
         """Verify the password reset token."""
         if not self.reset_token or not self.reset_token_expires:
             return False
-        if datetime.now(timezone.utc) > self.reset_token_expires:
+        if datetime.now(timezone.utc).replace(tzinfo=None) > self.reset_token_expires:
             return False
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         return secrets.compare_digest(self.reset_token, token_hash)
@@ -442,10 +478,10 @@ class Message(Base):
     whatsapp_message_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
     
     # Source tracking
-    source: Mapped[MessageSource] = mapped_column(Enum(MessageSource), nullable=False)
+    source: Mapped[MessageSource] = mapped_column(StringEnumType(MessageSource, name='messagesource'), nullable=False)
     
     # Delivery status
-    status: Mapped[MessageStatus] = mapped_column(Enum(MessageStatus), default=MessageStatus.PENDING)
+    status: Mapped[MessageStatus] = mapped_column(StringEnumType(MessageStatus, name='messagestatus'), default=MessageStatus.PENDING)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
     
@@ -519,7 +555,7 @@ class Subscription(Base):
     stripe_subscription_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     
     # Status
-    status: Mapped[SubscriptionStatus] = mapped_column(Enum(SubscriptionStatus), default=SubscriptionStatus.TRIAL)
+    status: Mapped[SubscriptionStatus] = mapped_column(StringEnumType(SubscriptionStatus, name='subscriptionstatus'), default=SubscriptionStatus.TRIAL)
     
     # Billing period
     current_period_start: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -544,7 +580,7 @@ class Subscription(Base):
     def is_active(self) -> bool:
         """Check if subscription allows service usage."""
         if self.status in [SubscriptionStatus.ACTIVE, SubscriptionStatus.TRIAL]:
-            return datetime.now(timezone.utc) < self.current_period_end.replace(tzinfo=timezone.utc)
+            return datetime.now(timezone.utc).replace(tzinfo=None) < self.current_period_end
         return False
     
     def has_message_quota(self) -> bool:
@@ -569,7 +605,7 @@ class UsageEvent(Base):
     customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Event details
-    event_type: Mapped[UsageEventType] = mapped_column(Enum(UsageEventType, values_callable=lambda x: [e.value for e in x]), nullable=False)
+    event_type: Mapped[UsageEventType] = mapped_column(StringEnumType(UsageEventType, name='usageeventtype'), nullable=False)
     quantity: Mapped[int] = mapped_column(Integer, default=1)
     
     # Optional metadata
@@ -648,7 +684,7 @@ class Document(Base):
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
     
     # Processing status
-    status: Mapped[DocumentStatus] = mapped_column(Enum(DocumentStatus), default=DocumentStatus.PENDING)
+    status: Mapped[DocumentStatus] = mapped_column(StringEnumType(DocumentStatus, name='documentstatus'), default=DocumentStatus.PENDING)
     error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Stats
@@ -765,7 +801,7 @@ class WidgetToken(Base):
         """Check if token is valid for use."""
         if not self.is_active:
             return False
-        if self.expires_at and datetime.now(timezone.utc) > self.expires_at.replace(tzinfo=timezone.utc):
+        if self.expires_at and datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at:
             return False
         return True
     
@@ -827,7 +863,7 @@ class WebChatSession(Base):
         """Check if session is still valid."""
         if not self.is_active:
             return False
-        return datetime.now(timezone.utc) < self.expires_at.replace(tzinfo=timezone.utc)
+        return datetime.now(timezone.utc).replace(tzinfo=None) < self.expires_at
     
     def __repr__(self) -> str:
         return f"<WebChatSession(id={self.id}, customer_id={self.customer_id}, active={self.is_active})>"
@@ -910,7 +946,7 @@ class AdminInvite(Base):
             return False
         if self.use_count >= self.max_uses:
             return False
-        if self.expires_at and datetime.now(timezone.utc) > self.expires_at.replace(tzinfo=timezone.utc):
+        if self.expires_at and datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at:
             return False
         if self.target_email and email and email.lower() != self.target_email.lower():
             return False

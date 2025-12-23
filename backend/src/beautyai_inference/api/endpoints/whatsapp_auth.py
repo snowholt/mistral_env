@@ -54,6 +54,12 @@ class RegisterResponse(BaseModel):
     requires_verification: bool = True
 
 
+class LoginRequest(BaseModel):
+    """Login request model."""
+    email: EmailStr
+    password: str
+
+
 class LoginResponse(BaseModel):
     """Login response with tokens."""
     success: bool
@@ -242,24 +248,23 @@ async def register(
 
 @whatsapp_auth_router.post("/login", response_model=LoginResponse)
 async def login(
-    form_data: OAuth2PasswordRequestForm = Depends(),
+    request: LoginRequest,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Login with email and password.
     
-    Uses OAuth2 password flow for compatibility with OpenAPI/Swagger UI.
     Returns JWT access and refresh tokens.
     """
-    logger.info(f"Login attempt for: {form_data.username}")
+    logger.info(f"Login attempt for: {request.email}")
     
     # Find user by email
     result = await db.execute(
-        select(User).where(User.email == form_data.username.lower())
+        select(User).where(User.email == request.email.lower())
     )
     user = result.scalar_one_or_none()
     
-    if not user or not verify_password(form_data.password, user.password_hash):
+    if not user or not verify_password(request.password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password",

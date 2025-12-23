@@ -52,7 +52,7 @@ def login():
             # Call backend login API
             response = requests.post(
                 f"{API_BASE}/api/v1/whatsapp/auth/login",
-                data={"username": email, "password": password},
+                json={"email": email, "password": password},
                 timeout=10
             )
             
