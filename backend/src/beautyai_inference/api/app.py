@@ -290,6 +290,14 @@ try:
 except ImportError as e:
     logger.warning(f"Admin router not available: {e}")
 
+# Include Dashboard router
+try:
+    from .endpoints.dashboard import dashboard_router
+    app.include_router(dashboard_router, tags=["dashboard"])
+    logger.info("✅ Dashboard endpoints registered at /api/v1/dashboard/*")
+except ImportError as e:
+    logger.warning(f"Dashboard router not available: {e}")
+
 # Include Web Chat Widget router
 try:
     from .endpoints.webchat import webchat_router

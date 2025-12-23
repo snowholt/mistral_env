@@ -41,7 +41,7 @@ class JWTPayload:
     def from_dict(cls, data: dict) -> "JWTPayload":
         """Create JWTPayload from decoded token dict."""
         return cls(
-            user_id=data.get("sub"),
+            user_id=int(data.get("sub")),
             email=data.get("email", ""),
             token_type=TokenType(data.get("type", "access")),
             exp=datetime.fromtimestamp(data.get("exp", 0)),
@@ -71,7 +71,7 @@ def create_access_token(
         expire = datetime.utcnow() + timedelta(minutes=JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
     
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),
         "email": email,
         "type": TokenType.ACCESS.value,
         "exp": expire,
@@ -105,7 +105,7 @@ def create_refresh_token(
         expire = datetime.utcnow() + timedelta(days=JWT_REFRESH_TOKEN_EXPIRE_DAYS)
     
     payload = {
-        "sub": user_id,
+        "sub": str(user_id),
         "email": email,
         "type": TokenType.REFRESH.value,
         "exp": expire,

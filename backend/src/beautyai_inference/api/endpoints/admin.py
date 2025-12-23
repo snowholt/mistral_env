@@ -26,10 +26,12 @@ from ...database.models import (
     UsageEvent, UsageEventType, UserRole, Conversation, Message
 )
 from ...auth.dependencies import get_current_active_user
+from ...services.system import StatusService
 
 logger = logging.getLogger(__name__)
 
 admin_router = APIRouter(prefix="/api/v1/admin", tags=["admin"])
+status_service = StatusService()
 
 
 # ============================================
@@ -108,6 +110,7 @@ class UsageMetrics(BaseModel):
     # Trends
     customer_growth_30d: int
     message_growth_30d: float  # percentage
+    uptime_hours: Optional[float] = None
 
 
 class RevenueMetrics(BaseModel):
@@ -269,7 +272,7 @@ async def get_customer_detail(
     total_messages = total_msg.scalar() or 0
     
     # Messages this month
-    month_start = datetime.now(timezone.utc).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    month_start = datetime.now(timezone.utc).replace(tzinfo=None).replace(day=1, hour=0, minute=0, second=0, microsecond=0)
     month_msg = await db.execute(
         select(func.count(Message.id))
         .join(Conversation)
@@ -388,7 +391,7 @@ async def get_usage_metrics(
     """
     Get platform-wide usage metrics and analytics.
     """
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     week_start = today_start - timedelta(days=7)
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
@@ -458,6 +461,13 @@ async def get_usage_metrics(
     else:
         message_growth = 100.0 if messages_this_week > 0 else 0.0
     
+    # Get system uptime
+    try:
+        status = status_service.get_comprehensive_status()
+        uptime_hours = round(status.uptime_seconds / 3600, 2)
+    except Exception:
+        uptime_hours = 0.0
+
     return {
         "success": True,
         "metrics": {
@@ -475,6 +485,7 @@ async def get_usage_metrics(
             "messages_by_source": messages_by_source,
             "customer_growth_30d": new_customers_30d,
             "message_growth_30d": round(message_growth, 2),
+            "uptime_hours": uptime_hours,
         },
         "generated_at": now.isoformat(),
     }
@@ -490,7 +501,7 @@ async def get_revenue_metrics(
     """
     from ...database.models import SubscriptionStatus
     
-    now = datetime.now(timezone.utc)
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     thirty_days_ago = now - timedelta(days=30)
     
     # Subscription counts
@@ -662,4 +673,162 @@ async def update_user_role(
         "success": True,
         "message": f"User role updated to {role}",
         "user_id": user_id,
+    }
+
+
+# ============================================
+# Frontend Compatibility Aliases
+# ============================================
+
+@admin_router.get("/businesses")
+async def list_businesses_alias(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    sort_by: str = Query("created_at", regex="^(created_at|name|email)$"),
+    sort_order: str = Query("desc", regex="^(asc|desc)$"),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Alias for /customers to match frontend expectations."""
+    return await list_customers(
+        skip=skip,
+        limit=limit,
+        search=search,
+        is_active=is_active,
+        sort_by=sort_by,
+        sort_order=sort_order,
+        admin=admin,
+        db=db
+    )
+
+@admin_router.get("/metrics")
+async def get_metrics_alias(
+    range: str = Query("24h", regex="^(1h|24h|7d|30d)$"),
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get combined system and platform metrics for the admin dashboard.
+    Returns data in the format expected by the frontend.
+    """
+    from ...services.system import MemoryService
+    import psutil
+    import shutil
+    
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    week_start = today_start - timedelta(days=7)
+    
+    # Initialize services
+    memory_service = MemoryService()
+    
+    # Get system status
+    try:
+        status = status_service.get_comprehensive_status()
+        uptime_hours = round(status.uptime_seconds / 3600, 2)
+        memory_status = status.memory_status
+    except Exception:
+        uptime_hours = 0.0
+        memory_status = None
+    
+    # System metrics
+    cpu_usage = psutil.cpu_percent(interval=0.1)
+    
+    # Memory metrics
+    if memory_status:
+        memory_total_gb = memory_status.system_stats.get("total_gb", 0)
+        memory_used_gb = memory_status.system_stats.get("used_gb", 0)
+        memory_usage = memory_status.system_stats.get("percent", 0)
+    else:
+        mem = psutil.virtual_memory()
+        memory_total_gb = round(mem.total / (1024**3), 2)
+        memory_used_gb = round(mem.used / (1024**3), 2)
+        memory_usage = mem.percent
+    
+    # Disk metrics
+    disk = shutil.disk_usage("/")
+    disk_total_gb = round(disk.total / (1024**3), 2)
+    disk_used_gb = round(disk.used / (1024**3), 2)
+    disk_usage = round((disk.used / disk.total) * 100, 1)
+    
+    # GPU metrics
+    gpu_usage = 0.0
+    gpu_memory_usage = 0.0
+    gpu_memory_total_gb = 0.0
+    gpu_memory_used_gb = 0.0
+    
+    if memory_status and memory_status.has_gpu and memory_status.gpu_stats:
+        gpu_stat = memory_status.gpu_stats[0]
+        gpu_usage = round(gpu_stat.get("gpu_utilization", 0), 1)
+        gpu_memory_total_gb = round(gpu_stat.get("total_memory", 0) / (1024**3), 2)
+        gpu_memory_used_gb = round(gpu_stat.get("memory_used", 0) / (1024**3), 2)
+        if gpu_memory_total_gb > 0:
+            gpu_memory_usage = round((gpu_memory_used_gb / gpu_memory_total_gb) * 100, 1)
+    
+    # Platform metrics from database
+    total_users = (await db.execute(select(func.count(User.id)))).scalar() or 0
+    total_businesses = (await db.execute(select(func.count(Customer.id)))).scalar() or 0
+    
+    # Active users (users who have logged in today - simplified to verified users for now)
+    active_users_24h = (await db.execute(
+        select(func.count(User.id)).where(User.is_verified == True)
+    )).scalar() or 0
+    
+    # Messages today and this week
+    total_messages_today = (await db.execute(
+        select(func.count(Message.id)).where(Message.created_at >= today_start)
+    )).scalar() or 0
+    
+    total_messages_week = (await db.execute(
+        select(func.count(Message.id)).where(Message.created_at >= week_start)
+    )).scalar() or 0
+    
+    # Knowledge base stats (if table exists)
+    try:
+        from ...database.models import Document, Chunk
+        total_kb_documents = (await db.execute(select(func.count(Document.id)))).scalar() or 0
+        total_kb_chunks = (await db.execute(select(func.count(Chunk.id)))).scalar() or 0
+    except Exception:
+        total_kb_documents = 0
+        total_kb_chunks = 0
+    
+    # Voice sessions (placeholder - would need actual tracking)
+    total_voice_sessions = 0
+    
+    # API metrics (placeholder - would need request tracking)
+    api_requests_today = 0
+    avg_response_time_ms = 150  # Placeholder
+    error_rate_percent = 0.0  # Placeholder
+    
+    return {
+        "system": {
+            "cpu_usage": round(cpu_usage, 1),
+            "memory_usage": round(memory_usage, 1),
+            "memory_total_gb": memory_total_gb,
+            "memory_used_gb": memory_used_gb,
+            "disk_usage": disk_usage,
+            "disk_total_gb": disk_total_gb,
+            "disk_used_gb": disk_used_gb,
+            "gpu_usage": gpu_usage,
+            "gpu_memory_usage": gpu_memory_usage,
+            "gpu_memory_total_gb": gpu_memory_total_gb,
+            "gpu_memory_used_gb": gpu_memory_used_gb,
+            "uptime_hours": uptime_hours,
+        },
+        "platform": {
+            "total_users": total_users,
+            "active_users_24h": active_users_24h,
+            "total_businesses": total_businesses,
+            "total_messages_today": total_messages_today,
+            "total_messages_week": total_messages_week,
+            "total_voice_sessions": total_voice_sessions,
+            "avg_response_time_ms": avg_response_time_ms,
+            "total_kb_documents": total_kb_documents,
+            "total_kb_chunks": total_kb_chunks,
+            "api_requests_today": api_requests_today,
+            "error_rate_percent": error_rate_percent,
+        },
+        "timestamp": now.isoformat(),
     }

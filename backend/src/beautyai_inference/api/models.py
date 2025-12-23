@@ -427,6 +427,8 @@ class SystemStatusResponse(APIResponse):
     memory_info: Optional[Dict[str, Any]] = None
     loaded_models: Optional[List[Dict[str, Any]]] = None
     cache_info: Optional[Dict[str, Any]] = None
+    uptime_seconds: Optional[float] = None
+    uptime_hours: Optional[float] = None
     
     def __post_init__(self):
         super().__post_init__()
