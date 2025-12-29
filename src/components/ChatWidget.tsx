@@ -12,6 +12,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, Loader2, Minimize2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import ReactMarkdown from 'react-markdown';
 
 interface Message {
   id: string;
@@ -255,7 +256,39 @@ export default function ChatWidget(props: WidgetConfig) {
                       : undefined
                   }
                 >
-                  {message.content}
+                  {message.role === 'assistant' ? (
+                    <div className="prose prose-sm max-w-none prose-p:my-1 prose-ul:my-1 prose-ol:my-1 prose-li:my-0.5 prose-headings:my-2 prose-code:bg-gray-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded prose-code:text-gray-800 prose-pre:bg-gray-800 prose-pre:text-gray-100 prose-a:text-blue-600 prose-strong:font-semibold">
+                      <ReactMarkdown
+                        components={{
+                          // Open links in new tab
+                          a: ({ node, ...props }) => (
+                            <a {...props} target="_blank" rel="noopener noreferrer" />
+                          ),
+                          // Style code blocks
+                          code: ({ node, inline, ...props }: any) => (
+                            inline 
+                              ? <code className="bg-gray-100 px-1 py-0.5 rounded text-gray-800 text-xs" {...props} />
+                              : <code {...props} />
+                          ),
+                          // Ensure paragraphs don't have excessive margins
+                          p: ({ node, ...props }) => (
+                            <p className="my-1 leading-relaxed" {...props} />
+                          ),
+                          // Style lists nicely
+                          ul: ({ node, ...props }) => (
+                            <ul className="my-1 mr-4 list-disc list-inside" {...props} />
+                          ),
+                          ol: ({ node, ...props }) => (
+                            <ol className="my-1 mr-4 list-decimal list-inside" {...props} />
+                          ),
+                        }}
+                      >
+                        {message.content}
+                      </ReactMarkdown>
+                    </div>
+                  ) : (
+                    message.content
+                  )}
                 </div>
               </div>
             ))}

@@ -13,21 +13,30 @@ import Index from "./pages/Index";
 import NotFound from "./pages/NotFound";
 import Policy from "./pages/privacy-policy";
 import Term from "./pages/terms";
+import RequestDemo from "./pages/RequestDemo";
 
 // Auth pages
 import Login from "./pages/auth/Login";
 import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
+import GuestLogin from "./pages/auth/GuestLogin";
 
 // Dashboard pages
 import DashboardLayout from "@/components/layouts/DashboardLayout";
 import DashboardHome from "./pages/app/Home";
+import Businesses from "./pages/app/Businesses";
+import Inbox from "./pages/app/Inbox";
+import AgentSetup from "./pages/app/AgentSetup";
+import KnowledgeBase from "./pages/app/KnowledgeBase";
+import Billing from "./pages/app/Billing";
+import Settings from "./pages/app/Settings";
 
 // Admin pages
 import AdminCustomers from "./pages/app/admin/Customers";
 import AdminMetrics from "./pages/app/admin/Metrics";
 import AdminUsers from "./pages/app/admin/Users";
+import AdminDemoRequests from "./pages/app/admin/DemoRequests";
 
 const queryClient = new QueryClient();
 
@@ -40,7 +49,7 @@ function PublicChatWidget() {
   
   return (
     <ChatWidget
-      widgetToken="wt_DurnZY4iQY0GTABk4Wg8jrpjGIGzua_6zHnbpNYvDLU"
+      widgetToken="wt_uf7GDPwuw4vBwGYed26_0-yepA32XwjUbjZas1GnRkI"
       apiUrl={import.meta.env.VITE_API_URL || 'https://api.gmai.sa'}
       primaryColor="#0ea5e9"
       headerText="مساعد الذكاء الاصطناعي"
@@ -60,6 +69,7 @@ function AppContent() {
         <Route path="/" element={<Index />} />
         <Route path="/privacy-policy" element={<Policy />} />
         <Route path="/terms" element={<Term />} />
+        <Route path="/request-demo" element={<RequestDemo />} />
 
         {/* Auth Pages - Redirect to dashboard if logged in */}
         <Route path="/login" element={
@@ -72,6 +82,7 @@ function AppContent() {
             <Register />
           </PublicRoute>
         } />
+        <Route path="/demo/login" element={<GuestLogin />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
 
@@ -82,18 +93,22 @@ function AppContent() {
           </ProtectedRoute>
         }>
           <Route index element={<DashboardHome />} />
-          {/* Add more dashboard routes here */}
-          {/* <Route path="businesses" element={<Businesses />} /> */}
-          {/* <Route path="inbox" element={<Inbox />} /> */}
-          {/* <Route path="agent" element={<AgentSetup />} /> */}
-          {/* <Route path="knowledge-base" element={<KnowledgeBase />} /> */}
-          {/* <Route path="billing" element={<Billing />} /> */}
-          {/* <Route path="settings" element={<Settings />} /> */}
+          <Route path="businesses" element={<Businesses />} />
+          <Route path="inbox" element={<Inbox />} />
+          <Route path="agent" element={<AgentSetup />} />
+          <Route path="knowledge-base" element={<KnowledgeBase />} />
+          <Route path="billing" element={<Billing />} />
+          <Route path="settings" element={<Settings />} />
           
           {/* Admin Routes - Requires admin role */}
           <Route path="admin/customers" element={
             <ProtectedRoute requireAdmin>
               <AdminCustomers />
+            </ProtectedRoute>
+          } />
+          <Route path="admin/demo-requests" element={
+            <ProtectedRoute requireAdmin>
+              <AdminDemoRequests />
             </ProtectedRoute>
           } />
           <Route path="admin/metrics" element={

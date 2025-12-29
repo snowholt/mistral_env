@@ -20,6 +20,7 @@ import {
   BarChart3,
   CreditCard,
   BookOpen,
+  ClipboardList,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -38,11 +39,13 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import { cn } from '@/lib/utils';
 import logo from '@/assets/logo.png';
+import GuestDashboardBanner from '@/components/GuestDashboardBanner';
 
 const translations = {
   en: {
     dashboard: 'Dashboard',
     home: 'Home',
+    demo: 'Voice Demo',
     businesses: 'Businesses',
     inbox: 'Inbox',
     agentSetup: 'AI Agent',
@@ -51,14 +54,17 @@ const translations = {
     settings: 'Settings',
     admin: 'Admin',
     customers: 'Customers',
+    demoRequests: 'Demo Requests',
     metrics: 'Metrics',
     users: 'Users',
     logout: 'Logout',
     profile: 'Profile',
+    guestAccount: 'Guest Account',
   },
   ar: {
     dashboard: 'لوحة التحكم',
     home: 'الرئيسية',
+    demo: 'تجربة صوتية',
     businesses: 'الأعمال',
     inbox: 'صندوق الوارد',
     agentSetup: 'وكيل الذكاء الاصطناعي',
@@ -67,10 +73,12 @@ const translations = {
     settings: 'الإعدادات',
     admin: 'الإدارة',
     customers: 'العملاء',
+    demoRequests: 'طلبات التجربة',
     metrics: 'المقاييس',
     users: 'المستخدمين',
     logout: 'تسجيل الخروج',
     profile: 'الملف الشخصي',
+    guestAccount: 'حساب ضيف',
   },
 };
 
@@ -79,11 +87,12 @@ interface NavItem {
   href: string;
   icon: React.ElementType;
   adminOnly?: boolean;
+  guestDisabled?: boolean;
 }
 
 export default function DashboardLayout() {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const { user, logout, isAdmin } = useAuth();
+  const { user, guestUser, isGuest, logout, isAdmin } = useAuth();
   const { language, isRTL } = useLanguage();
   const location = useLocation();
   const navigate = useNavigate();
@@ -92,16 +101,21 @@ export default function DashboardLayout() {
 
   const mainNavItems: NavItem[] = [
     { title: t.home, href: '/app', icon: Home },
-    { title: t.businesses, href: '/app/businesses', icon: Building2 },
-    { title: t.inbox, href: '/app/inbox', icon: Inbox },
-    { title: t.agentSetup, href: '/app/agent', icon: Bot },
-    { title: t.knowledgeBase, href: '/app/knowledge-base', icon: BookOpen },
+    { title: t.demo, href: '/app/demo', icon: Bot, guestDisabled: false },
+    { title: t.businesses, href: '/app/businesses', icon: Building2, guestDisabled: true },
+    { title: t.inbox, href: '/app/inbox', icon: Inbox, guestDisabled: true },
+    { title: t.agentSetup, href: '/app/agent', icon: Bot, guestDisabled: true },
+    { title: t.knowledgeBase, href: '/app/knowledge-base', icon: BookOpen, guestDisabled: true },
+    { title: t.billing, href: '/app/billing', icon: CreditCard, guestDisabled: false },
+    { title: t.settings, href: '/app/settings', icon: Settings, guestDisabled: true },
+  ];
     { title: t.billing, href: '/app/billing', icon: CreditCard },
     { title: t.settings, href: '/app/settings', icon: Settings },
   ];
 
   const adminNavItems: NavItem[] = [
     { title: t.customers, href: '/app/admin/customers', icon: Users, adminOnly: true },
+    { title: t.demoRequests, href: '/app/admin/demo-requests', icon: ClipboardList, adminOnly: true },
     { title: t.metrics, href: '/app/admin/metrics', icon: BarChart3, adminOnly: true },
     { title: t.users, href: '/app/admin/users', icon: Users, adminOnly: true },
   ];
@@ -114,6 +128,22 @@ export default function DashboardLayout() {
   const NavLink = ({ item }: { item: NavItem }) => {
     const isActive = location.pathname === item.href;
     const Icon = item.icon;
+    const isDisabled = isGuest && item.guestDisabled;
+
+    if (isDisabled) {
+      return (
+        <div
+          className={cn(
+            'flex items-center gap-3 rounded-lg px-3 py-2 text-sm cursor-not-allowed opacity-40',
+            'text-muted-foreground'
+          )}
+          title={language === 'ar' ? 'غير متاح للضيوف' : 'Not available for guests'}
+        >
+          <Icon className="h-4 w-4" />
+          {item.title}
+        </div>
+      );
+    }
 
     return (
       <Link
@@ -172,23 +202,34 @@ export default function DashboardLayout() {
               <Avatar className="h-8 w-8">
                 <AvatarImage src={undefined} />
                 <AvatarFallback>
-                  {user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U'}
+                  {isGuest 
+                    ? 'G' 
+                    : user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U'
+                  }
                 </AvatarFallback>
               </Avatar>
               <div className="flex flex-col items-start text-sm">
-                <span className="font-medium">{user?.full_name || 'User'}</span>
-                <span className="text-xs text-muted-foreground">{user?.email}</span>
+                <span className="font-medium">
+                  {isGuest ? t.guestAccount : (user?.full_name || 'User')}
+                </span>
+                <span className="text-xs text-muted-foreground">
+                  {isGuest ? guestUser?.email : user?.email}
+                </span>
               </div>
               <ChevronDown className="ml-auto h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="end" className="w-56">
-            <DropdownMenuLabel>{t.profile}</DropdownMenuLabel>
+            <DropdownMenuLabel>{isGuest ? t.guestAccount : t.profile}</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem asChild>
-              <Link to="/app/settings">{t.settings}</Link>
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
+            {!isGuest && (
+              <>
+                <DropdownMenuItem asChild>
+                  <Link to="/app/settings">{t.settings}</Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+              </>
+            )}
             <DropdownMenuItem onClick={handleLogout} className="text-red-600">
               <LogOut className="mr-2 h-4 w-4" />
               {t.logout}
@@ -229,18 +270,27 @@ export default function DashboardLayout() {
               <Button variant="ghost" size="icon">
                 <Avatar className="h-8 w-8">
                   <AvatarFallback>
-                    {user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U'}
+                    {isGuest 
+                      ? 'G'
+                      : user?.full_name?.charAt(0) || user?.email?.charAt(0) || 'U'
+                    }
                   </AvatarFallback>
                 </Avatar>
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end">
-              <DropdownMenuLabel>{user?.email}</DropdownMenuLabel>
+              <DropdownMenuLabel>
+                {isGuest ? guestUser?.email : user?.email}
+              </DropdownMenuLabel>
               <DropdownMenuSeparator />
-              <DropdownMenuItem asChild>
-                <Link to="/app/settings">{t.settings}</Link>
-              </DropdownMenuItem>
-              <DropdownMenuSeparator />
+              {!isGuest && (
+                <>
+                  <DropdownMenuItem asChild>
+                    <Link to="/app/settings">{t.settings}</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                </>
+              )}
               <DropdownMenuItem onClick={handleLogout} className="text-red-600">
                 <LogOut className="mr-2 h-4 w-4" />
                 {t.logout}
@@ -253,6 +303,9 @@ export default function DashboardLayout() {
       {/* Main Content */}
       <main className="md:pl-64">
         <div className="container mx-auto p-6">
+          {/* Guest Banner */}
+          {isGuest && <GuestDashboardBanner />}
+          
           <Outlet />
         </div>
       </main>

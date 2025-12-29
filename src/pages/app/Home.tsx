@@ -104,20 +104,20 @@ export default function DashboardHome() {
   const t = translations[language as keyof typeof translations] || translations.en;
 
   useEffect(() => {
-    // Simulated stats - replace with actual API call
+    // Fetch real stats from backend API
     const fetchStats = async () => {
       try {
-        // const data = await api.get<DashboardStats>('/api/v1/dashboard/stats');
-        // setStats(data);
-        // Simulated data for now
-        setStats({
-          total_messages: 1234,
-          active_chats: 23,
-          response_rate: 94,
-          avg_response_time: '1.5s',
-        });
+        const data = await api.get<DashboardStats>('/api/v1/dashboard/stats');
+        setStats(data);
       } catch (error) {
         console.error('Failed to fetch stats:', error);
+        // Fallback to zeros if API fails
+        setStats({
+          total_messages: 0,
+          active_chats: 0,
+          response_rate: 0,
+          avg_response_time: '-',
+        });
       } finally {
         setIsLoading(false);
       }

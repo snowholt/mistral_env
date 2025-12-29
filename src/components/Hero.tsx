@@ -3,6 +3,7 @@ import { ArrowRight, Play } from "lucide-react";
 import heroImage from "@/assets/hero-ai-customer-service.jpg";
 import { useLanguage } from "@/hooks/useLanguage";
 import { getTranslation } from "@/utils/translations";
+import { Link } from "react-router-dom";
 
 const Hero = () => {
   const { language } = useLanguage();
@@ -19,19 +20,19 @@ const Hero = () => {
             <p className="mt-6 text-xl text-muted-foreground max-w-2xl">
               {getTranslation("heroDescription", language)}
             </p>
-            {/*<a
-            href="#contact">
             <div className="mt-8 flex flex-col sm:flex-row gap-4 justify-center lg:justify-start">
-              <Button variant="hero" size="lg" className="group">
-                {getTranslation("requestDemoBtn", language)}
-                <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
-              </Button>
-              {<Button variant="outline" size="lg" className="group">
-                <Play className="mr-2 h-5 w-5" />
-                {getTranslation("watchVideo", language)}
-              </Button>}
+              <Link to="/request-demo">
+                <Button variant="hero" size="lg" className="group w-full sm:w-auto">
+                  {getTranslation("requestDemoBtn", language)}
+                  <ArrowRight className="ml-2 h-5 w-5 group-hover:translate-x-1 transition-transform" />
+                </Button>
+              </Link>
+              <Link to="#contact">
+                <Button variant="outline" size="lg" className="group w-full sm:w-auto">
+                  {getTranslation("contactUs", language)}
+                </Button>
+              </Link>
             </div>
-            </a>*/}
             <div className="mt-12 grid grid-cols-3 gap-8 text-center lg:text-left">
               {<div>
                 <div className="text-3xl font-bold text-primary">95%</div>

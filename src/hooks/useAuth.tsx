@@ -5,23 +5,41 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, tokenManager, User, ApiError } from '@/lib/api';
+import { authApi, tokenManager, guestApi, User, ApiError } from '@/lib/api';
+
+interface GuestUser {
+  id: number;
+  email: string;
+  is_active: boolean;
+  max_conversations: number;
+  conversations_used: number;
+  expires_at: string;
+  is_expired: boolean;
+  is_limit_reached: boolean;
+  can_access: boolean;
+  days_remaining: number;
+  conversations_remaining: number;
+}
 
 interface AuthState {
   user: User | null;
+  guestUser: GuestUser | null;
   isAuthenticated: boolean;
+  isGuest: boolean;
   isLoading: boolean;
   isAdmin: boolean;
 }
 
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
+  guestLogin: (accessToken: string) => Promise<void>;
   register: (email: string, password: string, fullName?: string) => Promise<{ message: string }>;
   logout: () => void;
   verifyEmail: (token: string) => Promise<void>;
   forgotPassword: (email: string) => Promise<void>;
   resetPassword: (token: string, newPassword: string) => Promise<void>;
   refreshUser: () => Promise<void>;
+  refreshGuestUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,7 +47,9 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [state, setState] = useState<AuthState>({
     user: null,
+    guestUser: null,
     isAuthenticated: false,
+    isGuest: false,
     isLoading: true,
     isAdmin: false,
   });
@@ -39,23 +59,42 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     const initAuth = async () => {
       const token = tokenManager.getAccessToken();
       const storedUser = tokenManager.getUser();
+      const isGuestStored = localStorage.getItem('isGuest') === 'true';
 
       if (token) {
         try {
-          // Verify token is still valid by fetching user
-          const user = await authApi.getMe();
-          setState({
-            user,
-            isAuthenticated: true,
-            isLoading: false,
-            isAdmin: user.role === 'admin',
-          });
+          // Check if this is a guest user
+          if (isGuestStored) {
+            const guestUser = await guestApi.getProfile();
+            setState({
+              user: null,
+              guestUser,
+              isAuthenticated: true,
+              isGuest: true,
+              isLoading: false,
+              isAdmin: false,
+            });
+          } else {
+            // Regular user - verify token is still valid by fetching user
+            const user = await authApi.getMe();
+            setState({
+              user,
+              guestUser: null,
+              isAuthenticated: true,
+              isGuest: false,
+              isLoading: false,
+              isAdmin: user.role === 'admin',
+            });
+          }
         } catch {
           // Token is invalid, clear it
           tokenManager.clearTokens();
+          localStorage.removeItem('isGuest');
           setState({
             user: null,
+            guestUser: null,
             isAuthenticated: false,
+            isGuest: false,
             isLoading: false,
             isAdmin: false,
           });
@@ -63,16 +102,21 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       } else if (storedUser) {
         // Have cached user but no token - clear state
         tokenManager.clearTokens();
+        localStorage.removeItem('isGuest');
         setState({
           user: null,
+          guestUser: null,
           isAuthenticated: false,
+          isGuest: false,
           isLoading: false,
           isAdmin: false,
         });
       } else {
         setState({
           user: null,
+          guestUser: null,
           isAuthenticated: false,
+          isGuest: false,
           isLoading: false,
           isAdmin: false,
         });
@@ -84,11 +128,27 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const login = useCallback(async (email: string, password: string) => {
     const response = await authApi.login(email, password);
+    localStorage.removeItem('isGuest'); // Clear guest flag
     setState({
       user: response.user,
+      guestUser: null,
       isAuthenticated: true,
+      isGuest: false,
       isLoading: false,
       isAdmin: response.user.role === 'admin',
+    });
+  }, []);
+
+  const guestLogin = useCallback(async (accessToken: string) => {
+    const response = await guestApi.login(accessToken);
+    localStorage.setItem('isGuest', 'true');
+    setState({
+      user: null,
+      guestUser: response.guest_user,
+      isAuthenticated: true,
+      isGuest: true,
+      isLoading: false,
+      isAdmin: false,
     });
   }, []);
 
@@ -99,9 +159,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const logout = useCallback(() => {
     authApi.logout();
+    localStorage.removeItem('isGuest');
     setState({
       user: null,
+      guestUser: null,
       isAuthenticated: false,
+      isGuest: false,
       isLoading: false,
       isAdmin: false,
     });
@@ -132,15 +195,29 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     }
   }, []);
 
+  const refreshGuestUser = useCallback(async () => {
+    try {
+      const guestUser = await guestApi.getProfile();
+      setState(prev => ({
+        ...prev,
+        guestUser,
+      }));
+    } catch {
+      // Silently fail, token might be expired
+    }
+  }, []);
+
   const value: AuthContextType = {
     ...state,
     login,
+    guestLogin,
     register,
     logout,
     verifyEmail,
     forgotPassword,
     resetPassword,
     refreshUser,
+    refreshGuestUser,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -4,6 +4,7 @@ import { Menu, X, Globe } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
 import { getTranslation } from "@/utils/translations";
 import logo from "@/assets/logo.png";
+import { Link } from "react-router-dom";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -54,15 +55,16 @@ const Header = () => {
               <Globe size={16} />
               {getTranslation("language", language)}
             </Button>
-            <a href="/login">
+            <Link to="/login">
               <Button variant="outline" size="sm">
                 {getTranslation("signIn", language)}
               </Button>
-            </a>
-            <a href="#contact">
-            <Button variant="cta" size="sm">
-              {getTranslation("requestDemo", language)}
-            </Button></a>
+            </Link>
+            <Link to="/request-demo">
+              <Button variant="cta" size="sm">
+                {getTranslation("requestDemo", language)}
+              </Button>
+            </Link>
           </div>
 
           {/* Mobile menu button */}
@@ -99,14 +101,16 @@ const Header = () => {
                   <Globe size={16} />
                   {getTranslation("language", language)}
                 </Button>
-                <a href="/login" className="block">
+                <Link to="/login" className="block">
                   <Button variant="outline" className="w-full">
                     {getTranslation("signIn", language)}
                   </Button>
-                </a>
-                <Button variant="cta" className="w-full">
-                  {getTranslation("requestDemo", language)}
-                </Button>
+                </Link>
+                <Link to="/request-demo" className="block">
+                  <Button variant="cta" className="w-full">
+                    {getTranslation("requestDemo", language)}
+                  </Button>
+                </Link>
               </div>
             </div>
           </div>

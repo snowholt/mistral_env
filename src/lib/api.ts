@@ -321,4 +321,247 @@ export const authApi = {
   },
 };
 
+// ===== Demo Request API =====
+export const demoApi = {
+  submitDemoRequest: async (data: {
+    first_name: string;
+    last_name: string;
+    email: string;
+    phone?: string;
+    company?: string;
+    company_size?: string;
+    message?: string;
+  }) => {
+    return api.post<{ message: string; request_id: number }>(
+      '/api/v1/demo-requests',
+      data,
+      false,
+    );
+  },
+};
+
+// ===== Guest Auth API =====
+export const guestApi = {
+  login: async (accessToken: string) => {
+    const response = await api.post<{
+      access_token: string;
+      token_type: string;
+      guest_user: {
+        id: number;
+        email: string;
+        access_token: string;
+        is_active: boolean;
+        max_conversations: number;
+        conversations_used: number;
+        expires_at: string;
+      };
+    }>(
+      '/api/v1/auth/guest/login',
+      { access_token: accessToken },
+      false,
+    );
+    // Store guest token
+    tokenManager.setToken(response.access_token);
+    return response;
+  },
+
+  getProfile: async () => {
+    return api.get<{
+      id: number;
+      email: string;
+      is_active: boolean;
+      max_conversations: number;
+      conversations_used: number;
+      expires_at: string;
+      is_expired: boolean;
+      is_limit_reached: boolean;
+      can_access: boolean;
+      days_remaining: number;
+      conversations_remaining: number;
+    }>('/api/v1/auth/guest/me');
+  },
+
+  validateAccess: async () => {
+    return api.get<{
+      can_access: boolean;
+      is_expired: boolean;
+      is_limit_reached: boolean;
+      days_remaining: number;
+      conversations_remaining: number;
+      message: string;
+    }>('/api/v1/auth/guest/validate-access');
+  },
+
+  incrementUsage: async () => {
+    return api.post<{
+      message: string;
+      conversations_used: number;
+      conversations_remaining: number;
+    }>('/api/v1/auth/guest/increment-usage', {});
+  },
+
+  logout: () => {
+    tokenManager.clearTokens();
+  },
+};
+
+// ===== Admin Demo Request API =====
+export const adminDemoApi = {
+  listDemoRequests: async (params?: {
+    status?: 'pending' | 'approved' | 'rejected';
+    skip?: number;
+    limit?: number;
+  }) => {
+    const queryParams = new URLSearchParams();
+    if (params?.status) queryParams.append('status', params.status);
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+    const url = `/api/v1/admin/demo-requests${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return api.get<{
+      total: number;
+      items: Array<{
+        id: number;
+        first_name: string;
+        last_name: string;
+        email: string;
+        phone: string | null;
+        company: string | null;
+        company_size: string | null;
+        message: string | null;
+        status: 'pending' | 'approved' | 'rejected';
+        created_at: string;
+        updated_at: string;
+        admin_notes: string | null;
+        assigned_to_admin_id: number | null;
+        scheduled_follow_up: string | null;
+      }>;
+    }>(url);
+  },
+
+  getDemoRequest: async (id: number) => {
+    return api.get<{
+      id: number;
+      first_name: string;
+      last_name: string;
+      email: string;
+      phone: string | null;
+      company: string | null;
+      company_size: string | null;
+      message: string | null;
+      status: 'pending' | 'approved' | 'rejected';
+      created_at: string;
+      updated_at: string;
+      admin_notes: string | null;
+      assigned_to_admin_id: number | null;
+      scheduled_follow_up: string | null;
+      assigned_to?: { id: number; email: string; full_name: string };
+    }>(`/api/v1/admin/demo-requests/${id}`);
+  },
+
+  approveDemoRequest: async (
+    id: number,
+    data: {
+      max_conversations?: number;
+      days_valid?: number;
+      admin_notes?: string;
+    },
+  ) => {
+    return api.patch<{
+      message: string;
+      demo_request: any;
+      guest_user: any;
+    }>(`/api/v1/admin/demo-requests/${id}/approve`, data);
+  },
+
+  rejectDemoRequest: async (id: number, admin_notes?: string) => {
+    return api.patch<{ message: string; demo_request: any }>(
+      `/api/v1/admin/demo-requests/${id}/reject`,
+      { admin_notes },
+    );
+  },
+
+  updateDemoRequest: async (
+    id: number,
+    data: {
+      admin_notes?: string;
+      assigned_to_admin_id?: number | null;
+      scheduled_follow_up?: string | null;
+    },
+  ) => {
+    return api.patch<{ message: string; demo_request: any }>(
+      `/api/v1/admin/demo-requests/${id}`,
+      data,
+    );
+  },
+
+  deleteDemoRequest: async (id: number) => {
+    return api.delete<{ message: string }>(
+      `/api/v1/admin/demo-requests/${id}`,
+    );
+  },
+
+  listGuestUsers: async (params?: { skip?: number; limit?: number }) => {
+    const queryParams = new URLSearchParams();
+    if (params?.skip) queryParams.append('skip', params.skip.toString());
+    if (params?.limit) queryParams.append('limit', params.limit.toString());
+
+    const url = `/api/v1/admin/guest-users${queryParams.toString() ? `?${queryParams.toString()}` : ''}`;
+    return api.get<{
+      total: number;
+      items: Array<{
+        id: number;
+        email: string;
+        is_active: boolean;
+        max_conversations: number;
+        conversations_used: number;
+        expires_at: string;
+        created_at: string;
+        is_expired: boolean;
+        is_limit_reached: boolean;
+        can_access: boolean;
+        days_remaining: number;
+        conversations_remaining: number;
+      }>;
+    }>(url);
+  },
+
+  getGuestUser: async (id: number) => {
+    return api.get<{
+      id: number;
+      email: string;
+      is_active: boolean;
+      max_conversations: number;
+      conversations_used: number;
+      expires_at: string;
+      created_at: string;
+      is_expired: boolean;
+      is_limit_reached: boolean;
+      can_access: boolean;
+      days_remaining: number;
+      conversations_remaining: number;
+    }>(`/api/v1/admin/guest-users/${id}`);
+  },
+
+  updateGuestUser: async (
+    id: number,
+    data: {
+      is_active?: boolean;
+      max_conversations?: number;
+      expires_at?: string;
+    },
+  ) => {
+    return api.patch<{ message: string; guest_user: any }>(
+      `/api/v1/admin/guest-users/${id}`,
+      data,
+    );
+  },
+
+  deleteGuestUser: async (id: number) => {
+    return api.delete<{ message: string }>(
+      `/api/v1/admin/guest-users/${id}`,
+    );
+  },
+};
+
 export default api;
