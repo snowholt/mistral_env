@@ -114,6 +114,13 @@ class DocumentStatus(enum.Enum):
     FAILED = "failed"
 
 
+class DemoRequestStatus(enum.Enum):
+    """Demo request status."""
+    PENDING = "pending"
+    APPROVED = "approved"
+    REJECTED = "rejected"
+
+
 class StringEnumType(TypeDecorator):
     """
     Persist Enum values as strings in the database.
@@ -960,3 +967,127 @@ class AdminInvite(Base):
     
     def __repr__(self) -> str:
         return f"<AdminInvite(id={self.id}, uses={self.use_count}/{self.max_uses}, active={self.is_active})>"
+
+
+# ============================================================================
+# Demo Request System
+# ============================================================================
+
+
+class DemoRequest(Base):
+    """
+    Demo request submitted from website contact form.
+    
+    Users submit demo requests which admins can approve/reject.
+    Upon approval, a GuestUser account is created with limited demo access.
+    """
+    __tablename__ = "demo_requests"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Contact info from form (firstName, lastName, email, phone, company, companySize, message)
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    company: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    company_size: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Status and admin actions
+    status: Mapped[DemoRequestStatus] = mapped_column(
+        StringEnumType(DemoRequestStatus, name='demo_request_status'),
+        default=DemoRequestStatus.PENDING,
+        index=True
+    )
+    admin_notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    assigned_to_admin_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True)
+    scheduled_follow_up: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Timestamps
+    submitted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    assigned_to_admin: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to_admin_id], lazy="selectin")
+    guest_user: Mapped[Optional["GuestUser"]] = relationship("GuestUser", back_populates="demo_request", uselist=False, lazy="selectin")
+    
+    def full_name(self) -> str:
+        """Get full name of the requester."""
+        return f"{self.first_name} {self.last_name}"
+    
+    def __repr__(self) -> str:
+        return f"<DemoRequest(id={self.id}, email='{self.email}', status={self.status.value})>"
+
+
+class GuestUser(Base):
+    """
+    Guest user account with limited demo access.
+    
+    Created when admin approves a DemoRequest.
+    Has time-limited and usage-limited access to voice demo.
+    """
+    __tablename__ = "guest_users"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    demo_request_id: Mapped[int] = mapped_column(Integer, ForeignKey("demo_requests.id", ondelete="CASCADE"), nullable=False, unique=True, index=True)
+    
+    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    
+    # Access token for guest login (sent via email)
+    access_token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    
+    # Access limits
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    max_conversations: Mapped[int] = mapped_column(Integer, default=10)
+    conversations_used: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Timestamps
+    granted_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    demo_request: Mapped["DemoRequest"] = relationship("DemoRequest", back_populates="guest_user", lazy="selectin")
+    
+    def is_expired(self) -> bool:
+        """Check if demo access has expired."""
+        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at
+    
+    def is_limit_reached(self) -> bool:
+        """Check if usage limit has been reached."""
+        return self.conversations_used >= self.max_conversations
+    
+    def can_access_demo(self) -> bool:
+        """Check if guest can currently access the demo."""
+        return self.is_active and not self.is_expired() and not self.is_limit_reached()
+    
+    def increment_usage(self) -> None:
+        """Increment conversation usage counter."""
+        self.conversations_used += 1
+        self.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    def days_remaining(self) -> int:
+        """Calculate days remaining until expiry."""
+        if self.is_expired():
+            return 0
+        delta = self.expires_at - datetime.now(timezone.utc).replace(tzinfo=None)
+        return max(0, delta.days)
+    
+    def conversations_remaining(self) -> int:
+        """Calculate conversations remaining."""
+        return max(0, self.max_conversations - self.conversations_used)
+    
+    @classmethod
+    def generate_access_token(cls) -> str:
+        """Generate a secure access token for guest login."""
+        return secrets.token_urlsafe(32)
+    
+    def __repr__(self) -> str:
+        return f"<GuestUser(id={self.id}, email='{self.email}', active={self.is_active}, {self.conversations_used}/{self.max_conversations} used)>"

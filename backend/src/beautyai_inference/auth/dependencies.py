@@ -1,7 +1,9 @@
 """
 FastAPI authentication dependencies.
 
-Provides dependency injection for protected endpoints.
+Provides dependency injection for protected endpoints including:
+- Regular user authentication via JWT
+- Guest user authentication via access token
 """
 
 import logging
@@ -13,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from ..database.connection import get_db
-from ..database.models import User
+from ..database.models import User, GuestUser
 from .jwt_handler import verify_token, TokenType, JWTPayload
 
 logger = logging.getLogger(__name__)
@@ -129,3 +131,81 @@ async def get_optional_user(
         select(User).where(User.id == payload.user_id)
     )
     return result.scalar_one_or_none()
+
+
+# ============================================
+# Guest User Authentication
+# ============================================
+
+async def get_guest_user_by_token(
+    token: str,
+    db: AsyncSession
+) -> Optional[GuestUser]:
+    """
+    Get guest user by access token.
+    
+    Args:
+        token: Guest access token
+        db: Database session
+        
+    Returns:
+        GuestUser object if found and valid, None otherwise
+    """
+    result = await db.execute(
+        select(GuestUser).where(GuestUser.access_token == token)
+    )
+    guest_user = result.scalar_one_or_none()
+    
+    if guest_user and guest_user.can_access_demo():
+        return guest_user
+    
+    return None
+
+
+async def get_current_guest_user(
+    token: str,
+    db: AsyncSession = Depends(get_db)
+) -> GuestUser:
+    """
+    Dependency to get the current authenticated guest user.
+    
+    Used for guest-only endpoints (demo access).
+    
+    Args:
+        token: Guest access token from custom header or query param
+        db: Database session
+        
+    Returns:
+        GuestUser object
+        
+    Raises:
+        HTTPException 401: If token is invalid
+        HTTPException 403: If guest access has expired or limits reached
+    """
+    guest_user = await get_guest_user_by_token(token, db)
+    
+    if guest_user is None:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired guest access token"
+        )
+    
+    if not guest_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Guest access has been disabled by administrator"
+        )
+    
+    if guest_user.is_expired():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Demo access has expired. Your trial period has ended. Please contact us to upgrade."
+        )
+    
+    if guest_user.is_limit_reached():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=f"Usage limit reached. You have used all {guest_user.max_conversations} demo conversations. Please contact us to upgrade."
+        )
+    
+    return guest_user

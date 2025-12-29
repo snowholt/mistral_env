@@ -327,3 +327,181 @@ class EmailTemplates:
             title="دعوة للانضمام كمسؤول - Admin Invitation",
             content=content,
         )
+    
+    @classmethod
+    def demo_request_confirmation_email(cls, full_name: str) -> str:
+        """Generate demo request confirmation email for requester."""
+        content = f"""
+<div class="content-ar">
+    <p class="greeting">شكراً لاهتمامك {full_name}! 🌟</p>
+    <p>تم استلام طلبك لتجربة منصة GMAI.sa بنجاح.</p>
+    
+    <p><strong>الخطوات التالية:</strong></p>
+    <ul style="margin: 15px 0; padding-right: 20px;">
+        <li>سيقوم فريقنا بمراجعة طلبك خلال 24-48 ساعة</li>
+        <li>سنرسل لك بريد إلكتروني يحتوي على رابط الدخول عند الموافقة</li>
+        <li>ستتمكن من تجربة محادثة صوتية مع الذكاء الاصطناعي مجاناً</li>
+    </ul>
+    
+    <div class="note">
+        📧 راقب بريدك الإلكتروني للحصول على رابط الوصول إلى التجربة المجانية.
+    </div>
+</div>
+
+<div class="divider"></div>
+
+<div class="content-en">
+    <p>Thank you for your interest {full_name}! 🌟</p>
+    <p>We've successfully received your demo request for GMAI.sa platform.</p>
+    
+    <p><strong>Next Steps:</strong></p>
+    <ul style="margin: 15px 0; padding-left: 20px;">
+        <li>Our team will review your request within 24-48 hours</li>
+        <li>You'll receive an email with access link upon approval</li>
+        <li>You'll be able to try a free voice conversation with AI</li>
+    </ul>
+    
+    <p><small>Keep an eye on your email for your free demo access link.</small></p>
+</div>
+"""
+        return cls.BASE_TEMPLATE.format(
+            title="تأكيد طلب التجربة - Demo Request Confirmed",
+            content=content,
+        )
+    
+    @classmethod
+    def demo_request_admin_notification_email(
+        cls, 
+        requester_name: str,
+        requester_email: str,
+        company: str,
+        company_size: str,
+        message: str,
+        demo_request_id: int,
+        admin_panel_url: str
+    ) -> str:
+        """Generate admin notification email for new demo request."""
+        content = f"""
+<div class="content-ar">
+    <p class="greeting">طلب تجربة جديد 🔔</p>
+    <p>تم استلام طلب تجربة جديد من عميل محتمل.</p>
+    
+    <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 5px 0;"><strong>الاسم:</strong> {requester_name}</p>
+        <p style="margin: 5px 0;"><strong>البريد الإلكتروني:</strong> {requester_email}</p>
+        <p style="margin: 5px 0;"><strong>الشركة:</strong> {company or 'غير محدد'}</p>
+        <p style="margin: 5px 0;"><strong>حجم الشركة:</strong> {company_size or 'غير محدد'}</p>
+        {f'<p style="margin: 5px 0;"><strong>الرسالة:</strong><br>{message}</p>' if message else ''}
+    </div>
+    
+    <div class="button-container">
+        <a href="{admin_panel_url}/admin/demo-requests/{demo_request_id}" class="button">مراجعة الطلب</a>
+    </div>
+    
+    <div class="note">
+        💡 يمكنك الموافقة على الطلب أو رفضه من لوحة التحكم.
+    </div>
+</div>
+
+<div class="divider"></div>
+
+<div class="content-en">
+    <p>New Demo Request 🔔</p>
+    <p>A new demo request has been received from a potential customer.</p>
+    
+    <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 5px 0;"><strong>Name:</strong> {requester_name}</p>
+        <p style="margin: 5px 0;"><strong>Email:</strong> {requester_email}</p>
+        <p style="margin: 5px 0;"><strong>Company:</strong> {company or 'Not specified'}</p>
+        <p style="margin: 5px 0;"><strong>Company Size:</strong> {company_size or 'Not specified'}</p>
+        {f'<p style="margin: 5px 0;"><strong>Message:</strong><br>{message}</p>' if message else ''}
+    </div>
+    
+    <div class="button-container">
+        <a href="{admin_panel_url}/admin/demo-requests/{demo_request_id}" class="button">Review Request</a>
+    </div>
+    
+    <p><small>You can approve or reject this request from the admin panel.</small></p>
+</div>
+"""
+        return cls.BASE_TEMPLATE.format(
+            title="طلب تجربة جديد - New Demo Request",
+            content=content,
+        )
+    
+    @classmethod
+    def demo_access_granted_email(
+        cls,
+        full_name: str,
+        access_token: str,
+        login_url: str,
+        expires_days: int,
+        max_conversations: int,
+    ) -> str:
+        """Generate demo access granted email with login credentials."""
+        content = f"""
+<div class="content-ar">
+    <p class="greeting">مبروك {full_name}! 🎉</p>
+    <p>تمت الموافقة على طلبك! يمكنك الآن تجربة منصة GMAI.sa مجاناً.</p>
+    
+    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0 0 15px 0; font-size: 16px;"><strong>🔑 معلومات الدخول:</strong></p>
+        <p style="margin: 5px 0; font-family: monospace; background-color: white; padding: 10px; border-radius: 4px;">
+            <strong>رمز الوصول:</strong><br>
+            <span style="color: #10B981; font-size: 14px; word-break: break-all;">{access_token}</span>
+        </p>
+    </div>
+    
+    <p><strong>حدود التجربة المجانية:</strong></p>
+    <ul style="margin: 15px 0; padding-right: 20px;">
+        <li>⏰ صالح لمدة {expires_days} أيام</li>
+        <li>💬 حتى {max_conversations} محادثة صوتية</li>
+        <li>🎤 وصول كامل لمحادثة الصوت إلى الصوت بالذكاء الاصطناعي</li>
+    </ul>
+    
+    <div class="button-container">
+        <a href="{login_url}" class="button">تسجيل الدخول الآن 🚀</a>
+    </div>
+    
+    <div class="note">
+        ⚠️ احتفظ برمز الوصول هذا في مكان آمن. ستحتاجه لتسجيل الدخول.<br>
+        💡 بعد انتهاء التجربة، يمكنك الترقية إلى حساب كامل.
+    </div>
+</div>
+
+<div class="divider"></div>
+
+<div class="content-en">
+    <p>Congratulations {full_name}! 🎉</p>
+    <p>Your request has been approved! You can now try GMAI.sa platform for free.</p>
+    
+    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0;">
+        <p style="margin: 0 0 15px 0; font-size: 16px;"><strong>🔑 Login Information:</strong></p>
+        <p style="margin: 5px 0; font-family: monospace; background-color: white; padding: 10px; border-radius: 4px;">
+            <strong>Access Token:</strong><br>
+            <span style="color: #10B981; font-size: 14px; word-break: break-all;">{access_token}</span>
+        </p>
+    </div>
+    
+    <p><strong>Free Trial Limits:</strong></p>
+    <ul style="margin: 15px 0; padding-left: 20px;">
+        <li>⏰ Valid for {expires_days} days</li>
+        <li>💬 Up to {max_conversations} voice conversations</li>
+        <li>🎤 Full access to AI voice-to-voice chat</li>
+    </ul>
+    
+    <div class="button-container">
+        <a href="{login_url}" class="button">Login Now 🚀</a>
+    </div>
+    
+    <p><small>
+        Keep this access token safe. You'll need it to log in.<br>
+        After the trial ends, you can upgrade to a full account.
+    </small></p>
+</div>
+"""
+        return cls.BASE_TEMPLATE.format(
+            title="تم منح الوصول إلى التجربة - Demo Access Granted",
+            content=content,
+        )
+

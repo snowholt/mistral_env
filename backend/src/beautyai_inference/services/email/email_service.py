@@ -300,6 +300,83 @@ class EmailService:
             html_body=html_body,
             tag="admin_invite",
         )
+    
+    async def send_demo_request_confirmation(
+        self,
+        to_address: str,
+        full_name: str,
+    ) -> dict:
+        """Send demo request confirmation email to requester."""
+        from .templates import EmailTemplates
+        
+        html_body = EmailTemplates.demo_request_confirmation_email(
+            full_name=full_name,
+        )
+        
+        return await self.send_email(
+            to_address=to_address,
+            subject="تأكيد طلب التجربة - Demo Request Confirmed | GMAI.sa",
+            html_body=html_body,
+            tag="demo_request_confirmation",
+        )
+    
+    async def send_demo_request_admin_notification(
+        self,
+        admin_email: str,
+        requester_name: str,
+        requester_email: str,
+        company: str,
+        company_size: str,
+        message: str,
+        demo_request_id: int,
+    ) -> dict:
+        """Send new demo request notification to admin."""
+        from .templates import EmailTemplates
+        
+        html_body = EmailTemplates.demo_request_admin_notification_email(
+            requester_name=requester_name,
+            requester_email=requester_email,
+            company=company,
+            company_size=company_size,
+            message=message,
+            demo_request_id=demo_request_id,
+            admin_panel_url=self.app_base_url,
+        )
+        
+        return await self.send_email(
+            to_address=admin_email,
+            subject=f"طلب تجربة جديد من {requester_name} - New Demo Request | GMAI.sa",
+            html_body=html_body,
+            tag="demo_request_admin_notification",
+        )
+    
+    async def send_demo_access_granted(
+        self,
+        to_address: str,
+        full_name: str,
+        access_token: str,
+        expires_days: int,
+        max_conversations: int,
+    ) -> dict:
+        """Send demo access granted email with login credentials."""
+        from .templates import EmailTemplates
+        
+        login_url = f"{self.app_base_url}/demo/login"
+        
+        html_body = EmailTemplates.demo_access_granted_email(
+            full_name=full_name,
+            access_token=access_token,
+            login_url=login_url,
+            expires_days=expires_days,
+            max_conversations=max_conversations,
+        )
+        
+        return await self.send_email(
+            to_address=to_address,
+            subject="🎉 تم منح الوصول إلى التجربة - Demo Access Granted | GMAI.sa",
+            html_body=html_body,
+            tag="demo_access_granted",
+        )
 
 
 # Singleton instance

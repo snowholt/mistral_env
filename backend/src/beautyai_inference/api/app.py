@@ -290,6 +290,16 @@ try:
 except ImportError as e:
     logger.warning(f"Admin router not available: {e}")
 
+# Include Demo Request router
+try:
+    from .endpoints.demo_requests import demo_router, guest_auth_router
+    app.include_router(demo_router, tags=["demo_requests"])
+    app.include_router(guest_auth_router, tags=["guest_auth"])
+    logger.info("✅ Demo Request endpoints registered at /api/v1/demo-requests and /api/v1/admin/demo-requests")
+    logger.info("✅ Guest Auth endpoints registered at /api/v1/auth/guest/*")
+except ImportError as e:
+    logger.warning(f"Demo Request router not available: {e}")
+
 # Include Dashboard router
 try:
     from .endpoints.dashboard import dashboard_router
