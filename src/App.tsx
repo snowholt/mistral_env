@@ -31,6 +31,7 @@ import AgentSetup from "./pages/app/AgentSetup";
 import KnowledgeBase from "./pages/app/KnowledgeBase";
 import Billing from "./pages/app/Billing";
 import Settings from "./pages/app/Settings";
+import VoiceDemo from "./pages/app/VoiceDemo";
 
 // Admin pages
 import AdminCustomers from "./pages/app/admin/Customers";
@@ -99,6 +100,7 @@ function AppContent() {
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="billing" element={<Billing />} />
           <Route path="settings" element={<Settings />} />
+          <Route path="demo" element={<VoiceDemo />} />
           
           {/* Admin Routes - Requires admin role */}
           <Route path="admin/customers" element={

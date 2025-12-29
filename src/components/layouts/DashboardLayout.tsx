@@ -109,9 +109,6 @@ export default function DashboardLayout() {
     { title: t.billing, href: '/app/billing', icon: CreditCard, guestDisabled: false },
     { title: t.settings, href: '/app/settings', icon: Settings, guestDisabled: true },
   ];
-    { title: t.billing, href: '/app/billing', icon: CreditCard },
-    { title: t.settings, href: '/app/settings', icon: Settings },
-  ];
 
   const adminNavItems: NavItem[] = [
     { title: t.customers, href: '/app/admin/customers', icon: Users, adminOnly: true },
