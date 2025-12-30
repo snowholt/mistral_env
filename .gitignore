@@ -94,3 +94,7 @@ README.md
 # RNNoise library (compiled from source, don't track)
 backend/rnnoise/
 backend/.env
+
+# Website snapshots
+_website_snapshot/
+
