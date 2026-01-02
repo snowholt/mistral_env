@@ -294,7 +294,7 @@ export default function AdminCustomers() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {data?.businesses.map((business) => (
+                    {data?.businesses?.map((business) => (
                       <TableRow key={business.id}>
                         <TableCell>
                           <div className="flex items-center gap-3">
