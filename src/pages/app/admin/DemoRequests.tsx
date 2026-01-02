@@ -77,8 +77,8 @@ export default function DemoRequests() {
     try {
       const params = statusFilter !== 'all' ? { status: statusFilter } : {};
       const response = await adminDemoApi.listDemoRequests(params);
-      setRequests(response.items);
-      setTotalRequests(response.total);
+      setRequests(response.items || []);
+      setTotalRequests(response.total || 0);
     } catch (error) {
       console.error("Failed to load demo requests:", error);
       toast.error(language === 'ar' ? 'فشل تحميل طلبات التجربة' : 'Failed to load demo requests');
@@ -90,8 +90,8 @@ export default function DemoRequests() {
   const loadGuestUsers = async () => {
     try {
       const response = await adminDemoApi.listGuestUsers();
-      setGuestUsers(response.items);
-      setTotalGuests(response.total);
+      setGuestUsers(response.items || []);
+      setTotalGuests(response.total || 0);
     } catch (error) {
       console.error("Failed to load guest users:", error);
     }

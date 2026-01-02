@@ -192,7 +192,7 @@ export default function AdminCustomers() {
               <div>
                 <p className="text-sm text-gray-600">WhatsApp Connected</p>
                 <p className="text-2xl font-bold">
-                  {data?.businesses.filter((b) => b.whatsapp_connected).length || 0}
+                  {data?.businesses?.filter((b) => b.whatsapp_connected).length || 0}
                 </p>
               </div>
             </div>
@@ -207,7 +207,7 @@ export default function AdminCustomers() {
               <div>
                 <p className="text-sm text-gray-600">Paid Plans</p>
                 <p className="text-2xl font-bold">
-                  {data?.businesses.filter((b) => b.subscription_plan !== "free").length || 0}
+                  {data?.businesses?.filter((b) => b.subscription_plan !== "free").length || 0}
                 </p>
               </div>
             </div>
@@ -222,7 +222,7 @@ export default function AdminCustomers() {
               <div>
                 <p className="text-sm text-gray-600">Total Messages</p>
                 <p className="text-2xl font-bold">
-                  {data?.businesses.reduce((sum, b) => sum + b.message_count, 0).toLocaleString() || 0}
+                  {data?.businesses?.reduce((sum, b) => sum + b.message_count, 0).toLocaleString() || 0}
                 </p>
               </div>
             </div>

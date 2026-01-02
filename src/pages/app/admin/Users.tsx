@@ -157,7 +157,7 @@ export default function AdminUsers() {
   };
 
   const getInitials = (name: string) => {
-    return name
+    return (name || "")
       .split(" ")
       .map((n) => n[0])
       .join("")
@@ -209,7 +209,7 @@ export default function AdminUsers() {
               <div>
                 <p className="text-sm text-gray-600">Admins</p>
                 <p className="text-2xl font-bold">
-                  {data?.users.filter((u) => u.role === "admin").length || 0}
+                  {data?.users?.filter((u) => u.role === "admin").length || 0}
                 </p>
               </div>
             </div>
@@ -224,7 +224,7 @@ export default function AdminUsers() {
               <div>
                 <p className="text-sm text-gray-600">Verified</p>
                 <p className="text-2xl font-bold">
-                  {data?.users.filter((u) => u.is_verified).length || 0}
+                  {data?.users?.filter((u) => u.is_verified).length || 0}
                 </p>
               </div>
             </div>
@@ -239,7 +239,7 @@ export default function AdminUsers() {
               <div>
                 <p className="text-sm text-gray-600">Suspended</p>
                 <p className="text-2xl font-bold">
-                  {data?.users.filter((u) => !u.is_active).length || 0}
+                  {data?.users?.filter((u) => !u.is_active).length || 0}
                 </p>
               </div>
             </div>
