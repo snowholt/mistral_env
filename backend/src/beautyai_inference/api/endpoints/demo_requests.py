@@ -34,6 +34,7 @@ from ...database.models import (
 )
 from ...auth.dependencies import get_current_active_user, get_current_guest_user
 from ...auth.jwt_handler import create_access_token
+from ...auth.password import hash_password, verify_password, validate_password_strength, get_password_requirements
 from ...services.email import get_email_service
 
 logger = logging.getLogger(__name__)
@@ -206,6 +207,7 @@ class GuestUserResponse(BaseModel):
     max_conversations: int
     conversations_used: int
     is_active: bool
+    is_activated: bool = False  # Whether password has been set
     granted_at: datetime
     last_used_at: Optional[datetime]
     days_remaining: int
@@ -214,6 +216,55 @@ class GuestUserResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+# ============================================
+# Password Setup Models (New Secure Flow)
+# ============================================
+
+class ValidateSetupTokenRequest(BaseModel):
+    """Request to validate a setup token from email link."""
+    token: str = Field(..., min_length=32, description="Setup token from email link")
+
+
+class ValidateSetupTokenResponse(BaseModel):
+    """Response for setup token validation."""
+    valid: bool
+    email: Optional[str] = None
+    expires_at: Optional[datetime] = None
+    days_remaining: Optional[int] = None
+    max_conversations: Optional[int] = None
+    error: Optional[str] = None
+
+
+class SetPasswordRequest(BaseModel):
+    """Request to set password for guest account activation."""
+    token: str = Field(..., min_length=32, description="Setup token from email link")
+    password: str = Field(..., min_length=8, max_length=128, description="New password")
+    confirm_password: str = Field(..., min_length=8, max_length=128, description="Password confirmation")
+
+
+class SetPasswordResponse(BaseModel):
+    """Response for password setup."""
+    success: bool
+    message: str
+    jwt_token: Optional[str] = None
+    token_type: str = "bearer"
+    expires_in: Optional[int] = None  # seconds
+    guest_user: Optional[GuestUserResponse] = None
+
+
+class GuestPasswordLoginRequest(BaseModel):
+    """Guest login with email and password (for activated accounts)."""
+    email: EmailStr
+    password: str = Field(..., min_length=1, description="Account password")
+
+
+class PasswordRequirementsResponse(BaseModel):
+    """Response with password requirements for frontend display."""
+    min_length: int
+    max_length: int
+    requirements: List[str]
 
 
 class EmailSendResult(BaseModel):
@@ -572,8 +623,8 @@ async def approve_demo_request(
     if approval.admin_notes:
         demo_request.admin_notes = approval.admin_notes
     
-    # Create guest user
-    access_token = GuestUser.generate_access_token()
+    # Create guest user with setup token for secure activation flow
+    access_token = GuestUser.generate_access_token()  # Legacy, kept for backward compat
     expires_at = datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(days=approval.demo_duration_days)
     
     guest_user = GuestUser(
@@ -584,7 +635,11 @@ async def approve_demo_request(
         max_conversations=approval.max_conversations,
         conversations_used=0,
         is_active=True,
+        is_activated=False,  # Will be True after password is set
     )
+    
+    # Generate short-lived setup token (1 hour) for secure account activation
+    setup_token = guest_user.create_setup_token(expires_hours=1)
     
     db.add(guest_user)
     await db.commit()
@@ -597,13 +652,13 @@ async def approve_demo_request(
         f"{approval.max_conversations} conversations max)"
     )
     
-    # Send demo access granted email to guest
+    # Send demo access granted email with setup token for account activation
     try:
         email_service = await get_email_service()
         send_result = await email_service.send_demo_access_granted(
             to_address=guest_user.email,
             full_name=demo_request.full_name(),
-            access_token=guest_user.access_token,
+            access_token=setup_token,  # Send unhashed setup token for activation
             expires_days=approval.demo_duration_days,
             max_conversations=approval.max_conversations,
         )
@@ -616,9 +671,9 @@ async def approve_demo_request(
             manual_instructions = (
                 "⚠️ Demo access email FAILED to send (email service not configured).\n"
                 f"Guest email: {guest_user.email}\n"
-                f"Guest access token: {guest_user.access_token}\n"
-                "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
-                "Portal demo login (if available): /demo/login"
+                f"Setup token (expires in 1 hour): {setup_token}\n"
+                "Activation URL: https://portal.gmai.sa/demo/login?token=<setup_token>\n"
+                "After activation, user logs in with email + password"
             )
 
             if demo_request.admin_notes:
@@ -634,9 +689,9 @@ async def approve_demo_request(
         manual_instructions = (
             "⚠️ Demo access email FAILED to send (exception during send).\n"
             f"Guest email: {guest_user.email}\n"
-            f"Guest access token: {guest_user.access_token}\n"
-            "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
-            "Portal demo login (if available): /demo/login\n"
+            f"Setup token (expires in 1 hour): {setup_token}\n"
+            "Activation URL: https://portal.gmai.sa/demo/login?token=<setup_token>\n"
+            "After activation, user logs in with email + password\n"
             f"Error: {type(e).__name__}: {e}"
         )
 
@@ -657,6 +712,7 @@ async def approve_demo_request(
         max_conversations=guest_user.max_conversations,
         conversations_used=guest_user.conversations_used,
         is_active=guest_user.is_active,
+        is_activated=guest_user.is_activated,
         granted_at=guest_user.granted_at,
         last_used_at=guest_user.last_used_at,
         days_remaining=guest_user.days_remaining(),
@@ -1140,6 +1196,7 @@ async def disable_guest_user(
         max_conversations=guest_user.max_conversations,
         conversations_used=guest_user.conversations_used,
         is_active=guest_user.is_active,
+        is_activated=guest_user.is_activated,
         granted_at=guest_user.granted_at,
         last_used_at=guest_user.last_used_at,
         days_remaining=guest_user.days_remaining(),
@@ -1190,9 +1247,10 @@ async def get_demo_request_guest_credentials(
 # ============================================
 
 class GuestLoginRequest(BaseModel):
-    """Guest login request."""
+    """Guest login request - supports both token and password-based login."""
     email: Optional[EmailStr] = None
-    access_token: str = Field(..., min_length=32, description="Access token sent via email")
+    access_token: Optional[str] = Field(None, min_length=32, description="Legacy access token (for backward compatibility)")
+    password: Optional[str] = Field(None, min_length=1, description="Password (for activated accounts)")
 
 
 class GuestLoginResponse(BaseModel):
@@ -1211,26 +1269,61 @@ async def guest_login(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Guest user login with email and access token.
+    Guest user login with either:
+    1. Legacy access token (for backward compatibility)
+    2. Email + password (for activated accounts)
     
-    Validates the guest access token and returns a JWT for API access.
+    Returns a JWT for API access.
     """
-    # Find guest user by access token
-    query = select(GuestUser).where(GuestUser.access_token == request.access_token)
-    result = await db.execute(query)
-    guest_user = result.scalar_one_or_none()
+    guest_user = None
     
-    if not guest_user:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid access token"
-        )
+    # Method 1: Password-based login (preferred for activated accounts)
+    if request.email and request.password:
+        query = select(GuestUser).where(GuestUser.email == request.email.lower())
+        result = await db.execute(query)
+        guest_user = result.scalar_one_or_none()
         
-    # Optional: Verify email if provided
-    if request.email and request.email.lower() != guest_user.email.lower():
-         raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Email does not match access token"
+        if not guest_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+        
+        if not guest_user.has_password():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Account not activated. Please check your email for the activation link."
+            )
+        
+        if not verify_password(request.password, guest_user.password_hash):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid email or password"
+            )
+    
+    # Method 2: Legacy access token login (backward compatibility)
+    elif request.access_token:
+        query = select(GuestUser).where(GuestUser.access_token == request.access_token)
+        result = await db.execute(query)
+        guest_user = result.scalar_one_or_none()
+        
+        if not guest_user:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Invalid access token"
+            )
+            
+        # Optional: Verify email if provided with token
+        if request.email and request.email.lower() != guest_user.email.lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Email does not match access token"
+            )
+    
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please provide either email+password or access_token for login"
         )
     
     if not guest_user.is_active:
@@ -1267,6 +1360,7 @@ async def guest_login(
             max_conversations=guest_user.max_conversations,
             conversations_used=guest_user.conversations_used,
             is_active=guest_user.is_active,
+            is_activated=guest_user.is_activated,
             granted_at=guest_user.granted_at,
             last_used_at=guest_user.last_used_at,
             days_remaining=guest_user.days_remaining(),
@@ -1296,6 +1390,7 @@ async def get_guest_profile(
         max_conversations=guest_user.max_conversations,
         conversations_used=guest_user.conversations_used,
         is_active=guest_user.is_active,
+        is_activated=guest_user.is_activated,
         granted_at=guest_user.granted_at,
         last_used_at=guest_user.last_used_at,
         days_remaining=guest_user.days_remaining(),
@@ -1359,6 +1454,189 @@ async def validate_guest_access(
         "days_remaining": guest_user.days_remaining(),
         "expires_at": guest_user.expires_at.isoformat(),
         "can_access_demo": guest_user.can_access_demo(),
+        "is_activated": guest_user.is_activated,
     }
 
 
+# ============================================
+# Password-Based Account Activation Endpoints
+# ============================================
+
+@guest_auth_router.post("/validate-setup-token", response_model=ValidateSetupTokenResponse)
+async def validate_setup_token(
+    request: ValidateSetupTokenRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Validate a setup token from email activation link.
+    
+    Called when user clicks the activation link in email.
+    Returns account info if valid, error details if not.
+    """
+    # Find guest user by hashed setup token
+    import hashlib
+    token_hash = hashlib.sha256(request.token.encode()).hexdigest()
+    
+    query = select(GuestUser).where(GuestUser.setup_token == token_hash)
+    result = await db.execute(query)
+    guest_user = result.scalar_one_or_none()
+    
+    if not guest_user:
+        return ValidateSetupTokenResponse(
+            valid=False,
+            error="Invalid or expired activation token. Please request a new demo access."
+        )
+    
+    # Check if token is expired
+    if guest_user.setup_token_expires and datetime.now(timezone.utc).replace(tzinfo=None) > guest_user.setup_token_expires:
+        return ValidateSetupTokenResponse(
+            valid=False,
+            error="Activation token has expired. Please contact support to resend the activation email."
+        )
+    
+    # Check if already activated
+    if guest_user.is_activated:
+        return ValidateSetupTokenResponse(
+            valid=False,
+            error="Account is already activated. Please login with your email and password."
+        )
+    
+    # Check if demo access is still valid
+    if not guest_user.is_active:
+        return ValidateSetupTokenResponse(
+            valid=False,
+            error="Your demo access has been disabled. Please contact support."
+        )
+    
+    if guest_user.is_expired():
+        return ValidateSetupTokenResponse(
+            valid=False,
+            error="Your demo access has expired. Please contact us to request a new demo."
+        )
+    
+    logger.info(f"Setup token validated for guest {guest_user.email}")
+    
+    return ValidateSetupTokenResponse(
+        valid=True,
+        email=guest_user.email,
+        expires_at=guest_user.expires_at,
+        days_remaining=guest_user.days_remaining(),
+        max_conversations=guest_user.max_conversations,
+    )
+
+
+@guest_auth_router.post("/set-password", response_model=SetPasswordResponse)
+async def set_guest_password(
+    request: SetPasswordRequest,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Set password for guest account activation.
+    
+    Called after user validates setup token and submits password form.
+    Activates the account and returns a JWT for immediate login.
+    """
+    # Verify passwords match
+    if request.password != request.confirm_password:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Passwords do not match"
+        )
+    
+    # Validate password strength
+    is_valid, errors = validate_password_strength(request.password)
+    if not is_valid:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"message": "Password does not meet requirements", "errors": errors}
+        )
+    
+    # Find guest user by hashed setup token
+    import hashlib
+    token_hash = hashlib.sha256(request.token.encode()).hexdigest()
+    
+    query = select(GuestUser).where(GuestUser.setup_token == token_hash)
+    result = await db.execute(query)
+    guest_user = result.scalar_one_or_none()
+    
+    if not guest_user:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or expired activation token"
+        )
+    
+    # Check if token is expired
+    if guest_user.setup_token_expires and datetime.now(timezone.utc).replace(tzinfo=None) > guest_user.setup_token_expires:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Activation token has expired. Please contact support to resend the activation email."
+        )
+    
+    # Check if already activated
+    if guest_user.is_activated:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Account is already activated. Please login with your email and password."
+        )
+    
+    # Check demo access validity
+    if not guest_user.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your demo access has been disabled"
+        )
+    
+    if guest_user.is_expired():
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Your demo access has expired"
+        )
+    
+    # Set password and activate account
+    password_hashed = hash_password(request.password)
+    guest_user.set_password(password_hashed)
+    
+    await db.commit()
+    await db.refresh(guest_user)
+    
+    logger.info(f"Guest account {guest_user.email} activated with password")
+    
+    # Create JWT token for immediate login
+    jwt_token = create_access_token(
+        user_id=guest_user.id,
+        email=guest_user.email
+    )
+    
+    return SetPasswordResponse(
+        success=True,
+        message="Account activated successfully! You can now login with your email and password.",
+        jwt_token=jwt_token,
+        token_type="bearer",
+        expires_in=3600,
+        guest_user=GuestUserResponse(
+            id=guest_user.id,
+            email=guest_user.email,
+            access_token=guest_user.access_token,
+            expires_at=guest_user.expires_at,
+            max_conversations=guest_user.max_conversations,
+            conversations_used=guest_user.conversations_used,
+            is_active=guest_user.is_active,
+            is_activated=guest_user.is_activated,
+            granted_at=guest_user.granted_at,
+            last_used_at=guest_user.last_used_at,
+            days_remaining=guest_user.days_remaining(),
+            conversations_remaining=guest_user.conversations_remaining(),
+            can_access_demo=guest_user.can_access_demo(),
+        )
+    )
+
+
+@guest_auth_router.get("/password-requirements", response_model=PasswordRequirementsResponse)
+async def get_guest_password_requirements():
+    """
+    Get password requirements for frontend display.
+    
+    Returns the password policy for account activation form.
+    """
+    requirements = get_password_requirements()
+    return PasswordRequirementsResponse(**requirements)

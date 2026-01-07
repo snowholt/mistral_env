@@ -19,7 +19,7 @@ from ...database.models import (
     User, Customer, Conversation, Message, MessageSource,
     WebChatSession, WebChatMessage, AgentConfig
 )
-from ...auth.dependencies import get_current_active_user
+from ...auth.dependencies import get_current_active_user, get_optional_user
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +28,7 @@ dashboard_router = APIRouter(prefix="/api/v1/dashboard", tags=["dashboard"])
 
 @dashboard_router.get("/stats")
 async def get_dashboard_stats(
-    current_user: User = Depends(get_current_active_user),
+    current_user: Optional[User] = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -40,6 +40,16 @@ async def get_dashboard_stats(
     - response_rate: Percentage of customer messages that got AI/human responses
     - avg_response_time: Average time to first AI response (in seconds)
     """
+    if not current_user:
+        # For guest users or unauthenticated, return demo/empty stats
+        # This prevents 401 errors for guest demo users
+        return {
+            "total_messages": 0,
+            "active_chats": 0,
+            "response_rate": 0,
+            "avg_response_time": "0s",
+        }
+
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     last_24h = now - timedelta(hours=24)
     last_7d = now - timedelta(days=7)

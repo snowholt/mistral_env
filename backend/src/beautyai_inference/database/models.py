@@ -1028,6 +1028,12 @@ class GuestUser(Base):
     
     Created when admin approves a DemoRequest.
     Has time-limited and usage-limited access to voice demo.
+    
+    Authentication Flow:
+    1. Admin approves demo request → GuestUser created with setup_token
+    2. User clicks email link with setup_token → validates token, sets password
+    3. After password set → setup_token invalidated, is_activated=True
+    4. Subsequent logins use email + password (no token needed)
     """
     __tablename__ = "guest_users"
     
@@ -1036,7 +1042,17 @@ class GuestUser(Base):
     
     email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     
-    # Access token for guest login (sent via email)
+    # Password-based authentication (set during account activation)
+    password_hash: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    is_activated: Mapped[bool] = mapped_column(Boolean, default=False)
+    
+    # Setup token for initial account activation (short-lived, 1 hour)
+    # This replaces the old access_token for initial login
+    setup_token: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True, index=True)
+    setup_token_expires: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Legacy access token - kept for backward compatibility during migration
+    # Will be deprecated after all users have migrated to password auth
     access_token: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
     
     # Access limits
@@ -1086,8 +1102,80 @@ class GuestUser(Base):
     
     @classmethod
     def generate_access_token(cls) -> str:
-        """Generate a secure access token for guest login."""
+        """Generate a secure access token for guest login (legacy)."""
         return secrets.token_urlsafe(32)
     
+    @classmethod
+    def generate_setup_token(cls) -> str:
+        """Generate a secure setup token for initial account activation."""
+        return secrets.token_urlsafe(32)
+    
+    def create_setup_token(self, expires_hours: int = 1) -> str:
+        """
+        Create a new setup token for account activation.
+        
+        Args:
+            expires_hours: Hours until token expires (default 1 hour for security)
+            
+        Returns:
+            The unhashed token to send in email
+        """
+        token = secrets.token_urlsafe(32)
+        # Store hashed token in database for security
+        self.setup_token = hashlib.sha256(token.encode()).hexdigest()
+        self.setup_token_expires = (
+            datetime.now(timezone.utc) + timedelta(hours=expires_hours)
+        ).replace(tzinfo=None)
+        return token  # Return unhashed token to send in email
+    
+    def verify_setup_token(self, token: str) -> bool:
+        """
+        Verify a setup token for account activation.
+        
+        Args:
+            token: The unhashed token from email link
+            
+        Returns:
+            True if token is valid and not expired
+        """
+        if not self.setup_token or not self.setup_token_expires:
+            return False
+        if datetime.now(timezone.utc).replace(tzinfo=None) > self.setup_token_expires:
+            return False
+        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        return secrets.compare_digest(self.setup_token, token_hash)
+    
+    def invalidate_setup_token(self) -> None:
+        """Invalidate setup token after password is set."""
+        self.setup_token = None
+        self.setup_token_expires = None
+    
+    def set_password(self, password_hash: str) -> None:
+        """
+        Set password and activate account.
+        
+        Args:
+            password_hash: Pre-hashed password (bcrypt)
+        """
+        self.password_hash = password_hash
+        self.is_activated = True
+        self.invalidate_setup_token()
+    
+    def has_password(self) -> bool:
+        """Check if user has set a password."""
+        return self.password_hash is not None and self.is_activated
+    
+    def regenerate_setup_token(self, expires_hours: int = 1) -> str:
+        """
+        Regenerate setup token (for resend email functionality).
+        Only works if account is not yet activated.
+        
+        Returns:
+            The unhashed token to send in email
+        """
+        if self.is_activated:
+            raise ValueError("Cannot regenerate setup token for activated account")
+        return self.create_setup_token(expires_hours)
+    
     def __repr__(self) -> str:
-        return f"<GuestUser(id={self.id}, email='{self.email}', active={self.is_active}, {self.conversations_used}/{self.max_conversations} used)>"
+        return f"<GuestUser(id={self.id}, email='{self.email}', activated={self.is_activated}, {self.conversations_used}/{self.max_conversations} used)>"
