@@ -1191,7 +1191,7 @@ async def get_demo_request_guest_credentials(
 
 class GuestLoginRequest(BaseModel):
     """Guest login request."""
-    email: EmailStr
+    email: Optional[EmailStr] = None
     access_token: str = Field(..., min_length=32, description="Access token sent via email")
 
 
@@ -1215,18 +1215,22 @@ async def guest_login(
     
     Validates the guest access token and returns a JWT for API access.
     """
-    # Find guest user by email and token
-    query = select(GuestUser).where(
-        (GuestUser.email == request.email) &
-        (GuestUser.access_token == request.access_token)
-    )
+    # Find guest user by access token
+    query = select(GuestUser).where(GuestUser.access_token == request.access_token)
     result = await db.execute(query)
     guest_user = result.scalar_one_or_none()
     
     if not guest_user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid email or access token"
+            detail="Invalid access token"
+        )
+        
+    # Optional: Verify email if provided
+    if request.email and request.email.lower() != guest_user.email.lower():
+         raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Email does not match access token"
         )
     
     if not guest_user.is_active:

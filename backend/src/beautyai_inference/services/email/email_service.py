@@ -12,6 +12,7 @@ Uses MSAL for authentication and Graph API for sending.
 
 import os
 import logging
+import re
 from typing import Optional
 from uuid import uuid4
 import time
@@ -278,8 +279,19 @@ class EmailService:
             msg.set_content(text_body)
             msg.add_alternative(html_body, subtype="html")
         else:
-            # Some providers still want a plain part; keep it minimal.
-            msg.set_content("This email requires an HTML-capable client.")
+            # Generate plain text from HTML to avoid "HTML required" spam triggers
+            try:
+                # Simple conversion: replace breaks/paragraphs, then strip tags
+                clean_text = html_body.replace('<br>', '\n').replace('<br/>', '\n').replace('</p>', '\n\n')
+                clean_text = re.sub(r'<[^>]+>', '', clean_text)
+                clean_text = clean_text.replace('&nbsp;', ' ').strip()
+                # Run cleanup of multiple newlines
+                clean_text = re.sub(r'\n{3,}', '\n\n', clean_text)
+                msg.set_content(clean_text)
+            except Exception:
+                # Fallback if regex fails for some reason
+                msg.set_content("Please view this email in an HTML-compatible email client.")
+            
             msg.add_alternative(html_body, subtype="html")
 
         try:
