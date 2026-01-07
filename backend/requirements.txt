@@ -47,9 +47,9 @@ httpx>=0.26.0
 # Payment Processing (Stripe)
 stripe>=7.0.0
 
-# Email Service (Alibaba DirectMail)
-alibabacloud-dm20151123>=1.0.0
-alibabacloud-tea-openapi>=0.3.0
+# Email Service (Alibaba DirectMail) - DEPRECATED in favor of SMTP
+# alibabacloud-dm20151123>=1.0.0
+# alibabacloud-tea-openapi>=0.3.0
 
 # Redis (Caching & Rate Limiting)
 redis>=5.0.0
@@ -77,3 +77,5 @@ webrtcvad>=2.0.10
 # isort
 # flake8
 # pytest
+aiosmtplib>=3.0.0
+msal>=1.25.0

@@ -30,7 +30,7 @@ from sqlalchemy.orm import selectinload
 
 from ...database.connection import get_db
 from ...database.models import (
-    User, DemoRequest, GuestUser, DemoRequestStatus
+    User, DemoRequest, GuestUser, DemoRequestStatus, UserRole
 )
 from ...auth.dependencies import get_current_active_user, get_current_guest_user
 from ...auth.jwt_handler import create_access_token
@@ -117,6 +117,31 @@ class DemoRequestSummary(BaseModel):
     has_guest_user: bool = False
 
 
+class DemoRequestListItem(BaseModel):
+    """List item model expected by the portal admin UI."""
+    id: int
+    first_name: str
+    last_name: str
+    email: str
+    phone: Optional[str]
+    company: Optional[str]
+    company_size: Optional[str]
+    message: Optional[str]
+    status: str
+    admin_notes: Optional[str]
+    assigned_to_admin_id: Optional[int]
+    scheduled_follow_up: Optional[datetime]
+    reviewed_at: Optional[datetime]
+    created_at: datetime
+    updated_at: datetime
+
+
+class DemoRequestListResponse(BaseModel):
+    """Paginated-ish wrapper expected by the portal admin UI."""
+    total: int
+    items: List[DemoRequestListItem]
+
+
 class DemoRequestUpdate(BaseModel):
     """Request body for updating demo request admin notes and follow-up."""
     admin_notes: Optional[str] = None
@@ -126,14 +151,50 @@ class DemoRequestUpdate(BaseModel):
 
 class DemoApprovalRequest(BaseModel):
     """Request body for approving demo request and setting limits."""
-    demo_duration_days: int = Field(default=7, ge=1, le=90, description="Number of days until demo expires")
+    demo_duration_days: int = Field(
+        default=7,
+        ge=1,
+        le=90,
+        description="Number of days until demo expires",
+        alias="days_valid",  # portal client uses days_valid
+    )
     max_conversations: int = Field(default=10, ge=1, le=100, description="Maximum number of conversations allowed")
     admin_notes: Optional[str] = None
+
+    class Config:
+        allow_population_by_field_name = True
 
 
 class DemoRejectionRequest(BaseModel):
     """Request body for rejecting demo request."""
-    admin_notes: Optional[str] = Field(..., min_length=1, description="Reason for rejection")
+    admin_notes: Optional[str] = Field(None, description="Reason for rejection")
+
+
+class GuestUserListItem(BaseModel):
+    """List item model expected by the portal admin UI."""
+    id: int
+    email: str
+    is_active: bool
+    max_conversations: int
+    conversations_used: int
+    expires_at: datetime
+    created_at: datetime
+    is_expired: bool
+    is_limit_reached: bool
+    can_access: bool
+    days_remaining: int
+    conversations_remaining: int
+
+
+class GuestUserListResponse(BaseModel):
+    total: int
+    items: List[GuestUserListItem]
+
+
+class GuestUserUpdateRequest(BaseModel):
+    is_active: Optional[bool] = None
+    max_conversations: Optional[int] = Field(None, ge=1, le=100)
+    expires_at: Optional[datetime] = None
 
 
 class GuestUserResponse(BaseModel):
@@ -153,6 +214,16 @@ class GuestUserResponse(BaseModel):
     
     class Config:
         from_attributes = True
+
+
+class EmailSendResult(BaseModel):
+    """Normalized email send result returned by admin resend endpoint."""
+
+    success: bool
+    provider: Optional[str] = None
+    message_id: Optional[str] = None
+    error: Optional[str] = None
+    details: Optional[str] = None
 
 
 # ============================================
@@ -269,12 +340,13 @@ async def submit_demo_request(
 
 @demo_router.get(
     "/api/v1/admin/demo-requests",
-    response_model=List[DemoRequestSummary]
+    response_model=DemoRequestListResponse
 )
 async def list_demo_requests(
     skip: int = Query(0, ge=0),
     limit: int = Query(50, ge=1, le=100),
     status_filter: Optional[str] = Query(None, regex="^(pending|approved|rejected)$"),
+    status: Optional[str] = Query(None, regex="^(pending|approved|rejected)$"),
     search: Optional[str] = None,
     admin: User = Depends(require_admin),
     db: AsyncSession = Depends(get_db),
@@ -284,14 +356,16 @@ async def list_demo_requests(
     
     Supports filtering by status and searching by name/email.
     """
+    effective_status = status_filter or status
+
     query = select(DemoRequest).options(
         selectinload(DemoRequest.assigned_to_admin),
         selectinload(DemoRequest.guest_user)
     )
     
     # Apply status filter
-    if status_filter:
-        query = query.where(DemoRequest.status == DemoRequestStatus(status_filter))
+    if effective_status:
+        query = query.where(DemoRequest.status == DemoRequestStatus(effective_status))
     
     # Apply search
     if search:
@@ -305,30 +379,81 @@ async def list_demo_requests(
     
     # Order by submission date (newest first)
     query = query.order_by(desc(DemoRequest.submitted_at))
+
+    # Total count (for admin UI)
+    count_query = select(func.count(DemoRequest.id))
+    if effective_status:
+        count_query = count_query.where(DemoRequest.status == DemoRequestStatus(effective_status))
+    if search:
+        search_term = f"%{search}%"
+        count_query = count_query.where(
+            (DemoRequest.first_name.ilike(search_term)) |
+            (DemoRequest.last_name.ilike(search_term)) |
+            (DemoRequest.email.ilike(search_term)) |
+            (DemoRequest.company.ilike(search_term))
+        )
+    total_result = await db.execute(count_query)
+    total = int(total_result.scalar() or 0)
     
     # Apply pagination
     query = query.offset(skip).limit(limit)
     
-    result = await db.execute(query)
-    demo_requests = result.scalars().all()
+    try:
+        result = await db.execute(query)
+        demo_requests = result.scalars().all()
+    except Exception as e:
+        logger.error(f"Error listing demo requests: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
     
-    # Convert to summary format
-    summaries = []
+    items: List[DemoRequestListItem] = []
     for dr in demo_requests:
-        summaries.append(DemoRequestSummary(
+        items.append(DemoRequestListItem(
             id=dr.id,
-            full_name=dr.full_name(),
+            first_name=dr.first_name,
+            last_name=dr.last_name,
             email=dr.email,
+            phone=dr.phone,
             company=dr.company,
             company_size=dr.company_size,
+            message=dr.message,
             status=dr.status.value,
-            submitted_at=dr.submitted_at,
+            admin_notes=dr.admin_notes,
+            assigned_to_admin_id=dr.assigned_to_admin_id,
+            scheduled_follow_up=dr.scheduled_follow_up,
             reviewed_at=dr.reviewed_at,
-            assigned_to_admin_email=dr.assigned_to_admin.email if dr.assigned_to_admin else None,
-            has_guest_user=dr.guest_user is not None
+            created_at=dr.created_at,
+            updated_at=dr.updated_at,
         ))
-    
-    return summaries
+
+    return DemoRequestListResponse(total=total, items=items)
+
+
+@demo_router.delete(
+    "/api/v1/admin/demo-requests/{request_id}",
+)
+async def delete_demo_request(
+    request_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete a demo request (admin only)."""
+    result = await db.execute(select(DemoRequest).where(DemoRequest.id == request_id))
+    demo_request = result.scalar_one_or_none()
+
+    if not demo_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Demo request with ID {request_id} not found",
+        )
+
+    await db.delete(demo_request)
+    await db.commit()
+
+    logger.info(f"Demo request {request_id} deleted by admin {admin.email}")
+    return {"success": True, "message": "Demo request deleted"}
 
 
 @demo_router.get(
@@ -475,16 +600,53 @@ async def approve_demo_request(
     # Send demo access granted email to guest
     try:
         email_service = await get_email_service()
-        await email_service.send_demo_access_granted(
+        send_result = await email_service.send_demo_access_granted(
             to_address=guest_user.email,
             full_name=demo_request.full_name(),
             access_token=guest_user.access_token,
             expires_days=approval.demo_duration_days,
             max_conversations=approval.max_conversations,
         )
-        logger.info(f"Demo access email sent to {guest_user.email}")
+
+        if send_result.get("success"):
+            logger.info(f"Demo access email sent to {guest_user.email}")
+        else:
+            # Portal UI currently assumes the email was sent; keep the API call successful but
+            # store manual login instructions so admins can copy/paste them from the dashboard.
+            manual_instructions = (
+                "⚠️ Demo access email FAILED to send (email service not configured).\n"
+                f"Guest email: {guest_user.email}\n"
+                f"Guest access token: {guest_user.access_token}\n"
+                "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
+                "Portal demo login (if available): /demo/login"
+            )
+
+            if demo_request.admin_notes:
+                demo_request.admin_notes = f"{demo_request.admin_notes}\n\n{manual_instructions}"
+            else:
+                demo_request.admin_notes = manual_instructions
+
+            await db.commit()
+            logger.warning(
+                f"Demo access email failed for {guest_user.email}: {send_result.get('error')}"
+            )
     except Exception as e:
-        logger.error(f"Failed to send demo access email: {e}")
+        manual_instructions = (
+            "⚠️ Demo access email FAILED to send (exception during send).\n"
+            f"Guest email: {guest_user.email}\n"
+            f"Guest access token: {guest_user.access_token}\n"
+            "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
+            "Portal demo login (if available): /demo/login\n"
+            f"Error: {type(e).__name__}: {e}"
+        )
+
+        if demo_request.admin_notes:
+            demo_request.admin_notes = f"{demo_request.admin_notes}\n\n{manual_instructions}"
+        else:
+            demo_request.admin_notes = manual_instructions
+
+        await db.commit()
+        logger.exception("Failed to send demo access email")
         # Don't fail the request if email fails
     
     return GuestUserResponse(
@@ -501,6 +663,102 @@ async def approve_demo_request(
         conversations_remaining=guest_user.conversations_remaining(),
         can_access_demo=guest_user.can_access_demo(),
     )
+
+
+@demo_router.post(
+    "/api/v1/admin/demo-requests/{request_id}/resend-access-email",
+    response_model=EmailSendResult,
+)
+async def resend_demo_access_email(
+    request_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Resend the demo access email for an approved request (admin only)."""
+    query = select(DemoRequest).where(DemoRequest.id == request_id).options(
+        selectinload(DemoRequest.guest_user)
+    )
+    result = await db.execute(query)
+    demo_request = result.scalar_one_or_none()
+
+    if not demo_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Demo request with ID {request_id} not found",
+        )
+
+    if not demo_request.guest_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No guest user exists for this demo request (not approved yet)",
+        )
+
+    guest_user = demo_request.guest_user
+
+    try:
+        email_service = await get_email_service()
+        send_result = await email_service.send_demo_access_granted(
+            to_address=guest_user.email,
+            full_name=demo_request.full_name(),
+            access_token=guest_user.access_token,
+            expires_days=max(1, (guest_user.expires_at - datetime.utcnow()).days),
+            max_conversations=guest_user.max_conversations,
+        )
+
+        if not send_result.get("success"):
+            manual_instructions = (
+                "⚠️ Demo access email FAILED to send (resend).\n"
+                f"Guest email: {guest_user.email}\n"
+                f"Guest access token: {guest_user.access_token}\n"
+                "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
+                "Portal demo login (if available): /demo/login\n"
+                f"Error: {send_result.get('error')}"
+            )
+            if demo_request.admin_notes:
+                demo_request.admin_notes = f"{demo_request.admin_notes}\n\n{manual_instructions}"
+            else:
+                demo_request.admin_notes = manual_instructions
+            await db.commit()
+            logger.warning(
+                "Resend demo access email failed for request_id=%s guest=%s admin=%s error=%s",
+                request_id,
+                guest_user.email,
+                admin.email,
+                send_result.get("error"),
+            )
+        else:
+            logger.info(
+                "Resent demo access email for request_id=%s guest=%s admin=%s provider=%s",
+                request_id,
+                guest_user.email,
+                admin.email,
+                send_result.get("provider"),
+            )
+
+        return EmailSendResult(
+            success=bool(send_result.get("success")),
+            provider=send_result.get("provider"),
+            message_id=send_result.get("message_id"),
+            error=send_result.get("error"),
+            details=send_result.get("details"),
+        )
+
+    except Exception as e:
+        manual_instructions = (
+            "⚠️ Demo access email FAILED to send (resend exception).\n"
+            f"Guest email: {guest_user.email}\n"
+            f"Guest access token: {guest_user.access_token}\n"
+            "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
+            "Portal demo login (if available): /demo/login\n"
+            f"Error: {type(e).__name__}: {e}"
+        )
+        if demo_request.admin_notes:
+            demo_request.admin_notes = f"{demo_request.admin_notes}\n\n{manual_instructions}"
+        else:
+            demo_request.admin_notes = manual_instructions
+        await db.commit()
+        logger.exception("Resend demo access email raised exception")
+        return EmailSendResult(success=False, error=str(e))
 
 
 @demo_router.patch(
@@ -535,7 +793,10 @@ async def reject_demo_request(
     # Update demo request status
     demo_request.status = DemoRequestStatus.REJECTED
     demo_request.reviewed_at = datetime.now(timezone.utc).replace(tzinfo=None)
-    demo_request.admin_notes = rejection.admin_notes
+    if rejection.admin_notes is not None and rejection.admin_notes.strip():
+        demo_request.admin_notes = rejection.admin_notes
+    elif not demo_request.admin_notes:
+        demo_request.admin_notes = "Rejected by admin"
     
     await db.commit()
     await db.refresh(demo_request)
@@ -664,6 +925,181 @@ async def update_demo_request(
     return DemoRequestResponse(**response_data)
 
 
+@demo_router.get(
+    "/api/v1/admin/guest-users",
+    response_model=GuestUserListResponse
+)
+async def list_guest_users(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+    search: Optional[str] = None,
+    is_active: Optional[bool] = None,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List all guest users (admin only).
+    """
+    query = select(GuestUser).options(
+        selectinload(GuestUser.demo_request)
+    )
+    
+    if search:
+        search_term = f"%{search}%"
+        query = query.where(GuestUser.email.ilike(search_term))
+        
+    if is_active is not None:
+        query = query.where(GuestUser.is_active == is_active)
+        
+    query = query.order_by(desc(GuestUser.created_at))
+    query = query.offset(skip).limit(limit)
+    
+    try:
+        result = await db.execute(query)
+        guest_users = result.scalars().all()
+    except Exception as e:
+        logger.error(f"Error listing guest users: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Database error: {str(e)}"
+        )
+    
+    # Total count for admin UI
+    count_query = select(func.count(GuestUser.id))
+    if search:
+        search_term = f"%{search}%"
+        count_query = count_query.where(GuestUser.email.ilike(search_term))
+    if is_active is not None:
+        count_query = count_query.where(GuestUser.is_active == is_active)
+    total_result = await db.execute(count_query)
+    total = int(total_result.scalar() or 0)
+
+    items: List[GuestUserListItem] = []
+    for gu in guest_users:
+        items.append(
+            GuestUserListItem(
+                id=gu.id,
+                email=gu.email,
+                is_active=gu.is_active,
+                max_conversations=gu.max_conversations,
+                conversations_used=gu.conversations_used,
+                expires_at=gu.expires_at,
+                created_at=gu.created_at,
+                is_expired=gu.is_expired(),
+                is_limit_reached=gu.is_limit_reached(),
+                can_access=gu.can_access_demo(),
+                days_remaining=gu.days_remaining(),
+                conversations_remaining=gu.conversations_remaining(),
+            )
+        )
+
+    return GuestUserListResponse(total=total, items=items)
+
+
+@demo_router.get(
+    "/api/v1/admin/guest-users/{guest_id}",
+    response_model=GuestUserListItem,
+)
+async def get_guest_user(
+    guest_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get a guest user (admin only) in the format expected by the portal UI."""
+    result = await db.execute(select(GuestUser).where(GuestUser.id == guest_id))
+    gu = result.scalar_one_or_none()
+    if not gu:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guest user with ID {guest_id} not found",
+        )
+
+    return GuestUserListItem(
+        id=gu.id,
+        email=gu.email,
+        is_active=gu.is_active,
+        max_conversations=gu.max_conversations,
+        conversations_used=gu.conversations_used,
+        expires_at=gu.expires_at,
+        created_at=gu.created_at,
+        is_expired=gu.is_expired(),
+        is_limit_reached=gu.is_limit_reached(),
+        can_access=gu.can_access_demo(),
+        days_remaining=gu.days_remaining(),
+        conversations_remaining=gu.conversations_remaining(),
+    )
+
+
+@demo_router.patch(
+    "/api/v1/admin/guest-users/{guest_id}",
+    response_model=GuestUserListItem,
+)
+async def update_guest_user(
+    guest_id: int,
+    update: GuestUserUpdateRequest,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Update guest user (admin only) - used by the portal UI."""
+    result = await db.execute(select(GuestUser).where(GuestUser.id == guest_id))
+    gu = result.scalar_one_or_none()
+    if not gu:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guest user with ID {guest_id} not found",
+        )
+
+    if update.is_active is not None:
+        gu.is_active = update.is_active
+    if update.max_conversations is not None:
+        gu.max_conversations = update.max_conversations
+    if update.expires_at is not None:
+        gu.expires_at = update.expires_at
+
+    await db.commit()
+    await db.refresh(gu)
+
+    logger.info(f"Guest user {guest_id} updated by admin {admin.email}")
+    return GuestUserListItem(
+        id=gu.id,
+        email=gu.email,
+        is_active=gu.is_active,
+        max_conversations=gu.max_conversations,
+        conversations_used=gu.conversations_used,
+        expires_at=gu.expires_at,
+        created_at=gu.created_at,
+        is_expired=gu.is_expired(),
+        is_limit_reached=gu.is_limit_reached(),
+        can_access=gu.can_access_demo(),
+        days_remaining=gu.days_remaining(),
+        conversations_remaining=gu.conversations_remaining(),
+    )
+
+
+@demo_router.delete(
+    "/api/v1/admin/guest-users/{guest_id}",
+)
+async def delete_guest_user(
+    guest_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Delete guest user (admin only) - used by the portal UI."""
+    result = await db.execute(select(GuestUser).where(GuestUser.id == guest_id))
+    gu = result.scalar_one_or_none()
+    if not gu:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Guest user with ID {guest_id} not found",
+        )
+
+    await db.delete(gu)
+    await db.commit()
+
+    logger.info(f"Guest user {guest_id} deleted by admin {admin.email}")
+    return {"success": True, "message": "Guest user deleted"}
+
+
 # Admin endpoint to disable guest user access
 @demo_router.patch(
     "/api/v1/admin/guest-users/{guest_id}/disable",
@@ -710,6 +1146,43 @@ async def disable_guest_user(
         conversations_remaining=guest_user.conversations_remaining(),
         can_access_demo=guest_user.can_access_demo(),
     )
+
+
+@demo_router.get(
+    "/api/v1/admin/demo-requests/{request_id}/guest-credentials",
+)
+async def get_demo_request_guest_credentials(
+    request_id: int,
+    admin: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get guest login credentials for an approved demo request (admin only)."""
+    query = select(DemoRequest).where(DemoRequest.id == request_id).options(
+        selectinload(DemoRequest.guest_user)
+    )
+    result = await db.execute(query)
+    demo_request = result.scalar_one_or_none()
+    if not demo_request:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Demo request with ID {request_id} not found",
+        )
+
+    if not demo_request.guest_user:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="No guest user exists for this demo request yet",
+        )
+
+    guest = demo_request.guest_user
+    return {
+        "email": guest.email,
+        "access_token": guest.access_token,
+        "expires_at": guest.expires_at,
+        "max_conversations": guest.max_conversations,
+        "conversations_used": guest.conversations_used,
+        "login_endpoint": "/api/v1/auth/guest/login",
+    }
 
 
 # ============================================

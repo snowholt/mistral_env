@@ -1,51 +1,54 @@
 """
-Email service using Alibaba Cloud DirectMail.
+Email service using Microsoft Graph API (OAuth2).
 
 Provides async email sending for:
 - Email verification
 - Password reset
 - Notifications
 - Transactional emails
+
+Uses MSAL for authentication and Graph API for sending.
 """
 
 import os
 import logging
-import hmac
-import hashlib
-import base64
-import urllib.parse
-from datetime import datetime, timezone
-from typing import Optional, List
+from typing import Optional
 from uuid import uuid4
+import time
+from email.message import EmailMessage
 
 import httpx
+import msal
+import aiosmtplib
 
 logger = logging.getLogger(__name__)
 
 
 class EmailService:
     """
-    Alibaba Cloud DirectMail email service.
+    Microsoft Graph API Email Service.
     
-    Uses Alibaba's HTTP API for sending transactional emails.
-    PDPL compliant - all data stays in Saudi Arabia region.
+    Uses OAuth2 (Client Credentials Flow) to authenticate and send emails via Graph API.
     """
     
     def __init__(self):
-        """Initialize DirectMail configuration from environment."""
-        self.access_key_id = os.getenv("ALICLOUD_ACCESS_KEY_ID", "")
-        self.access_key_secret = os.getenv("ALICLOUD_ACCESS_KEY_SECRET", "")
-        
-        # DirectMail specific settings
-        self.region = os.getenv("DIRECTMAIL_REGION", "me-central-1")  # Saudi Arabia
-        self.endpoint = os.getenv(
-            "DIRECTMAIL_ENDPOINT",
-            f"https://dm.{self.region}.aliyuncs.com"
-        )
+        """Initialize Graph API configuration from environment."""
+        # Azure AD Configuration
+        self.tenant_id = os.getenv("AZURE_TENANT_ID")
+        self.client_id = os.getenv("AZURE_CLIENT_ID")
+        self.client_secret = os.getenv("AZURE_CLIENT_SECRET")
         
         # Sender configuration
-        self.sender_address = os.getenv("DIRECTMAIL_SENDER", "noreply@gmai.sa")
-        self.sender_name = os.getenv("DIRECTMAIL_SENDER_NAME", "GMAI.sa")
+        self.sender_address = os.getenv("SMTP_SENDER", "info@gmai.sa")
+
+        # SMTP fallback configuration (used when Azure AD is not configured)
+        self.smtp_host = os.getenv("SMTP_HOST")
+        self.smtp_port = int(os.getenv("SMTP_PORT", "587"))
+        self.smtp_username = os.getenv("SMTP_USERNAME")
+        self.smtp_password = os.getenv("SMTP_PASSWORD")
+        self.smtp_starttls = os.getenv("SMTP_STARTTLS", "true").lower() == "true"
+        self.smtp_use_tls = os.getenv("SMTP_USE_TLS", "false").lower() == "true"
+        self.smtp_from_name = os.getenv("SMTP_FROM_NAME", "GMAI.sa")
         
         # Application URLs for email links
         self.app_base_url = os.getenv("APP_BASE_URL", "https://gmai.sa")
@@ -53,49 +56,67 @@ class EmailService:
         # Development mode
         self.dev_mode = os.getenv("EMAIL_DEV_MODE", "false").lower() == "true"
         
+        # MSAL App
+        self._msal_app: Optional[msal.ConfidentialClientApplication] = None
+        self._access_token: Optional[str] = None
+        self._token_expires_at: float = 0
+        
+        # HTTP Client
         self._client: Optional[httpx.AsyncClient] = None
+
+    def _azure_is_configured(self) -> bool:
+        return bool(self.tenant_id and self.client_id and self.client_secret)
+
+    def _smtp_is_configured(self) -> bool:
+        return bool(self.smtp_host and self.smtp_port and self.sender_address)
     
     async def _get_client(self) -> httpx.AsyncClient:
         """Get or create HTTP client."""
         if self._client is None:
             self._client = httpx.AsyncClient(timeout=30.0)
         return self._client
-    
+
     async def close(self) -> None:
-        """Close HTTP client."""
-        if self._client:
+        """Close any underlying HTTP clients."""
+        if self._client is not None:
             await self._client.aclose()
             self._client = None
     
-    def _sign_request(self, params: dict) -> str:
-        """
-        Sign request parameters using Alibaba Cloud signature method.
+    def _get_msal_app(self) -> msal.ConfidentialClientApplication:
+        """Get or create MSAL application instance."""
+        if self._msal_app is None:
+            if not self._azure_is_configured():
+                raise ValueError("Azure AD credentials not configured")
+                
+            self._msal_app = msal.ConfidentialClientApplication(
+                self.client_id,
+                authority=f"https://login.microsoftonline.com/{self.tenant_id}",
+                client_credential=self.client_secret,
+            )
+        return self._msal_app
+    
+    async def _get_access_token(self) -> str:
+        """Get valid access token for Graph API."""
+        # Check if token is valid (with 5 minute buffer)
+        if self._access_token and time.time() < self._token_expires_at - 300:
+            return self._access_token
+            
+        app = self._get_msal_app()
         
-        Uses HMAC-SHA1 signature as per DirectMail API spec.
-        """
-        # Sort parameters by key
-        sorted_params = sorted(params.items())
+        # Acquire token
+        result = app.acquire_token_for_client(scopes=["https://graph.microsoft.com/.default"])
         
-        # Build canonical query string
-        canonical_query = "&".join(
-            f"{urllib.parse.quote(k, safe='')}={urllib.parse.quote(str(v), safe='')}"
-            for k, v in sorted_params
-        )
-        
-        # Build string to sign
-        string_to_sign = f"POST&{urllib.parse.quote('/', safe='')}&{urllib.parse.quote(canonical_query, safe='')}"
-        
-        # Calculate signature
-        key = f"{self.access_key_secret}&"
-        signature = base64.b64encode(
-            hmac.new(
-                key.encode("utf-8"),
-                string_to_sign.encode("utf-8"),
-                hashlib.sha1
-            ).digest()
-        ).decode("utf-8")
-        
-        return signature
+        if "access_token" in result:
+            self._access_token = result["access_token"]
+            # Calculate expiration (default is usually 1 hour)
+            expires_in = result.get("expires_in", 3600)
+            self._token_expires_at = time.time() + expires_in
+            return self._access_token
+        else:
+            error = result.get("error")
+            desc = result.get("error_description")
+            logger.error(f"Failed to acquire token: {error} - {desc}")
+            raise Exception(f"Authentication failed: {desc}")
     
     async def send_email(
         self,
@@ -107,7 +128,7 @@ class EmailService:
         tag: Optional[str] = None,
     ) -> dict:
         """
-        Send a single email via DirectMail.
+        Send a single email via Microsoft Graph API.
         
         Args:
             to_address: Recipient email address
@@ -115,7 +136,7 @@ class EmailService:
             html_body: HTML content
             text_body: Plain text content (optional)
             reply_to: Reply-to address (optional)
-            tag: Tag for tracking (optional)
+            tag: Tag for tracking (optional - logged only)
         
         Returns:
             Response dict with status and message_id
@@ -131,79 +152,160 @@ class EmailService:
                 "dev_mode": True,
             }
         
-        # Validate configuration
-        if not self.access_key_id or not self.access_key_secret:
-            logger.error("DirectMail credentials not configured")
-            return {
-                "success": False,
-                "error": "Email service not configured",
-            }
-        
         try:
-            # Build request parameters
-            params = {
-                # Common parameters
-                "Format": "JSON",
-                "Version": "2015-11-23",
-                "AccessKeyId": self.access_key_id,
-                "SignatureMethod": "HMAC-SHA1",
-                "SignatureVersion": "1.0",
-                "SignatureNonce": str(uuid4()),
-                "Timestamp": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "RegionId": self.region,
-                
-                # Action-specific parameters
-                "Action": "SingleSendMail",
-                "AccountName": self.sender_address,
-                "AddressType": "1",  # 1 = Send from sender address
-                "FromAlias": self.sender_name,
-                "ReplyToAddress": "true" if reply_to else "false",
-                "ToAddress": to_address,
-                "Subject": subject,
-                "HtmlBody": html_body,
-            }
-            
-            if text_body:
-                params["TextBody"] = text_body
-            
-            if reply_to:
-                params["ReplyTo"] = reply_to
-            
-            if tag:
-                params["TagName"] = tag
-            
-            # Sign request
-            params["Signature"] = self._sign_request(params)
-            
-            # Send request
-            client = await self._get_client()
-            response = await client.post(
-                self.endpoint,
-                data=params,
+            # Prefer Microsoft Graph when configured; otherwise fall back to SMTP.
+            if self._azure_is_configured():
+                return await self._send_via_graph(
+                    to_address=to_address,
+                    subject=subject,
+                    html_body=html_body,
+                    reply_to=reply_to,
+                    tag=tag,
+                )
+
+            if self._smtp_is_configured():
+                return await self._send_via_smtp(
+                    to_address=to_address,
+                    subject=subject,
+                    html_body=html_body,
+                    text_body=text_body,
+                    reply_to=reply_to,
+                    tag=tag,
+                )
+
+            raise ValueError(
+                "Email service not configured: set Azure AD env vars (AZURE_TENANT_ID/AZURE_CLIENT_ID/AZURE_CLIENT_SECRET) "
+                "or SMTP env vars (SMTP_HOST/SMTP_PORT/SMTP_USERNAME/SMTP_PASSWORD)."
             )
-            
-            response_data = response.json()
-            
-            if response.status_code == 200 and "EnvId" in response_data:
-                logger.info(f"✅ Email sent to {to_address}, EnvId: {response_data.get('EnvId')}")
-                return {
-                    "success": True,
-                    "message_id": response_data.get("EnvId"),
-                    "request_id": response_data.get("RequestId"),
-                }
-            else:
-                logger.error(f"❌ Email failed: {response_data}")
-                return {
-                    "success": False,
-                    "error": response_data.get("Message", "Unknown error"),
-                    "code": response_data.get("Code"),
-                }
-        
+
         except Exception as e:
             logger.exception(f"Email send error: {e}")
             return {
                 "success": False,
                 "error": str(e),
+            }
+
+    async def _send_via_graph(
+        self,
+        to_address: str,
+        subject: str,
+        html_body: str,
+        reply_to: Optional[str],
+        tag: Optional[str],
+    ) -> dict:
+        token = await self._get_access_token()
+            
+        # Construct Graph API payload
+        email_msg = {
+            "message": {
+                "subject": subject,
+                "body": {
+                    "contentType": "HTML",
+                    "content": html_body,
+                },
+                "toRecipients": [
+                    {
+                        "emailAddress": {
+                            "address": to_address,
+                        }
+                    }
+                ],
+            },
+            "saveToSentItems": "false",
+        }
+            
+        if reply_to:
+            email_msg["message"]["replyTo"] = [
+                {
+                    "emailAddress": {
+                        "address": reply_to,
+                    }
+                }
+            ]
+            
+        # Send via Graph API (application permissions)
+        endpoint = f"https://graph.microsoft.com/v1.0/users/{self.sender_address}/sendMail"
+
+        client = await self._get_client()
+        response = await client.post(
+            endpoint,
+            headers={
+                "Authorization": f"Bearer {token}",
+                "Content-Type": "application/json",
+            },
+            json=email_msg,
+        )
+
+        if response.status_code == 202:
+            logger.info(f"✅ Email sent via Graph to {to_address} (Tag: {tag})")
+            return {
+                "success": True,
+                "message_id": str(uuid4()),  # Graph API async send doesn't return ID immediately
+                "provider": "graph",
+            }
+
+        error_text = response.text
+        logger.error(f"❌ Graph API Error ({response.status_code}): {error_text}")
+        return {
+            "success": False,
+            "error": f"Graph API Error: {response.status_code}",
+            "details": error_text,
+            "provider": "graph",
+        }
+
+    async def _send_via_smtp(
+        self,
+        to_address: str,
+        subject: str,
+        html_body: str,
+        text_body: Optional[str],
+        reply_to: Optional[str],
+        tag: Optional[str],
+    ) -> dict:
+        if not self.smtp_host:
+            raise ValueError("SMTP_HOST is not configured")
+        if self.smtp_password is None and self.smtp_username is not None:
+            raise ValueError("SMTP_PASSWORD is not configured")
+
+        msg = EmailMessage()
+        msg["Subject"] = subject
+        msg["From"] = f"{self.smtp_from_name} <{self.sender_address}>"
+        msg["To"] = to_address
+        if reply_to:
+            msg["Reply-To"] = reply_to
+
+        if text_body:
+            msg.set_content(text_body)
+            msg.add_alternative(html_body, subtype="html")
+        else:
+            # Some providers still want a plain part; keep it minimal.
+            msg.set_content("This email requires an HTML-capable client.")
+            msg.add_alternative(html_body, subtype="html")
+
+        try:
+            await aiosmtplib.send(
+                msg,
+                hostname=self.smtp_host,
+                port=self.smtp_port,
+                username=self.smtp_username,
+                password=self.smtp_password,
+                start_tls=self.smtp_starttls,
+                use_tls=self.smtp_use_tls,
+                sender=self.sender_address,
+                recipients=[to_address],
+            )
+            logger.info(f"✅ Email sent via SMTP to {to_address} (Tag: {tag})")
+            return {
+                "success": True,
+                "message_id": str(uuid4()),
+                "provider": "smtp",
+            }
+        except Exception as e:
+            logger.exception(f"SMTP send error: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "provider": "smtp",
             }
     
     # ========================================================================

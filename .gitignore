@@ -7,6 +7,7 @@ virtualenv/
 venv_backup/
 venv-11/
 .env/
+.env.production
 .python-version
 temp_benchmark_venv/
 

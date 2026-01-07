@@ -208,7 +208,7 @@ class CORSMiddleware(BaseHTTPMiddleware):
         """
         super().__init__(app)
         self.allow_origins = allow_origins or ["*"]
-        self.allow_methods = allow_methods or ["GET", "POST", "PUT", "DELETE", "OPTIONS"]
+        self.allow_methods = allow_methods or ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"]
         self.allow_headers = allow_headers or [
             "Authorization",
             "Content-Type",

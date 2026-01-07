@@ -181,6 +181,12 @@ def build_logging_config(service: str = "api") -> Dict[str, Any]:
             "handlers": ["console", "app_file"],
             "propagate": False,
         },
+        # Main application package (most modules use logging.getLogger(__name__))
+        "beautyai_inference": {
+            "level": "INFO",
+            "handlers": ["console", "app_file"],
+            "propagate": False,
+        },
         # Dedicated streaming voice channel (module path may differ; using prefix)
         "beautyai_inference.api.endpoints.streaming_voice": {
             "level": "INFO",
@@ -211,12 +217,23 @@ def configure_logging(service: str = "api") -> None:
     Safe to call multiple times (idempotent) — will not reconfigure if root
     already has handlers.
     """
-    root_logger = logging.getLogger()
-    if root_logger.handlers:  # Already configured
+    global _CONFIGURED
+    if _CONFIGURED:
         return
+
     cfg = build_logging_config(service=service)
     logging.config.dictConfig(cfg)
-    logging.getLogger("beautyai").info("Logging configured (service=%s, json=%s)", service, os.getenv("BEAUTYAI_LOG_JSON", "1"))
+    _CONFIGURED = True
+
+    logging.getLogger("beautyai_inference").info(
+        "Logging configured (service=%s, json=%s)",
+        service,
+        os.getenv("BEAUTYAI_LOG_JSON", "1"),
+    )
+
+
+# Module-level flag: ensure we only apply dictConfig once per process.
+_CONFIGURED = False
 
 
 __all__ = [
