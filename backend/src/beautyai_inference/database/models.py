@@ -84,6 +84,7 @@ class UserRole(enum.Enum):
     """User roles for RBAC."""
     USER = "user"      # Regular customer
     ADMIN = "admin"    # Platform administrator (@gmai.sa domain)
+    GUEST = "guest"    # Guest/Demo user (limited access)
 
 
 class SubscriptionStatus(enum.Enum):
@@ -191,20 +192,67 @@ class User(Base):
     # Stripe integration
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     
+    # Guest/Demo fields
+    demo_request_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("demo_requests.id", ondelete="SET NULL"), nullable=True, index=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    max_conversations: Mapped[Optional[int]] = mapped_column(Integer, default=10, nullable=True)
+    conversations_used: Mapped[int] = mapped_column(Integer, default=0)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     customers: Mapped[List["Customer"]] = relationship("Customer", back_populates="user", lazy="selectin")
+    demo_request: Mapped[Optional["DemoRequest"]] = relationship("DemoRequest", foreign_keys=[demo_request_id], back_populates="created_user")
     
     def is_admin(self) -> bool:
         """Check if user has admin role."""
         return self.role == UserRole.ADMIN
+
+    def is_guest(self) -> bool:
+        """Check if user has guest role."""
+        return self.role == UserRole.GUEST
     
     @classmethod
     def should_be_admin(cls, email: str) -> bool:
         """Check if email should automatically get admin role."""
         return email.lower().endswith("@gmai.sa")
+
+    # Guest/Demo helper methods
+    def is_expired(self) -> bool:
+        """Check if demo access has expired (for guest users)."""
+        if not self.expires_at:
+            return False
+        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at
+    
+    def is_limit_reached(self) -> bool:
+        """Check if usage limit has been reached (for guest users)."""
+        if self.max_conversations is None:
+            return False
+        return self.conversations_used >= self.max_conversations
+    
+    def can_access_demo(self) -> bool:
+        """Check if user can currently access the demo."""
+        if not self.is_guest():
+            return True # Regular users/admins can access
+        return self.is_active and not self.is_expired() and not self.is_limit_reached()
+    
+    def increment_conversations(self) -> None:
+        """Increment conversation usage counter."""
+        self.conversations_used += 1
+    
+    def days_remaining(self) -> int:
+        """Calculate days remaining until expiry."""
+        if not self.expires_at or self.is_expired():
+            return 0
+        delta = self.expires_at - datetime.now(timezone.utc).replace(tzinfo=None)
+        return max(0, delta.days)
+    
+    def conversations_remaining(self) -> int:
+        """Calculate conversations remaining."""
+        if self.max_conversations is None:
+            return 9999
+        return max(0, self.max_conversations - self.conversations_used)
     
     def generate_verification_token(self) -> str:
         """Generate a new email verification token."""
@@ -1012,6 +1060,7 @@ class DemoRequest(Base):
     
     # Relationships
     assigned_to_admin: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to_admin_id], lazy="selectin")
+    created_user: Mapped[Optional["User"]] = relationship("User", foreign_keys="[User.demo_request_id]", back_populates="demo_request", uselist=False)
     guest_user: Mapped[Optional["GuestUser"]] = relationship("GuestUser", back_populates="demo_request", uselist=False, lazy="selectin")
     
     def full_name(self) -> str:

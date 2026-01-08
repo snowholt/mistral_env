@@ -85,6 +85,7 @@ async def get_current_active_user(
     Dependency to get the current active user.
     
     Same as get_current_user but also checks that user is active.
+    For guest users, also checks expiration and usage limits.
     
     Args:
         current_user: User from get_current_user dependency
@@ -93,13 +94,27 @@ async def get_current_active_user(
         Active User object
         
     Raises:
-        HTTPException 403: If user is not active
+        HTTPException 403: If user is not active or guest limits reached
     """
     if not current_user.is_active:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="User account is deactivated"
         )
+    
+    # Unified Guest Check
+    if current_user.is_guest():
+        if current_user.is_expired():
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Demo access has expired. Please upgrade your plan."
+            )
+        if current_user.is_limit_reached():
+             raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Demo conversation limit reached. Please upgrade your plan."
+            )
+
     return current_user
 
 

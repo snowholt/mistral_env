@@ -30,11 +30,11 @@ import uuid
 import wave
 from math import gcd
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Union
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 from scipy.signal import butter, sosfiltfilt, resample_poly
 
 from aiortc import (
@@ -123,10 +123,20 @@ class OfferResponse(BaseModel):
 
 
 class ICERequest(BaseModel):
-    session_id: str
-    candidate: str
-    sdp_mid: Optional[str] = None
-    sdp_m_line_index: Optional[int] = None
+    session_id: str = Field(..., alias="sessionId")
+    candidate: Union[str, Dict[str, Any]]
+    sdp_mid: Optional[str] = Field(None, alias="sdpMid")
+    sdp_m_line_index: Optional[int] = Field(None, alias="sdpMLineIndex")
+
+    class Config:
+        populate_by_name = True
+
+    @field_validator("candidate")
+    @classmethod
+    def parse_candidate(cls, v: Union[str, Dict[str, Any]]) -> str:
+        if isinstance(v, dict):
+            return v.get("candidate", "")
+        return v
 
 
 # ============================================================
