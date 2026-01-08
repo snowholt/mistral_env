@@ -1,53 +1,72 @@
 {
   "preload_on_startup": true,
+  "description": "Preload configuration for BeautyAI - 3 Genius AI models persistent on GPU",
   "models": {
-    "whisper": {
+    "stt": {
       "model_id": "whisper-large-v3-turbo",
+      "model_path": "openai/whisper-large-v3-turbo",
       "device": "cuda",
       "compute_type": "float16",
       "priority": 1,
-      "engine_type": "faster_whisper",
+      "engine_type": "whisper_large_v3_turbo",
       "optimization_level": "gpu_speed",
-      "target_latency_ms": 500
+      "target_latency_ms": 500,
+      "description": "OpenAI Whisper Large v3 Turbo - 4x faster (809M params, ~1.5GB VRAM)"
     },
     "llm": {
-      "model_path": "qwen3-unsloth-q4ks",
+      "model_id": "qwen3-unsloth-q4ks",
+      "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
       "n_gpu_layers": -1,
-      "context_size": 4096,
+      "n_ctx": 4096,
+      "n_batch": 4096,
+      "n_threads": 4,
       "priority": 2,
       "engine_type": "llama.cpp",
       "quantization": "Q4_K_S",
       "max_new_tokens": 200,
-      "optimization": "ultra_speed"
+      "optimization": "ultra_speed",
+      "description": "Qwen3 14B Q4_K_S - Unsloth optimized (8.0GB)"
     },
     "tts": {
-      "model_id": "edge-tts",
-      "engine_type": "edge_tts",
+      "model_id": "genius-xtts-arabic",
+      "model_path": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/xtts/GPT_XTTS_v2.0_LJSpeech_FT-December-01-2025_08+00PM-2b091fe",
+      "device": "cuda",
       "priority": 3,
-      "always_available": true
+      "engine_type": "xtts",
+      "sample_rate": 24000,
+      "streaming": true,
+      "voice_cloning": true,
+      "target_latency_ms": 150,
+      "description": "Genius AI fine-tuned Coqui XTTS v2 - Arabic TTS (5.6GB)"
     }
   },
   "memory_thresholds": {
     "max_gpu_memory_mb": 20000,
     "warning_threshold_mb": 16000,
-    "min_free_memory_mb": 4000
+    "min_free_memory_mb": 2000,
+    "expected_total_vram_gb": 10.0,
+    "comment": "Genius Whisper (~1.5GB) + Qwen3 (~8GB) + XTTS (~0.5GB) = ~10GB total"
   },
   "performance_targets": {
     "vad_detection_latency_ms": 50,
-    "transcription_latency_s": 2,
-    "llm_response_latency_s": 3,
-    "tts_generation_latency_s": 1,
-    "total_round_trip_latency_s": 7
+    "transcription_latency_ms": 1000,
+    "llm_response_latency_s": 2,
+    "tts_generation_latency_ms": 150,
+    "total_round_trip_latency_s": 4,
+    "comment": "With persistent loading: ~4s total (vs 42s+ with on-demand loading)"
   },
   "startup_sequence": {
-    "parallel_loading": true,
-    "timeout_per_model_s": 60,
-    "total_startup_timeout_s": 180,
-    "fallback_on_failure": true
+    "parallel_loading": false,
+    "load_order": ["llm", "stt", "tts"],
+    "timeout_per_model_s": 120,
+    "total_startup_timeout_s": 360,
+    "fallback_on_failure": true,
+    "comment": "Sequential loading: LLM first (largest), then STT, then TTS"
   },
   "monitoring": {
     "memory_check_interval_s": 30,
     "model_health_check_interval_s": 60,
-    "performance_logging": true
+    "performance_logging": true,
+    "gpu_memory_logging": true
   }
 }

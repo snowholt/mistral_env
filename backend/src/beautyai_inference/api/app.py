@@ -39,13 +39,18 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
-# Import WebRTC lean capture router (Nov 13, 2025 - Hardened)
+# Import WhatsApp Manager routers
 try:
-    from .endpoints.webrtc_lean_capture import lean_capture_router
-    lean_capture_router_available = True
+    from .endpoints.whatsapp_auth import whatsapp_auth_router
+    from .endpoints.whatsapp_manager import whatsapp_manager_router
+    from .endpoints.whatsapp_webhook import whatsapp_webhook_router
+    from .endpoints.whatsapp_inbox_ws import whatsapp_inbox_ws_router
+    whatsapp_routers_available = True
 except ImportError as e:
-    lean_capture_router_available = False
-    logger.warning(f"WebRTC lean capture router not available: {e}")
+    whatsapp_routers_available = False
+    logger.warning(f"WhatsApp Manager routers not available: {e}")
+
+
 
 # Import performance dashboard router
 try:
@@ -97,6 +102,26 @@ tags_metadata = [
     {
         "name": "performance",
         "description": "📊 **Performance Monitoring** - Real-time performance metrics, alerts, and system analytics."
+    },
+    {
+        "name": "whatsapp-auth",
+        "description": "🔐 **WhatsApp Auth** - User authentication for WhatsApp Manager SaaS platform. "
+                      "JWT-based registration, login, and token management."
+    },
+    {
+        "name": "whatsapp-manager",
+        "description": "📱 **WhatsApp Manager** - Meta Embedded Signup, AI agent configuration, and inbox management. "
+                      "Protected endpoints for business owners to configure their WhatsApp automation."
+    },
+    {
+        "name": "whatsapp-webhook",
+        "description": "🔔 **WhatsApp Webhook** - Public endpoint for receiving incoming WhatsApp messages from Meta. "
+                      "Integrates with LLM for AI-powered auto-replies."
+    },
+    {
+        "name": "whatsapp-inbox-ws",
+        "description": "💬 **WhatsApp Inbox WebSocket** - Real-time inbox updates via WebSocket. "
+                      "Authenticated connections receive live message notifications."
     }
 ]
 
@@ -150,6 +175,8 @@ default_cors_origins = [
     "http://localhost:3000",
     "http://localhost:5173",
     "http://127.0.0.1:5173",
+    "https://portal.gmai.sa",
+    "https://dev.gmai.sa",
 ]
 
 allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
@@ -174,7 +201,7 @@ else:
         CORSMiddleware,
         allow_origins=filtered_origins,
         allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
     )
 
@@ -241,15 +268,77 @@ if debug_capture_router_available:
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
 
-# Include WebRTC lean capture router if available (Nov 13, 2025 - Hardened)
-if lean_capture_router_available:
-    app.include_router(
-        lean_capture_router,
-        tags=["webrtc-lean"]
-    )
-    logger.info("WebRTC lean capture endpoints registered at /api/v1/webrtc/lean/voice-capture")
+# Include WhatsApp Manager routers if available
+if whatsapp_routers_available:
+    app.include_router(whatsapp_auth_router, tags=["whatsapp-auth"])
+    app.include_router(whatsapp_manager_router, tags=["whatsapp-manager"])
+    app.include_router(whatsapp_webhook_router, tags=["whatsapp-webhook"])
+    app.include_router(whatsapp_inbox_ws_router, tags=["whatsapp-inbox-ws"])
+    logger.info("✅ WhatsApp Manager endpoints registered:")
+    logger.info("   - Auth: /api/v1/whatsapp/auth/*")
+    logger.info("   - Manager: /api/v1/whatsapp/*")
+    logger.info("   - Webhook: /api/v1/whatsapp/webhook")
+    logger.info("   - Inbox WS: /api/v1/whatsapp/inbox/ws")
 else:
-    logger.warning("WebRTC lean capture endpoints not registered - module not available")
+    logger.warning("WhatsApp Manager endpoints not registered - modules not available")
+
+# Include Admin router
+try:
+    from .endpoints.admin import admin_router
+    app.include_router(admin_router, tags=["admin"])
+    logger.info("✅ Admin endpoints registered at /api/v1/admin/*")
+except ImportError as e:
+    logger.warning(f"Admin router not available: {e}")
+
+# Include Demo Request router
+try:
+    from .endpoints.demo_requests import demo_router, guest_auth_router
+    app.include_router(demo_router, tags=["demo_requests"])
+    app.include_router(guest_auth_router, tags=["guest_auth"])
+    logger.info("✅ Demo Request endpoints registered at /api/v1/demo-requests and /api/v1/admin/demo-requests")
+    logger.info("✅ Guest Auth endpoints registered at /api/v1/auth/guest/*")
+except ImportError as e:
+    logger.warning(f"Demo Request router not available: {e}")
+
+# Include Dashboard router
+try:
+    from .endpoints.dashboard import dashboard_router
+    app.include_router(dashboard_router, tags=["dashboard"])
+    logger.info("✅ Dashboard endpoints registered at /api/v1/dashboard/*")
+except ImportError as e:
+    logger.warning(f"Dashboard router not available: {e}")
+
+# Include Web Chat Widget router
+try:
+    from .endpoints.webchat import webchat_router
+    app.include_router(webchat_router, tags=["webchat"])
+    logger.info("✅ Web Chat Widget endpoints registered at /api/v1/webchat/*")
+except ImportError as e:
+    logger.warning(f"Web Chat Widget router not available: {e}")
+
+# Include Billing router
+try:
+    from .endpoints.billing import router as billing_router
+    app.include_router(billing_router, tags=["billing"])
+    logger.info("✅ Billing endpoints registered at /api/v1/billing/*")
+except ImportError as e:
+    logger.warning(f"Billing router not available: {e}")
+
+# Include Knowledge Base router
+try:
+    from .endpoints.knowledge_base import router as kb_router
+    app.include_router(kb_router, tags=["knowledge-base"])
+    logger.info("✅ Knowledge Base endpoints registered at /api/v1/kb/*")
+except ImportError as e:
+    logger.warning(f"Knowledge Base router not available: {e}")
+
+# Include Prometheus Metrics router
+try:
+    from .endpoints.metrics import router as metrics_router
+    app.include_router(metrics_router, tags=["metrics"])
+    logger.info("✅ Prometheus Metrics endpoints registered at /metrics")
+except ImportError as e:
+    logger.warning(f"Metrics router not available: {e}")
 
 # Serve debug test page
 @app.get("/webrtc_voice_capture_test.html", response_class=HTMLResponse)
@@ -275,25 +364,25 @@ async def serve_debug_test_page():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.get("/test_simple.html", response_class=HTMLResponse)
-async def serve_simple_test_page():
-    """Serve the simplified WebRTC test page for connection debugging."""
+@app.get("/webrtc_debug.html", response_class=HTMLResponse)
+async def serve_webrtc_debug_page():
+    """Serve the WebRTC debug page for connection and audio testing."""
     try:
         # Path to the static file we just copied
         backend_root = Path(__file__).resolve().parents[4]
-        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_simple.html"
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "webrtc_debug.html"
         
         if not test_page_path.exists():
-            raise HTTPException(status_code=404, detail=f"Simple test page not found at {test_page_path}")
+            raise HTTPException(status_code=404, detail=f"WebRTC debug page not found at {test_page_path}")
         
         with open(test_page_path, 'r', encoding='utf-8') as f:
             content = f.read()
         
         return HTMLResponse(content=content)
     except FileNotFoundError:
-        raise HTTPException(status_code=404, detail="Simple WebRTC test page not found")
+        raise HTTPException(status_code=404, detail="WebRTC debug page not found")
     except Exception as e:
-        logger.error(f"Error serving simple test page: {e}")
+        logger.error(f"Error serving WebRTC debug page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -338,67 +427,52 @@ async def serve_lean_capture_test_page():
         logger.error(f"Error serving lean capture test page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/test_lean.html", response_class=HTMLResponse)
+async def serve_lean_test_page():
+    """Serve the lean WebRTC test page."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_lean.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"Lean test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="Lean test page not found")
+    except Exception as e:
+        logger.error(f"Error serving lean test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
     try:
-        # Import model services here to avoid circular imports
-        from ..services.model import ModelLifecycleService, RegistryService  
-        from ..config.configuration_manager import ConfigurationManager
-        from ..config.config_manager import AppConfig
-        from pathlib import Path
+        logger.info("🚀 Starting Genius AI model preloading from preload_config.json...")
         
-        # Initialize services
-        lifecycle_service = ModelLifecycleService()
-        registry_service = RegistryService()
-        config_manager = ConfigurationManager()
-        # Note: Config is already loaded during ConfigurationManager initialization
+        # Use PersistentModelManager to preload models from config
+        from ..core.persistent_model_manager import get_persistent_model_manager
+        persistent_mgr = get_persistent_model_manager()
         
-        # Create AppConfig object and point it to the comprehensive model registry
-        app_config = AppConfig()
-        # Set the correct path to the comprehensive model registry
-        app_config.models_file = str(Path(__file__).parent.parent / "config" / "model_registry.json")
-        app_config.load_model_registry()  # Load from the comprehensive model registry
-       
-        # Models to pre-load for voice services
-        essential_models = [
-            "qwen3-unsloth-q4ks",            # Main chat model
-            # Don't pre-load whisper model here - let SimpleVoiceService handle it with base model
-        ]
+        # Preload all models defined in preload_config.json
+        success = await persistent_mgr.preload_models()
         
-        logger.info(f"🔄 Pre-loading {len(essential_models)} essential models...")
+        if success:
+            logger.info("✅ All Genius AI models pre-loaded successfully from config")
+            logger.info("🎯 Models ready: qwen3-unsloth-q4ks, genius-whisper-arabic, genius-xtts-arabic")
+        else:
+            logger.warning("⚠️ Some models failed to preload - check logs for details")
         
-        for model_name in essential_models:
-            try:
-                logger.info(f"⏳ Loading {model_name}...")
-                
-                # Get model config from registry
-                model_config = registry_service.get_model(app_config, model_name)
-                if not model_config:
-                    logger.warning(f"⚠️ Model '{model_name}' not found in registry, skipping")
-                    continue
-                
-                # Check if already loaded
-                if lifecycle_service.model_manager.is_model_loaded(model_name):
-                    logger.info(f"✅ Model '{model_name}' already loaded")
-                    continue
-                
-                # Load the model
-                success, error_msg = lifecycle_service.load_model(model_config, show_progress=False)
-                
-                if success:
-                    logger.info(f"✅ Successfully pre-loaded {model_name}")
-                else:
-                    logger.warning(f"⚠️ Failed to pre-load {model_name}: {error_msg}")
-                    
-            except Exception as e:
-                logger.warning(f"⚠️ Error pre-loading {model_name}: {e}")
-                continue
-        
-        logger.info("🎯 Model pre-loading completed - WebSocket services ready for fast responses")
+        return success
         
     except Exception as e:
         logger.error(f"❌ Critical error during model pre-loading: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
         raise
 
 
@@ -409,6 +483,16 @@ async def startup_event():
     logger.info("📚 API Documentation available at: http://localhost:8000/docs")
     logger.info("🔍 Alternative docs at: http://localhost:8000/redoc")
     logger.info("🎤 Voice endpoints info at: http://localhost:8000/api/v1/voice/endpoints")
+    
+    # Initialize WhatsApp Manager database if available
+    if whatsapp_routers_available:
+        try:
+            from ..database.connection import init_db
+            await init_db()
+            logger.info("📱 WhatsApp Manager database initialized successfully")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to initialize WhatsApp database: {e}")
+            logger.info("📱 WhatsApp Manager may have limited functionality")
     
     # Initialize WebRTC connection pool if available (Phase B - WebRTC Migration)
     if webrtc_router_available:
@@ -464,6 +548,15 @@ async def startup_event():
 async def shutdown_event():
     """Cleanup on application shutdown."""
     logger.info("🛑 BeautyAI Inference API shutting down...")
+    
+    # Close WhatsApp Manager database connections
+    if whatsapp_routers_available:
+        try:
+            from ..database.connection import close_db
+            await close_db()
+            logger.info("📱 WhatsApp Manager database connections closed")
+        except Exception as e:
+            logger.warning(f"⚠️ Error closing WhatsApp database: {e}")
     
     # Shutdown WebRTC connection pool if available (Phase B - WebRTC Migration)
     if webrtc_router_available:

@@ -101,6 +101,7 @@ class WebRTCVADConfig:
     
     # Monitoring
     log_vad_decisions: bool = True  # Log detailed VAD decisions for debugging (ENABLED)
+    enable_debug_dump: Optional[bool] = None  # Enable WAV file dumping (None = check env var)
 
 
 @dataclass
@@ -194,7 +195,12 @@ class WebRTCVADService:
         self._processing_lock = asyncio.Lock()
 
         # Debug capture configuration
-        self.debug_enabled = os.getenv("BEAUTYAI_VAD_DEBUG", "1") not in {"0", "false", "False"}
+        # Priority: Config > Env Var > Default (False)
+        if self.config.enable_debug_dump is not None:
+            self.debug_enabled = self.config.enable_debug_dump
+        else:
+            self.debug_enabled = os.getenv("BEAUTYAI_VAD_DEBUG", "0") not in {"0", "false", "False"}
+            
         self._debug_webrtc_chunks: list[bytes] = []
         self._debug_silero_chunks: list[bytes] = []
         self._debug_segment_index: int = 0

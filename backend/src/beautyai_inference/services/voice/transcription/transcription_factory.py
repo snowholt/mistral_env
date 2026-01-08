@@ -1,10 +1,11 @@
 """Transcription Service Factory - Updated for Specialized Whisper Engines
 
 Chooses appropriate specialized Whisper engine based on voice registry configuration.
-Supports three optimized engines:
+Supports specialized engines:
 - WhisperLargeV3Engine: Maximum accuracy (1.55B params)
 - WhisperLargeV3TurboEngine: Speed optimized (809M params) 
 - WhisperArabicTurboEngine: Arabic specialized (809M params, fine-tuned)
+- WhisperGeniusArabicEngine: Genius AI fine-tuned Arabic (based on Large v3)
 
 This centralizes engine selection logic so the rest of the codebase can remain
 agnostic to the underlying engine implementation.
@@ -16,10 +17,13 @@ from typing import Protocol
 import os
 
 from ....config.voice_config_loader import get_voice_config
-from .whisper_large_v3_engine import WhisperLargeV3Engine
-from .whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine  
-from .whisper_arabic_turbo_engine import WhisperArabicTurboEngine
-from .whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
+from ....inference_engines.voice.stt import (
+    WhisperLargeV3Engine,
+    WhisperLargeV3TurboEngine,
+    WhisperArabicTurboEngine,
+    WhisperFinetunedArabicEngine,
+    WhisperGeniusArabicEngine
+)
 
 logger = logging.getLogger(__name__)
 
@@ -101,6 +105,7 @@ def create_transcription_service() -> TranscriptionServiceProtocol:
             "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
             "whisper_arabic_turbo": WhisperArabicTurboEngine,
             "whisper_finetuned_arabic": WhisperFinetunedArabicEngine,
+            "whisper_genius_arabic": WhisperGeniusArabicEngine,
             # Legacy support
             "transformers": WhisperLargeV3TurboEngine,
             "faster-whisper": WhisperLargeV3TurboEngine,
@@ -134,6 +139,7 @@ def get_available_engines() -> dict[str, str]:
         "whisper_large_v3_turbo": "Speed optimized (809M params, 4 layers, 4x faster)",
         "whisper_arabic_turbo": "Arabic specialized (809M params, 31% WER Arabic)",
         "whisper_finetuned_arabic": "BeautyAI fine-tuned Arabic (809M params, custom dataset)",
+        "whisper_genius_arabic": "Genius AI fine-tuned Arabic (Large v3, 3.01GB local)",
     }
 
 
@@ -148,7 +154,8 @@ def validate_engine_availability() -> dict[str, bool]:
         "whisper_large_v3": WhisperLargeV3Engine,
         "whisper_large_v3_turbo": WhisperLargeV3TurboEngine,
         "whisper_arabic_turbo": WhisperArabicTurboEngine,
-        "whisper_finetuned_arabic": WhisperFinetunedArabicEngine
+        "whisper_finetuned_arabic": WhisperFinetunedArabicEngine,
+        "whisper_genius_arabic": WhisperGeniusArabicEngine
     }
     
     availability = {}

@@ -16,6 +16,7 @@ import time
 import uuid
 import wave
 import psutil
+from functools import partial
 from pathlib import Path
 from typing import Dict, Any, Optional, List
 from fastapi import APIRouter, HTTPException, status
@@ -24,19 +25,118 @@ from pydantic import BaseModel, Field
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack, RTCConfiguration, RTCIceServer
 from aiortc.contrib.media import MediaRecorder
 import numpy as np
-from scipy.signal import resample_poly, butter, sosfiltfilt
+from scipy.signal import resample_poly, butter, sosfiltfilt, sosfilt, sosfilt_zi
 from math import gcd
+
+# ============================================================
+# OPTIONAL: TorchAudio for stateful resampling (best practice)
+# ============================================================
+try:
+    import torch
+    import torchaudio
+    TORCHAUDIO_AVAILABLE = True
+except ImportError:
+    TORCHAUDIO_AVAILABLE = False
+    print("[AUDIO-RESAMPLE] ⚠️ torchaudio not available, falling back to scipy", flush=True)
+
+# ============================================================
+# AIORTC JITTER BUFFER TUNING
+# Default: capacity=16 (320ms), prefetch=4 (80ms)
+# Tuned:   capacity=128 (2560ms), prefetch=32 (640ms)
+# Increased to 128 to handle severe network jitter and packet loss
+# ============================================================
+import aiortc.rtcrtpreceiver
+from aiortc.jitterbuffer import JitterBuffer
+
+# Store original __init__ for potential restoration
+_original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
+
+# Environment variable configuration for flexibility
+AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "128"))
+AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "50"))
+
+# ============================================================
+# MINIMAL MODE: Simplified pipeline for debugging crackling
+# When enabled with 16kHz browser audio:
+#   Browser 16kHz (mono) → Butterworth 8kHz → VAD → Layer 4 → Whisper
+# Skips: Resampling (already 16kHz), RNNoise (isolate root cause)
+# Keeps: All timing metrics, buffer underrun tracking, debug captures
+# ============================================================
+VOICE_MINIMAL_MODE = os.getenv("VOICE_MINIMAL_MODE", "0") == "1"
+
+# ============================================================
+# AUDIO PROCESSING MODE FLAGS (For diagnosing crackling)
+# ============================================================
+# Mode 1: VOICE_NO_BUTTERWORTH=1
+#   - Bypasses Butterworth filter entirely
+#   - Tests if crackling is from stateless sosfiltfilt
+#   - Relies only on resample_poly's built-in anti-aliasing
+# ============================================================
+VOICE_NO_BUTTERWORTH = os.getenv("VOICE_NO_BUTTERWORTH", "0") == "1"
+
+# ============================================================
+# Mode 2: VOICE_STATEFUL_FILTER=1
+#   - Uses sosfilt with persistent zi state (not sosfiltfilt)
+#   - Maintains filter state across chunks for seamless processing
+#   - Fixes boundary discontinuities causing crackling
+# ============================================================
+VOICE_STATEFUL_FILTER = os.getenv("VOICE_STATEFUL_FILTER", "0") == "1"
+
+# ============================================================
+# Mode 3: VOICE_TORCHAUDIO_RESAMPLE=1 (Best Practice)
+#   - Uses torchaudio.transforms.Resample (stateful, GPU-accelerated)
+#   - Removes Butterworth entirely (Resample has built-in anti-aliasing)
+#   - Recommended for production use
+# ============================================================
+VOICE_TORCHAUDIO_RESAMPLE = os.getenv("VOICE_TORCHAUDIO_RESAMPLE", "0") == "1"
+
+def _patched_RTCRtpReceiver_init(self, kind, transport):
+    """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
+    _original_RTCRtpReceiver_init(self, kind, transport)
+    if kind == "audio":
+        # Increase audio jitter buffer for high-latency connections
+        self._RTCRtpReceiver__jitter_buffer = JitterBuffer(
+            capacity=AIORTC_AUDIO_JITTER_CAPACITY, 
+            prefetch=AIORTC_AUDIO_JITTER_PREFETCH
+        )
+        print(
+            f"[AIORTC-TUNED] Audio jitter buffer increased: "
+            f"capacity={AIORTC_AUDIO_JITTER_CAPACITY} ({AIORTC_AUDIO_JITTER_CAPACITY * 20}ms), "
+            f"prefetch={AIORTC_AUDIO_JITTER_PREFETCH} ({AIORTC_AUDIO_JITTER_PREFETCH * 20}ms)",
+            flush=True
+        )
+
+# Apply the monkey-patch
+aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
+print("[AIORTC-TUNED] ✅ Jitter buffer patch applied (capacity=128, prefetch=32)", flush=True)
+
+# Log audio processing mode at startup
+if VOICE_TORCHAUDIO_RESAMPLE:
+    if TORCHAUDIO_AVAILABLE:
+        print("[AUDIO-MODE] 🚀 TORCHAUDIO RESAMPLE: Using stateful torchaudio.transforms.Resample (best practice)", flush=True)
+        print("[AUDIO-MODE]    Pipeline: 48kHz → torchaudio.Resample → VAD → Whisper (no Butterworth)", flush=True)
+    else:
+        print("[AUDIO-MODE] ⚠️ TORCHAUDIO requested but not available, falling back to scipy", flush=True)
+        VOICE_TORCHAUDIO_RESAMPLE = False  # Disable if not available
+elif VOICE_STATEFUL_FILTER:
+    print("[AUDIO-MODE] 🔧 STATEFUL FILTER: Using sosfilt with persistent zi state (fixes crackling)", flush=True)
+    print("[AUDIO-MODE]    Pipeline: 48kHz → stateful sosfilt → resample_poly → VAD → Whisper", flush=True)
+elif VOICE_NO_BUTTERWORTH:
+    print("[AUDIO-MODE] 🧪 NO BUTTERWORTH: Bypassing filter entirely (testing mode)", flush=True)
+    print("[AUDIO-MODE]    Pipeline: 48kHz → resample_poly only → VAD → Whisper", flush=True)
+elif VOICE_MINIMAL_MODE:
+    print("[AUDIO-MODE] 🔬 MINIMAL MODE: Simplified pipeline for debugging", flush=True)
+    print("[AUDIO-MODE]    Skipping: RNNoise, Transient Suppressor (isolate root cause)", flush=True)
+else:
+    print("[AUDIO-MODE] ❌ FULL PIPELINE: Using stateless sosfiltfilt + resample_poly (may crackle)", flush=True)
+    print("[AUDIO-MODE]    ⚠️ To fix crackling, set VOICE_TORCHAUDIO_RESAMPLE=1 or VOICE_STATEFUL_FILTER=1", flush=True)
 
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.audio_resampling import process_with_rnnoise_16khz_pipeline
-from ...utils.noise_comparison import compare_noise_reduction_methods, measure_processing_latency, generate_comparison_summary
-from ...utils.dtln_wrapper import DTLNProcessor
-from ...utils.deepfilternet_wrapper import DeepFilterNetProcessor
-from ...utils.nsnet2_wrapper import SpectralGatingProcessor
-from ...utils.comb_filter import CombFilter
 from ...utils.transient_suppressor import TransientSuppressor
+from ...utils.transcription_cleaner import filter_whisper_output
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +182,7 @@ def _resolve_debug_directory() -> Path:
         detail="No writable debug capture directory available",
     )
 
+
 debug_capture_router = APIRouter(
     prefix="/api/v1/webrtc/debug/voice-capture",
     tags=["webrtc-debug"],
@@ -94,6 +195,10 @@ _debug_connections: Dict[str, Dict[str, Any]] = {}
 class DebugOfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
+    language: str = Field(default="ar", description="Language code (ar, en)")
+    model: Optional[str] = Field(default=None, description="Whisper model to use (e.g., genius-whisper-arabic, whisper-large-v3-turbo)")
+    compare_mode: bool = Field(default=False, description="Enable A/B model comparison")
+    model_b: Optional[str] = Field(default=None, description="Second model for A/B comparison")
 
 
 class DebugOfferResponse(BaseModel):
@@ -124,7 +229,8 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 RTCIceServer(urls=["stun:stun.l.google.com:19302"]),
                 RTCIceServer(urls=["stun:stun1.l.google.com:19302"]),
                 RTCIceServer(
-                    urls=["turn:188.48.209.107:15478"],
+                    # ✅ DYNAMIC TURN SERVER: Uses dev.gmai.sa which always points to current IP
+                    urls=["turn:dev.gmai.sa:15478"],
                     username="beautyai",
                     credential="beautyai2025"
                 ),
@@ -139,6 +245,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
         capture_info = {
             "pc": pc,
             "peer_id": peer_id,
+            "language": request.language,
             "debug_dir": debug_dir,
             "frames_captured": 0,
             "start_time": time.time(),
@@ -146,21 +253,17 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "data_channel": None,
             "capture_task": None,
             "layer_48khz_raw": [],
-            "layer_15_transient_48khz": [],  # NEW: Layer 1.5 - Transient Suppression @ 48kHz
+            "layer_15_transient_48khz": [],  # Layer 1.5 - Transient Suppression @ 48kHz
             "layer_48khz_float": [],
             "layer_16khz": [],
-            "layer_16khz_vad_filtered": [],  # NEW: VAD-filtered audio only (speech segments)
-            "layer_48khz_vad_filtered": [],  # Layer 5: 48kHz VAD-filtered
-            "layer_31_ema_16khz": [],  # EXPERIMENTAL: Layer 3.1 - EMA noise reduction @ 16kHz
-            "layer_31b_percentile_16khz": [],  # NEW: Layer 3.1b - Percentile Gate @ 16kHz
-            "layer_32_rnnoise_16khz": [],  # EXPERIMENTAL: Layer 3.2 - RNNoise @ 16kHz
-            "layer_33_dtln_16khz": [],  # EXPERIMENTAL: Layer 3.3 - DTLN @ 16kHz
-            "layer_34_deepfilternet_16khz": [],  # EXPERIMENTAL: Layer 3.4 - DeepFilterNet @ 16kHz
-            "layer_35_nsnet2_16khz": [],  # EXPERIMENTAL: Layer 3.5 - Spectral Gating @ 16kHz
-            "layer_36_comb_16khz": [],  # EXPERIMENTAL: Layer 3.6 - Comb Filter @ 16kHz (80 Hz removal)
-            "comparison_metrics": [],  # Store quality/latency comparisons per frame
+            "layer_16khz_vad_filtered": [],  # VAD-filtered audio only (speech segments)
+            "layer_32_rnnoise_16khz": [],  # Layer 3.2 - RNNoise @ 16kHz (primary noise reduction)
             "transcriptions": [],  # Store transcription results
             "whisper_model": None,  # Will be loaded on first use
+            "whisper_model_b": None,  # Second model for A/B comparison
+            "compare_mode": request.compare_mode,  # A/B comparison mode flag
+            "model_a_name": request.model or "auto",  # Model A name for display
+            "model_b_name": request.model_b,  # Model B name for display
             "vad_service": None,  # VAD for speech detection
             "is_speech_active": False,  # Current speech state
             "speech_buffer": [],  # Buffer for accumulating speech audio
@@ -170,21 +273,74 @@ async def handle_debug_offer(request: DebugOfferRequest):
             "buffer_underruns": 0,  # Count suspected buffer issues
             "last_frame_time": None,  # Track inter-frame timing
             "cpu_samples": [],  # Track CPU usage
+            # ============================================
+            # STATEFUL AUDIO PROCESSING (Fix for crackling)
+            # ============================================
+            # Stateful Butterworth filter state (for VOICE_STATEFUL_FILTER mode)
+            "butterworth_sos": None,  # Will be initialized on first frame
+            "butterworth_zi": None,   # Filter state (zi) for sosfilt
+            # TorchAudio resampler (for VOICE_TORCHAUDIO_RESAMPLE mode)
+            "torchaudio_resampler": None,  # Will be initialized on first frame
         }
         
         # Get preloaded Whisper model for transcription after VAD filtering
+        # Now supports explicit model selection and A/B comparison mode
         capture_info["whisper_enabled"] = False  # Will be set to True if model loads successfully
         try:
             model_manager = get_persistent_model_manager()
-            whisper_engine = model_manager.get_whisper_model()
+            
+            # Determine which model to load (explicit selection or auto)
+            selected_model = request.model  # None means use preloaded/auto
+            
+            if selected_model:
+                # User explicitly selected a model - use ModelManager to load it
+                print(f"[DEBUG-CAPTURE] {peer_id} 🎯 Loading user-selected model: {selected_model}", flush=True)
+                from ...core.model_manager import ModelManager
+                mm = ModelManager()
+                whisper_engine = mm.get_streaming_whisper(model_name=selected_model, language=request.language)
+                capture_info["model_a_name"] = selected_model
+            else:
+                # Use preloaded model (default behavior)
+                whisper_engine = model_manager.get_whisper_model(language=request.language)
+                capture_info["model_a_name"] = "preloaded"
+            
             if whisper_engine:
                 capture_info["whisper_model"] = whisper_engine
                 capture_info["whisper_enabled"] = True
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Loaded persistent Whisper Turbo model", flush=True)
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} using persistent Whisper Turbo (whisper-large-v3-turbo)")
+                
+                # Get model info for logging
+                model_info = {}
+                if hasattr(whisper_engine, "get_model_info"):
+                    model_info = whisper_engine.get_model_info()
+                
+                model_id = model_info.get("model_id", capture_info["model_a_name"])
+                capture_info["model_a_name"] = model_id  # Update with actual model ID
+                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Model A loaded: {model_id}", flush=True)
+                logger.info(f"[DEBUG-CAPTURE] {peer_id} using Model A: {model_id}")
             else:
-                print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not preloaded, transcription disabled", flush=True)
+                print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Whisper model not available, transcription disabled", flush=True)
                 logger.warning(f"[DEBUG-CAPTURE] {peer_id} Whisper model not available - ensure model is preloaded on startup")
+            
+            # Load second model for A/B comparison if enabled
+            if request.compare_mode and request.model_b:
+                print(f"[DEBUG-CAPTURE] {peer_id} 🔬 Loading Model B for comparison: {request.model_b}", flush=True)
+                from ...core.model_manager import ModelManager
+                mm = ModelManager()
+                whisper_engine_b = mm.get_streaming_whisper(model_name=request.model_b, language=request.language)
+                
+                if whisper_engine_b:
+                    capture_info["whisper_model_b"] = whisper_engine_b
+                    model_info_b = {}
+                    if hasattr(whisper_engine_b, "get_model_info"):
+                        model_info_b = whisper_engine_b.get_model_info()
+                    model_id_b = model_info_b.get("model_id", request.model_b)
+                    capture_info["model_b_name"] = model_id_b
+                    print(f"[DEBUG-CAPTURE] {peer_id} ✅ Model B loaded: {model_id_b}", flush=True)
+                    logger.info(f"[DEBUG-CAPTURE] {peer_id} using Model B: {model_id_b}")
+                else:
+                    print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Model B ({request.model_b}) failed to load", flush=True)
+                    capture_info["compare_mode"] = False  # Disable compare mode if Model B fails
+                    
         except Exception as e:
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to load Whisper model: {e}")
             capture_info["whisper_model"] = None
@@ -202,60 +358,6 @@ async def handle_debug_offer(request: DebugOfferRequest):
         except Exception as e:
             logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise not available (will skip Layer 3.2): {e}")
             print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without RNNoise - only EMA will be tested", flush=True)
-        
-        # Initialize DTLN processor for experimental Layer 3.3 comparison
-        capture_info["dtln_processor"] = None
-        capture_info["dtln_enabled"] = False
-        try:
-            dtln_proc = DTLNProcessor()
-            capture_info["dtln_processor"] = dtln_proc
-            capture_info["dtln_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DTLN processor initialized for experimental Layer 3.3", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} DTLN ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DTLN not available (will skip Layer 3.3): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DTLN", flush=True)
-        
-        # Initialize DeepFilterNet processor for experimental Layer 3.4 comparison
-        capture_info["deepfilternet_processor"] = None
-        capture_info["deepfilternet_enabled"] = False
-        try:
-            dfn_proc = DeepFilterNetProcessor(sample_rate=16000)
-            capture_info["deepfilternet_processor"] = dfn_proc
-            capture_info["deepfilternet_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ DeepFilterNet processor initialized for experimental Layer 3.4", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} DeepFilterNet not available (will skip Layer 3.4): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without DeepFilterNet", flush=True)
-        
-        # Initialize NSNet2 processor for experimental Layer 3.5 comparison
-        capture_info["nsnet2_processor"] = None
-        capture_info["nsnet2_enabled"] = False
-        try:
-            nsnet2_proc = SpectralGatingProcessor(sample_rate=16000)
-            capture_info["nsnet2_processor"] = nsnet2_proc
-            capture_info["nsnet2_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Spectral Gating processor initialized for experimental Layer 3.5", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating ready for parallel comparison")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Spectral Gating not available (will skip Layer 3.5): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Spectral Gating", flush=True)
-        
-        # Initialize Comb Filter for experimental Layer 3.6 comparison (80 Hz periodic noise removal)
-        capture_info["comb_processor"] = None
-        capture_info["comb_enabled"] = False
-        try:
-            # Target 80 Hz fundamental frequency (buffer underrun artifact)
-            # Q=2.0 for wider notches to reduce ringing artifacts (was 30.0)
-            comb_proc = CombFilter(sample_rate=16000, fundamental_freq=80.0, quality_factor=2.0)
-            capture_info["comb_processor"] = comb_proc
-            capture_info["comb_enabled"] = True
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ Comb Filter initialized for experimental Layer 3.6 (80 Hz removal)", flush=True)
-            logger.info(f"[DEBUG-CAPTURE] {peer_id} Comb Filter ready: 80 Hz + harmonics")
-        except Exception as e:
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} Comb Filter not available (will skip Layer 3.6): {e}")
-            print(f"[DEBUG-CAPTURE] {peer_id} ⚠️ Continuing without Comb Filter", flush=True)
         
         # Buffer underrun debugging metrics
         capture_info["buffer_metrics"] = {
@@ -300,8 +402,9 @@ async def handle_debug_offer(request: DebugOfferRequest):
             vad_config.warmup_filter_duration_ms = 200  # Filter initial 200ms noise
             vad_config.min_sustained_speech_frames = 2  # Need 2 consecutive frames to confirm speech
             vad_config.log_vad_decisions = True  # Enable VAD decision logging
+            vad_config.enable_debug_dump = False  # Disable VAD internal dumping (we handle it here)
             
-            vad_service = WebRTCVADService(peer_id, language="en", config=vad_config)
+            vad_service = WebRTCVADService(peer_id, language=request.language, config=vad_config)
             
             # CRITICAL: Initialize the VAD (loads Silero model)
             vad_initialized = await vad_service.initialize()
@@ -309,7 +412,7 @@ async def handle_debug_offer(request: DebugOfferRequest):
                 raise RuntimeError("VAD initialization failed - Silero model not loaded")
             
             capture_info["vad_service"] = vad_service
-            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero sens=0.3, post_silence=700ms, sustained=2 frames, thresh=0.1)", flush=True)
+            print(f"[DEBUG-CAPTURE] {peer_id} ✅ VAD initialized successfully (Silero sens=0.3, post_silence=700ms, sustained=2 frames, thresh=0.1, lang={request.language})", flush=True)
             logger.info(f"[DEBUG-CAPTURE] {peer_id} VAD service ready with balanced settings")
         except Exception as e:
             logger.error(f"[DEBUG-CAPTURE] {peer_id} Failed to initialize VAD: {e}")
@@ -563,21 +666,120 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
     layer_48khz_float = info.setdefault("layer_48khz_float", [])
     layer_16khz = info.setdefault("layer_16khz", [])
     layer_16khz_vad_filtered = info.setdefault("layer_16khz_vad_filtered", [])  # Layer 4: 16kHz VAD-filtered
-    layer_48khz_vad_filtered = info.setdefault("layer_48khz_vad_filtered", [])  # Layer 5: 48kHz VAD-filtered (NEW!)
     
-    # Speech buffers for VAD-filtered segments (both 16kHz and 48kHz)
+    # Speech buffer for VAD-filtered segments (16kHz only - Layer 5 removed)
     speech_buffer_16k = []  # Layer 4 (16kHz)
-    speech_buffer_48k = []  # Layer 5 (48kHz)
     
+    # Define background task for transcription (non-blocking)
+    # Now supports A/B model comparison mode
+    async def _run_transcription_task(audio_bytes, segment_num, frame_idx, duration_s):
+        try:
+            whisper_model = info.get("whisper_model")
+            whisper_model_b = info.get("whisper_model_b")
+            compare_mode = info.get("compare_mode", False)
+            
+            if not whisper_model:
+                return
+
+            print(f"[WHISPER] {peer_id} 🎤 Transcribing segment #{segment_num} (background): {len(audio_bytes)} bytes...", flush=True)
+            
+            loop = asyncio.get_running_loop()
+            target_language = info.get("language", None)
+            
+            # Helper function to run transcription and return result with timing
+            async def transcribe_with_model(model, model_label, model_name_key):
+                start_t = time.time()
+                raw_transcription = await loop.run_in_executor(
+                    None, 
+                    partial(
+                        model.transcribe_audio_bytes,
+                        audio_bytes,
+                        audio_format="pcm_raw",
+                        language=target_language
+                    )
+                )
+                latency_ms = (time.time() - start_t) * 1000
+                
+                # Apply repetition filter to clean Whisper output
+                transcription = filter_whisper_output(raw_transcription, language=target_language) if raw_transcription else ""
+                if raw_transcription and transcription != raw_transcription:
+                    print(f"[WHISPER] {peer_id} 🧹 Model {model_label} cleaned: '{raw_transcription}' → '{transcription}'", flush=True)
+                
+                return {
+                    "label": model_label,
+                    "model_name": info.get(model_name_key, f"Model {model_label}"),
+                    "transcription": transcription,
+                    "latency_ms": latency_ms,
+                    "timestamp": time.time() - info["start_time"],
+                }
+            
+            # Run models in PARALLEL if compare mode is enabled
+            if compare_mode and whisper_model_b:
+                print(f"[WHISPER] {peer_id} 🔬 Running A/B comparison in PARALLEL...", flush=True)
+                
+                # Create tasks for both models
+                task_a = transcribe_with_model(whisper_model, "A", "model_a_name")
+                task_b = transcribe_with_model(whisper_model_b, "B", "model_b_name")
+                
+                # Run both in parallel with asyncio.gather
+                results = await asyncio.gather(task_a, task_b, return_exceptions=True)
+                
+                # Process results
+                for result in results:
+                    if isinstance(result, Exception):
+                        print(f"[WHISPER] {peer_id} ❌ Model transcription error: {result}", flush=True)
+                        continue
+                    
+                    if result["transcription"] and result["transcription"].strip():
+                        info.setdefault("transcriptions", []).append({
+                            "segment_number": segment_num,
+                            "frame_index": frame_idx,
+                            "timestamp": result["timestamp"],
+                            "layer": "Layer4_16kHz",
+                            "model": result["label"],
+                            "model_name": result["model_name"],
+                            "text": result["transcription"],
+                            "duration_s": duration_s,
+                            "latency_ms": result["latency_ms"],
+                        })
+                        print(f"[WHISPER] {peer_id} ✅ Model {result['label']} #{segment_num} ({result['latency_ms']:.0f}ms): \"{result['transcription']}\"", flush=True)
+                
+                # Log comparison summary (find A and B results)
+                result_a = next((r for r in results if not isinstance(r, Exception) and r["label"] == "A"), None)
+                result_b = next((r for r in results if not isinstance(r, Exception) and r["label"] == "B"), None)
+                if result_a and result_b:
+                    latency_diff = result_a["latency_ms"] - result_b["latency_ms"]
+                    print(f"[WHISPER] {peer_id} 🔬 PARALLEL Compare: A={result_a['latency_ms']:.0f}ms vs B={result_b['latency_ms']:.0f}ms (diff={latency_diff:+.0f}ms)", flush=True)
+            else:
+                # Single model mode (Model A only)
+                result = await transcribe_with_model(whisper_model, "A", "model_a_name")
+                
+                if result["transcription"] and result["transcription"].strip():
+                    info.setdefault("transcriptions", []).append({
+                        "segment_number": segment_num,
+                        "frame_index": frame_idx,
+                        "timestamp": result["timestamp"],
+                        "layer": "Layer4_16kHz",
+                        "model": "A",
+                        "model_name": result["model_name"],
+                        "text": result["transcription"],
+                        "duration_s": duration_s,
+                        "latency_ms": result["latency_ms"],
+                    })
+                    print(f"[WHISPER] {peer_id} ✅ Model A #{segment_num} ({result['latency_ms']:.0f}ms): \"{result['transcription']}\"", flush=True)
+                
+        except Exception as e:
+            logger.error(f"[WHISPER] {peer_id} Background transcription error: {e}", exc_info=True)
+            print(f"[WHISPER] {peer_id} ❌ Background transcription error: {e}", flush=True)
+
     def finalize_speech_segment(reason: str, frame_index: int) -> None:
-        """Flush buffered speech into VAD layers and trigger Whisper if enabled."""
+        """Flush buffered speech into VAD layer and trigger Whisper if enabled."""
         if not speech_buffer_16k:
             return
 
         total_samples_16k = int(sum(len(chunk) for chunk in speech_buffer_16k))
         if total_samples_16k == 0:
             speech_buffer_16k.clear()
-            speech_buffer_48k.clear()
             return
 
         speech_duration = total_samples_16k / 16000
@@ -587,136 +789,35 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         )
         logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech segment ({reason}): {speech_duration:.2f}s")
 
-        # Persist buffered audio into Layer 4 and Layer 5 collections
+        # Persist buffered audio into Layer 4 collection
         for speech_frame in speech_buffer_16k:
             layer_16khz_vad_filtered.append(speech_frame.copy())
-
-        for speech_frame_48k in speech_buffer_48k:
-            layer_48khz_vad_filtered.append(speech_frame_48k.copy())
 
         speech_segments_count = info.get("speech_segments_count", 0)
 
         if info.get("whisper_enabled", False):
             whisper_model = info.get("whisper_model")
             if whisper_model:
-                try:
-                    # Layer 4 transcription (16kHz VAD-filtered PCM)
-                    speech_audio_16k = np.concatenate(speech_buffer_16k)
-                    audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
-                    audio_bytes_16k = audio_int16_16k.tobytes()
-                    segment_duration_16k = len(audio_int16_16k) / 16000
+                # Layer 4 transcription (16kHz VAD-filtered PCM)
+                speech_audio_16k = np.concatenate(speech_buffer_16k)
+                audio_int16_16k = (np.clip(speech_audio_16k, -1.0, 1.0) * 32767).astype(np.int16)
+                audio_bytes_16k = audio_int16_16k.tobytes()
+                segment_duration_16k = len(audio_int16_16k) / 16000
 
-                    print(
-                        f"[WHISPER-L4] {peer_id} 🎤 Transcribing Layer 4 (16kHz) segment #{speech_segments_count}: "
-                        f"{len(audio_int16_16k)} samples ({segment_duration_16k:.2f}s)...",
-                        flush=True,
-                    )
-                    start_t4 = time.time()
-                    # Get language preference from session config or default to None (auto-detect)
-                    target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
-                    transcription_16k = whisper_model.transcribe_audio_bytes(
-                        audio_bytes_16k, audio_format="pcm_raw", language=target_language
-                    )
-                    latency_16k = (time.time() - start_t4) * 1000
-
-                    # Layer 5 transcription (48kHz VAD-filtered resampled for Whisper)
-                    transcription_48k = None
-                    latency_48k = 0.0
-                    segment_duration_48k = 0.0
-                    if speech_buffer_48k:
-                        speech_audio_48k = np.concatenate(speech_buffer_48k)
-                        speech_audio_16k_from_48k = resample_poly(
-                            speech_audio_48k, up=1, down=3, window=("kaiser", 8.0)
-                        )
-                        speech_audio_16k_from_48k = np.clip(speech_audio_16k_from_48k, -1.0, 1.0)
-                        audio_int16_48k = (speech_audio_16k_from_48k * 32767).astype(np.int16)
-                        audio_bytes_48k = audio_int16_48k.tobytes()
-                        segment_duration_48k = len(audio_int16_48k) / 16000
-
-                        print(
-                            f"[WHISPER-L5] {peer_id} 🎤 Transcribing Layer 5 (48kHz→16kHz) segment #{speech_segments_count}: "
-                            f"{len(audio_int16_48k)} samples ({segment_duration_48k:.2f}s)...",
-                            flush=True,
-                        )
-                        start_t5 = time.time()
-                        # Use same language preference as Layer 4
-                        target_language = info.get("language", None)  # None = auto-detect, "en" = English, "ar" = Arabic
-                        transcription_48k = whisper_model.transcribe_audio_bytes(
-                            audio_bytes_48k, audio_format="pcm_raw", language=target_language
-                        )
-                        latency_48k = (time.time() - start_t5) * 1000
-
-                    if transcription_16k and transcription_16k.strip():
-                        info.setdefault("transcriptions", []).append(
-                            {
-                                "segment_number": speech_segments_count,
-                                "frame_index": frame_index,
-                                "timestamp": time.time() - info["start_time"],
-                                "layer": "Layer4_16kHz",
-                                "text": transcription_16k,
-                                "duration_s": segment_duration_16k,
-                                "latency_ms": latency_16k,
-                            }
-                        )
-                        print(
-                            f"[WHISPER-L4] {peer_id} ✅ Layer 4 Segment #{speech_segments_count} ({latency_16k:.0f}ms): "
-                            f"\"{transcription_16k}\"",
-                            flush=True,
-                        )
-
-                    if transcription_48k and transcription_48k.strip():
-                        info.setdefault("transcriptions", []).append(
-                            {
-                                "segment_number": speech_segments_count,
-                                "frame_index": frame_index,
-                                "timestamp": time.time() - info["start_time"],
-                                "layer": "Layer5_48kHz",
-                                "text": transcription_48k,
-                                "duration_s": segment_duration_48k,
-                                "latency_ms": latency_48k,
-                            }
-                        )
-                        print(
-                            f"[WHISPER-L5] {peer_id} ✅ Layer 5 Segment #{speech_segments_count} ({latency_48k:.0f}ms): "
-                            f"\"{transcription_48k}\"",
-                            flush=True,
-                        )
-
-                    if transcription_16k and transcription_48k:
-                        match = (
-                            "✅ MATCH"
-                            if transcription_16k.strip().lower() == transcription_48k.strip().lower()
-                            else "⚠️ DIFFERENT"
-                        )
-                        print(
-                            f"[WHISPER-COMPARE] {peer_id} Segment #{speech_segments_count}: {match}",
-                            flush=True,
-                        )
-                        print(f"  L4 (16kHz): \"{transcription_16k}\"", flush=True)
-                        print(f"  L5 (48kHz): \"{transcription_48k}\"", flush=True)
-                    elif transcription_16k or transcription_48k:
-                        print(
-                            f"[WHISPER] {peer_id} ⚠️ Segment #{speech_segments_count}: One layer empty",
-                            flush=True,
-                        )
-
-                except Exception as transcribe_error:  # pragma: no cover - logging path
-                    print(
-                        f"[WHISPER] {peer_id} ❌ Segment #{speech_segments_count} transcription error: {transcribe_error}",
-                        flush=True,
-                    )
-                    logger.error(
-                        f"[WHISPER] {peer_id} transcription error: {transcribe_error}",
-                        exc_info=True,
-                    )
+                # Fire and forget background task!
+                asyncio.create_task(_run_transcription_task(
+                    audio_bytes_16k, 
+                    speech_segments_count, 
+                    frame_index, 
+                    segment_duration_16k
+                ))
         else:
             print(
-                f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz) and Layer 5 (48kHz)",
+                f"[DEBUG-CAPTURE] {peer_id} ℹ️ Whisper not enabled - speech segments saved to Layer 4 (16kHz)",
                 flush=True,
             )
 
         speech_buffer_16k.clear()
-        speech_buffer_48k.clear()
 
     frame_count = 0
     timeout_count = 0
@@ -813,8 +914,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 # LAYER 1.5: Transient Suppression @ 48kHz (NEW - suppress crackles BEFORE downsampling)
                 # Gemini Recommendation: Median filtering at source sample rate prevents Butterworth smearing
+                # MINIMAL MODE: Skip transient suppression to isolate root cause
                 audio_transient_suppressed = audio_array.copy()
-                if info.get("transient_suppressor_enabled") and sample_rate == 48000:
+                if info.get("transient_suppressor_enabled") and sample_rate == 48000 and not VOICE_MINIMAL_MODE:
                     try:
                         # Convert int16 to float32 for processing
                         if np.issubdtype(audio_transient_suppressed.dtype, np.integer):
@@ -850,6 +952,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                     except Exception as e:
                         logger.warning(f"[DEBUG-CAPTURE] {peer_id} Layer 1.5 transient suppression failed: {e}")
                         # Fall back to original audio if suppression fails
+                elif VOICE_MINIMAL_MODE and frame_count == 1:
+                    print(f"[MINIMAL-MODE] {peer_id} ⏭️ Transient Suppressor skipped to isolate root cause", flush=True)
                 
                 # LAYER 2: Convert to float32
                 if np.issubdtype(audio_array.dtype, np.integer):
@@ -861,18 +965,226 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 
                 layer_48khz_float.append(audio_float.copy())
                 
-                # LAYER 3: Resample to 16kHz with STRONG anti-aliasing filter + adaptive noise gate
-                # Microphone produces high-frequency hiss (>8kHz) that folds into audible crackle during downsampling
-                if sample_rate != 16000:
-                    # STRONG ANTI-ALIASING: Apply aggressive low-pass filter BEFORE downsampling
-                    # Microphone hiss above 8kHz needs to be removed to prevent crackle
+                # LAYER 3: Resample to 16kHz with proper anti-aliasing
+                # ============================================================
+                # AUDIO PROCESSING MODES (in order of preference):
+                # 1. VOICE_TORCHAUDIO_RESAMPLE: Best practice - stateful torchaudio.Resample
+                # 2. VOICE_STATEFUL_FILTER: Fix for crackling - stateful sosfilt + resample_poly
+                # 3. VOICE_NO_BUTTERWORTH: Test mode - skip filter, use resample_poly only
+                # 4. VOICE_MINIMAL_MODE: Debug mode - simplified pipeline
+                # 5. Default (FULL MODE): Original stateless sosfiltfilt (may crackle)
+                # ============================================================
+                resample_start = time.perf_counter()
+                
+                # ============================================================
+                # MODE 1: TorchAudio Resample (Best Practice - Stateful, GPU-accelerated)
+                # ============================================================
+                if VOICE_TORCHAUDIO_RESAMPLE and TORCHAUDIO_AVAILABLE and sample_rate != 16000:
+                    # Initialize resampler on first frame (lazy init for correct sample rate)
+                    if info.get("torchaudio_resampler") is None:
+                        # Create torchaudio Resample with high-quality settings
+                        # lowpass_filter_width=64 provides excellent anti-aliasing
+                        # rolloff=0.99 means filter starts rolling off at 99% of Nyquist
+                        info["torchaudio_resampler"] = torchaudio.transforms.Resample(
+                            orig_freq=sample_rate,
+                            new_freq=16000,
+                            lowpass_filter_width=64,  # High quality anti-aliasing
+                            rolloff=0.99,             # Near-Nyquist rolloff
+                            resampling_method="sinc_interp_kaiser",
+                            dtype=torch.float32
+                        )
+                        print(
+                            f"[TORCHAUDIO] {peer_id} 🚀 Initialized Resample: "
+                            f"{sample_rate}Hz → 16kHz (kaiser, width=64, rolloff=0.99)",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[TORCHAUDIO] {peer_id} Stateful resampler ready: "
+                            f"{sample_rate}→16000Hz, no Butterworth needed"
+                        )
+                    
+                    # Convert to torch tensor and resample
+                    audio_tensor = torch.from_numpy(audio_float).unsqueeze(0)  # Add batch dim
+                    resampler = info["torchaudio_resampler"]
+                    audio_16k_tensor = resampler(audio_tensor)
+                    audio_16k = audio_16k_tensor.squeeze(0).numpy()
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[TORCHAUDIO] {peer_id} ✅ First frame processed: "
+                            f"{len(audio_float)} → {len(audio_16k)} samples",
+                            flush=True
+                        )
+                
+                # ============================================================
+                # MODE 2: Stateful sosfilt (Fixes crackling from boundary discontinuities)
+                # ============================================================
+                elif VOICE_STATEFUL_FILTER and sample_rate != 16000:
+                    nyquist_freq = sample_rate / 2
+                    cutoff_freq = 7500  # Conservative cutoff below 8kHz Nyquist
+                    
+                    # Initialize filter on first frame (lazy init for correct sample rate)
+                    if info.get("butterworth_sos") is None:
+                        normalized_cutoff = cutoff_freq / nyquist_freq
+                        sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                        info["butterworth_sos"] = sos
+                        # Initialize filter state (zi) to steady-state for DC=0
+                        info["butterworth_zi"] = sosfilt_zi(sos) * 0.0  # Start at zero
+                        print(
+                            f"[STATEFUL-FILTER] {peer_id} 🔧 Initialized: "
+                            f"6th-order Butterworth @ {cutoff_freq}Hz with persistent state",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[STATEFUL-FILTER] {peer_id} Stateful filter ready: "
+                            f"sosfilt with zi state persists across chunks"
+                        )
+                    
+                    # Apply stateful filter - zi persists across frames!
+                    sos = info["butterworth_sos"]
+                    zi = info["butterworth_zi"]
+                    audio_filtered, info["butterworth_zi"] = sosfilt(sos, audio_float, zi=zi)
+                    audio_filtered = np.clip(audio_filtered, -1.0, 1.0)
+                    
+                    # Single-stage resample 48→16 (resample_poly is still stateless but 
+                    # with good anti-aliasing it's less problematic than the filter)
+                    if sample_rate == 48000:
+                        audio_16k = resample_poly(audio_filtered, 1, 3, window=('kaiser', 8.0))
+                    else:
+                        ratio_gcd = gcd(sample_rate, 16000)
+                        up = 16000 // ratio_gcd
+                        down = sample_rate // ratio_gcd
+                        audio_16k = resample_poly(audio_filtered, up, down, window=('kaiser', 8.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[STATEFUL-FILTER] {peer_id} ✅ First frame: "
+                            f"stateful sosfilt → resample_poly({sample_rate}→16000)",
+                            flush=True
+                        )
+                
+                # ============================================================
+                # MODE 3: No Butterworth (Test if filter is the crackling source)
+                # ============================================================
+                elif VOICE_NO_BUTTERWORTH and sample_rate != 16000:
+                    # Skip Butterworth entirely - rely on resample_poly's built-in anti-aliasing
+                    # The kaiser window in resample_poly provides some anti-aliasing
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[NO-BUTTERWORTH] {peer_id} 🧪 ACTIVE: Skipping Butterworth filter entirely",
+                            flush=True
+                        )
+                        print(
+                            f"[NO-BUTTERWORTH] {peer_id}    Pipeline: {sample_rate}Hz → resample_poly only → 16kHz",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[NO-BUTTERWORTH] {peer_id} Testing without Butterworth filter"
+                        )
+                    
+                    # Direct resample with strong kaiser window for anti-aliasing
+                    if sample_rate == 48000:
+                        # Two-stage for better quality: 48→24→16
+                        audio_24k = resample_poly(audio_float, 1, 2, window=('kaiser', 10.0))
+                        audio_24k = np.clip(audio_24k, -1.0, 1.0)
+                        audio_16k = resample_poly(audio_24k, 2, 3, window=('kaiser', 10.0))
+                    else:
+                        ratio_gcd = gcd(sample_rate, 16000)
+                        up = 16000 // ratio_gcd
+                        down = sample_rate // ratio_gcd
+                        audio_16k = resample_poly(audio_float, up, down, window=('kaiser', 10.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                # ============================================================
+                # MODE 4: MINIMAL MODE (Simplified debug pipeline)
+                # ============================================================
+                elif VOICE_MINIMAL_MODE and sample_rate == 16000:
+                    # MINIMAL MODE + 16kHz input: Only apply Butterworth, no resample
+                    nyquist_freq = sample_rate / 2  # 8kHz
+                    cutoff_freq = 7000  # Slightly below Nyquist for 16kHz
+                    
+                    # Apply 6th-order Butterworth lowpass (gentler than 8th for 16kHz)
+                    normalized_cutoff = cutoff_freq / nyquist_freq
+                    sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                    audio_16k = sosfiltfilt(sos, audio_float)
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} 🔬 ACTIVE (16kHz input): "
+                            f"Browser 16kHz → 6th-order Butterworth @ {cutoff_freq}Hz → VAD → Whisper",
+                            flush=True
+                        )
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} ⏭️ SKIPPED: Resampling (already 16kHz), RNNoise (isolate root cause)",
+                            flush=True
+                        )
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                elif VOICE_MINIMAL_MODE and sample_rate == 48000:
+                    # MINIMAL MODE + 48kHz input: Simple single-stage resample (browsers ignore 16kHz request)
+                    # Pipeline: 48kHz → Butterworth 8kHz → Direct resample 48→16 → VAD → Whisper
+                    nyquist_freq = sample_rate / 2  # 24kHz
+                    cutoff_freq = 7500  # Conservative: below 8kHz Nyquist of 16kHz
+                    
+                    # Apply 6th-order Butterworth (gentler than production 8th-order)
+                    normalized_cutoff = cutoff_freq / nyquist_freq
+                    sos = butter(6, normalized_cutoff, btype='low', output='sos')
+                    audio_float = sosfiltfilt(sos, audio_float)
+                    audio_float = np.clip(audio_float, -1.0, 1.0)
+                    
+                    # SIMPLE SINGLE-STAGE RESAMPLE: 48kHz → 16kHz directly (ratio 1:3)
+                    # This is simpler than production two-stage (48→24→16)
+                    audio_16k = resample_poly(audio_float, 1, 3, window=('kaiser', 5.0))
+                    audio_16k = np.clip(audio_16k, -1.0, 1.0)
+                    
+                    if frame_count == 1:
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} 🔬 ACTIVE (48kHz input): "
+                            f"Browser 48kHz → 6th-order Butterworth @ {cutoff_freq}Hz → "
+                            f"Single-stage resample (1:3) → VAD → Whisper",
+                            flush=True
+                        )
+                        print(
+                            f"[MINIMAL-MODE] {peer_id} ⏭️ SKIPPED: Two-stage resample, RNNoise, Transient Suppressor",
+                            flush=True
+                        )
+                        logger.info(
+                            f"[MINIMAL-MODE] {peer_id} Simplified 48kHz pipeline: "
+                            f"Butterworth {cutoff_freq}Hz → 48→16 direct → VAD"
+                        )
+                    
+                    audio_16k_original = audio_16k.copy()
+                    resample_time_ms = (time.perf_counter() - resample_start) * 1000
+                
+                # ============================================================
+                # MODE 5: FULL MODE (Original - stateless, may crackle)
+                # ============================================================
+                elif sample_rate != 16000:
+                    # FULL MODE: Resample from 48kHz (or other) to 16kHz
+                    # ⚠️ WARNING: This uses stateless sosfiltfilt which causes crackling!
+                    # Use VOICE_TORCHAUDIO_RESAMPLE=1 or VOICE_STATEFUL_FILTER=1 instead
                     nyquist_freq = sample_rate / 2
                     cutoff_freq = 8000  # Nyquist-aligned: 8kHz (exactly at target Nyquist)
                     
                     # Only filter if we need to remove frequencies above cutoff
                     if nyquist_freq > cutoff_freq:
                         # 8th-order Butterworth for steeper rolloff (sharper cutoff)
-                        # Stronger filtering to eliminate microphone hiss before downsampling
+                        # ⚠️ sosfiltfilt is STATELESS - resets every 20ms chunk = CRACKLING!
                         normalized_cutoff = cutoff_freq / nyquist_freq
                         sos = butter(8, normalized_cutoff, btype='low', output='sos')
                         audio_float = sosfiltfilt(sos, audio_float)
@@ -880,20 +1192,23 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         
                         if frame_count == 1:
                             print(
-                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz (Nyquist={nyquist_freq}Hz) "
-                                f"to prevent hiss→crackle aliasing", 
+                                f"[FULL-MODE] {peer_id} ⚠️ Using STATELESS sosfiltfilt (may crackle!): "
+                                f"8th-order Butterworth @ {cutoff_freq}Hz", 
                                 flush=True
                             )
-                            logger.info(
-                                f"[DEBUG-CAPTURE] {peer_id} 🎛️ Anti-aliasing ACTIVE: "
-                                f"8th-order Butterworth low-pass at {cutoff_freq}Hz to prevent hiss→crackle aliasing"
+                            print(
+                                f"[FULL-MODE] {peer_id} 💡 To fix: Set VOICE_TORCHAUDIO_RESAMPLE=1 "
+                                f"or VOICE_STATEFUL_FILTER=1",
+                                flush=True
+                            )
+                            logger.warning(
+                                f"[FULL-MODE] {peer_id} Using stateless sosfiltfilt - "
+                                f"consider enabling VOICE_TORCHAUDIO_RESAMPLE or VOICE_STATEFUL_FILTER"
                             )
                     
                     # Two-stage resampling for better quality when downsampling from 48kHz
                     # Stage 1: 48kHz → 24kHz (2:1)
                     # Stage 2: 24kHz → 16kHz (3:2)
-                    resample_start = time.perf_counter()
                     if sample_rate == 48000:
                         # First stage: 48→24 (simpler ratio, less aliasing)
                         audio_24k = resample_poly(audio_float, 1, 2, window=('kaiser', 8.0))
@@ -910,10 +1225,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         audio_16k = np.clip(audio_16k, -1.0, 1.0)
                     resample_time_ms = (time.perf_counter() - resample_start) * 1000
                     
-                    # NO NOISE GATE - Removed to isolate buffer underrun issues
-                    # Keep audio as-is after resampling (only downsampling, no gating)
                     audio_16k_original = audio_16k.copy()
                 else:
+                    # 16kHz input but NOT minimal mode: just pass through
                     audio_16k = audio_float
                     audio_16k_original = audio_float.copy()
                     resample_time_ms = 0.0
@@ -930,8 +1244,9 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                 # ============================================
                 # OPTIONAL: EXPERIMENTAL NOISE REDUCTION (NOT FOR UNDERRUN DEBUGGING)
                 # These are kept but NOT used in Layer 3 to avoid masking buffer issues
+                # MINIMAL MODE: Skip RNNoise entirely to isolate root cause of crackling
                 # ============================================
-                if info.get("rnnoise_enabled"):
+                if info.get("rnnoise_enabled") and not VOICE_MINIMAL_MODE:
                     try:
                         # Layer 3.2: RNNoise processing (for comparison only, NOT used in Layer 3)
                         rnnoise_start = time.perf_counter()
@@ -945,6 +1260,8 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         
                     except Exception as e:
                         logger.warning(f"[DEBUG-CAPTURE] {peer_id} RNNoise processing failed: {e}")
+                elif VOICE_MINIMAL_MODE and frame_count == 1:
+                    print(f"[MINIMAL-MODE] {peer_id} ⏭️ RNNoise skipped to isolate root cause", flush=True)
                 
                 # Calculate total frame processing time BEFORE VAD
                 stage_timing["total_ms"] = (time.perf_counter() - frame_processing_start) * 1000
@@ -977,7 +1294,7 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                         # Process through VAD
                         vad_result = await vad_service.process_audio_chunk(
                             audio_16k_bytes,
-                            metadata={"sample_rate": 16000, "language": "en"}
+                            metadata={"sample_rate": 16000, "language": info.get("language", "ar")}
                         )
                         vad_time_ms = (time.perf_counter() - vad_start) * 1000
                         stage_timing["vad_ms"] = vad_time_ms
@@ -1003,12 +1320,10 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
                             print(f"[DEBUG-CAPTURE] {peer_id} 🎤 Speech started (frame {frame_count}, segment #{segments_count})", flush=True)
                             logger.info(f"[DEBUG-CAPTURE] {peer_id} Speech detected at frame {frame_count}")
                             speech_buffer_16k.clear()
-                            speech_buffer_48k.clear()
                         
                         # ACCUMULATE AUDIO: During speech AND during pending silence (to keep full segment)
                         if voice_state in [VADState.VOICE_START, VADState.VOICE_ACTIVE, VADState.VOICE_END_PENDING]:
                             speech_buffer_16k.append(audio_16k.copy())  # Layer 4 buffer
-                            speech_buffer_48k.append(audio_float.copy())  # Layer 5 buffer (48kHz float)
                         
                         # VOICE_END: Speech confirmed ended (after waiting post_speech_silence_ms)
                         # This only fires AFTER silence threshold, so segments are properly grouped!
@@ -1074,28 +1389,26 @@ async def _capture_audio_frames(peer_id: str, track: MediaStreamTrack, info: Dic
         transcriptions = info.get("transcriptions", [])
         if transcriptions:
             layer4_count = sum(1 for t in transcriptions if t.get("layer") == "Layer4_16kHz")
-            layer5_count = sum(1 for t in transcriptions if t.get("layer") == "Layer5_48kHz")
-            print(f"[WHISPER-SUMMARY] {peer_id} 📝 Transcribed {layer4_count} Layer 4 (16kHz) + {layer5_count} Layer 5 (48kHz) segments:", flush=True)
+            print(f"[WHISPER-SUMMARY] {peer_id} 📝 Transcribed {layer4_count} segments:", flush=True)
             for i, trans in enumerate(transcriptions, 1):
                 layer_tag = trans.get("layer", "Unknown")
                 print(f"  [{i}] {layer_tag} ({trans.get('latency_ms', 0):.0f}ms) \"{trans.get('text', '')}\"", flush=True)
-            logger.info(f"[WHISPER-SUMMARY] {peer_id} completed {layer4_count} L4 + {layer5_count} L5 transcriptions")
+            logger.info(f"[WHISPER-SUMMARY] {peer_id} completed {layer4_count} transcriptions")
         elif info.get("whisper_enabled", False):
             print(f"[WHISPER-SUMMARY] {peer_id} ⚠️ No transcriptions (all segments were silence/empty)", flush=True)
         
         vad_filtered_l4_count = len(info.get("layer_16khz_vad_filtered", []))
-        vad_filtered_l5_count = len(info.get("layer_48khz_vad_filtered", []))
         
         print(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}",
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD={vad_filtered_l4_count}",
             flush=True
         )
         logger.info(
             f"[DEBUG-CAPTURE] {peer_id} capture complete: {frame_count} frames, "
             f"detected_sample_rate={info.get('actual_sample_rate', 'unknown')}Hz, "
-            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, L4-VAD={vad_filtered_l4_count}, L5-VAD={vad_filtered_l5_count}"
+            f"layers: raw={len(layer_48khz_raw)}, float={len(layer_48khz_float)}, 16kHz={len(layer_16khz)}, VAD={vad_filtered_l4_count}"
         )
 
 
@@ -1238,85 +1551,14 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 f"[DEBUG-CAPTURE] Saved Layer 4 (16kHz VAD-filtered, speech only): {len(audio_16k_vad)} samples, "
                 f"{duration_speech:.2f}s ({speech_ratio:.1f}% of total) -> {path_16k_vad}"
             )
-            
-            # Save Layer 5: 48kHz VAD-filtered (same VAD timing, higher sample rate)
-            if info.get("layer_48khz_vad_filtered"):
-                audio_48k_vad = np.concatenate(info["layer_48khz_vad_filtered"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer5 (VAD-filtered 48kHz) samples: {len(audio_48k_vad)}",
-                    flush=True,
-                )
-                audio_48k_vad_int16 = (np.clip(audio_48k_vad, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_48k_vad = debug_dir / f"layer5_48khz_vad_filtered.wav"
-                with wave.open(str(path_48k_vad), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(48000)
-                    wav.writeframes(audio_48k_vad_int16.tobytes())
-                
-                duration_speech_48k = len(audio_48k_vad) / 48000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 5 saved: {duration_speech_48k:.2f}s @ 48kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 5 (48kHz VAD-filtered, speech only): {len(audio_48k_vad)} samples, "
-                    f"{duration_speech_48k:.2f}s -> {path_48k_vad}"
-                )
-            else:
-                print(f"[DEBUG-CAPTURE] {peer_id} Layer 5 (48kHz VAD-filtered) empty", flush=True)
         else:
-            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 and Layer 5 empty", flush=True)
-            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layers empty")
+            print(f"[DEBUG-CAPTURE] {peer_id} No speech detected by VAD - Layer 4 empty", flush=True)
+            logger.warning(f"[DEBUG-CAPTURE] {peer_id} No speech detected - VAD layer empty")
         
         # ============================================
-        # EXPERIMENTAL LAYERS: Save Layer 3.1 (EMA) and Layer 3.2 (RNNoise)
+        # Save Layer 3.2: RNNoise (primary noise reduction)
         # ============================================
         if info.get("rnnoise_enabled"):
-            # Save Layer 3.1: EMA noise gate (16kHz)
-            if info.get("layer_31_ema_16khz"):
-                audio_31_ema = np.concatenate(info["layer_31_ema_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.1 (EMA) samples: {len(audio_31_ema)}",
-                    flush=True,
-                )
-                audio_31_ema_int16 = (np.clip(audio_31_ema, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_31_ema = debug_dir / f"layer31_ema_16khz.wav"
-                with wave.open(str(path_31_ema), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_31_ema_int16.tobytes())
-                
-                duration_31 = len(audio_31_ema) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1 (EMA) saved: {duration_31:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.1 (EMA noise gate, 16kHz): {len(audio_31_ema)} samples, "
-                    f"{duration_31:.2f}s -> {path_31_ema}"
-                )
-            
-            # Save Layer 3.1b: Percentile Gate (16kHz) - NEW: Replaces broken EMA gate
-            if info.get("layer_31b_percentile_16khz"):
-                audio_31b_percentile = np.concatenate(info["layer_31b_percentile_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.1b (Percentile Gate) samples: {len(audio_31b_percentile)}",
-                    flush=True,
-                )
-                audio_31b_percentile_int16 = (np.clip(audio_31b_percentile, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_31b_percentile = debug_dir / f"layer31b_percentile_16khz.wav"
-                with wave.open(str(path_31b_percentile), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_31b_percentile_int16.tobytes())
-                
-                duration_31b = len(audio_31b_percentile) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.1b (Percentile Gate) saved: {duration_31b:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.1b (Percentile gate, 16kHz): {len(audio_31b_percentile)} samples, "
-                    f"{duration_31b:.2f}s -> {path_31b_percentile}"
-                )
-            
             # Save Layer 3.2: RNNoise (16kHz)
             if info.get("layer_32_rnnoise_16khz"):
                 audio_32_rnnoise = np.concatenate(info["layer_32_rnnoise_16khz"])
@@ -1338,98 +1580,6 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 logger.info(
                     f"[DEBUG-CAPTURE] Saved Layer 3.2 (RNNoise, 16kHz): {len(audio_32_rnnoise)} samples, "
                     f"{duration_32:.2f}s -> {path_32_rnnoise}"
-                )
-            
-            # Save Layer 3.3: DTLN (16kHz)
-            if info.get("layer_33_dtln_16khz"):
-                audio_33_dtln = np.concatenate(info["layer_33_dtln_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.3 (DTLN) samples: {len(audio_33_dtln)}",
-                    flush=True,
-                )
-                audio_33_dtln_int16 = (np.clip(audio_33_dtln, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_33_dtln = debug_dir / f"layer33_dtln_16khz.wav"
-                with wave.open(str(path_33_dtln), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_33_dtln_int16.tobytes())
-                
-                duration_33 = len(audio_33_dtln) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.3 (DTLN) saved: {duration_33:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.3 (DTLN, 16kHz): {len(audio_33_dtln)} samples, "
-                    f"{duration_33:.2f}s -> {path_33_dtln}"
-                )
-            
-            # Save Layer 3.4: DeepFilterNet (16kHz)
-            if info.get("layer_34_deepfilternet_16khz"):
-                audio_34_dfn = np.concatenate(info["layer_34_deepfilternet_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.4 (DeepFilterNet) samples: {len(audio_34_dfn)}",
-                    flush=True,
-                )
-                audio_34_dfn_int16 = (np.clip(audio_34_dfn, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_34_dfn = debug_dir / f"layer34_deepfilternet_16khz.wav"
-                with wave.open(str(path_34_dfn), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_34_dfn_int16.tobytes())
-                
-                duration_34 = len(audio_34_dfn) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.4 (DeepFilterNet) saved: {duration_34:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.4 (DeepFilterNet, 16kHz): {len(audio_34_dfn)} samples, "
-                    f"{duration_34:.2f}s -> {path_34_dfn}"
-                )
-            
-            # Save Layer 3.5: Spectral Gating (16kHz)
-            if info.get("layer_35_nsnet2_16khz"):
-                audio_35_nsnet2 = np.concatenate(info["layer_35_nsnet2_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.5 (Spectral Gating) samples: {len(audio_35_nsnet2)}",
-                    flush=True,
-                )
-                audio_35_nsnet2_int16 = (np.clip(audio_35_nsnet2, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_35_nsnet2 = debug_dir / f"layer35_nsnet2_16khz.wav"
-                with wave.open(str(path_35_nsnet2), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_35_nsnet2_int16.tobytes())
-                
-                duration_35 = len(audio_35_nsnet2) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.5 (Spectral Gating) saved: {duration_35:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.5 (Spectral Gating, 16kHz): {len(audio_35_nsnet2)} samples, "
-                    f"{duration_35:.2f}s -> {path_35_nsnet2}"
-                )
-            
-            # Save Layer 3.6: Comb Filter (16kHz) - 80 Hz PERIODIC NOISE REMOVAL
-            if info.get("layer_36_comb_16khz"):
-                audio_36_comb = np.concatenate(info["layer_36_comb_16khz"])
-                print(
-                    f"[DEBUG-CAPTURE] {peer_id} layer3.6 (Comb Filter 80Hz) samples: {len(audio_36_comb)}",
-                    flush=True,
-                )
-                audio_36_comb_int16 = (np.clip(audio_36_comb, -1.0, 1.0) * 32767).astype(np.int16)
-                
-                path_36_comb = debug_dir / f"layer36_comb_16khz.wav"
-                with wave.open(str(path_36_comb), "wb") as wav:
-                    wav.setnchannels(1)
-                    wav.setsampwidth(2)
-                    wav.setframerate(16000)
-                    wav.writeframes(audio_36_comb_int16.tobytes())
-                
-                duration_36 = len(audio_36_comb) / 16000
-                print(f"[DEBUG-CAPTURE] {peer_id} ✅ Layer 3.6 (Comb Filter) saved: {duration_36:.2f}s @ 16kHz", flush=True)
-                logger.info(
-                    f"[DEBUG-CAPTURE] Saved Layer 3.6 (Comb Filter, 16kHz): {len(audio_36_comb)} samples, "
-                    f"{duration_36:.2f}s -> {path_36_comb}"
                 )
             
             # Save CPU/Buffer monitoring report
@@ -1454,64 +1604,6 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 print(f"   Buffer underruns: {monitoring_report['buffer_underruns']} ({monitoring_report['underrun_rate_percent']:.2f}%)", flush=True)
                 print(f"   CPU usage: {monitoring_report['cpu_usage']['mean_percent']:.1f}% avg, {monitoring_report['cpu_usage']['max_percent']:.1f}% peak", flush=True)
                 logger.info(f"[DEBUG-CAPTURE] {peer_id} buffer monitoring saved to {monitoring_path}")
-            
-            # Generate and save comparison summary
-            if info.get("comparison_metrics"):
-                # Calculate aggregate metrics across all frames
-                all_metrics = info["comparison_metrics"]
-                total_duration = len(audio_31_ema) / 16000 if info.get("layer_31_ema_16khz") else 0
-                
-                # Aggregate quality metrics (matching the actual return format)
-                avg_quality = {
-                    "snr": {
-                        "ema_db": np.mean([m["snr"]["ema_db"] for m in all_metrics]),
-                        "rnnoise_db": np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]),
-                        "difference_db": np.mean([m["snr"]["difference_db"] for m in all_metrics]),
-                        "winner": "EMA" if np.mean([m["snr"]["ema_db"] for m in all_metrics]) > np.mean([m["snr"]["rnnoise_db"] for m in all_metrics]) else "RNNoise"
-                    },
-                    "rms_level": {
-                        "ema": np.mean([m["rms_level"]["ema"] for m in all_metrics]),
-                        "rnnoise": np.mean([m["rms_level"]["rnnoise"] for m in all_metrics]),
-                        "ema_reduction_percent": np.mean([m["rms_level"]["ema_reduction_percent"] for m in all_metrics]),
-                        "rnnoise_reduction_percent": np.mean([m["rms_level"]["rnnoise_reduction_percent"] for m in all_metrics]),
-                    },
-                    "correlation_with_original": {
-                        "ema": np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]),
-                        "rnnoise": np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]),
-                        "winner": "EMA" if np.mean([m["correlation_with_original"]["ema"] for m in all_metrics]) > np.mean([m["correlation_with_original"]["rnnoise"] for m in all_metrics]) else "RNNoise"
-                    }
-                }
-                
-                # Since we don't measure actual latency per frame, provide estimated values
-                avg_latency = {
-                    "ema_avg_ms": 0.1,  # Estimated EMA latency
-                    "ema_min_ms": 0.05,
-                    "ema_max_ms": 0.15,
-                    "rnnoise_avg_ms": 14.0,  # Estimated RNNoise latency (includes resampling)
-                    "rnnoise_min_ms": 12.0,
-                    "rnnoise_max_ms": 16.0,
-                    "difference_ms": 13.9,
-                    "faster_method": "EMA"
-                }
-                
-                from beautyai_inference.utils.noise_comparison import generate_comparison_summary
-                summary = generate_comparison_summary(avg_quality, avg_latency, total_duration)
-                
-                # Save comparison summary to JSON
-                comparison_path = debug_dir / f"comparison_summary.json"
-                with open(comparison_path, "w", encoding="utf-8") as f:
-                    json.dump({
-                        "peer_id": peer_id,
-                        "total_frames": len(all_metrics),
-                        "total_duration_seconds": total_duration,
-                        "average_quality_metrics": avg_quality,
-                        "average_latency_metrics": avg_latency,
-                        "summary": summary,
-                    }, f, indent=2, ensure_ascii=False)
-                
-                print(f"[DEBUG-CAPTURE] {peer_id} 📊 Comparison Summary:", flush=True)
-                print(summary, flush=True)
-                logger.info(f"[DEBUG-CAPTURE] {peer_id} comparison summary:\n{summary}")
         
         # Save transcriptions to JSON file
         if info.get("transcriptions"):
@@ -1588,33 +1680,33 @@ async def _save_captured_audio(peer_id: str, info: Dict):
                 # Build report
                 underrun_report = {
                     "peer_id": peer_id,
-                    "total_frames": info.get("frames_captured", 0),
-                    "buffer_underruns": info.get("buffer_underruns", 0),
-                    "underrun_rate_percent": (underrun_count / len(inter_frame_delays) * 100) if inter_frame_delays else 0,
+                    "total_frames": int(info.get("frames_captured", 0)),
+                    "buffer_underruns": int(info.get("buffer_underruns", 0)),
+                    "underrun_rate_percent": float((underrun_count / len(inter_frame_delays) * 100) if inter_frame_delays else 0),
                     "inter_frame_delays_ms": {
-                        "avg": round(avg_delay, 2),
-                        "p50": round(p50_delay, 2),
-                        "p95": round(p95_delay, 2),
-                        "p99": round(p99_delay, 2),
-                        "max": round(max_delay, 2),
+                        "avg": float(round(avg_delay, 2)),
+                        "p50": float(round(p50_delay, 2)),
+                        "p95": float(round(p95_delay, 2)),
+                        "p99": float(round(p99_delay, 2)),
+                        "max": float(round(max_delay, 2)),
                         "expected": 20.0,  # 20ms expected for 48kHz/960 samples
                     },
                     "frame_recv_latency_ms": {
-                        "avg": round(avg_recv, 3),
-                        "p99": round(p99_recv, 3),
+                        "avg": float(round(avg_recv, 3)),
+                        "p99": float(round(p99_recv, 3)),
                     },
                     "processing_time_ms": {
-                        "total_avg": round(avg_proc, 2),
-                        "total_p99": round(p99_proc, 2),
-                        "resample_avg": round(avg_resample, 2),
-                        "resample_p99": round(p99_resample, 2),
-                        "vad_avg": round(avg_vad, 2),
-                        "vad_p99": round(p99_vad, 2),
+                        "total_avg": float(round(avg_proc, 2)),
+                        "total_p99": float(round(p99_proc, 2)),
+                        "resample_avg": float(round(avg_resample, 2)),
+                        "resample_p99": float(round(p99_resample, 2)),
+                        "vad_avg": float(round(avg_vad, 2)),
+                        "vad_p99": float(round(p99_vad, 2)),
                     },
                     "timing_summary": {
-                        "recv_overhead_significant": p99_recv > 5.0,  # >5ms recv is too slow
-                        "processing_bottleneck": p99_proc > 15.0,  # >15ms processing is slow
-                        "network_jitter_detected": p99_delay > 30.0,  # >30ms jitter = underrun
+                        "recv_overhead_significant": bool(p99_recv > 5.0),  # >5ms recv is too slow
+                        "processing_bottleneck": bool(p99_proc > 15.0),  # >15ms processing is slow
+                        "network_jitter_detected": bool(p99_delay > 30.0),  # >30ms jitter = underrun
                     },
                     "recommendations": []
                 }

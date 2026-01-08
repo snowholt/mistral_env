@@ -1,137 +1,210 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>WebSocket Audio Test</title>
+    <title>Simple Voice Chat Test (WebSocket)</title>
     <style>
-        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
-        button { padding: 10px 20px; margin: 5px; font-size: 16px; }
-        #log { background: #f0f0f0; padding: 10px; height: 400px; overflow-y: scroll; margin-top: 20px; font-family: monospace; font-size: 12px; }
-        .error { color: red; }
-        .success { color: green; }
-        .info { color: blue; }
+        body { font-family: 'Segoe UI', sans-serif; padding: 20px; max-width: 800px; margin: 0 auto; background: #f5f5f5; }
+        .container { background: white; padding: 20px; border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        h1 { color: #333; margin-bottom: 20px; }
+        
+        .controls { display: flex; gap: 10px; margin-bottom: 20px; align-items: center; flex-wrap: wrap; }
+        select, button { padding: 10px; border-radius: 6px; border: 1px solid #ccc; font-size: 14px; }
+        button { cursor: pointer; font-weight: 600; color: white; border: none; }
+        #startBtn { background: #1a73e8; }
+        #startBtn:disabled { background: #ccc; cursor: not-allowed; }
+        #stopBtn { background: #ea4335; display: none; }
+        
+        .status { margin-bottom: 15px; padding: 10px; border-radius: 6px; background: #e8f0fe; color: #1a73e8; font-weight: 500; }
+        .status.error { background: #fce8e6; color: #ea4335; }
+        .status.success { background: #e6f4ea; color: #1e8e3e; }
+
+        #log { height: 400px; overflow-y: auto; border: 1px solid #ddd; border-radius: 8px; padding: 15px; background: #fafafa; display: flex; flex-direction: column; gap: 10px; }
+        
+        .message { padding: 10px 15px; border-radius: 12px; max-width: 80%; line-height: 1.5; }
+        .message.user { align-self: flex-end; background: #1a73e8; color: white; border-bottom-right-radius: 2px; }
+        .message.ai { align-self: flex-start; background: white; border: 1px solid #ddd; border-bottom-left-radius: 2px; }
+        .message.system { align-self: center; background: #eee; color: #666; font-size: 0.85em; }
+        
+        .metrics { font-size: 0.8em; color: #888; margin-top: 5px; display: block; }
     </style>
 </head>
 <body>
-    <h1>🎤 WebSocket Audio Test (No WebRTC)</h1>
-    <p>This test captures audio and sends it via WebSocket.</p>
-    
-    <button id="start" onclick="start()">Start Capture</button>
-    <button id="stop" onclick="stop()" disabled>Stop Capture</button>
-    
-    <div id="log"></div>
-    
+    <div class="container">
+        <h1>🎤 Simple Voice Chat (WebSocket)</h1>
+        
+        <div class="controls">
+            <select id="langSelect">
+                <option value="ar" selected>🇸🇦 Arabic (العربية)</option>
+                <option value="en">🇬🇧 English</option>
+            </select>
+            
+            <select id="voiceSelect">
+                <option value="female" selected>👩 Female Voice</option>
+                <option value="male">👨 Male Voice</option>
+            </select>
+            
+            <button id="startBtn" onclick="startSession()">Start Chat</button>
+            <button id="stopBtn" onclick="stopSession()">Stop Chat</button>
+        </div>
+
+        <div id="status" class="status">Ready to connect</div>
+        <div id="log"></div>
+    </div>
+
     <script>
-        const WS_URL = window.location.protocol === 'https:' 
-            ? `wss://${window.location.host}/api/v1/ws/audio-debug`
-            : `ws://localhost:8000/api/v1/ws/audio-debug`;
-        
-        let ws, mediaRecorder, audioContext, stream;
-        let bytesSent = 0;
-        
-        function log(msg, type = 'info') {
-            const div = document.getElementById('log');
-            const time = new Date().toLocaleTimeString();
-            div.innerHTML += `<div class="${type}">[${time}] ${msg}</div>`;
-            div.scrollTop = div.scrollHeight;
-            console.log(msg);
+        let ws = null;
+        let mediaRecorder = null;
+        let stream = null;
+        let isRecording = false;
+
+        const statusDiv = document.getElementById('status');
+        const logDiv = document.getElementById('log');
+        const startBtn = document.getElementById('startBtn');
+        const stopBtn = document.getElementById('stopBtn');
+        const langSelect = document.getElementById('langSelect');
+        const voiceSelect = document.getElementById('voiceSelect');
+
+        function updateStatus(msg, type = 'normal') {
+            statusDiv.innerText = msg;
+            statusDiv.className = 'status ' + type;
         }
-        
-        async function start() {
+
+        function addMessage(role, text, metrics = null) {
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            
+            let content = `<div>${text}</div>`;
+            if (metrics) {
+                content += `<span class="metrics">${metrics}</span>`;
+            }
+            
+            div.innerHTML = content;
+            logDiv.appendChild(div);
+            logDiv.scrollTop = logDiv.scrollHeight;
+        }
+
+        async function startSession() {
             try {
-                log('🎤 Getting microphone...', 'info');
+                startBtn.disabled = true;
+                langSelect.disabled = true;
+                voiceSelect.disabled = true;
+                updateStatus('Requesting microphone...');
+
                 stream = await navigator.mediaDevices.getUserMedia({ 
-                    audio: {
-                        sampleRate: 48000,
-                        channelCount: 1,
-                        echoCancellation: true,
-                        noiseSuppression: true
+                    audio: { 
+                        echoCancellation: true, 
+                        noiseSuppression: true,
+                        autoGainControl: true
                     } 
                 });
-                log('✅ Got microphone', 'success');
-                
-                // Connect WebSocket
-                log('🔌 Connecting to WebSocket...', 'info');
-                ws = new WebSocket(WS_URL);
-                
+
+                const lang = langSelect.value;
+                const voice = voiceSelect.value;
+                const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+                const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/simple-voice-chat?language=${lang}&voice_type=${voice}`;
+
+                updateStatus('Connecting to server...');
+                ws = new WebSocket(wsUrl);
+
                 ws.onopen = () => {
-                    log('✅ WebSocket connected!', 'success');
+                    updateStatus('Connected! Speak now.', 'success');
+                    startBtn.style.display = 'none';
+                    stopBtn.style.display = 'inline-block';
                     startRecording();
+                    addMessage('system', `Connected to ${lang.toUpperCase()} chat.`);
                 };
-                
-                ws.onerror = (err) => {
-                    log(`❌ WebSocket error: ${err}`, 'error');
-                };
-                
-                ws.onclose = () => {
-                    log('🔌 WebSocket closed', 'info');
-                };
-                
-                ws.onmessage = (event) => {
-                    log(`📨 Server: ${event.data}`, 'success');
-                };
-                
-            } catch (err) {
-                log(`❌ Error: ${err.message}`, 'error');
-                console.error(err);
-            }
-        }
-        
-        function startRecording() {
-            try {
-                // Use MediaRecorder to capture audio
-                mediaRecorder = new MediaRecorder(stream, {
-                    mimeType: 'audio/webm;codecs=opus',
-                    audioBitsPerSecond: 128000
-                });
-                
-                mediaRecorder.ondataavailable = (event) => {
-                    if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
-                        ws.send(event.data);
-                        bytesSent += event.data.size;
-                        log(`📤 Sent ${event.data.size} bytes (total: ${bytesSent})`, 'info');
+
+                ws.onmessage = async (event) => {
+                    const data = JSON.parse(event.data);
+                    
+                    if (data.type === 'voice_response') {
+                        // Show transcription
+                        if (data.transcription) {
+                            addMessage('user', data.transcription);
+                        }
+                        
+                        // Show response
+                        if (data.response_text) {
+                            const metrics = `Latency: ${data.response_time_ms}ms`;
+                            addMessage('ai', data.response_text, metrics);
+                        }
+                        
+                        // Play audio
+                        if (data.audio_base64) {
+                            playAudio(data.audio_base64);
+                        }
+                    } else if (data.type === 'error') {
+                        addMessage('system', `Error: ${data.message}`);
+                        updateStatus(data.message, 'error');
+                    } else if (data.type === 'guidance') {
+                        addMessage('system', `💡 ${data.guidance}`);
                     }
                 };
-                
-                mediaRecorder.onerror = (err) => {
-                    log(`❌ MediaRecorder error: ${err}`, 'error');
+
+                ws.onclose = () => {
+                    stopSession();
                 };
-                
-                // Start recording with 100ms chunks
-                mediaRecorder.start(100);
-                log('🎙️ Recording started', 'success');
-                
-                document.getElementById('start').disabled = true;
-                document.getElementById('stop').disabled = false;
-                
+
+                ws.onerror = (err) => {
+                    console.error(err);
+                    updateStatus('WebSocket Error', 'error');
+                };
+
             } catch (err) {
-                log(`❌ Recording error: ${err.message}`, 'error');
+                console.error(err);
+                updateStatus(`Error: ${err.message}`, 'error');
+                startBtn.disabled = false;
             }
         }
-        
-        function stop() {
+
+        function startRecording() {
+            if (!stream || !ws) return;
+
+            // Use MediaRecorder to capture audio chunks
+            // Request 100ms chunks for low latency
+            mediaRecorder = new MediaRecorder(stream, {
+                mimeType: 'audio/webm;codecs=opus',
+                audioBitsPerSecond: 24000 // Low bitrate for speed
+            });
+
+            mediaRecorder.ondataavailable = (event) => {
+                if (event.data.size > 0 && ws.readyState === WebSocket.OPEN) {
+                    ws.send(event.data);
+                }
+            };
+
+            mediaRecorder.start(100); // 100ms timeslices
+            isRecording = true;
+        }
+
+        function playAudio(base64Audio) {
             try {
-                log('🛑 Stopping...', 'info');
-                
-                if (mediaRecorder && mediaRecorder.state !== 'inactive') {
-                    mediaRecorder.stop();
-                }
-                
-                if (stream) {
-                    stream.getTracks().forEach(t => t.stop());
-                }
-                
-                if (ws) {
-                    ws.close();
-                }
-                
-                log(`✅ Stopped (sent ${bytesSent} bytes total)`, 'success');
-                document.getElementById('start').disabled = false;
-                document.getElementById('stop').disabled = true;
-                bytesSent = 0;
-                
-            } catch (err) {
-                log(`❌ Stop error: ${err.message}`, 'error');
+                const audioUrl = `data:audio/wav;base64,${base64Audio}`;
+                const audio = new Audio(audioUrl);
+                audio.play().catch(e => console.error("Playback failed:", e));
+            } catch (e) {
+                console.error("Audio error:", e);
             }
+        }
+
+        function stopSession() {
+            if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+                mediaRecorder.stop();
+            }
+            if (stream) {
+                stream.getTracks().forEach(t => t.stop());
+            }
+            if (ws) {
+                ws.close();
+            }
+
+            startBtn.style.display = 'inline-block';
+            startBtn.disabled = false;
+            stopBtn.style.display = 'none';
+            langSelect.disabled = false;
+            voiceSelect.disabled = false;
+            updateStatus('Disconnected');
+            addMessage('system', 'Session ended.');
         }
     </script>
 </body>

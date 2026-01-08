@@ -7,6 +7,7 @@ virtualenv/
 venv_backup/
 venv-11/
 .env/
+.env.production
 .python-version
 temp_benchmark_venv/
 
@@ -44,7 +45,8 @@ tests/openai_validation/validation_results.json
 # OS specific files
 .DS_Store
 Thumbs.db
-
+tests/Wahtsapp_unpacked/
+tests/Wahtsapp.zip
 # Log files
 *.log
 
@@ -59,7 +61,7 @@ logs/
 *.pcm
 vad_testting_temp/
 backend/vad_testting_temp/
-
+tests/webrtc/xtts_whisper_test_outputs/
 # Model state files
 **/loaded_models_state.json
 
@@ -68,6 +70,7 @@ backend/sessions/voice/webrtc/webrtc_session_*.json
 **/webrtc_session_*.json
 
 # Additional project-specific ignores
+backend/venv.backup.py312/
 venv/bin/activate
 prompts/
 refrences/
@@ -91,3 +94,8 @@ README.md
 
 # RNNoise library (compiled from source, don't track)
 backend/rnnoise/
+backend/.env
+
+# Website snapshots
+_website_snapshot/
+

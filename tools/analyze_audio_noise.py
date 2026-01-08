@@ -3,10 +3,18 @@
 Audio Noise Analysis Tool
 
 Analyzes captured audio files to identify noise characteristics,
-aliasing artifacts, and recommend optimal noise filtering strategies.
+aliasing artifacts, WebRTC/Opus issues, and recommend optimal filtering.
 
 Usage:
-    python tools/analyze_audio_noise.py [--layer LAYER] [--visualize]
+    python tools/analyze_audio_noise.py [--layer LAYER] [--visualize] [--compare]
+    
+Features:
+    - Crackle/click detection with severity levels
+    - Zero-run detection (packet loss concealment artifacts)
+    - Periodic pattern analysis (Opus frame artifacts)
+    - SNR estimation
+    - Aliasing detection near Nyquist
+    - Layer comparison (raw vs processed)
 """
 
 import argparse
@@ -15,6 +23,7 @@ import sys
 import wave
 from pathlib import Path
 from typing import Dict, Tuple, Optional, Any
+from datetime import datetime
 
 import numpy as np
 import matplotlib
@@ -121,23 +130,163 @@ def compute_snr(audio: np.ndarray, noise_percentile: float = 10) -> float:
 
 
 def analyze_crackle_artifacts(audio: np.ndarray, sample_rate: int) -> Dict:
-    """Detect sudden discontinuities that cause crackle sounds."""
+    """
+    Detect sudden discontinuities that cause crackle sounds.
+    
+    Uses multiple severity thresholds to categorize crackles:
+    - Severe (top 0.1%): Definite audible crackles
+    - Moderate (0.1-0.5%): Likely audible artifacts
+    - Mild (0.5-1%): Possible micro-artifacts
+    """
     # Compute first-order difference (sudden changes)
     diff = np.abs(np.diff(audio))
-    
-    # Find sudden spikes (potential crackles)
-    threshold = np.percentile(diff, 99.5)  # Top 0.5% of changes
-    crackle_indices = np.where(diff > threshold)[0]
-    
-    # Count crackles per second
     duration = len(audio) / sample_rate
-    crackles_per_sec = len(crackle_indices) / duration if duration > 0 else 0
+    
+    # Multiple severity thresholds
+    threshold_severe = np.percentile(diff, 99.9)   # Top 0.1%
+    threshold_moderate = np.percentile(diff, 99.5)  # Top 0.5%
+    threshold_mild = np.percentile(diff, 99.0)      # Top 1%
+    
+    severe_count = np.sum(diff > threshold_severe)
+    moderate_count = np.sum((diff > threshold_moderate) & (diff <= threshold_severe))
+    mild_count = np.sum((diff > threshold_mild) & (diff <= threshold_moderate))
+    
+    total_crackles = severe_count + moderate_count
+    crackles_per_sec = total_crackles / duration if duration > 0 else 0
+    severe_per_sec = severe_count / duration if duration > 0 else 0
+    
+    # Find crackle indices for pattern analysis
+    crackle_indices = np.where(diff > threshold_severe)[0]
+    
+    # Analyze periodic patterns (Opus frame intervals)
+    # 48kHz: 2.5ms=120, 5ms=240, 10ms=480, 20ms=960 samples
+    # 16kHz: 2.5ms=40, 5ms=80, 10ms=160, 20ms=320 samples
+    periodic_patterns = {}
+    if len(crackle_indices) > 10:
+        intervals = np.diff(crackle_indices)
+        for ms, samples in [(2.5, int(sample_rate * 0.0025)), 
+                            (5, int(sample_rate * 0.005)),
+                            (10, int(sample_rate * 0.01)), 
+                            (20, int(sample_rate * 0.02))]:
+            tolerance = max(samples // 10, 2)  # 10% tolerance, min 2
+            matches = np.sum((intervals >= samples - tolerance) & (intervals <= samples + tolerance))
+            if matches > 3:
+                periodic_patterns[f"{ms}ms"] = int(matches)
+    
+    # Determine assessment
+    if severe_per_sec > 20:
+        assessment = "CRITICAL"
+    elif severe_per_sec > 5:
+        assessment = "HIGH"
+    elif crackles_per_sec > 5:
+        assessment = "MODERATE"
+    elif crackles_per_sec > 1:
+        assessment = "LOW"
+    else:
+        assessment = "CLEAN"
     
     return {
-        "crackle_count": len(crackle_indices),
+        "severe_count": int(severe_count),
+        "moderate_count": int(moderate_count),
+        "mild_count": int(mild_count),
+        "total_crackles": int(total_crackles),
         "crackles_per_second": crackles_per_sec,
-        "max_discontinuity": np.max(diff),
-        "assessment": "HIGH" if crackles_per_sec > 5 else "MODERATE" if crackles_per_sec > 1 else "LOW"
+        "severe_per_second": severe_per_sec,
+        "max_discontinuity": float(np.max(diff)),
+        "periodic_patterns": periodic_patterns,
+        "assessment": assessment
+    }
+
+
+def analyze_zero_runs(audio: np.ndarray, sample_rate: int) -> Dict:
+    """
+    Detect zero-runs in audio that indicate packet loss concealment (PLC).
+    
+    When Opus doesn't receive a packet, it either:
+    1. Generates concealment frames (sounds like underwater/warble)
+    2. Inserts zeros (causes clicks/pops)
+    
+    This function detects both short zeros (clicks) and long zeros (dropouts).
+    """
+    zero_threshold = 0.0001  # Consider < 0.0001 as zero
+    
+    zero_runs = []
+    in_zero = False
+    zero_start = 0
+    
+    for i, sample in enumerate(audio):
+        if abs(sample) < zero_threshold:
+            if not in_zero:
+                in_zero = True
+                zero_start = i
+        else:
+            if in_zero:
+                run_length = i - zero_start
+                zero_runs.append((zero_start, run_length))
+                in_zero = False
+    
+    # Handle trailing zeros
+    if in_zero:
+        zero_runs.append((zero_start, len(audio) - zero_start))
+    
+    # Categorize by duration
+    # At 48kHz: 1 sample = 0.02ms, 48 samples = 1ms, 480 = 10ms
+    short_zeros = [r for r in zero_runs if r[1] < 50]       # < 1ms (clicks)
+    medium_zeros = [r for r in zero_runs if 50 <= r[1] < 500]  # 1-10ms (pops)
+    long_zeros = [r for r in zero_runs if r[1] >= 500]      # >= 10ms (dropouts)
+    
+    total_zero_samples = sum(r[1] for r in zero_runs)
+    duration = len(audio) / sample_rate
+    zero_ratio = total_zero_samples / len(audio) if len(audio) > 0 else 0
+    
+    # Assessment
+    if len(long_zeros) > 5 or zero_ratio > 0.05:
+        assessment = "CRITICAL"  # Significant packet loss
+    elif len(medium_zeros) > 50 or zero_ratio > 0.01:
+        assessment = "HIGH"
+    elif len(short_zeros) > 1000:
+        assessment = "MODERATE"
+    elif len(zero_runs) > 100:
+        assessment = "LOW"
+    else:
+        assessment = "CLEAN"
+    
+    return {
+        "total_zero_runs": len(zero_runs),
+        "short_zeros_clicks": len(short_zeros),
+        "medium_zeros_pops": len(medium_zeros),
+        "long_zeros_dropouts": len(long_zeros),
+        "total_zero_samples": int(total_zero_samples),
+        "zero_ratio_percent": zero_ratio * 100,
+        "assessment": assessment
+    }
+
+
+def analyze_clipping(audio: np.ndarray) -> Dict:
+    """Detect audio clipping (samples at max amplitude)."""
+    clip_threshold = 0.99
+    
+    clipped_positive = np.sum(audio >= clip_threshold)
+    clipped_negative = np.sum(audio <= -clip_threshold)
+    total_clipped = clipped_positive + clipped_negative
+    
+    clip_ratio = total_clipped / len(audio) if len(audio) > 0 else 0
+    
+    if clip_ratio > 0.01:
+        assessment = "CRITICAL"
+    elif clip_ratio > 0.001:
+        assessment = "HIGH"
+    elif total_clipped > 0:
+        assessment = "LOW"
+    else:
+        assessment = "CLEAN"
+    
+    return {
+        "clipped_samples": int(total_clipped),
+        "clipped_positive": int(clipped_positive),
+        "clipped_negative": int(clipped_negative),
+        "clip_ratio_percent": clip_ratio * 100,
+        "assessment": assessment
     }
 
 
@@ -186,7 +335,7 @@ def generate_spectrogram(audio: np.ndarray, sample_rate: int, output_path: Path,
 
 
 def process_layer(layer_name, layer_config, baseline_audio, results, args, output_dir):
-    """Process a single audio layer."""
+    """Process a single audio layer with comprehensive analysis."""
     layer_path = layer_config['path']
     if not layer_path.exists():
         print(f"⚠️  Layer {layer_name} not found: {layer_path}")
@@ -223,12 +372,33 @@ def process_layer(layer_name, layer_config, baseline_audio, results, args, outpu
     if aliasing['aliasing_peaks']:
         print(f"      Aliasing peaks found: {len(aliasing['aliasing_peaks'])} peaks")
     
-    # Crackle detection
+    # Enhanced crackle detection
     crackles = analyze_crackle_artifacts(audio, sample_rate)
     print(f"\n  ⚡ Crackle Assessment: {crackles['assessment']}")
-    print(f"      Crackle events: {crackles['crackle_count']}")
-    print(f"      Crackles per second: {crackles['crackles_per_second']:.2f}")
+    print(f"      Severe crackles: {crackles['severe_count']} ({crackles['severe_per_second']:.1f}/sec)")
+    print(f"      Moderate crackles: {crackles['moderate_count']}")
+    print(f"      Total crackles/sec: {crackles['crackles_per_second']:.1f}")
     print(f"      Max discontinuity: {crackles['max_discontinuity']:.6f}")
+    if crackles['periodic_patterns']:
+        print(f"      Periodic patterns (Opus frames):")
+        for pattern, count in crackles['periodic_patterns'].items():
+            print(f"         {pattern}: {count} occurrences")
+    
+    # Zero-run analysis (packet loss detection)
+    zeros = analyze_zero_runs(audio, sample_rate)
+    print(f"\n  📡 Packet Loss (Zero-Run) Assessment: {zeros['assessment']}")
+    print(f"      Total zero runs: {zeros['total_zero_runs']}")
+    print(f"      Short (<1ms, clicks): {zeros['short_zeros_clicks']}")
+    print(f"      Medium (1-10ms, pops): {zeros['medium_zeros_pops']}")
+    print(f"      Long (>10ms, dropouts): {zeros['long_zeros_dropouts']}")
+    print(f"      Zero ratio: {zeros['zero_ratio_percent']:.2f}%")
+    
+    # Clipping analysis
+    clipping = analyze_clipping(audio)
+    if clipping['assessment'] != 'CLEAN':
+        print(f"\n  🔴 Clipping Assessment: {clipping['assessment']}")
+        print(f"      Clipped samples: {clipping['clipped_samples']}")
+        print(f"      Clip ratio: {clipping['clip_ratio_percent']:.4f}%")
     
     # Comparison with baseline
     if baseline_audio is not None and layer_name != '3':
@@ -248,7 +418,9 @@ def process_layer(layer_name, layer_config, baseline_audio, results, args, outpu
         "sample_rate": sample_rate,
         "snr_db": snr,
         "aliasing": aliasing,
-        "crackles": crackles
+        "crackles": crackles,
+        "zero_runs": zeros,
+        "clipping": clipping
     }
     
     # Generate visualizations with proper naming
@@ -264,27 +436,36 @@ def process_layer(layer_name, layer_config, baseline_audio, results, args, outpu
 
 def main():
     parser = argparse.ArgumentParser(description='Analyze audio noise characteristics')
-    parser.add_argument('--layer', type=str, choices=['all', '3', '31', '32', '4'], default='all',
+    parser.add_argument('--layer', type=str, default='all',
                         help='Which layer to analyze (default: all)')
     parser.add_argument('--visualize', action='store_true',
                         help='Generate spectrograms and plots')
     parser.add_argument('--compare', action='store_true',
-                        help='Compare EMA vs RNNoise performance')
+                        help='Compare layers and show WebRTC diagnostics')
     args = parser.parse_args()
     
     # Define paths
-    audio_dir = Path(__file__).resolve().parents[1] / "reports/debug/webrtc"
-    output_dir = Path(__file__).resolve().parents[1] / "reports/debug/analysis"
+    workspace_root = Path(__file__).resolve().parents[1]
+    audio_dir = workspace_root / "reports/debug/webrtc"
+    vad_debug_dir = workspace_root / "backend/logs/webrtc/vad_debug"
+    output_dir = workspace_root / "reports/debug/analysis"
     output_dir.mkdir(parents=True, exist_ok=True)
     
     # Layer configuration with metadata (path, filter_name, sample_rate)
     layers = {
-        # 48kHz layers
+        # VAD Debug Layer
+        'vad': {
+            'path': vad_debug_dir / "20251128-171357_session_00_silero.wav",
+            'filter': 'SileroVAD',
+            'sample_rate_tag': '16kHz',
+            'description': 'Silero VAD Debug Output'
+        },
+        # 48kHz layers (raw WebRTC audio)
         '1': {
             'path': audio_dir / "layer1_48000hz_raw.wav",
             'filter': 'Raw',
             'sample_rate_tag': '48kHz',
-            'description': 'Raw 48kHz from WebRTC'
+            'description': 'Raw 48kHz from WebRTC (Opus decoded)'
         },
         '15': {
             'path': audio_dir / "layer15_transient_48000hz.wav",
@@ -298,7 +479,20 @@ def main():
             'sample_rate_tag': '48kHz',
             'description': 'Normalized 48kHz float'
         },
-        # 16kHz layers
+        # VAD-filtered layers (speech only)
+        '4': {
+            'path': audio_dir / "layer4_16khz_vad_filtered.wav",
+            'filter': 'VAD_Filtered',
+            'sample_rate_tag': '16kHz',
+            'description': 'VAD-filtered speech (sent to Whisper)'
+        },
+        '5': {
+            'path': audio_dir / "layer5_48khz_vad_filtered.wav",
+            'filter': 'VAD_Filtered',
+            'sample_rate_tag': '48kHz',
+            'description': 'VAD-filtered speech @ 48kHz'
+        },
+        # 16kHz processed layers
         '3': {
             'path': audio_dir / "layer3_16khz.wav",
             'filter': 'Baseline',
@@ -342,6 +536,18 @@ def main():
             'description': 'Comb Filter (80 Hz removal)'
         }
     }
+    
+    # Filter out layers that don't exist to avoid errors
+    existing_layers = {}
+    for k, v in layers.items():
+        if v['path'].exists():
+            existing_layers[k] = v
+        else:
+            # Only warn if user specifically requested this layer
+            if args.layer == k:
+                print(f"⚠️  Layer {k} not found: {v['path']}")
+    
+    layers = existing_layers
     
     if args.layer != 'all':
         if args.layer in layers:
@@ -413,7 +619,7 @@ def main():
     
     # Create organized report structure
     organized_report = {
-        "analysis_timestamp": Path(report_path).stat().st_mtime if report_path.exists() else None,
+        "analysis_timestamp": datetime.now().isoformat(),
         "summary": {
             "total_layers_analyzed": len(results),
             "layers_48kHz": [k for k, v in results.items() if v['sample_rate_tag'] == '48kHz'],
@@ -431,8 +637,50 @@ def main():
     print(f"✅ Analysis complete! Report saved to: {report_path}")
     print("="*80 + "\n")
     
+    # WebRTC/Opus Diagnostics
+    print("🌐 WEBRTC/OPUS DIAGNOSTICS:")
+    print("-" * 80)
+    
+    if '1' in results:
+        raw = results['1']
+        zeros = raw.get('zero_runs', {})
+        crackles = raw.get('crackles', {})
+        
+        print(f"\n  📡 Network Quality Assessment:")
+        print(f"      Zero-runs (packet loss): {zeros.get('assessment', 'N/A')}")
+        print(f"      Total zero runs: {zeros.get('total_zero_runs', 0)}")
+        print(f"      Long dropouts (>10ms): {zeros.get('long_zeros_dropouts', 0)}")
+        
+        if zeros.get('assessment') in ['CRITICAL', 'HIGH']:
+            print("""
+      🔴 SIGNIFICANT PACKET LOSS DETECTED in raw WebRTC audio!
+      
+      Root Cause: Opus PLC (Packet Loss Concealment) artifacts
+      
+      The crackling is NOT from server-side processing - it's from:
+      1. Network packet loss between client and server
+      2. Opus codec generating concealment frames
+      3. Client-side jitter buffer underruns
+      
+      Solutions:
+      1. Improve network quality (use wired connection, closer server)
+      2. Increase client-side jitter buffer (browser WebRTC settings)
+      3. Try disabling browser audio processing:
+         - echoCancellation: false
+         - noiseSuppression: false
+         - autoGainControl: false
+      4. Use a different browser (Chrome vs Firefox vs Safari)
+      5. Check if client microphone has issues
+""")
+        
+        if crackles.get('periodic_patterns'):
+            print(f"\n  🔄 Periodic Crackle Patterns (Opus frame related):")
+            for pattern, count in crackles['periodic_patterns'].items():
+                print(f"      {pattern}: {count} occurrences")
+            print("      → These patterns suggest Opus frame boundary issues")
+    
     # Recommendations
-    print("💡 RECOMMENDATIONS:")
+    print("\n💡 RECOMMENDATIONS:")
     print("-" * 80)
     
     if '3' in results:
@@ -443,31 +691,23 @@ def main():
             print("      2. Increase filter order (try 10th-order Butterworth)")
             print("      3. Use multi-stage downsampling (48k→24k→16k)")
         
-        if baseline['crackles']['assessment'] in ['HIGH', 'MODERATE']:
-            print("  ⚠️  Crackle artifacts detected! Likely causes:")
-            print("      1. EMA noise gate too aggressive (increase threshold_multiplier)")
-            print("      2. Resampling artifacts (try different Kaiser beta)")
-            print("      3. Fan noise + aliasing interaction")
+        if baseline['crackles']['assessment'] in ['CRITICAL', 'HIGH']:
+            print("  ⚠️  Severe crackle artifacts detected!")
+            print("      → Check WebRTC Diagnostics above for root cause")
     
-    if '31' in results and results['31']['crackles']['assessment'] != 'LOW':
-        print("\n  🎛️  EMA noise gate tuning suggestions:")
-        print("      - Increase threshold_multiplier: 2.0 → 2.5 or 3.0 (less aggressive)")
-        print("      - Decrease alpha: 0.1 → 0.05 (slower adaptation, smoother)")
-        print("      - Add attack/release smoothing to prevent sudden zeros")
+    if '4' in results:
+        vad = results['4']
+        print(f"\n  🎤 VAD-Filtered Audio (Layer 4) Quality:")
+        print(f"      Crackles: {vad['crackles']['assessment']}")
+        print(f"      Zero-runs: {vad.get('zero_runs', {}).get('assessment', 'N/A')}")
+        if vad['crackles']['assessment'] in ['CRITICAL', 'HIGH']:
+            print("      → Crackles are being passed to Whisper (affects transcription quality)")
     
-    if '32' in results and results['32']['snr_db'] < results.get('31', {}).get('snr_db', 0):
-        print("\n  🤖 RNNoise is underperforming:")
-        print("      - RNNoise may not be suitable for this noise type")
-        print("      - Consider disabling RNNoise in production")
-        print("      - Stick with optimized EMA for real-time performance")
-    
-    print("\n  📚 Noise reduction methods available:")
-    print("      1. EMA Gate (Layer 3.1): Exponential Moving Average noise gate")
-    print("      2. RNNoise (Layer 3.2): Xiph.org lightweight denoiser")
-    print("      3. DTLN (Layer 3.3): Dual-signal Transformation LSTM")
-    print("      4. DeepFilterNet (Layer 3.4): Facebook/Meta multi-band approach")
-    print("      5. Spectral Gating (Layer 3.5): noisereduce stationary noise removal")
-    print("      6. Comb Filter (Layer 3.6): Multi-notch IIR for periodic noise (80 Hz)")
+    print("\n  📚 Available noise reduction layers:")
+    print("      Layer 3: Baseline (resampled only)")
+    print("      Layer 4: VAD-filtered (speech segments only) → sent to Whisper")
+    print("      Layer 5: VAD-filtered @ 48kHz (high quality reference)")
+    print("      Layer 3.2: RNNoise denoised")
     print()
 
 
