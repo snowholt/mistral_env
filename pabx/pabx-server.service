@@ -1,0 +1,27 @@
+[Unit]
+Description=BeautyAI PABX Server
+After=network.target
+
+[Service]
+Type=simple
+User=lumi
+WorkingDirectory=/home/lumi/beautyai/pabx
+Environment="PATH=/home/lumi/beautyai/pabx/venv/bin"
+ExecStart=/home/lumi/beautyai/pabx/venv/bin/python /home/lumi/beautyai/pabx/run_server.py --mode api
+Restart=on-failure
+RestartSec=5s
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=pabx-server
+
+# Security
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/home/lumi/beautyai/pabx/logs /home/lumi/beautyai/pabx/recordings
+
+[Install]
+WantedBy=multi-user.target

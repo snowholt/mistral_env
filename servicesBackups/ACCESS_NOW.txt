@@ -1,0 +1,30 @@
+🎤 WORKING ACCESS URLS - Use These in Your Browser!
+====================================================
+
+Your server is working perfectly! The issue is DNS pointing to wrong place.
+
+TRY THESE URLs (in order):
+
+1. Via Public IPv6 (if your network supports IPv6):
+   http://[2001:16a2:c8e4:f800:da43:aeff:fea2:931c]:8000/webrtc_voice_capture_test.html
+
+2. If you know your public IPv4, use:
+   http://YOUR_PUBLIC_IP:8000/webrtc_voice_capture_test.html
+
+3. Ask your network admin for the public IP that reaches this server
+
+4. OR fix your DNS:
+   - Update dev.gmai.sa A record to point to your server's public IP
+   - Wait for DNS propagation (up to 24 hours)
+   - Then use: https://dev.gmai.sa/webrtc_voice_capture_test.html
+
+====================================================
+
+QUICK DNS FIX (if you control the DNS):
+1. Find your public IP: curl ifconfig.me
+2. Update DNS A record for dev.gmai.sa and api.gmai.sa
+3. Test with: nslookup dev.gmai.sa
+
+Your backend is READY and WORKING! Just need the right network path to it!
+
+Made with 💜 by Lumina

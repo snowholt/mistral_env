@@ -20,7 +20,8 @@ class PromptBuildingService:
     """
     
     def __init__(self):
-        self.system_prompts = {
+        # Store default system prompts (backup for reset)
+        self.default_system_prompts = {
             "ar": """أنت طبيب متخصص في الطب التجميلي والعلاجات غير الجراحية. يجب عليك الإجابة باللغة العربية فقط. 
 قدم معلومات طبية دقيقة ومفيدة حول العلاجات التجميلية مثل البوتوكس والفيلر. 
 اجعل إجاباتك واضحة ومختصرة ومناسبة للمرضى العرب.
@@ -35,11 +36,46 @@ class PromptBuildingService:
             "en": "You are a doctor specialized in aesthetic medicine and non-surgical treatments. You must respond only in English. Provide accurate and useful medical information about aesthetic treatments like botox and fillers. Make your responses clear, concise, and appropriate for English-speaking patients."
         }
         
+        # Active system prompts (can be overridden)
+        self.system_prompts = self.default_system_prompts.copy()
+        
         self.language_reinforcement = {
             "ar": [
                 ("User: من فضلك أجب باللغة العربية فقط", "Assistant: سأجيب باللغة العربية.")
             ]
         }
+
+    def override_system_prompt(self, language: str, prompt: str) -> None:
+        """Override the system prompt for a specific language."""
+        if not language:
+            return
+        self.system_prompts[language] = prompt
+        logger.info(
+            "[prompt] System prompt overridden for %s (length=%d)",
+            language,
+            len(prompt or "")
+        )
+    
+    def apply_model_system_prompt(self, system_prompt: str, language: str = "ar") -> None:
+        """
+        Apply a system prompt from model configuration.
+        This will override the default system prompt for the specified language.
+        
+        Args:
+            system_prompt: The system prompt from model configuration
+            language: The target language (default: 'ar')
+        """
+        if not system_prompt:
+            logger.warning("[prompt] Attempted to apply empty system prompt from model config")
+            return
+        
+        self.override_system_prompt(language, system_prompt)
+        logger.info("[prompt] Applied system prompt from model config for language: %s", language)
+    
+    def reset_to_default_prompts(self) -> None:
+        """Reset system prompts to default (removes any model-specific overrides)."""
+        self.system_prompts = self.default_system_prompts.copy()
+        logger.info("[prompt] 🔄 Reset to default system prompts (safeguards removed)")
     
     def build_prompt(
         self,

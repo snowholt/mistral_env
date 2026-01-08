@@ -20,10 +20,13 @@ import asyncio
 import inspect
 import logging
 import time
-from typing import Optional, Dict, Any, Callable, List
+from typing import Optional, Dict, Any, Callable, List, TYPE_CHECKING
 from dataclasses import dataclass, field
 from collections import deque
 import numpy as np
+
+if TYPE_CHECKING:
+    from .vad.webrtc_vad_service import WebRTCVADService
 
 try:
     from aiortc import MediaStreamTrack, RTCPeerConnection
@@ -34,6 +37,8 @@ except ImportError:
     # Provide dummy types for graceful degradation
     MediaStreamTrack = object
     AudioFrame = object
+
+from .utils.audio import to_float_mono_16k
 
 logger = logging.getLogger(__name__)
 
@@ -102,7 +107,8 @@ class WebRTCAudioProcessor:
         config: Optional[AudioProcessingConfig] = None,
         on_audio_chunk: Optional[Callable[[bytes, Dict[str, Any]], None]] = None,
         on_utterance_limit_exceeded: Optional[Callable[[str], None]] = None,
-        on_processing_error: Optional[Callable[[str, Exception], None]] = None
+        on_processing_error: Optional[Callable[[str, Exception], None]] = None,
+        **legacy_kwargs: Any,
     ):
         """
         Initialize WebRTC audio processor.
@@ -114,6 +120,15 @@ class WebRTCAudioProcessor:
             on_utterance_limit_exceeded: Callback when utterance exceeds 10s limit
             on_processing_error: Callback for processing errors
         """
+        # Legacy constructor compatibility: accept dict-style config
+        if config is None and legacy_kwargs:
+            # Older tests passed a flat dict; map known keys into AudioProcessingConfig
+            config = AudioProcessingConfig(
+                target_sample_rate=legacy_kwargs.get("sample_rate", 16000),
+                target_channels=legacy_kwargs.get("channels", 1),
+                max_utterance_duration_sec=legacy_kwargs.get("max_utterance_sec", 10),
+            )
+
         self.peer_id = peer_id
         self.config = config or AudioProcessingConfig()
         self.logger = logging.getLogger(__name__)
@@ -127,8 +142,22 @@ class WebRTCAudioProcessor:
         # Processing state
         self.is_processing = False
         self.start_time: Optional[float] = None
+        self.utterance_start_time: Optional[float] = None  # Real-time clock for utterance
         self.current_utterance_bytes = 0
         self.current_utterance_duration = 0.0
+        self._stream_terminated = False
+
+        # Source format hint (WebRTC typically delivers 48 kHz audio).
+        #
+        # When aiortc fails to populate ``frame.sample_rate`` (observed during
+        # codec warm-up) we previously fell back to the 16 kHz *target* rate.
+        # That caused downstream logic to believe 48 kHz PCM had already been
+        # downsampled which stretched playback by ~3× and made the audio
+        # unusable for VAD/STT.  Keep a best-effort guess of the capture rate
+        # so we can resample correctly even when frame metadata is missing.
+        self._source_sample_rate = 48000
+        self._last_frame_pts: Optional[int] = None
+        self._last_time_base: Optional[float] = None
         
         # Audio metrics
         self.metrics = AudioStreamMetrics()
@@ -138,11 +167,36 @@ class WebRTCAudioProcessor:
         self._frame_buffer: deque = deque(maxlen=self.config.frame_buffer_size)
         self._processing_lock = asyncio.Lock()
         
+        # Frame accumulator for tiny frames (before resampling)
+        self._frame_accumulator = []
+        self._accumulator_samples = 0
+        self._min_samples_before_resample = 48  # Just 1ms at 48kHz - very conservative
+
+        # Linked services (assigned by adapter)
+        self.vad_service: Optional['WebRTCVADService'] = None
+        
         self.logger.info(
             f"WebRTC audio processor initialized for peer {peer_id} "
             f"(target: {self.config.target_sample_rate}Hz mono, "
             f"max: {self.config.max_utterance_duration_sec}s)"
         )
+
+    # ------------------------------------------------------------------
+    # Legacy lifecycle adapters (initialize/cleanup) used by older tests
+    # ------------------------------------------------------------------
+
+    async def initialize(self) -> bool:
+        """Legacy no-op initializer retained for backward compatibility."""
+        return True
+
+    async def cleanup(self) -> None:
+        """Legacy cleanup shim that stops processing and resets state."""
+        await self.stop_processing()
+        self.reset_metrics()
+
+    async def process_frame(self, frame: AudioFrame) -> Optional[bytes]:
+        """Legacy helper returning PCM bytes for a single frame."""
+        return await self._process_audio_frame(frame)
     
     async def start_processing(self, audio_track: MediaStreamTrack) -> bool:
         """
@@ -163,10 +217,18 @@ class WebRTCAudioProcessor:
             return False
         
         try:
+            track_rate = getattr(audio_track, "sample_rate", None)
+            if isinstance(track_rate, (int, float)) and track_rate > 0:
+                self._source_sample_rate = int(track_rate)
+
             self.is_processing = True
             self.start_time = time.time()
+            self.utterance_start_time = time.time()  # Track real-time utterance duration
             self.current_utterance_bytes = 0
             self.current_utterance_duration = 0.0
+            self._stream_terminated = False
+            self._last_frame_pts = None
+            self._last_time_base = None
             
             self.logger.debug(f"[PROCESSOR] Starting audio processing for peer {self.peer_id}, track={audio_track}")
             self.logger.debug(f"[PROCESSOR] Callback registered: {self._on_audio_chunk is not None}")
@@ -208,44 +270,70 @@ class WebRTCAudioProcessor:
         converts them to PCM, and feeds them to the buffer manager.
         """
         self.logger.debug(f"[PROCESSOR] Entered _process_audio_track loop for {self.peer_id}")
+        print(f"[PROCESSOR] Entered _process_audio_track loop for {self.peer_id}")
         frame_count = 0
+        timeout_count = 0
         try:
             while self.is_processing:
                 try:
                     # Read frame from track with timeout
+                    print(f"[PROCESSOR] About to call audio_track.recv() for {self.peer_id}, frame_count={frame_count}")
                     frame = await asyncio.wait_for(
                         audio_track.recv(),
                         timeout=1.0
                     )
                     
                     frame_count += 1
+                    timeout_count = 0  # Reset timeout counter on successful recv
                     if frame_count == 1:
                         self.logger.debug(f"[PROCESSOR] Received first audio frame for {self.peer_id}")
-                    elif frame_count % 100 == 0:
+                        print(f"[PROCESSOR] Received first audio frame for {self.peer_id}")
+                    elif frame_count % 10 == 0:
                         self.logger.debug(f"[PROCESSOR] Processed {frame_count} frames for {self.peer_id}")
+                        print(f"[PROCESSOR] Processed {frame_count} frames for {self.peer_id}")
                     
                     # Process the frame
                     await self._process_audio_frame(frame)
                     
                 except asyncio.TimeoutError:
                     # No frame received in timeout period, continue
+                    timeout_count += 1
                     if frame_count == 0:
-                        self.logger.debug(f"[PROCESSOR] No frames received yet for {self.peer_id} (timeout)")
+                        self.logger.debug(f"[PROCESSOR] No frames received yet for {self.peer_id} (timeout #{timeout_count})")
+                        print(f"[PROCESSOR] No frames received yet for {self.peer_id} (timeout #{timeout_count})")
+                    else:
+                        self.logger.warning(f"[PROCESSOR] Timeout waiting for frame #{frame_count+1} for {self.peer_id} (timeout #{timeout_count})")
+                        print(f"[PROCESSOR] Timeout waiting for frame #{frame_count+1} for {self.peer_id} (timeout #{timeout_count})")
+                    
+                    # If we have many consecutive timeouts after receiving frames, something is wrong
+                    if frame_count > 0 and timeout_count >= 3:
+                        self.logger.error(f"[PROCESSOR] Audio stream stopped unexpectedly for {self.peer_id} after {frame_count} frames")
+                        print(f"[PROCESSOR] Audio stream stopped unexpectedly for {self.peer_id} after {frame_count} frames")
+                        self.is_processing = False
+                        await self._finalize_stream("consecutive_timeouts")
+                        break
                     continue
                     
                 except Exception as e:
                     self.logger.error(f"[PROCESSOR] Error receiving audio frame: {e}", exc_info=True)
+                    print(f"[PROCESSOR] Error receiving audio frame: {e}")
                     if self._on_processing_error:
                         self._on_processing_error(self.peer_id, e)
+                    await self._finalize_stream("recv_exception")
                     break
                 
         except Exception as e:
             self.logger.error(f"[PROCESSOR] Fatal error in audio track processing: {e}", exc_info=True)
+            print(f"[PROCESSOR] Fatal error in audio track processing: {e}")
             if self._on_processing_error:
                 self._on_processing_error(self.peer_id, e)
+            await self._finalize_stream("fatal_exception")
         finally:
             self.logger.debug(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
+            print(f"[PROCESSOR] Exiting _process_audio_track loop for {self.peer_id}, total frames: {frame_count}")
             self.is_processing = False
+            self.logger.info(f"[Audio] Stream stopped for {self.peer_id} after {frame_count} frames")
+            await self._finalize_stream("loop_exit")
     
     async def _process_audio_frame(self, frame: AudioFrame):
         """
@@ -261,39 +349,140 @@ class WebRTCAudioProcessor:
             try:
                 start_time = time.time()
                 
-                # Update metrics
+                # Update metrics with safeguards for missing metadata
                 self.metrics.frames_received += 1
-                self.metrics.sample_rate = frame.sample_rate
-                self.metrics.channels = len(frame.layout.channels)
-                
-                # Convert AudioFrame to numpy array
-                audio_array = self._frame_to_numpy(frame)
-                
-                # Resample to target sample rate if needed
-                if frame.sample_rate != self.config.target_sample_rate:
-                    audio_array = self._resample_audio(
-                        audio_array,
-                        frame.sample_rate,
-                        self.config.target_sample_rate
+
+                samples = getattr(frame, "samples", None)
+                detected_rate = self._determine_frame_sample_rate(frame)
+                duration_from_pts = self._update_frame_timing(frame)
+
+                frame_rate: int
+                if detected_rate and detected_rate > 0:
+                    candidate_rate = int(detected_rate)
+                    suspicious = False
+
+                    if self._source_sample_rate and abs(candidate_rate - self._source_sample_rate) > 1000:
+                        duration_from_samples = None
+                        if samples and candidate_rate > 0:
+                            duration_from_samples = samples / float(candidate_rate)
+
+                        comparison_duration = None
+                        if duration_from_pts and duration_from_pts > 0:
+                            comparison_duration = duration_from_pts
+                        elif samples and self._source_sample_rate:
+                            comparison_duration = samples / float(self._source_sample_rate)
+
+                        if (
+                            duration_from_samples
+                            and comparison_duration
+                            and comparison_duration > 0
+                        ):
+                            ratio = duration_from_samples / comparison_duration
+                            if ratio < 0.7 or ratio > 1.3:
+                                suspicious = True
+                        elif candidate_rate < self._source_sample_rate * 0.75:
+                            suspicious = True
+
+                    if suspicious:
+                        frame_rate = self._source_sample_rate
+                        self.logger.warning(
+                            f"[PROCESSOR] Ignoring implausible frame sample rate {candidate_rate}Hz for {self.peer_id} "
+                            f"(samples={samples}, fallback={self._source_sample_rate}Hz)"
+                        )
+                    else:
+                        frame_rate = candidate_rate
+                        self._source_sample_rate = candidate_rate
+                else:
+                    frame_rate = self._source_sample_rate or self.config.target_sample_rate
+                    self.logger.warning(
+                        f"[PROCESSOR] Unable to determine frame sample rate for {self.peer_id}, "
+                        f"falling back to assumed source {frame_rate}Hz"
                     )
+
+                frame_layout = getattr(frame, "layout", None)
+                if frame_layout and getattr(frame_layout, "channels", None):
+                    self.metrics.channels = len(frame_layout.channels)
+                else:
+                    self.metrics.channels = self.config.target_channels
                 
-                # Convert to mono if needed
-                if audio_array.ndim > 1:
-                    audio_array = np.mean(audio_array, axis=0)
+                # Convert AudioFrame to numpy array (already handles mono conversion)
+                audio_array = self._frame_to_numpy(frame)
+
+                if audio_array.size == 0:
+                    self.logger.warning(
+                        f"[PROCESSOR] Empty audio frame received for {self.peer_id}, skipping"
+                    )
+                    return
+                
+                # Debug: Log frame shape before resampling (first few frames only)
+                if self.metrics.frames_received <= 3:
+                    print(f"[PROCESSOR] Frame {self.metrics.frames_received}: "
+                          f"shape={audio_array.shape}, size={audio_array.size}, "
+                          f"frame_rate={frame_rate}Hz")
+                
+                # Resample to 16kHz if needed (audio_array is already mono float32 from _frame_to_numpy)
+                # Don't use to_float_mono_16k - it would redundantly try mono conversion again!
+                if frame_rate != self.config.target_sample_rate:
+                    audio_array = self._resample_audio(audio_array, frame_rate, self.config.target_sample_rate)
+                    frame_rate = self.config.target_sample_rate
+                self.metrics.sample_rate = frame_rate
+                
+                # Debug: Log array shape after resampling
+                if self.metrics.frames_received <= 3:
+                    print(f"[PROCESSOR] After resample: shape={audio_array.shape}, size={audio_array.size}")
+                
+                # DEBUG: Check after resample
+                if audio_array.size > 10:
+                    non_zero = np.count_nonzero(np.abs(audio_array) > 0.001)
+                    if non_zero == 0:
+                        self.logger.warning(f"[PROCESSOR] Audio is zeros after resample!")
                 
                 # Convert to 16-bit PCM bytes
                 pcm_bytes = self._numpy_to_pcm(audio_array)
                 
-                # Check utterance duration limit
-                chunk_duration = len(pcm_bytes) / (self.config.target_sample_rate * 2)
+                # DEBUG: Track chunk sizes
+                if self.metrics.frames_processed % 10 == 0:
+                    print(f"[PROCESSOR-OUT] Frame #{self.metrics.frames_processed}: sending {len(pcm_bytes)} bytes to VAD")
+                    self.logger.info(f"[PROCESSOR-OUT] Sending {len(pcm_bytes)} bytes to callback")
+                
+                # DEBUG: Check PCM bytes content
+                if len(pcm_bytes) >= 100:
+                    import struct
+                    samples = struct.unpack('<50h', pcm_bytes[:100])
+                    non_zero = sum(1 for s in samples if abs(s) > 10)
+                    if non_zero == 0:
+                        self.logger.warning(f"[PROCESSOR] PCM chunk is all zeros! len={len(pcm_bytes)}")
+                    elif non_zero < 5:
+                        self.logger.warning(f"[PROCESSOR] PCM chunk mostly zeros: {non_zero}/50 non-zero")
+                
+                # Check utterance duration limit (use real-time clock as safeguard)
+                target_rate = max(self.config.target_sample_rate, 1)
+                chunk_duration = len(pcm_bytes) / (target_rate * 2)
                 self.current_utterance_duration += chunk_duration
                 self.current_utterance_bytes += len(pcm_bytes)
                 
-                if self.current_utterance_duration > self.config.max_utterance_duration_sec:
+                # Calculate real elapsed time as safeguard against byte-count errors
+                real_elapsed_time = time.time() - self.utterance_start_time if self.utterance_start_time else 0.0
+                
+                # Debug logging every 20 frames
+                if self.metrics.frames_processed % 20 == 0:
+                    print(f"[PROCESSOR] Frame {self.metrics.frames_processed}: "
+                          f"pcm_bytes={len(pcm_bytes)}, chunk_duration={chunk_duration:.3f}s, "
+                          f"calculated_duration={self.current_utterance_duration:.3f}s, "
+                          f"real_time={real_elapsed_time:.3f}s, "
+                          f"total_bytes={self.current_utterance_bytes}")
+                
+                # Use real elapsed time (more reliable) or calculated duration (fallback)
+                effective_duration = max(real_elapsed_time, self.current_utterance_duration)
+                
+                if effective_duration > self.config.max_utterance_duration_sec:
                     self.logger.warning(
                         f"Utterance limit exceeded for peer {self.peer_id}: "
-                        f"{self.current_utterance_duration:.2f}s"
+                        f"real_time={real_elapsed_time:.2f}s, calculated={self.current_utterance_duration:.2f}s "
+                        f"(after {self.metrics.frames_processed} frames)"
                     )
+                    print(f"[PROCESSOR] LIMIT EXCEEDED: real_time={real_elapsed_time:.2f}s, "
+                          f"calculated={self.current_utterance_duration:.2f}s after {self.metrics.frames_processed} frames")
                     if self._on_utterance_limit_exceeded:
                         callback_result = self._on_utterance_limit_exceeded(self.peer_id)
                         if inspect.isawaitable(callback_result):
@@ -327,40 +516,169 @@ class WebRTCAudioProcessor:
                 }
                 
                 # Send chunk to callback (buffer manager) - must await async callback
-                self.logger.debug(f"[PROCESSOR] About to send chunk: {len(pcm_bytes)} bytes, callback={self._on_audio_chunk is not None}")
+                self.logger.debug(f"[PROCESSOR] Sending chunk to VAD: {len(pcm_bytes)} bytes")
+                if self.metrics.frames_processed % 10 == 0:
+                    self.logger.info(f"[PROCESSOR→VAD] Sending chunk #{self.metrics.frames_processed}: {len(pcm_bytes)} bytes, {chunk_duration*1000:.1f}ms")
+                    print(f"[PROCESSOR→VAD] Sending chunk #{self.metrics.frames_processed}: {len(pcm_bytes)} bytes to callback")
+                
                 if self._on_audio_chunk:
                     # Check if callback is async (coroutine function)
                     is_async = inspect.iscoroutinefunction(self._on_audio_chunk)
-                    self.logger.debug(f"[PROCESSOR] Callback is async: {is_async}")
                     if is_async:
                         await self._on_audio_chunk(pcm_bytes, metadata)
-                        self.logger.debug(f"[PROCESSOR] Async callback completed")
                     else:
                         # For backward compatibility with sync callbacks
                         self._on_audio_chunk(pcm_bytes, metadata)
-                        self.logger.debug(f"[PROCESSOR] Sync callback completed")
+                    
+                    if self.metrics.frames_processed % 10 == 0:
+                        self.logger.info(f"[PROCESSOR→VAD] Callback completed for frame #{self.metrics.frames_processed}")
                 else:
-                    self.logger.warning(f"[PROCESSOR] No audio chunk callback registered!")
-                
+                    self.logger.error(f"[PROCESSOR] No audio chunk callback registered!")
+                    print(f"[PROCESSOR] ERROR: No audio chunk callback registered!")
+
             except Exception as e:
                 self.logger.error(f"Error processing audio frame: {e}")
                 self.metrics.dropped_frames += 1
                 if self._on_processing_error:
                     self._on_processing_error(self.peer_id, e)
+                return None
+
+        return pcm_bytes
     
+    async def _finalize_stream(self, reason: str) -> None:
+        """Invoke VAD end-of-stream finalization exactly once."""
+        if self._stream_terminated:
+            return
+        self._stream_terminated = True
+        self.logger.info(f"[PROCESSOR] Finalizing stream for {self.peer_id} (reason: {reason})")
+        vad_service = getattr(self, "vad_service", None)
+        if not vad_service:
+            self.logger.debug(f"[PROCESSOR] No VAD service attached for {self.peer_id}; skipping end-of-stream handling")
+            return
+        try:
+            result = vad_service.handle_end_of_stream(self.peer_id)
+            if inspect.isawaitable(result):
+                await result
+        except Exception as exc:
+            self.logger.error(f"[PROCESSOR] Failed to finalize VAD for {self.peer_id}: {exc}")
+
     def _frame_to_numpy(self, frame: AudioFrame) -> np.ndarray:
         """
-        Convert AudioFrame to numpy array.
+        Convert AudioFrame to numpy array and flatten to 1D.
         
         Args:
             frame: The AudioFrame object
             
         Returns:
-            numpy array of audio samples
+            1D numpy array of audio samples (mono, flattened)
         """
-        # AudioFrame.to_ndarray() returns audio as float32 in range [-1.0, 1.0]
+        # AudioFrame.to_ndarray() returns audio in the frame's native dtype
+        # (float for WebRTC float tracks, int for s16). Normalize to float32.
         audio_array = frame.to_ndarray()
+
+        if np.issubdtype(audio_array.dtype, np.integer):
+            dtype_info = np.iinfo(audio_array.dtype)
+            scale = float(max(abs(dtype_info.min), dtype_info.max)) or 1.0
+            audio_array = audio_array.astype(np.float32) / scale
+        else:
+            audio_array = audio_array.astype(np.float32)
+        
+        # Convert to mono immediately if multi-channel by selecting LEFT channel
+        # This avoids phase cancellation from averaging
+        if audio_array.ndim > 1:
+            # Select LEFT channel (index 0)
+            # Shape can be (channels, samples) or (samples, channels)
+            if audio_array.shape[0] <= 2 and audio_array.shape[1] > audio_array.shape[0]:
+                # Shape is (channels, samples)
+                audio_array = audio_array[0, :]
+            else:
+                # Shape is (samples, channels)
+                audio_array = audio_array[:, 0]
+        
+        # Diagnostic logging (first few frames only)
+        if self.metrics.frames_received <= 3:
+            rms = np.sqrt(np.mean(audio_array**2))
+            max_val = np.max(np.abs(audio_array))
+            self.logger.info(f"[AUDIO-DIAG] Frame {self.metrics.frames_received}: "
+                           f"dtype={audio_array.dtype}, shape={audio_array.shape}, "
+                           f"RMS={rms:.6f}, max={max_val:.6f}")
+            print(f"[AUDIO-DIAG] Frame {self.metrics.frames_received}: "
+                  f"RMS={rms:.6f}, max={max_val:.6f}")
+        
+        # DEBUG: Check if audio has actual content
+        if audio_array.size > 0:
+            non_zero = np.count_nonzero(np.abs(audio_array) > 0.001)
+            if non_zero == 0 and audio_array.size > 10:
+                self.logger.warning(f"[PROCESSOR] Frame is all zeros! size={audio_array.size}")
+        
         return audio_array
+
+    def _determine_frame_sample_rate(self, frame: AudioFrame) -> Optional[int]:
+        """Infer the true frame sample rate using explicit metadata or time_base."""
+        # Try primary sample_rate attribute
+        sample_rate = getattr(frame, "sample_rate", None)
+        if sample_rate and sample_rate > 0:
+            rate = int(sample_rate)
+            # Sanity check: common rates are 8k, 16k, 24k, 32k, 44.1k, 48k
+            if rate in [8000, 16000, 24000, 32000, 44100, 48000]:
+                return rate
+            if 8000 <= rate <= 96000:  # Broader range but log warning
+                self.logger.warning(f"[PROCESSOR] Unusual sample rate detected: {rate}Hz")
+                return rate
+
+        # PyAV also exposes ``rate`` on audio frames; check it as a fallback.
+        alt_rate = getattr(frame, "rate", None)
+        if alt_rate and alt_rate > 0:
+            rate = int(alt_rate)
+            if 8000 <= rate <= 96000:
+                return rate
+
+        # Try deriving from time_base
+        time_base = getattr(frame, "time_base", None)
+        if time_base:
+            try:
+                tb_value = float(time_base)
+                if tb_value > 0.0:
+                    rate = int(round(1.0 / tb_value))
+                    if 8000 <= rate <= 96000:
+                        return rate
+            except (ZeroDivisionError, TypeError, ValueError):
+                self.logger.debug(
+                    f"[PROCESSOR] Failed to derive sample rate from time_base for {self.peer_id}",
+                    exc_info=True
+                )
+
+        return None
+
+    def _update_frame_timing(self, frame: AudioFrame) -> Optional[float]:
+        """Track presentation timestamps and estimate frame duration in seconds."""
+        pts = getattr(frame, "pts", None)
+        time_base = getattr(frame, "time_base", None)
+
+        try:
+            tb_value = float(time_base) if time_base is not None else None
+        except (TypeError, ValueError):
+            tb_value = None
+
+        duration = None
+        if (
+            pts is not None
+            and tb_value
+            and tb_value > 0
+            and self._last_frame_pts is not None
+        ):
+            delta_pts = pts - self._last_frame_pts
+            if delta_pts > 0:
+                duration = delta_pts * tb_value
+
+        if pts is not None:
+            self._last_frame_pts = pts
+            self._last_time_base = tb_value if tb_value and tb_value > 0 else None
+        else:
+            self._last_frame_pts = None
+            self._last_time_base = None
+
+        return duration
     
     def _resample_audio(
         self,
@@ -369,33 +687,58 @@ class WebRTCAudioProcessor:
         target_rate: int
     ) -> np.ndarray:
         """
-        Resample audio to target sample rate using scipy.
+        Resample audio to target sample rate using scipy resample_poly.
         
         Args:
-            audio: Input audio array
+            audio: Input audio array (float32, mono, [-1.0, 1.0])
             source_rate: Source sample rate
             target_rate: Target sample rate
             
         Returns:
-            Resampled audio array
+            Resampled audio array with preserved amplitude
         """
+        if source_rate <= 0:
+            self.logger.warning(
+                f"[PROCESSOR] Invalid source sample rate {source_rate}, skipping resample"
+            )
+            return audio
+
+        if target_rate <= 0:
+            self.logger.warning(
+                f"[PROCESSOR] Invalid target sample rate {target_rate}, skipping resample"
+            )
+            return audio
+
         try:
-            from scipy import signal
+            from scipy.signal import resample_poly
             
             if source_rate == target_rate:
                 return audio
             
-            # Calculate number of samples in output
-            num_samples = int(len(audio) * target_rate / source_rate)
+            # Calculate GCD for resample_poly (more efficient than arbitrary ratio)
+            from math import gcd
+            ratio_gcd = gcd(source_rate, target_rate)
+            up = target_rate // ratio_gcd
+            down = source_rate // ratio_gcd
             
-            # Resample
-            resampled = signal.resample(audio, num_samples)
+            # Use resample_poly for better energy preservation
+            resampled = resample_poly(audio, up, down)
+            
+            # Diagnostic logging (first few frames)
+            if self.metrics.frames_received <= 3:
+                rms_before = np.sqrt(np.mean(audio**2))
+                rms_after = np.sqrt(np.mean(resampled**2))
+                self.logger.info(f"[RESAMPLE-DIAG] {source_rate}Hz→{target_rate}Hz: "
+                               f"RMS before={rms_before:.6f}, after={rms_after:.6f}")
+                print(f"[RESAMPLE-DIAG] RMS before={rms_before:.6f}, after={rms_after:.6f}")
             
             return resampled
             
         except ImportError:
             self.logger.warning("scipy not available, using simple resampling")
             # Fallback to simple linear interpolation
+            if len(audio) == 0:
+                return audio
             return np.interp(
                 np.linspace(0, len(audio), int(len(audio) * target_rate / source_rate)),
                 np.arange(len(audio)),
@@ -410,13 +753,23 @@ class WebRTCAudioProcessor:
             audio: Audio array (float32 in range [-1.0, 1.0])
             
         Returns:
-            bytes: PCM audio data
+            bytes: PCM audio data (16-bit signed integer)
         """
-        # Clip to [-1.0, 1.0] range
+        # Ensure float32 dtype
+        audio = audio.astype(np.float32)
+        
+        # Clip to [-1.0, 1.0] range (no gain boost - trust source levels)
         audio = np.clip(audio, -1.0, 1.0)
         
         # Convert to 16-bit signed integer
         audio_int16 = (audio * 32767).astype(np.int16)
+        
+        # Diagnostic logging (first few frames)
+        if self.metrics.frames_received <= 3:
+            rms_final = np.sqrt(np.mean(audio**2))
+            max_final = np.max(np.abs(audio))
+            self.logger.info(f"[PCM-DIAG] Final normalized: RMS={rms_final:.6f}, max={max_final:.6f}")
+            print(f"[PCM-DIAG] Final: RMS={rms_final:.6f}, max={max_final:.6f}")
         
         # Convert to bytes
         return audio_int16.tobytes()
@@ -490,8 +843,11 @@ class WebRTCAudioProcessor:
         self.metrics = AudioStreamMetrics()
         self.current_utterance_bytes = 0
         self.current_utterance_duration = 0.0
+        self.utterance_start_time = time.time()  # Reset real-time tracker
         self._level_history.clear()
         self.start_time = time.time()
+        self._last_frame_pts = None
+        self._last_time_base = None
         
         self.logger.debug(f"Metrics reset for peer {self.peer_id}")
 

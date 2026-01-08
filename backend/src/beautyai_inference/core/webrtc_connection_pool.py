@@ -11,6 +11,7 @@ Date: October 15, 2025
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from dataclasses import dataclass, field
@@ -21,6 +22,37 @@ try:
     from aiortc import RTCPeerConnection, RTCSessionDescription, RTCIceCandidate, MediaStreamTrack
     from aiortc.contrib.media import MediaRecorder, MediaRelay
     AIORTC_AVAILABLE = True
+    
+    # ============================================================
+    # AIORTC JITTER BUFFER TUNING
+    # Default: capacity=16 (320ms), prefetch=4 (80ms)
+    # Tuned:   capacity=64 (1280ms), prefetch=16 (320ms)
+    # This helps with high-latency VPN connections (Canada→KSA)
+    # ============================================================
+    import aiortc.rtcrtpreceiver
+    from aiortc.jitterbuffer import JitterBuffer
+    
+    AIORTC_AUDIO_JITTER_CAPACITY = int(os.getenv("AIORTC_AUDIO_JITTER_CAPACITY", "64"))
+    AIORTC_AUDIO_JITTER_PREFETCH = int(os.getenv("AIORTC_AUDIO_JITTER_PREFETCH", "16"))
+    
+    if not hasattr(aiortc.rtcrtpreceiver, '_beautyai_jitter_patched'):
+        _original_RTCRtpReceiver_init = aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__
+        
+        def _patched_RTCRtpReceiver_init(self, kind, transport):
+            """Patched RTCRtpReceiver.__init__ with increased audio jitter buffer."""
+            _original_RTCRtpReceiver_init(self, kind, transport)
+            if kind == "audio":
+                self._RTCRtpReceiver__jitter_buffer = JitterBuffer(
+                    capacity=AIORTC_AUDIO_JITTER_CAPACITY, 
+                    prefetch=AIORTC_AUDIO_JITTER_PREFETCH
+                )
+        
+        aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
+        aiortc.rtcrtpreceiver._beautyai_jitter_patched = True
+        logging.getLogger(__name__).info(
+            f"[AIORTC-TUNED] Jitter buffer patch applied: capacity={AIORTC_AUDIO_JITTER_CAPACITY}, prefetch={AIORTC_AUDIO_JITTER_PREFETCH}"
+        )
+        
 except ImportError:
     AIORTC_AVAILABLE = False
     MediaStreamTrack = None  # type: ignore
@@ -95,6 +127,9 @@ class WebRTCConnectionData:
     
     # Data channel for sending transcriptions/responses
     data_channel: Optional[Any] = None  # RTCDataChannel instance
+    data_channel_label: Optional[str] = None
+    data_channel_ready_state: Optional[str] = None
+    data_channel_last_updated: Optional[float] = None
     
     # Metadata
     client_info: Dict[str, Any] = field(default_factory=dict)
@@ -130,8 +165,27 @@ class WebRTCConnectionData:
         self.remote_ice_candidates_count += 1
         logger.debug(f"[WebRTC] Added ICE candidate for peer {self.peer_id} (total: {self.remote_ice_candidates_count})")
     
+    def attach_data_channel(self, channel: Any):
+        """Attach client-created data channel to this connection."""
+        self.data_channel = channel
+        self.data_channel_label = getattr(channel, "label", None)
+        # readyState may not be present immediately; use getattr to avoid AttributeError
+        self.data_channel_ready_state = getattr(channel, "readyState", self.data_channel_ready_state)
+        self.data_channel_last_updated = time.time()
+
+    def update_data_channel_state(self, state: Optional[str]):
+        """Persist the latest known data channel readyState."""
+        self.data_channel_ready_state = state
+        self.data_channel_last_updated = time.time()
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary for serialization."""
+        channel_state = "absent"
+        if self.data_channel:
+            channel_state = getattr(self.data_channel, "readyState", None) or self.data_channel_ready_state or "unknown"
+        elif self.data_channel_ready_state:
+            channel_state = self.data_channel_ready_state
+
         return {
             'peer_id': self.peer_id,
             'user_id': self.user_id,
@@ -146,7 +200,11 @@ class WebRTCConnectionData:
             'bytes_received': self.bytes_received,
             'packets_sent': self.packets_sent,
             'packets_received': self.packets_received,
-            'client_info': self.client_info
+            'client_info': self.client_info,
+            'data_channel_present': bool(self.data_channel or self.data_channel_ready_state),
+            'data_channel_state': channel_state,
+            'data_channel_label': self.data_channel_label,
+            'data_channel_last_updated': self.data_channel_last_updated
         }
 
 
@@ -186,17 +244,31 @@ class WebRTCConnectionPool:
         
         # Voice service adapters per peer (handles audio processing pipeline)
         self._voice_adapters: Dict[str, Any] = {}  # peer_id -> WebRTCVoiceServiceAdapter
+        self._last_payload_sent: Dict[str, float] = {}
         
         # Keep-alive tasks for active audio tracks
         self._keepalive_tasks: Dict[str, asyncio.Task] = {}  # peer_id -> keep-alive task
+
+        # Track data channels received before connection registration completes
+        self._pending_data_channels: Dict[str, Any] = {}  # peer_id -> RTCDataChannel instance
         
         # Locks for thread safety
         self._lock = asyncio.Lock()
+        self._persistent_whisper_lock = asyncio.Lock()
         
         # Cleanup task
         self._cleanup_task: Optional[asyncio.Task] = None
         self._running = False
+
+        # Persistent Whisper preload configuration (shared across WebRTC connections)
+        self._persistent_whisper_ready = False
+        self._persistent_whisper_enabled = os.getenv('WEBRTC_PERSISTENT_WHISPER', '1') == '1'
+        self._persistent_whisper_model_id = os.getenv('WEBRTC_WHISPER_MODEL_ID')
+        self._persistent_whisper_device = os.getenv('WEBRTC_WHISPER_DEVICE', 'cuda')
+        self._persistent_whisper_compute = os.getenv('WEBRTC_WHISPER_COMPUTE', 'float16')
         
+        self._final_payload_grace_seconds = max(float(os.getenv("WEBRTC_FINAL_PAYLOAD_GRACE_SEC", "1.5")), 0.0)
+
         logger.info(f"[WebRTC] Connection pool initialized (max_connections={max_connections})")
     
     async def start(self):
@@ -209,6 +281,41 @@ class WebRTCConnectionPool:
         self._cleanup_task = asyncio.create_task(self._cleanup_loop())
         logger.info("[WebRTC] Connection pool started")
     
+    async def _ensure_persistent_whisper_ready(self) -> None:
+        """Load the shared Whisper model once if persistent mode is enabled."""
+        if not self._persistent_whisper_enabled or self._persistent_whisper_ready:
+            return
+
+        async with self._persistent_whisper_lock:
+            if self._persistent_whisper_ready or not self._persistent_whisper_enabled:
+                return
+
+            try:
+                from .persistent_model_manager import get_persistent_model_manager
+
+                manager = get_persistent_model_manager()
+                success = await manager.ensure_whisper_loaded(
+                    model_id=self._persistent_whisper_model_id,
+                    device=self._persistent_whisper_device,
+                    compute_type=self._persistent_whisper_compute
+                )
+                if success:
+                    self._persistent_whisper_ready = True
+                    logger.info(
+                        "[WebRTC] Persistent Whisper engine warmed (device=%s)",
+                        self._persistent_whisper_device,
+                    )
+                else:
+                    logger.warning(
+                        "[WebRTC] Persistent Whisper preload failed; connections will use fallback loader"
+                    )
+            except Exception as exc:
+                logger.error(
+                    "[WebRTC] Error ensuring persistent Whisper availability: %s",
+                    exc,
+                    exc_info=True,
+                )
+
     async def stop(self):
         """Stop the connection pool and cleanup all connections."""
         if not self._running:
@@ -236,11 +343,44 @@ class WebRTCConnectionPool:
         
         logger.info("[WebRTC] Connection pool stopped")
     
+    async def _register_client_data_channel(self, peer_id: str, channel: Any) -> None:
+        """Track data channel provided by the client once it is announced."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.attach_data_channel(channel)
+                self._pending_data_channels.pop(peer_id, None)
+            else:
+                # Store temporarily until the connection record is registered
+                self._pending_data_channels[peer_id] = channel
+
+    async def _handle_data_channel_open(self, peer_id: str, channel: Any) -> None:
+        """Persist open state and bump activity when channel becomes ready."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.attach_data_channel(channel)
+                connection_data.update_data_channel_state("open")
+                connection_data.update_activity()
+                self._pending_data_channels.pop(peer_id, None)
+            else:
+                self._pending_data_channels[peer_id] = channel
+
+    async def _handle_data_channel_close(self, peer_id: str, channel: Any) -> None:
+        """Mark channel as closed and release pending references."""
+        async with self._lock:
+            if peer_id in self._connections:
+                connection_data = self._connections[peer_id]
+                connection_data.update_data_channel_state("closed")
+            # Remove any pending reference for this peer
+            self._pending_data_channels.pop(peer_id, None)
+
     async def create_peer_connection(
         self,
         peer_id: str,
         offer_sdp: str,
-        user_id: Optional[str] = None
+        user_id: Optional[str] = None,
+        language: Optional[str] = None,
     ) -> tuple[str, List[Dict[str, Any]]]:
         """
         Create a new RTCPeerConnection and process SDP offer.
@@ -261,9 +401,27 @@ class WebRTCConnectionPool:
         if not AIORTC_AVAILABLE:
             raise RuntimeError("aiortc library not available - cannot create peer connection")
         
+        # Warm persistent Whisper model once so subsequent peers reuse the GPU instance
+        await self._ensure_persistent_whisper_ready()
+
+        logger.debug("[WebRTC] create_peer_connection start | peer_id=%s", peer_id)
+
         async with self._lock:
             # Check max connections
-            if len(self._connections) >= self.max_connections:
+            current_connection_count = len(self._connections)
+            logger.debug(
+                "[WebRTC] Active connections=%s (max=%s) before creating peer %s",
+                current_connection_count,
+                self.max_connections,
+                peer_id,
+            )
+
+            if current_connection_count >= self.max_connections:
+                logger.error(
+                    "[WebRTC] Rejecting offer for %s - pool at capacity (%s)",
+                    peer_id,
+                    self.max_connections,
+                )
                 raise ValueError(f"Maximum connections reached ({self.max_connections})")
             
             # Get STUN server from environment
@@ -272,12 +430,16 @@ class WebRTCConnectionPool:
             
             # Create RTCPeerConnection
             try:
+                logger.debug("[WebRTC] Instantiating RTCPeerConnection for %s", peer_id)
                 pc = RTCPeerConnection()
                 
                 # The client will create the data channel in the offer.
                 # Server listens for it via @pc.on("datachannel") handler below.
                 data_channel = None  # Will be set when client's channel is received
-                logger.info(f"[WebRTC] RTCPeerConnection created for peer {peer_id}, waiting for client data channel")
+                logger.info(
+                    "[WebRTC] RTCPeerConnection created for peer %s, waiting for client data channel",
+                    peer_id,
+                )
                 
                 @pc.on("datachannel")
                 def on_datachannel_from_client(channel):
@@ -285,14 +447,19 @@ class WebRTCConnectionPool:
                     nonlocal data_channel
                     data_channel = channel
                     logger.info(f"[WebRTC] ✓ Received data channel '{channel.label}' from client for peer {peer_id}")
+
+                    asyncio.create_task(self._register_client_data_channel(peer_id, channel))
+
                     
                     @channel.on("open")
                     def on_dc_open():
                         logger.info(f"[WebRTC] ✓ Data channel '{channel.label}' OPENED for peer {peer_id}")
+                    
                         if peer_id in self._connections:
                             self._connections[peer_id].update_activity()
                             # Update the stored reference now that it's open
                             self._connections[peer_id].data_channel = data_channel
+                    
                     
                     @channel.on("close")
                     def on_dc_close():
@@ -405,6 +572,11 @@ class WebRTCConnectionPool:
                                     session_id = session_info.get('session_id')
                             except Exception as e:
                                 logger.warning(f"[WebRTC] Could not get session info for {peer_id}: {e}")
+
+                            if (not session_id or not language or language == DEFAULT_LANGUAGE) and peer_id in self._connections:
+                                requested_language = self._connections[peer_id].client_info.get('requested_language')
+                                if requested_language:
+                                    language = requested_language
                             
                             if not session_id:
                                 # Generate temporary session_id as fallback to maintain connection
@@ -416,11 +588,29 @@ class WebRTCConnectionPool:
                                 )
                             
                             # Create voice service for this peer if not exists
+                            print(f"🔍 [WebRTC-DEBUG] Checking voice_adapters for peer {peer_id}. Current adapters: {list(self._voice_adapters.keys())}")
+                            logger.info(f"[WebRTC-DEBUG] Checking voice_adapters for peer {peer_id}. Current adapters: {list(self._voice_adapters.keys())}")
                             if peer_id not in self._voice_adapters:
+                                print(f"✨ [WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
                                 logger.info(f"[WebRTC] Creating voice service adapter for peer {peer_id}, session {session_id}, language={language}")
                                 
-                                # Create SimpleVoiceService instance (language configured via voice registry)
+                                # Create SimpleVoiceService instance with persistent model manager for GPU-accelerated Whisper
                                 simple_voice_service = SimpleVoiceService()
+                                
+                                # Set up persistent model manager for optimized GPU inference
+                                try:
+                                    from ..core.persistent_model_manager import get_persistent_model_manager
+                                    persistent_mgr = get_persistent_model_manager()
+                                    simple_voice_service.set_persistent_model_manager(persistent_mgr)
+                                    
+                                    # Pre-load models (Whisper on GPU)
+                                    await simple_voice_service._preload_required_models()
+                                    print(f"✅ [WebRTC] Persistent GPU-accelerated Whisper engine loaded for peer {peer_id}")
+                                    logger.info(f"[WebRTC] ✅ Persistent GPU-accelerated Whisper engine loaded for peer {peer_id}")
+                                except Exception as e:
+                                    print(f"⚠️  [WebRTC] Could not set up persistent models for {peer_id}: {e}")
+                                    logger.warning(f"[WebRTC] Could not set up persistent models for {peer_id}: {e}")
+                                    logger.info(f"[WebRTC] Continuing with factory fallback for {peer_id}")
                                 
                                 # Create voice adapter with dual VAD configured for Silero-only mode
                                 voice_config = WebRTCVoiceConfig(
@@ -432,69 +622,58 @@ class WebRTCConnectionPool:
                                 )
                                 
                                 # Define callback functions to send data via data channel
-                                def send_transcription(p_id: str, text: str):
+                                async def _send_json_payload(p_id: str, payload: Dict[str, Any]) -> None:
+                                    if p_id not in self._connections:
+                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send payload {payload.get('type')}")
+                                        return
+
+                                    dc = self._connections[p_id].data_channel
+                                    logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
+                                    if not dc or dc.readyState != "open":
+                                        logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send {payload.get('type')}")
+                                        return
+
+                                    import json
+                                    try:
+                                        dc.send(json.dumps(payload))
+                                        await asyncio.sleep(0)
+                                        logger.info(f"[WebRTC] ✓ Sent {payload.get('type')} to {p_id}")
+                                        self._last_payload_sent[p_id] = time.time()
+                                    except Exception as e:
+                                        logger.error(f"[WebRTC] Failed to send payload {payload.get('type')} to {p_id}: {e}", exc_info=True)
+
+                                async def send_transcription(p_id: str, text: str):
                                     """Send transcription via data channel"""
-                                    logger.info(f"[WebRTC] send_transcription called for {p_id}: {text[:50]}...")
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            try:
-                                                dc.send(json.dumps({
-                                                    "type": "transcription",
-                                                    "text": text,
-                                                    "timestamp": time.time()
-                                                }))
-                                                logger.info(f"[WebRTC] ✓ Sent transcription to {p_id}: {text[:50]}...")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send transcription: {e}", exc_info=True)
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send transcription")
-                                    else:
-                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send transcription")
-                                
-                                def send_llm_response(p_id: str, text: str):
+                                    payload = {
+                                        "type": "transcription",
+                                        "text": text,
+                                        "timestamp": time.time(),
+                                        "language": language,
+                                        "final": True
+                                    }
+                                    await _send_json_payload(p_id, payload)
+
+                                async def send_llm_response(p_id: str, text: str):
                                     """Send LLM response via data channel"""
-                                    logger.info(f"[WebRTC] send_llm_response called for {p_id}: {text[:50]}...")
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        logger.debug(f"[WebRTC] Data channel state for {p_id}: {dc.readyState if dc else 'None'}")
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            try:
-                                                dc.send(json.dumps({
-                                                    "type": "assistant_response",
-                                                    "text": text,
-                                                    "timestamp": time.time()
-                                                }))
-                                                logger.info(f"[WebRTC] ✓ Sent LLM response to {p_id}: {text[:50]}...")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send LLM response: {e}", exc_info=True)
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id} (state: {dc.readyState if dc else 'None'}), cannot send LLM response")
-                                    else:
-                                        logger.warning(f"[WebRTC] Peer {p_id} not found in connections, cannot send LLM response")
-                                
-                                def send_tts_audio(p_id: str, audio_bytes: bytes):
+                                    base_payload = {
+                                        "text": text,
+                                        "timestamp": time.time()
+                                    }
+                                    await _send_json_payload(p_id, {"type": "assistant_response", **base_payload})
+                                    await _send_json_payload(p_id, {"type": "llm_response", **base_payload})
+
+                                async def send_tts_audio(p_id: str, audio_bytes: bytes):
                                     """Send TTS audio via data channel"""
-                                    if p_id in self._connections:
-                                        dc = self._connections[p_id].data_channel
-                                        if dc and dc.readyState == "open":
-                                            import json
-                                            import base64
-                                            try:
-                                                dc.send(json.dumps({
-                                                    "type": "tts_audio",
-                                                    "audio_base64": base64.b64encode(audio_bytes).decode(),
-                                                    "timestamp": time.time()
-                                                }))
-                                                logger.info(f"[WebRTC] Sent TTS audio to {p_id}: {len(audio_bytes)} bytes")
-                                            except Exception as e:
-                                                logger.error(f"[WebRTC] Failed to send TTS audio: {e}")
-                                        else:
-                                            logger.warning(f"[WebRTC] Data channel not open for {p_id}, cannot send TTS audio")
-                                
+                                    import base64
+                                    payload = {
+                                        "type": "tts_audio",
+                                        "audio": base64.b64encode(audio_bytes).decode(),
+                                        "timestamp": time.time(),
+                                        "sample_rate": 16000,
+                                        "mime": "audio/wav"
+                                    }
+                                    await _send_json_payload(p_id, payload)
+
                                 # Create adapter with callbacks wired
                                 adapter = WebRTCVoiceServiceAdapter(
                                     peer_id=peer_id,
@@ -514,6 +693,9 @@ class WebRTCConnectionPool:
                                 else:
                                     logger.error(f"[WebRTC] Failed to initialize voice adapter for {peer_id}")
                                     return
+                            else:
+                                print(f"♻️  [WebRTC-DEBUG] Voice adapter already exists for peer {peer_id}, reusing existing adapter")
+                                logger.info(f"[WebRTC-DEBUG] Voice adapter already exists for peer {peer_id}, reusing existing adapter")
                             
                             # Start processing audio from the track
                             adapter = self._voice_adapters[peer_id]
@@ -538,29 +720,64 @@ class WebRTCConnectionPool:
                         logger.info(f"[WebRTC] Ignoring non-audio track ({track.kind}) for peer {peer_id}")
                 
                 # Process offer
+                logger.debug(
+                    "[WebRTC] (%s) Applying remote offer | sdp_len=%s",
+                    peer_id,
+                    len(offer_sdp),
+                )
                 offer = RTCSessionDescription(sdp=offer_sdp, type="offer")
-                logger.debug(f"[WebRTC] Client offer SDP has {offer_sdp.count('m=application')} application sections")
+                logger.debug(
+                    "[WebRTC] Client offer SDP has %s application sections",
+                    offer_sdp.count('m=application'),
+                )
+                start_apply = time.time()
                 await pc.setRemoteDescription(offer)
+                logger.debug(
+                    "[WebRTC] (%s) setRemoteDescription complete (%.2f ms)",
+                    peer_id,
+                    (time.time() - start_apply) * 1000,
+                )
                 
                 # Create answer
+                logger.debug("[WebRTC] (%s) Creating SDP answer", peer_id)
+                start_answer = time.time()
                 answer = await pc.createAnswer()
                 await pc.setLocalDescription(answer)
-                logger.info(f"[WebRTC] Answer SDP created for {peer_id}")
-                logger.debug(f"[WebRTC] Answer SDP has {answer.sdp.count('m=application')} application sections")
+                answer_elapsed = (time.time() - start_answer) * 1000
+                logger.info(
+                    "[WebRTC] Answer SDP created for %s (%.2f ms)",
+                    peer_id,
+                    answer_elapsed,
+                )
+                logger.debug(
+                    "[WebRTC] Answer SDP has %s application sections",
+                    answer.sdp.count('m=application'),
+                )
                 if "a=sctp-port" in answer.sdp:
                     logger.info(f"[WebRTC] ✓ Answer SDP contains SCTP (data channel) for {peer_id}")
                 else:
                     logger.warning(f"[WebRTC] ⚠️ Answer SDP does NOT contain SCTP for {peer_id} - data channel may not work!")
                 
                 # Store connection data
+                client_info: Dict[str, Any] = {}
+                if language:
+                    client_info["requested_language"] = language
+
                 connection_data = WebRTCConnectionData(
                     peer_id=peer_id,
                     peer_connection=pc,
                     user_id=user_id,
                     local_sdp=pc.localDescription.sdp,
                     remote_sdp=offer_sdp,
-                    data_channel=data_channel
+                    data_channel=data_channel,
+                    client_info=client_info,
                 )
+
+                if not data_channel and peer_id in self._pending_data_channels:
+                    pending_channel = self._pending_data_channels.pop(peer_id)
+                    connection_data.attach_data_channel(pending_channel)
+                elif data_channel:
+                    connection_data.attach_data_channel(data_channel)
                 
                 self._connections[peer_id] = connection_data
 
@@ -601,7 +818,16 @@ class WebRTCConnectionPool:
                     {"urls": "stun:stun1.l.google.com:19302"}
                 ]
                 
-                logger.info(f"[WebRTC] Created peer connection: peer_id={peer_id}, user_id={user_id}")
+                logger.info(
+                    "[WebRTC] Created peer connection: peer_id=%s, user_id=%s",
+                    peer_id,
+                    user_id,
+                )
+                logger.debug(
+                    "[WebRTC] (%s) Returning answer | local_sdp_len=%s",
+                    peer_id,
+                    len(pc.localDescription.sdp) if pc.localDescription else 0,
+                )
                 
                 return pc.localDescription.sdp, ice_servers
                 
@@ -799,12 +1025,30 @@ class WebRTCConnectionPool:
             # Stop voice adapter if exists
             if peer_id in self._voice_adapters:
                 try:
+                    last_payload_ts = self._last_payload_sent.get(peer_id)
+                    grace = self._final_payload_grace_seconds
+                    if grace > 0 and last_payload_ts:
+                        remaining = (last_payload_ts + grace) - time.time()
+                        if remaining > 0:
+                            logger.info(
+                                "[WebRTC] Applying %.2fs grace period for %s before shutting down",
+                                remaining,
+                                peer_id,
+                            )
+                            try:
+                                await asyncio.sleep(remaining)
+                            except asyncio.CancelledError:
+                                logger.debug(
+                                    "[WebRTC] Grace sleep cancelled for %s; proceeding with cleanup",
+                                    peer_id,
+                                )
                     adapter = self._voice_adapters[peer_id]
                     await adapter.stop_voice_session()
                     del self._voice_adapters[peer_id]
                     logger.info(f"[WebRTC] Stopped voice adapter for {peer_id}")
                 except Exception as e:
                     logger.error(f"[WebRTC] Error stopping voice adapter for {peer_id}: {e}")
+            self._last_payload_sent.pop(peer_id, None)
             
             # Close peer connection
             if connection_data.peer_connection:
@@ -812,6 +1056,10 @@ class WebRTCConnectionPool:
             
             # Remove from tracking
             del self._connections[peer_id]
+
+            # Clear any pending data channel reference for this peer
+            if peer_id in self._pending_data_channels:
+                del self._pending_data_channels[peer_id]
             
             # Remove from user connections
             if connection_data.user_id and connection_data.user_id in self._user_connections:

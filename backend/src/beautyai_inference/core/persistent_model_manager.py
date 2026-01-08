@@ -18,6 +18,7 @@ Date: 2024-09-11
 
 import asyncio
 import logging
+import os
 import time
 import threading
 import gc
@@ -254,7 +255,7 @@ class PersistentModelManager:
             bool: True if loaded successfully
         """
         try:
-            if model_type == "whisper":
+            if model_type in ("whisper", "stt"):
                 return await self._preload_whisper_model(model_config)
             elif model_type == "llm":
                 return await self._preload_llm_model(model_config)
@@ -269,85 +270,177 @@ class PersistentModelManager:
             return False
     
     async def _preload_whisper_model(self, config: Dict[str, Any]) -> bool:
-        """Preload Whisper model using existing ModelManager."""
+        """Preload Genius Whisper model using ModelManager."""
         try:
-            # Use existing ModelManager's get_streaming_whisper method
+            model_id = config.get('model_id', 'genius-whisper-arabic')
+            self.logger.info(f"Preloading Genius Whisper model: {model_id}")
+            
+            # Use ModelManager's get_streaming_whisper with proper model name
             whisper_engine = self._model_manager.get_streaming_whisper(
-                model_name=config.get('model_id'),
-                language="auto"
+                model_name=model_id,
+                language="ar"  # Arabic for Genius AI model
             )
             
             if whisper_engine:
                 self._preloaded_models['whisper'] = whisper_engine
-                self.logger.info(f"Whisper model preloaded: {config.get('model_id')}")
+                self._preloaded_models['stt'] = whisper_engine  # Alias for compatibility
+                self.logger.info(f"✅ Genius Whisper model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to preload Whisper model")
+                self.logger.error(f"Failed to preload Genius Whisper model: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading Whisper model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     async def _preload_llm_model(self, config: Dict[str, Any]) -> bool:
-        """Preload LLM model using existing ModelManager."""
+        """Preload LLM model using ModelManager registry."""
         try:
-            from ..config.config_manager import ModelConfig
+            from ..config.config_manager import AppConfig, ModelRegistry
+            from pathlib import Path
             
-            # Use the fastest model from config or fallback to qwen3-unsloth-q4ks
-            fastest_model_name = config.get('model_path', 'qwen3-unsloth-q4ks')
+            # Get model ID from config
+            model_id = config.get('model_id', 'qwen3-unsloth-q4ks')
+            self.logger.info(f"Preloading LLM model from registry: {model_id}")
             
-            # Create model config for the fastest model
-            model_config = ModelConfig(
-                name=fastest_model_name,
-                model_id=fastest_model_name,  # Use model name as ID for registry lookup
-                engine_type="llama.cpp"  # Correct engine type for GGUF models
-            )
+            # Load the model registry
+            config_dir = Path(__file__).parent.parent / "config"
+            registry_file = config_dir / "model_registry.json"
+            
+            if not registry_file.exists():
+                self.logger.error(f"Model registry file not found: {registry_file}")
+                return False
+            
+            model_registry = ModelRegistry.load_from_file(registry_file)
+            model_config = model_registry.get_model(model_id)
+            
+            if not model_config:
+                self.logger.error(f"Model '{model_id}' not found in registry")
+                return False
+            
+            self.logger.info(f"Loaded registry config for {model_id}: engine={model_config.engine_type}, path={getattr(model_config, 'model_path', 'N/A')}")
             
             # Load model using ModelManager
             model_instance = self._model_manager.load_model(model_config)
             if model_instance:
                 self._preloaded_models['llm'] = model_instance
-                self.logger.info(f"LLM model preloaded: {fastest_model_name}")
+                self.logger.info(f"✅ LLM model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to load LLM model instance")
+                self.logger.error(f"Failed to load LLM model instance: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading LLM model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
     async def _preload_tts_model(self, config: Dict[str, Any]) -> bool:
-        """Preload TTS model (Edge TTS is always available)."""
+        """Preload Genius XTTS TTS model."""
         try:
-            # Edge TTS doesn't need preloading, just mark as available
-            tts_engine = self._model_manager.get_tts_engine()
+            model_id = config.get('model_id', 'genius-xtts-arabic')
+            self.logger.info(f"Preloading Genius XTTS model: {model_id}")
+            
+            # Get TTS engine for Genius XTTS
+            tts_engine = self._model_manager.get_tts_engine(model_name=model_id)
+            
             if tts_engine:
                 self._preloaded_models['tts'] = tts_engine
-                self.logger.info("TTS engine ready (Edge TTS)")
+                self.logger.info(f"✅ Genius XTTS model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error("Failed to get TTS engine")
+                self.logger.error(f"Failed to preload Genius XTTS model: {model_id}")
                 return False
                 
         except Exception as e:
             self.logger.error(f"Error preloading TTS model: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
             return False
     
-    def get_whisper_model(self) -> Optional[Any]:
+    def get_whisper_model(self, language: Optional[str] = None) -> Optional[Any]:
         """
         Get persistent Whisper model instance.
+        
+        Args:
+            language: Optional language code to request specific model capabilities
         
         Returns:
             Persistent Whisper model instance or None if not loaded
         """
+        # Check if we have a preloaded model
         if 'whisper' in self._preloaded_models:
-            return self._preloaded_models['whisper']
+            model = self._preloaded_models['whisper']
+            
+            # If language is specified and NOT Arabic, check if current model is Arabic-only
+            if language and language.lower() not in ('ar', 'arabic', 'auto'):
+                # Check if the loaded model is the Genius Arabic one
+                is_arabic_model = False
+                if hasattr(model, '_get_engine_name'):
+                    engine_name = model._get_engine_name()
+                    if engine_name in ('whisper_genius_arabic', 'whisper_finetuned_arabic'):
+                        is_arabic_model = True
+                
+                if is_arabic_model:
+                    self.logger.info(f"Requested language '{language}' but preloaded model is Arabic-only. Fetching multilingual model via ModelManager.")
+                    # Fallback to ModelManager to get a suitable model (e.g. turbo)
+                    return self._model_manager.get_streaming_whisper(language=language)
+            
+            return model
         
         # Fallback to ModelManager if not preloaded
         self.logger.warning("Whisper model not preloaded, using ModelManager fallback")
-        return self._model_manager.get_streaming_whisper()
+        whisper_engine = self._model_manager.get_streaming_whisper(language=language)
+        
+        # Only cache if it's the default/Arabic one to avoid polluting preloaded cache with temp models
+        if whisper_engine and (not language or language.lower() in ('ar', 'arabic', 'auto')):
+            # Cache for subsequent callers so we do not reload per connection
+            self._preloaded_models['whisper'] = whisper_engine
+            self.logger.info("Cached Whisper engine obtained via fallback for reuse")
+            
+        return whisper_engine
+
+    async def ensure_whisper_loaded(
+        self,
+        model_id: Optional[str] = None,
+        device: Optional[str] = None,
+        compute_type: Optional[str] = None
+    ) -> bool:
+        """Ensure the persistent Whisper model is loaded once (typically for WebRTC)."""
+        if 'whisper' in self._preloaded_models:
+            return True
+
+        resolved_model_id = model_id or os.getenv('WEBRTC_WHISPER_MODEL_ID')
+        resolved_device = device or os.getenv('WEBRTC_WHISPER_DEVICE', 'cuda')
+        resolved_compute = compute_type or os.getenv('WEBRTC_WHISPER_COMPUTE', 'float16')
+
+        with self._initialization_lock:
+            if 'whisper' in self._preloaded_models:
+                return True
+
+            preload_config = {
+                'model_id': resolved_model_id,
+                'device': resolved_device,
+                'compute_type': resolved_compute
+            }
+
+            self.logger.info(
+                "Ensuring persistent Whisper model is loaded (model_id=%s, device=%s, compute=%s)",
+                preload_config['model_id'],
+                preload_config['device'],
+                preload_config['compute_type']
+            )
+
+            success = await self._preload_whisper_model(preload_config)
+            if success:
+                self.logger.info("Persistent Whisper model ready for reuse")
+            else:
+                self.logger.warning("Failed to preload Whisper model via ensure_whisper_loaded")
+            return success
     
     def get_llm_model(self) -> Optional[Any]:
         """

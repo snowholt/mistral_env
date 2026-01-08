@@ -4,6 +4,7 @@ Inference engine implementation based on vLLM.
 import torch
 import time
 import logging
+import os
 from typing import List, Dict, Any, Optional, Union
 
 try:
@@ -27,6 +28,19 @@ class VLLMEngine(ModelInterface):
         if not VLLM_AVAILABLE:
             raise ImportError("vLLM is not installed. Install it with 'pip install vllm'")
             
+        # Configure Triton cache directory to a writable location
+        # This fixes "Read-only file system" errors when running as a service with ProtectHome=read-only
+        try:
+            # Use a path within the writable backend directory
+            triton_cache_dir = "/home/lumi/beautyai/backend/logs/triton_cache"
+            os.makedirs(triton_cache_dir, exist_ok=True)
+            os.environ["TRITON_CACHE_DIR"] = triton_cache_dir
+            # Only log if not already set to avoid spamming
+            if os.environ.get("TRITON_CACHE_DIR") == triton_cache_dir:
+                pass # Already set
+        except Exception as e:
+            logger.warning(f"Failed to set TRITON_CACHE_DIR: {e}")
+
         self.config = model_config
         self.model = None
     

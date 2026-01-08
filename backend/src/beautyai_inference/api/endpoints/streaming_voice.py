@@ -669,9 +669,8 @@ async def streaming_voice_endpoint(
                 if response_text:
                     state.conversation.append({"role": "assistant", "content": response_text})
 
-                # Emit assistant_response event early (before synthesis) so UI can display text immediately
-                await _send_json(state.websocket, {
-                    "type": "assistant_response",
+                # Emit LLM and assistant events early (before synthesis) so UI can display text immediately
+                response_event = {
                     "utterance_index": utterance_index,
                     "text": response_text,
                     "chars": len(response_text),
@@ -679,7 +678,9 @@ async def streaming_voice_endpoint(
                     "conversation_len": len(state.conversation),
                     "requested_language": state.requested_language,
                     "effective_language": chat_result.get("detected_language"),
-                })
+                }
+                await _send_json(state.websocket, {"type": "llm_response", **response_event})
+                await _send_json(state.websocket, {"type": "assistant_response", **response_event})
                 try:
                     maybe_log_structured(logger, "assistant_response", {
                         "session_id": state.session_id,

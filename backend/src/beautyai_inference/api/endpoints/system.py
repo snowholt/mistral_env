@@ -112,7 +112,9 @@ async def get_system_status(
             cache_info={
                 "total_loaded": loaded_models_info.get("local_count", 0),
                 "default_model": "none"
-            }
+            },
+            uptime_seconds=status.uptime_seconds,
+            uptime_hours=round(status.uptime_seconds / 3600, 2)
         )
         
     except Exception as e:

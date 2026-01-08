@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 class ModelManager:
     """Singleton class to manage loaded models."""
     _instance = None
-    _lock = threading.Lock()
+    _lock = threading.RLock()
     _persistence_file = None
     
     def __new__(cls):
@@ -500,6 +500,7 @@ class ModelManager:
         """Start or reset the keep-alive timer for a model."""
         self._stop_model_timer(model_name)  # Ensure no duplicate timers
         timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
+        timer.daemon = True  # Allow tests and short-lived processes to exit immediately
         timer.start()
         self._model_timers[model_name] = timer
         logger.info(f"Started keep-alive timer for model '{model_name}' (will unload after {self._auto_unload_minutes} minutes of inactivity)")
@@ -814,23 +815,29 @@ class ModelManager:
     def _create_whisper_engine(self, whisper_config: Any):
         """Create a Whisper engine instance based on configuration."""
         try:
+            from pathlib import Path
             engine_type = whisper_config.engine_type.lower()
             
             if engine_type == "whisper_large_v3_turbo":
-                from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
+                from ..inference_engines.voice.stt import WhisperLargeV3TurboEngine
                 return WhisperLargeV3TurboEngine()
             elif engine_type == "whisper_large_v3":
-                from ..services.voice.transcription.whisper_large_v3_engine import WhisperLargeV3Engine
+                from ..inference_engines.voice.stt import WhisperLargeV3Engine
                 return WhisperLargeV3Engine()
             elif engine_type == "whisper_arabic_turbo":
-                from ..services.voice.transcription.whisper_arabic_turbo_engine import WhisperArabicTurboEngine
+                from ..inference_engines.voice.stt import WhisperArabicTurboEngine
                 return WhisperArabicTurboEngine()
             elif engine_type == "whisper_finetuned_arabic":
-                from ..services.voice.transcription.whisper_finetuned_arabic_engine import WhisperFinetunedArabicEngine
+                from ..inference_engines.voice.stt import WhisperFinetunedArabicEngine
                 return WhisperFinetunedArabicEngine()
+            elif engine_type == "whisper_genius_arabic":
+                from ..inference_engines.voice.stt import WhisperGeniusArabicEngine
+                # For Genius Arabic, model_id is actually the directory path
+                model_path = Path(whisper_config.model_id) if whisper_config.model_id else None
+                return WhisperGeniusArabicEngine(model_path=model_path)
             else:
                 logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
-                from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
+                from ..inference_engines.voice.stt import WhisperLargeV3TurboEngine
                 return WhisperLargeV3TurboEngine()
                 
         except Exception as e:
@@ -1029,7 +1036,7 @@ class ModelManager:
 
     # ================= TTS Engine Management =================
     def get_tts_engine(self, model_name: Optional[str] = None) -> Optional[Any]:
-        """Retrieve (and lazily load) a TTS engine (e.g., Edge TTS) by model name.
+        """Retrieve (and lazily load) a TTS engine (e.g., Edge TTS, XTTS) by model name.
 
         Args:
             model_name: Optional model key from voice registry (defaults to registry default)
@@ -1052,17 +1059,38 @@ class ModelManager:
                     logger.error(f"TTS model '{model_name}' not found in voice registry")
                     return None
                 engine_type = model_entry.get("engine_type", "edge_tts")
+                
                 if engine_type == "edge_tts":
-                    from ..inference_engines.edge_tts_engine import EdgeTTSEngine
+                    from ..inference_engines.voice.tts import EdgeTTSEngine
                     from ..config.config_manager import ModelConfig
                     config = ModelConfig(name=model_name, model_id=model_entry.get("model_id", model_name), engine_type=engine_type)
                     engine = EdgeTTSEngine(config)
+                elif engine_type == "xtts":
+                    from ..inference_engines.voice.tts import XTTSEngine
+                    from ..config.config_manager import ModelConfig
+                    from pathlib import Path
+                    
+                    # For XTTS, model_id is actually the directory path
+                    model_path_str = model_entry.get("model_id", model_name)
+                    model_path = Path(model_path_str)
+                    
+                    # Create config with model_id as name reference
+                    config = ModelConfig(
+                        name=model_name,
+                        model_id=model_name,  # Use name as model_id reference
+                        engine_type=engine_type
+                    )
+                    
+                    # Pass model_path directly to XTTSEngine
+                    engine = XTTSEngine(model_config=config, model_path=model_path)
+                    logger.info(f"Creating XTTS engine with path: {model_path}")
                 else:
                     logger.warning(f"Unknown TTS engine_type '{engine_type}', attempting Edge TTS fallback")
-                    from ..inference_engines.edge_tts_engine import EdgeTTSEngine
+                    from ..inference_engines.voice.tts import EdgeTTSEngine
                     from ..config.config_manager import ModelConfig
                     config = ModelConfig(name=model_name, model_id=model_entry.get("model_id", model_name), engine_type="edge_tts")
                     engine = EdgeTTSEngine(config)
+                    
                 engine.load_model()
                 self._loaded_models[internal_name] = engine
                 self._model_last_used[internal_name] = time.time()

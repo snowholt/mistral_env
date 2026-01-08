@@ -22,6 +22,7 @@ Date: 2025-10-15
 """
 
 import asyncio
+import inspect
 import logging
 import time
 from typing import Optional, Dict, Any, Callable, List
@@ -45,7 +46,7 @@ class BufferConfig:
     max_buffer_size_bytes: int = 16000 * 2 * 30  # 30s at 16kHz mono 16-bit
     
     # Frame management
-    frame_duration_ms: int = 30  # Standard frame size for VAD
+    frame_duration_ms: int = 40  # Frame size matching Opus decoder output (40ms @ 48kHz = 1920 samples)
     sample_rate: int = 16000  # Target sample rate
     
     # Overflow handling
@@ -102,7 +103,8 @@ class WebRTCBufferManager:
         peer_id: str,
         config: Optional[BufferConfig] = None,
         on_segment_ready: Optional[Callable[[str, bytes, Dict[str, Any]], None]] = None,
-        on_buffer_overflow: Optional[Callable[[str], None]] = None
+        on_buffer_overflow: Optional[Callable[[str], None]] = None,
+        **legacy_kwargs: Any,
     ):
         """
         Initialize WebRTC buffer manager.
@@ -113,6 +115,20 @@ class WebRTCBufferManager:
             on_segment_ready: Callback when complete speech segment ready
             on_buffer_overflow: Callback when buffer overflows
         """
+        # Legacy compatibility: accept dict-based config overrides
+        if config is None and legacy_kwargs:
+            overrides: Dict[str, Any] = {}
+            if "pre_roll_ms" in legacy_kwargs:
+                overrides["pre_roll_duration_ms"] = int(legacy_kwargs["pre_roll_ms"])
+            if "post_roll_ms" in legacy_kwargs:
+                overrides["post_roll_duration_ms"] = int(legacy_kwargs["post_roll_ms"])
+            if "max_buffer_size_mb" in legacy_kwargs:
+                overrides["max_buffer_size_bytes"] = int(legacy_kwargs["max_buffer_size_mb"]) * 1024 * 1024
+            if "sample_rate" in legacy_kwargs:
+                overrides["sample_rate"] = int(legacy_kwargs["sample_rate"])
+
+            config = BufferConfig(**overrides)
+
         self.peer_id = peer_id
         self.config = config or BufferConfig()
         self.logger = logging.getLogger(__name__)
@@ -147,6 +163,10 @@ class WebRTCBufferManager:
             f"(pre-roll: {self.config.pre_roll_duration_ms}ms, "
             f"post-roll: {self.config.post_roll_duration_ms}ms)"
         )
+
+    async def initialize(self) -> bool:
+        """Legacy no-op initializer for backward compatibility."""
+        return True
     
     def _ms_to_frames(self, duration_ms: int) -> int:
         """Convert milliseconds to number of frames."""
@@ -160,7 +180,7 @@ class WebRTCBufferManager:
         self,
         audio_chunk: bytes,
         vad_state: str,  # VADState enum value
-        metadata: Dict[str, Any]
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
         Feed audio chunk to buffer manager (RealtimeSTT feed_audio pattern).
@@ -182,13 +202,26 @@ class WebRTCBufferManager:
         """
         async with self._buffer_lock:
             try:
+                metadata = metadata or {}
+
                 self.metrics.chunks_received += 1
+                
+                # Log every 10 chunks for debugging
+                if self.metrics.chunks_received % 10 == 0:
+                    self.logger.info(f"[BUFFER←VAD] Received chunk #{self.metrics.chunks_received}: {len(audio_chunk)} bytes, state={vad_state}")
+                    print(f"[BUFFER←VAD] Received chunk #{self.metrics.chunks_received}: {len(audio_chunk)} bytes, state={vad_state}")
                 
                 # Convert VAD state string to enum-like comparison
                 from ..services.voice.vad.webrtc_vad_service import VADState
                 
                 # Always feed to pre-roll buffer (continuous rolling window)
                 self._pre_roll_buffer.append(audio_chunk)
+                
+                # DEBUG: Track buffer accumulation
+                if self.metrics.chunks_received % 10 == 0:
+                    pre_roll_size = sum(len(c) for c in self._pre_roll_buffer)
+                    active_size = sum(len(c) for c in self._active_buffer)
+                    print(f"[BUFFER] Chunk #{self.metrics.chunks_received}: pre_roll={pre_roll_size}B, active={active_size}B, incoming={len(audio_chunk)}B")
                 
                 # Handle state-specific buffering
                 if vad_state == VADState.INACTIVE.value:
@@ -334,7 +367,9 @@ class WebRTCBufferManager:
             
             # Trigger callback if set
             if self._on_segment_ready:
-                self._on_segment_ready(self.peer_id, complete_audio, segment_metadata)
+                callback_result = self._on_segment_ready(self.peer_id, complete_audio, segment_metadata)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             
             # Reset for next segment
             self._reset_for_next_segment()
@@ -418,6 +453,12 @@ class WebRTCBufferManager:
         """
         if not self.is_recording and self._active_buffer:
             return b''.join(self._active_buffer)
+        return None
+
+    def get_recording(self) -> Optional[bytes]:
+        """Legacy helper that returns currently buffered audio regardless of state."""
+        if self._active_buffer:
+            return b"".join(self._active_buffer)
         return None
     
     def get_current_duration(self) -> float:

@@ -582,11 +582,11 @@
         <div class="form-group">
           <label>Server URL</label>
           <select id="serverUrlPreset" onchange="updateServerUrl()" style="margin-bottom: 0.5rem;">
-            <option value="frontend" selected>Frontend Proxy (web.lumidev.ca)</option>
-            <option value="api">Direct API (api.lumidev.ca)</option>
+            <option value="frontend" selected>Frontend Proxy (dev.gmai.sa)</option>
+            <option value="api">Direct API (api.gmai.sa)</option>
             <option value="custom">Custom URL</option>
           </select>
-          <input type="text" id="serverUrl" value="https://web.lumidev.ca/api/v1/webrtc/voice" placeholder="https://server:port/path">
+          <input type="text" id="serverUrl" value="https://dev.gmai.sa/api/v1/webrtc/voice" placeholder="https://server:port/path">
           <small style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0.25rem; display: block;">
             <i class="fas fa-info-circle"></i> Use HTTPS for signaling endpoints (not WSS)
           </small>
@@ -1446,6 +1446,47 @@
       draw();
     }
 
+    function setupDataChannelHandlers(channel, sourceLabel = 'client-created') {
+      if (!channel) {
+        return;
+      }
+
+      dataChannel = channel;
+      dataChannel.binaryType = 'arraybuffer';
+      log(`Data channel '${channel.label}' registered (${sourceLabel})`, 'success');
+
+      channel.onopen = () => {
+        log(`Data channel '${channel.label}' opened`, 'success');
+      };
+
+      channel.onclose = () => {
+        log(`Data channel '${channel.label}' closed`, 'info');
+      };
+
+      channel.onmessage = (evt) => {
+        try {
+          const message = JSON.parse(evt.data);
+          log(`Data channel message: ${message.type}`, 'info');
+
+          switch (message.type) {
+            case 'transcription':
+              displayTranscription(message.text, message.timestamp);
+              break;
+            case 'assistant_response':
+              displayAssistantResponse(message.text, message.timestamp);
+              break;
+            case 'tts_audio':
+              playTTSAudio(message.audio_base64);
+              break;
+            default:
+              log(`Unknown message type: ${message.type}`, 'warning');
+          }
+        } catch (error) {
+          log(`Error processing data channel message: ${error.message}`, 'error');
+        }
+      };
+    }
+
     // ===== WebRTC Functions =====
     async function connect() {
       try {
@@ -1467,6 +1508,13 @@
 
         peerConnection = new RTCPeerConnection(configuration);
         log('RTCPeerConnection created', 'success');
+
+        const clientChannelLabel = 'beautyai-client';
+        const clientDataChannel = peerConnection.createDataChannel(clientChannelLabel, {
+          ordered: true
+        });
+        setupDataChannelHandlers(clientDataChannel, 'client-created');
+        log(`Client data channel '${clientChannelLabel}' created and attached to offer`, 'success');
 
         // Set up event listeners
         peerConnection.onicecandidate = (event) => {
@@ -1509,40 +1557,7 @@
         // Handle incoming data channel from server
         peerConnection.ondatachannel = (event) => {
           const channel = event.channel;
-          log(`Data channel '${channel.label}' received from server`, 'success');
-          
-          channel.onopen = () => {
-            log(`Data channel '${channel.label}' opened`, 'success');
-          };
-          
-          channel.onclose = () => {
-            log(`Data channel '${channel.label}' closed`, 'info');
-          };
-          
-          channel.onmessage = (evt) => {
-            try {
-              const message = JSON.parse(evt.data);
-              log(`Data channel message: ${message.type}`, 'info');
-              
-              switch (message.type) {
-                case 'transcription':
-                  displayTranscription(message.text, message.timestamp);
-                  break;
-                case 'assistant_response':
-                  displayAssistantResponse(message.text, message.timestamp);
-                  break;
-                case 'tts_audio':
-                  playTTSAudio(message.audio_base64);
-                  break;
-                default:
-                  log(`Unknown message type: ${message.type}`, 'warning');
-              }
-            } catch (error) {
-              log(`Error processing data channel message: ${error.message}`, 'error');
-            }
-          };
-          
-          dataChannel = channel;
+          setupDataChannelHandlers(channel, 'server-announced');
         };
 
         // Prepare audio transceiver so we can attach the microphone only when recording starts
@@ -2032,11 +2047,11 @@
       const urlInput = document.getElementById('serverUrl');
 
       if (preset === 'frontend') {
-        urlInput.value = 'https://web.lumidev.ca/api/v1/webrtc/voice';
+        urlInput.value = 'https://dev.gmai.sa/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
       } else if (preset === 'api') {
-        urlInput.value = 'https://api.lumidev.ca/api/v1/webrtc/voice';
+        urlInput.value = 'https://api.gmai.sa/api/v1/webrtc/voice';
         urlInput.readOnly = true;
         urlInput.style.backgroundColor = 'var(--bg-tertiary)';
       } else {

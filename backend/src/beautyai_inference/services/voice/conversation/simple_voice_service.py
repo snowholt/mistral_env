@@ -11,14 +11,24 @@ Date: 2025-01-23
 
 import asyncio
 import logging
+import os
 import tempfile
 import time
 import uuid
+import wave
 from pathlib import Path
-from typing import Dict, Any, Optional, Union, List, Callable
+from typing import Dict, Any, Optional, Union, List, Callable, Tuple
 from dataclasses import dataclass
 from datetime import datetime
+import numpy as np
+
+try:
+    from scipy.signal import resample_poly
+except ImportError:  # pragma: no cover - optional dependency
+    resample_poly = None
+
 import edge_tts
+from ..utils.audio import to_float_mono_16k, ensure_sample_rate
 from ....services.voice.utils.text_cleaning import sanitize_tts_text
 
 from ....config.configuration_manager import ConfigurationManager
@@ -28,7 +38,41 @@ from ....api.schemas.debug_schemas import (
 )
 
 # Configure logger
-logger = logging.getLogger(__name__)
+LOGGER_NAME = "beautyai.voice.simple_voice_service"
+logger = logging.getLogger(LOGGER_NAME)
+logger.setLevel(logging.INFO)
+logger.propagate = True
+
+
+def _log_pcm_stats(
+    logger: logging.Logger,
+    label: str,
+    sample_rate: Optional[int],
+    channels: int,
+    audio_bytes: bytes
+) -> None:
+    """Log PCM statistics for debugging STT sample-rate mismatches."""
+    sr = ensure_sample_rate(sample_rate)
+    samples = len(audio_bytes) // 2
+    duration = samples / float(sr) if sr else 0.0
+
+    if samples:
+        int16_audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        float_audio = int16_audio.astype(np.float32) / 32768.0
+        peak = float(np.max(np.abs(float_audio))) if float_audio.size else 0.0
+        rms = float(np.sqrt(np.mean(float_audio ** 2))) if float_audio.size else 0.0
+    else:
+        peak = 0.0
+        rms = 0.0
+
+    message = (
+        f"[PCM] label={label} sr={sr} ch={channels} dtype=int16 "
+        f"samples={samples} duration_s={duration:.3f} peak={peak:.4f} rms={rms:.4f}"
+    )
+    logger.info(message)
+    diagnostics_logger = logging.getLogger("beautyai.voice.diagnostics")
+    if diagnostics_logger is not logger:
+        diagnostics_logger.info(message)
 
 
 @dataclass
@@ -65,7 +109,9 @@ class SimpleVoiceService:
             debug_mode: Enable debug mode for detailed metrics and logging
         """
         self.config = config or {}
-        self.logger = logging.getLogger(__name__)
+        self.logger = logging.getLogger(LOGGER_NAME)
+        self.logger.setLevel(logging.INFO)
+        self.logger.propagate = True
         
         # Debug configuration
         self.debug_mode = debug_mode
@@ -85,6 +131,12 @@ class SimpleVoiceService:
         # Core services - will be initialized later
         self.transcription_service = None
         self.chat_service = None
+        self.chat_default_model_name: Optional[str] = None
+        self.chat_default_model_config: Optional[Any] = None
+        self.chat_default_generation_config: Dict[str, Any] = {}
+        self.chat_session_id: Optional[str] = None
+        self.chat_history: List[Dict[str, str]] = []
+        self.chat_last_language: Optional[str] = None
         
         # UPDATED: Reference to persistent Whisper engine from ModelManager
         self.persistent_whisper_engine = None
@@ -103,11 +155,122 @@ class SimpleVoiceService:
         
         # Audio configuration from registry
         self.audio_config = self.voice_config.get_audio_config()
+
+        # Streaming STT configuration
+        self._stt_sample_rate_hint: int = 16000
+
+        # Chat persona configuration (default to beauty/medical domain)
+        self.chat_persona: str = os.getenv("VOICE_CHAT_PERSONA", "beauty").lower()
+        self.disable_content_filter: bool = False
         
         self.logger.info("SimpleVoiceService initialized with voice registry configuration")
         
         if self.debug_mode:
             self.logger.info("🔍 Debug mode enabled for SimpleVoiceService")
+
+    def _cache_chat_defaults(self) -> None:
+        """Capture default chat model metadata for fast reuse in the voice pipeline."""
+        if not self.chat_service:
+            return
+
+        try:
+            default_name: Optional[str] = None
+            default_config: Optional[Any] = None
+            generation_config: Dict[str, Any] = {}
+
+            if hasattr(self.chat_service, "get_default_model_info"):
+                default_name, default_config = self.chat_service.get_default_model_info()
+
+            if hasattr(self.chat_service, "get_default_generation_config"):
+                generation_config = self.chat_service.get_default_generation_config()
+
+            if not generation_config:
+                generation_config = {
+                    "max_new_tokens": 256,
+                    "temperature": 0.3,
+                    "top_p": 0.95,
+                    "do_sample": True,
+                    "thinking_mode": False
+                }
+
+            if default_name:
+                self.logger.debug(
+                    "Cached chat defaults: model=%s, max_new_tokens=%s",
+                    default_name,
+                    generation_config.get("max_new_tokens")
+                )
+
+            self.chat_default_model_name = default_name
+            self.chat_default_model_config = default_config
+            self.chat_default_generation_config = generation_config
+
+        except Exception as exc:
+            self.logger.warning(f"Failed to cache chat defaults: {exc}")
+
+    def configure_chat_persona(self, persona: str, disable_content_filter: bool = False) -> None:
+        """Configure chat persona (e.g., general vs beauty) for voice sessions."""
+        if persona:
+            self.chat_persona = persona.lower()
+        self.disable_content_filter = disable_content_filter
+        self._apply_chat_persona_overrides()
+
+    def _apply_chat_persona_overrides(self) -> None:
+        """Apply persona-specific prompt or safety overrides when chat service is ready."""
+        if not self.chat_service:
+            return
+
+        applied_marker = getattr(self.chat_service, "_voice_persona_applied", None)
+        if applied_marker == self.chat_persona:
+            return
+
+        prompt_builder = getattr(self.chat_service, "prompt_builder", None)
+
+        if self.chat_persona == "general" and prompt_builder and hasattr(prompt_builder, "override_system_prompt"):
+            prompt_builder.override_system_prompt(
+                "en",
+                "You are a friendly, conversational AI assistant. Respond in clear English "
+                "with helpful, respectful answers across any topic."
+            )
+            prompt_builder.override_system_prompt(
+                "ar",
+                "أنت مساعد ذكاء اصطناعي ودود يقدم إجابات محترمة ومفيدة في أي موضوع باحترافية ووضوح."
+            )
+
+        setattr(self.chat_service, "_voice_persona_applied", self.chat_persona)
+
+    def _prepare_generation_config(self) -> Dict[str, Any]:
+        """Construct per-request generation settings for the voice chat flow."""
+        base = dict(self.chat_default_generation_config or {})
+
+        # Ensure essential parameters are set for fast voice replies
+        base.setdefault("max_new_tokens", 192)
+        try:
+            base["max_new_tokens"] = min(int(base["max_new_tokens"]), 256)
+        except (TypeError, ValueError):
+            base["max_new_tokens"] = 192
+        base.setdefault("temperature", 0.3)
+        base.setdefault("top_p", 0.95)
+        base.setdefault("do_sample", True)
+
+        # Thinking mode must stay disabled for voice
+        base["thinking_mode"] = False
+        
+        # Check for dev mode to disable safeguards (for testing)
+        if os.getenv('DISABLE_SYSTEM_PROMPT_SAFEGUARDS', '').lower() in ('1', 'true', 'yes'):
+            base["disable_system_prompt_safeguards"] = True
+
+        # Voice responses should not be too random
+        try:
+            base["temperature"] = float(base.get("temperature", 0.3))
+        except (TypeError, ValueError):
+            base["temperature"] = 0.3
+        try:
+            base["top_p"] = float(base.get("top_p", 0.95))
+        except (TypeError, ValueError):
+            base["top_p"] = 0.95
+        base["top_p"] = min(max(base["top_p"], 0.0), 1.0)
+
+        return base
     
     def set_debug_callback(self, callback: Callable[[DebugEvent], None]) -> None:
         """Set callback function for real-time debug events."""
@@ -316,6 +479,7 @@ class SimpleVoiceService:
                         # Use the preloaded LLM for chat service
                         from beautyai_inference.services.inference.chat_service import ChatService
                         self.chat_service = ChatService()
+                        self._cache_chat_defaults()
                         
                         # Set the preloaded model in chat service if supported
                         if hasattr(self.chat_service, 'set_model_engine'):
@@ -326,6 +490,7 @@ class SimpleVoiceService:
                             success = self.chat_service.load_default_model_from_config()
                             if success:
                                 self.logger.info("✅ Loaded default chat model (fallback)")
+                                self._cache_chat_defaults()
                 except Exception as e:
                     self.logger.warning(f"Failed to get LLM model from persistent manager: {e}")
             
@@ -351,14 +516,20 @@ class SimpleVoiceService:
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
+                self._cache_chat_defaults()
                 
                 # Load the fastest model for persistent 24/7 service
                 success = self.chat_service.load_default_model_from_config()  # This will load qwen3-unsloth-q4ks
                 if success:
                     self.logger.info("✅ Fastest chat model (qwen3-unsloth-q4ks) pre-loaded for 24/7 service")
+                    self._cache_chat_defaults()
                 else:
                     self.logger.warning("Failed to pre-load fastest chat model, will load on demand")
             
+            # Ensure defaults are cached even if chat_service was pre-existing
+            if self.chat_service:
+                self._cache_chat_defaults()
+
             self.logger.info("🚀 Voice processing models pre-loading completed")
             
         except Exception as e:
@@ -573,6 +744,26 @@ class SimpleVoiceService:
         else:
             return self.default_english_voice
     
+    async def process_transcription(
+        self,
+        audio_data: bytes,
+        audio_format: str = "pcm",
+        language: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Legacy API shim that routes to process_voice_message."""
+        metadata = metadata or {}
+        return await self.process_voice_message(
+            audio_data=audio_data,
+            audio_format=metadata.get("audio_format", audio_format),
+            chat_model=metadata.get("chat_model", "qwen-3"),
+            voice_id=metadata.get("voice_id"),
+            language=language or metadata.get("language"),
+            gender=metadata.get("gender", "female"),
+            conversation_context=metadata.get("conversation_context"),
+            debug_context=metadata.get("debug_context"),
+        )
+
     async def process_voice_message(
         self,
         audio_data: bytes,
@@ -742,9 +933,11 @@ class SimpleVoiceService:
                 # Handle chat failure gracefully - provide language-appropriate default response
                 logger.warning("Chat generation failed, using fallback response")
                 if detected_language == "ar":
-                    response_text = "أهلاً بك! كيف يمكنني مساعدتك اليوم؟"
+                    response_text = sanitize_tts_text("أهلاً بك! كيف يمكنني مساعدتك اليوم؟")
                 else:
-                    response_text = "Hello! How can I help you today?"
+                    response_text = sanitize_tts_text("Hello! How can I help you today?")
+            else:
+                response_text = sanitize_tts_text(response_text)
                 
             self.logger.info(f"AI Response: {response_text}")
             
@@ -820,11 +1013,12 @@ class SimpleVoiceService:
             result = {
                 "transcribed_text": transcribed_text,
                 "response_text": response_text,
-                "response_text_clean": response_text,  # Already cleaned in _generate_chat_response
+                "response_text_clean": response_text,
                 "audio_file_path": str(audio_output_path),
                 "processing_time": processing_time,
                 "voice_used": selected_voice,
                 "language_detected": detected_language,  # Use detected_language instead of language
+                "chat_session_id": self.chat_session_id,
                 "debug_summary": self.current_debug_summary if self.debug_mode else None
             }
             
@@ -912,15 +1106,21 @@ class SimpleVoiceService:
         self,
         audio_data: bytes,
         language: Optional[str] = None,
-        audio_format: Optional[str] = None
+        audio_format: Optional[str] = None,
+        metadata: Optional[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """Transcribe raw audio bytes for WebRTC adapter compatibility."""
         try:
             effective_format = audio_format or "pcm"
+            sample_rate_hint = None
+            if metadata:
+                sample_rate_hint = metadata.get("sample_rate") or metadata.get("sample_rate_hz")
             transcript = await self._transcribe_audio(
                 audio_data,
                 audio_format=effective_format,
-                language=language
+                language=language,
+                sample_rate_hint=sample_rate_hint,
+                metadata=metadata
             )
             return {
                 "success": True,
@@ -952,10 +1152,13 @@ class SimpleVoiceService:
                 target_language=target_language,
                 conversation_context=conversation_context
             )
+            clean_response = sanitize_tts_text(response_text)
+            response_language = self.chat_last_language or target_language
             return {
                 "success": True,
-                "response": response_text,
-                "language": target_language
+                "response": clean_response,
+                "language": response_language,
+                "session_id": self.chat_session_id
             }
         except Exception as e:
             self.logger.error(f"Chat generation error: {e}", exc_info=True)
@@ -1025,7 +1228,114 @@ class SimpleVoiceService:
         logger.info(f"🎵 Converted raw PCM data ({len(pcm_data)} bytes) to WAV file: {wav_file}")
         return wav_file
     
-    async def _transcribe_audio(self, audio_data: bytes, audio_format: str = "wav", language: Optional[str] = None) -> str:
+    def _prepare_audio_for_stt(
+        self,
+        audio_bytes: bytes,
+        sample_rate_hint: Optional[int] = None,
+        target_sample_rate: int = 16000,
+        silence_threshold_db: float = -40.0,
+        silence_padding_ms: int = 100
+    ) -> Tuple[np.ndarray, int, float, float]:
+        """Convert PCM bytes to normalized float audio ready for STT."""
+        if not audio_bytes:
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        try:
+            audio_int16 = np.frombuffer(audio_bytes, dtype=np.int16)
+        except ValueError:
+            self.logger.warning("[STT] Unable to interpret audio bytes as int16 PCM; skipping preprocessing")
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        if audio_int16.size == 0:
+            return np.zeros(0, dtype=np.float32), target_sample_rate, 0.0, 0.0
+
+        sample_rate = sample_rate_hint or getattr(self, "_stt_sample_rate_hint", target_sample_rate)
+        normalized_audio, normalized_rate = to_float_mono_16k(audio_int16, sample_rate)
+        sample_rate = normalized_rate or target_sample_rate
+
+        trimmed_audio = self._trim_silence(
+            normalized_audio,
+            sample_rate=sample_rate,
+            threshold_db=silence_threshold_db,
+            padding_ms=silence_padding_ms
+        )
+
+        peak_level = float(np.max(np.abs(trimmed_audio))) if trimmed_audio.size else 0.0
+        rms_level = float(np.sqrt(np.mean(trimmed_audio ** 2))) if trimmed_audio.size else 0.0
+
+        return trimmed_audio.astype(np.float32), sample_rate, peak_level, rms_level
+
+    def _resample_audio(self, audio: np.ndarray, source_sr: int, target_sr: int) -> np.ndarray:
+        """Resample audio using polyphase filtering when available."""
+        if audio.size == 0 or source_sr == target_sr:
+            return audio
+
+        if resample_poly is not None:
+            try:
+                from math import gcd
+
+                ratio_gcd = gcd(source_sr, target_sr)
+                up = target_sr // ratio_gcd
+                down = source_sr // ratio_gcd
+                return resample_poly(audio, up, down)
+            except Exception as exc:  # pragma: no cover - fallback path
+                self.logger.debug(f"[STT] resample_poly failed ({exc}), falling back to linear interpolation")
+
+        # Fallback linear interpolation
+        if source_sr <= 0 or target_sr <= 0:
+            return audio
+
+        duration = audio.size / float(source_sr)
+        target_length = max(int(duration * target_sr), 1)
+        source_positions = np.linspace(0.0, 1.0, num=audio.size, endpoint=False)
+        target_positions = np.linspace(0.0, 1.0, num=target_length, endpoint=False)
+        return np.interp(target_positions, source_positions, audio)
+
+    def _trim_silence(
+        self,
+        audio: np.ndarray,
+        sample_rate: int,
+        threshold_db: float = -40.0,
+        padding_ms: int = 100
+    ) -> np.ndarray:
+        """Trim silence from both ends of the signal while preserving padding."""
+        if audio.size == 0 or sample_rate <= 0:
+            return audio
+
+        threshold = 10 ** (threshold_db / 20.0)
+        magnitude = np.abs(audio)
+        active_indices = np.where(magnitude >= threshold)[0]
+
+        if active_indices.size == 0:
+            return audio
+
+        padding = int(sample_rate * padding_ms / 1000)
+        start = max(int(active_indices[0]) - padding, 0)
+        end = min(int(active_indices[-1]) + padding + 1, audio.size)
+        trimmed = audio[start:end]
+
+        # Keep original audio if trimming results in extremely short clip (<100ms)
+        min_samples = int(sample_rate * 0.1)
+        if trimmed.size < min_samples:
+            return audio
+
+        return trimmed
+
+    def _float_audio_to_pcm_bytes(self, audio: np.ndarray) -> bytes:
+        """Convert normalized float audio back to int16 PCM bytes."""
+        if audio.size == 0:
+            return b""
+        clipped = np.clip(audio, -1.0, 1.0)
+        return (clipped * 32767.0).astype(np.int16).tobytes()
+
+    async def _transcribe_audio(
+        self,
+        audio_data: bytes,
+        audio_format: str = "wav",
+        language: Optional[str] = None,
+        sample_rate_hint: Optional[int] = None,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> str:
         """
         Transcribes audio data using persistent Whisper model from ModelManager.
         
@@ -1040,45 +1350,145 @@ class SimpleVoiceService:
             Transcribed text from the audio with /no_think suffix added
         """
         try:
+            language_hint = language or "en"
+            effective_format = (audio_format or "pcm").lower()
+
+            # Default sample-rate hint can be overridden by upstream metadata later
+            sample_rate_hint = sample_rate_hint or getattr(self, "_stt_sample_rate_hint", 16000)
+
+            processed_audio = None
+            peak_level = 0.0
+            rms_level = 0.0
+            duration_sec = 0.0
+
+            # Only custom-preprocess PCM (and WAV when we can parse header)
+            audio_bytes_for_engine = audio_data
+
+            if effective_format == "wav":
+                try:
+                    import io
+                    import wave
+
+                    with wave.open(io.BytesIO(audio_data), "rb") as wav_file:
+                        sample_rate_hint = wav_file.getframerate()
+                        frames = wav_file.readframes(wav_file.getnframes())
+                    audio_bytes_for_engine = frames
+                    effective_format = "pcm"
+                except Exception as exc:  # pragma: no cover - WAV parsing fallback
+                    self.logger.debug(f"[STT] WAV header parsing failed ({exc}); using raw bytes")
+
+            if effective_format == "pcm":
+                processed_audio, sample_rate_used, peak_level, rms_level = self._prepare_audio_for_stt(
+                    audio_bytes_for_engine,
+                    sample_rate_hint=sample_rate_hint
+                )
+
+                self._stt_sample_rate_hint = sample_rate_used or 16000
+                duration_sec = (
+                    processed_audio.size / float(sample_rate_used)
+                    if processed_audio.size and sample_rate_used else 0.0
+                )
+
+                self.logger.info(
+                    "[STT-IN] sr=%d, dtype=float32, len=%d, peak=%.4f, rms=%.4f",
+                    sample_rate_used,
+                    processed_audio.size,
+                    peak_level,
+                    rms_level
+                )
+
+                prepared_bytes = self._float_audio_to_pcm_bytes(processed_audio)
+                if not prepared_bytes:
+                    self.logger.warning("[STT] Prepared audio is empty after preprocessing")
+                    return "unclear audio /no_think"
+
+                try:
+                    last_dump_path = self.temp_dir / "last_stt_input.wav"
+                    with wave.open(str(last_dump_path), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate_used)
+                        wav_file.writeframes(prepared_bytes)
+                except Exception as exc:
+                    self.logger.debug("[STT] Failed to write latest STT dump: %s", exc)
+            else:
+                prepared_bytes = audio_bytes_for_engine
+                if sample_rate_hint:
+                    duration_sec = len(prepared_bytes) / float(sample_rate_hint * 2)
+                self.logger.info(
+                    "[STT-IN] format=%s, len_bytes=%d (no custom preprocessing)",
+                    effective_format,
+                    len(prepared_bytes)
+                )
+                self._stt_sample_rate_hint = sample_rate_hint or self._stt_sample_rate_hint
+
+            dump_path = None
+            if metadata:
+                dump_path = metadata.get("dump_path") or metadata.get("stt_dump_path")
+            if not dump_path:
+                dump_path = os.getenv("BEAUTYAI_DUMP_STT_INPUT")
+            if dump_path:
+                try:
+                    dump_file = Path(dump_path)
+                    dump_file.parent.mkdir(parents=True, exist_ok=True)
+                    sample_rate_to_write = ensure_sample_rate(self._stt_sample_rate_hint)
+                    import wave
+
+                    with wave.open(str(dump_file), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate_to_write)
+                        wav_file.writeframes(prepared_bytes)
+                    _log_pcm_stats(
+                        self.logger,
+                        label="stt-in",
+                        sample_rate=sample_rate_to_write,
+                        channels=1,
+                        audio_bytes=prepared_bytes,
+                    )
+
+                    self.logger.info("[STT] Dumped prepared audio to %s", dump_file)
+                except Exception as exc:
+                    self.logger.warning("[STT] Failed to dump prepared audio: %s", exc)
+
             # UPDATED: Use persistent Whisper engine if available
             whisper_engine = self.persistent_whisper_engine
-            
-            # Fallback to transcription factory if persistent engine not available
+
             if whisper_engine is None:
                 logger.warning("Persistent Whisper engine not available, using factory fallback")
                 if self.transcription_service is None:
                     from beautyai_inference.services.voice.transcription.transcription_factory import create_transcription_service
                     self.transcription_service = create_transcription_service()
-                    
-                    # Use voice registry model
+
                     model_loaded = self.transcription_service.load_whisper_model()
                     if not model_loaded:
                         logger.warning("Failed to load voice registry STT model")
                         return "Sorry, I couldn't understand the audio."
-                
-                # Use factory-created transcription service
+
                 result = self.transcription_service.transcribe_audio_bytes(
-                    audio_data, 
-                    audio_format=audio_format,
-                    language=language
+                    prepared_bytes,
+                    audio_format="pcm",
+                    language=language_hint
                 )
             else:
-                # Use persistent Whisper engine directly
                 logger.debug("Using persistent Whisper engine for transcription")
                 result = whisper_engine.transcribe_audio_bytes(
-                    audio_data, 
-                    audio_format=audio_format,
-                    language=language
+                    prepared_bytes,
+                    audio_format="pcm",
+                    language=language_hint
                 )
-            
-            # Add /no_think to disable thinking mode for voice conversations
-            if result and result.strip():
-                transcribed_text = result.strip() + " /no_think"
+
+            raw_text = result.strip() if result else ""
+            self.logger.info("[STT-OUT] text=\"%s\"", raw_text)
+            self.logger.info("[STT] duration_sec=%.3f, lang_hint=%s", duration_sec, language_hint)
+
+            if raw_text:
+                transcribed_text = raw_text + " /no_think"
                 logger.info(f"Transcribed audio with /no_think: {transcribed_text}")
                 return transcribed_text
-            else:
-                return "unclear audio /no_think"
-            
+
+            return "unclear audio /no_think"
+
         except Exception as e:
             logger.error(f"Error transcribing audio: {e}")
             return "unclear audio /no_think"
@@ -1122,110 +1532,117 @@ class SimpleVoiceService:
             if self.chat_service is None:
                 from beautyai_inference.services.inference.chat_service import ChatService
                 self.chat_service = ChatService()
-                
-                # Try to load persistent default model first
-                success = self.chat_service.load_default_model_from_config()
-                if not success:
-                    logger.warning("Failed to load default model, trying registry alternatives...")
-                    # Try alternative models from registry
-                    alternative_models = ["qwen3-unsloth-q4ks", "qwen3-model", "deepseek-r1-qwen-14b-multilingual", "qwen3-official-q4km"]
-                    for model in alternative_models:
-                        if self.chat_service.load_model(model):
-                            logger.info(f"Successfully loaded alternative model: {model}")
-                            break
-                    else:
-                        logger.error("Failed to load any model")
-                        if target_language == "ar":
-                            return "عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاول مرة أخرى."
-                        else:
-                            return "Sorry, I'm experiencing technical difficulties. Please try again."
+                self._cache_chat_defaults()
+
+            # Ensure a chat model is ready
+            if self.chat_default_model_config is None:
+                load_success = self.chat_service.load_default_model_from_config()
+                if load_success:
+                    self._cache_chat_defaults()
+
+            if self.chat_default_model_config is None:
+                logger.error("Chat model configuration unavailable; cannot generate response")
+                if target_language == "ar":
+                    return sanitize_tts_text("عذراً، أواجه مشكلة تقنية حالياً. من فضلك حاولي مرة أخرى لاحقاً.")
+                return sanitize_tts_text("Sorry, I'm having technical difficulties right now. Please try again later.")
+
+            # Refresh cached values in case registry changed after initialization
+            self._cache_chat_defaults()
+            self._apply_chat_persona_overrides()
             
             # Create optimized message for fast responses in simple voice mode
-            if conversation_context:
-                if target_language == "ar":
-                    optimized_message = f"السياق: {conversation_context}\n\nأجب بإيجاز بالعربية: {text}"
+            if self.chat_persona == "general":
+                if conversation_context:
+                    if target_language == "ar":
+                        optimized_message = f"سياق إضافي: {conversation_context}\n\nرجاءً قدم رداً واضحاً ومفيداً: {text}"
+                    else:
+                        optimized_message = (
+                            f"Additional context: {conversation_context}\n\n"
+                            f"Please respond helpfully in {target_language or 'English'}: {text}"
+                        )
                 else:
-                    optimized_message = f"Context: {conversation_context}\n\nAnswer briefly in English: {text}"
+                    if target_language == "ar":
+                        optimized_message = f"يرجى الرد بوضوح وبأسلوب ودود: {text}"
+                    else:
+                        optimized_message = f"Please respond helpfully in {target_language or 'English'}: {text}"
             else:
-                if target_language == "ar":
-                    optimized_message = f"أجب بإيجاز بالعربية: {text}"
+                if conversation_context:
+                    if target_language == "ar":
+                        optimized_message = f"السياق: {conversation_context}\n\nأجب بإيجاز بالعربية: {text}"
+                    else:
+                        optimized_message = f"Context: {conversation_context}\n\nAnswer briefly in English: {text}"
                 else:
-                    optimized_message = f"Answer briefly in English: {text}"
+                    if target_language == "ar":
+                        optimized_message = f"أجب بإيجاز بالعربية: {text}"
+                    else:
+                        optimized_message = f"Answer briefly in English: {text}"
                     
             logger.info(f"Optimized message with context: {optimized_message[:100]}... (target_language: {target_language})")
             
-            # FIXED: Use the real chat service with correct parameter structure
-            # Create proper generation config for ChatService
-            generation_config = {
-                "max_new_tokens": 128,
-                "temperature": 0.3,
-                "top_p": 0.95,
-                "do_sample": True,
-                "thinking_mode": False
-            }
-            
-            # Try to call ChatService with proper API - fallback to simple response if it fails
-            try:
-                # Use a simple chat interface if available, otherwise fallback
-                if hasattr(self.chat_service, 'simple_chat'):
-                    # Some implementations might have a simple_chat method
-                    result = self.chat_service.simple_chat(
-                        message=optimized_message,
-                        language=target_language,
-                        max_tokens=128,
-                        temperature=0.3
-                    )
-                else:
-                    # For now, generate appropriate language response instead of calling complex API
-                    # This allows the voice system to work while the ChatService API is being fixed
-                    logger.warning("ChatService API incompatible, using language-appropriate fallback")
-                    
-                    if target_language == "ar":
-                        # Return Arabic responses based on the input topic
-                        if "تنظيف البشرة" in text or "جلسة" in text:
-                            response_text = "نتائج تنظيف البشرة تدوم عادة من أسبوع إلى أسبوعين، حسب نوع البشرة والعناية اليومية."
-                        elif "مرحبا" in text or "أهلا" in text or "السلام" in text:
-                            response_text = "أهلاً وسهلاً بك! كيف يمكنني مساعدتك اليوم؟"
-                        else:
-                            response_text = "شكراً لسؤالك. كيف يمكنني مساعدتك أكثر؟"
-                    else:
-                        # Return English responses based on the input topic  
-                        if "skincare" in text.lower() or "facial" in text.lower() or "treatment" in text.lower():
-                            response_text = "Skincare treatment results typically last 1-2 weeks, depending on your skin type and daily care routine."
-                        elif "hello" in text.lower() or "hi" in text.lower() or "hey" in text.lower():
-                            response_text = "Hello! How can I help you today?"
-                        else:
-                            response_text = "Thank you for your question. How can I help you further?"
-                    
-                    # Create a successful result structure to continue with the existing code flow
-                    result = {"success": True, "response": response_text}
-                    
-            except Exception as chat_error:
-                logger.error(f"ChatService call failed: {chat_error}")
-                # Fall through to existing error handling below
-                result = {"success": False, "error": str(chat_error)}
-            
-            if result.get("success"):
-                raw_response = result.get("response", "")
-                # Clean thinking blocks from the response before TTS
-                # Defensive clean & emoji strip (thinking mode already disabled via parameter)
-                clean_response = sanitize_tts_text(raw_response)
-                logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
-                return clean_response
+            generation_config = self._prepare_generation_config()
+
+            if target_language not in (None, "auto"):
+                response_language_hint = target_language
+            elif self.chat_last_language:
+                response_language_hint = self.chat_last_language
             else:
-                error_msg = result.get("error", "Unknown error")
-                logger.error(f"Chat service error: {error_msg}")
+                response_language_hint = None
+
+            history_snapshot = self.chat_history[:] if self.chat_history else None
+            session_id_snapshot = self.chat_session_id
+
+            loop = asyncio.get_running_loop()
+
+            def invoke_chat() -> Tuple[str, str, List[Dict[str, str]], str]:
+                return self.chat_service.chat(
+                    message=optimized_message,
+                    model_name=self.chat_default_model_name or getattr(self.chat_default_model_config, "name", "default"),
+                    model_config=self.chat_default_model_config,
+                    generation_config=generation_config,
+                    conversation_history=history_snapshot,
+                    response_language=response_language_hint,
+                    session_id=session_id_snapshot,
+                    disable_content_filter=self.disable_content_filter
+                )
+
+            try:
+                response_text, detected_language, updated_history, new_session_id = await loop.run_in_executor(
+                    None,
+                    invoke_chat
+                )
+            except Exception as chat_error:
+                logger.error(f"ChatService invocation failed: {chat_error}")
                 if target_language == "ar":
-                    return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
-                else:
-                    return "Sorry, I'm having trouble processing your request. Please try again."
+                    return sanitize_tts_text("عذراً، حدث خطأ أثناء توليد الرد. من فضلك حاولي مرة أخرى لاحقاً.")
+                return sanitize_tts_text("Sorry, I ran into an error while generating a response. Please try again later.")
+
+            # Persist session state for subsequent turns
+            if new_session_id:
+                self.chat_session_id = new_session_id
+            if updated_history is not None:
+                self.chat_history = updated_history
+                max_turn_pairs = 20
+                if len(self.chat_history) > max_turn_pairs * 2:
+                    self.chat_history = self.chat_history[-max_turn_pairs * 2:]
+            if detected_language:
+                self.chat_last_language = detected_language
+
+            clean_response = sanitize_tts_text(response_text)
+            if not clean_response:
+                logger.warning("ChatService returned empty response after sanitization; using fallback")
+                if (detected_language or target_language) == "ar":
+                    return sanitize_tts_text("عذراً، لم أفهم سؤالك بشكل كافٍ. هل يمكنك إعادة صياغته؟")
+                return sanitize_tts_text("I’m sorry, I didn’t quite catch that. Could you please rephrase?")
+
+            logger.info(f"Generated chat response for {target_language}: {clean_response[:100]}...")
+            return clean_response
             
         except Exception as e:
             logger.error(f"Error generating chat response: {e}")
             if target_language == "ar":
-                return "عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى."
+                return sanitize_tts_text("عذراً، أواجه صعوبة في معالجة طلبك الآن. من فضلك حاول مرة أخرى.")
             else:
-                return "Sorry, I'm having trouble processing your request. Please try again."
+                return sanitize_tts_text("Sorry, I'm having trouble processing your request. Please try again.")
     
     async def _synthesize_speech(self, text: str, voice_id: str, output_format: str = "wav") -> Path:
         """

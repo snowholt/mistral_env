@@ -535,3 +535,19 @@ class BaseWhisperEngine(ABC):
             format_str = format_or_filename.lower()
             
         return format_str in self.get_supported_formats()
+
+    def _normalize_language_hint(self, language: Optional[str]) -> Optional[str]:
+        """Normalize language hints to stable values expected by Whisper."""
+        if not language:
+            return None
+
+        normalized = language.strip().lower()
+        if not normalized:
+            return None
+
+        if normalized in {"en", "eng", "english"}:
+            return "english"
+        if normalized in {"ar", "ara", "arabic"}:
+            return "arabic"
+
+        return normalized

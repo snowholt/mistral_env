@@ -20,10 +20,17 @@ Author: BeautyAI Framework
 Date: 2025-10-15
 """
 
+import asyncio
+import inspect
 import logging
+import os
 import time
+import wave
+from pathlib import Path
 from typing import Optional, Dict, Any, Callable
 from dataclasses import dataclass
+
+import numpy as np
 
 try:
     from aiortc import MediaStreamTrack
@@ -48,8 +55,40 @@ from ...core.webrtc_buffer_manager import (
     BufferConfig,
     create_buffer_manager
 )
+from .utils.audio import to_float_mono_16k, float_to_pcm16, ensure_sample_rate
 
 logger = logging.getLogger(__name__)
+
+
+def _log_pcm_stats(
+    logger: logging.Logger,
+    label: str,
+    sample_rate: Optional[int],
+    channels: int,
+    audio_bytes: bytes
+) -> None:
+    """Log basic PCM statistics for debugging sample-rate issues."""
+    sr = ensure_sample_rate(sample_rate)
+    samples = len(audio_bytes) // 2
+    duration = (samples / sr) if sr else 0.0
+    if samples:
+        int16_audio = np.frombuffer(audio_bytes, dtype=np.int16)
+        float_audio = int16_audio.astype(np.float32) / 32768.0
+        peak = float(np.max(np.abs(float_audio))) if float_audio.size else 0.0
+        rms = float(np.sqrt(np.mean(float_audio ** 2))) if float_audio.size else 0.0
+    else:
+        peak = 0.0
+        rms = 0.0
+
+    dtype_name = "int16"
+    message = (
+        f"[PCM] label={label} sr={sr} ch={channels} dtype={dtype_name} "
+        f"samples={samples} duration_s={duration:.3f} peak={peak:.4f} rms={rms:.4f}"
+    )
+    logger.info(message)
+    diagnostics_logger = logging.getLogger("beautyai.voice.diagnostics")
+    if diagnostics_logger is not logger:
+        diagnostics_logger.info(message)
 
 
 @dataclass
@@ -145,6 +184,9 @@ class WebRTCVoiceServiceAdapter:
         self.is_initialized = False
         self.is_active = False
         self.session_start_time: Optional[float] = None
+        self._finalization_task: Optional[asyncio.Task] = None
+        self._finalization_complete: asyncio.Event = asyncio.Event()
+        self._finalization_complete.set()
         
         # Metrics
         self.utterances_processed = 0
@@ -187,6 +229,10 @@ class WebRTCVoiceServiceAdapter:
                 on_vad_state_change=self._on_vad_state_change
             )
             
+            # Link audio processor to VAD for lifecycle notifications
+            if self.audio_processor:
+                self.audio_processor.vad_service = self.vad_service
+
             if not await self.vad_service.initialize():
                 self.logger.error("Failed to initialize VAD service")
                 return False
@@ -198,6 +244,12 @@ class WebRTCVoiceServiceAdapter:
                 on_segment_ready=self._on_segment_ready,
                 on_buffer_overflow=self._on_buffer_overflow
             )
+
+            if self.vad_service:
+                self.vad_service.attach_buffer_manager(self.buffer_manager)
+
+            if self.voice_service and hasattr(self.voice_service, "configure_chat_persona"):
+                self.voice_service.configure_chat_persona(persona="general", disable_content_filter=True)
             
             self.is_initialized = True
             self.logger.info(f"WebRTC voice pipeline initialized for {self.peer_id}")
@@ -254,6 +306,12 @@ class WebRTCVoiceServiceAdapter:
             # Stop audio processor
             if self.audio_processor:
                 await self.audio_processor.stop_processing()
+
+            if self._finalization_task and not self._finalization_task.done():
+                self.logger.info(f"[ADAPTER] Awaiting finalization task for {self.peer_id} during stop")
+                await self._finalization_task
+
+            await self._finalization_complete.wait()
             
             # Reset components
             if self.vad_service:
@@ -277,13 +335,18 @@ class WebRTCVoiceServiceAdapter:
             self.logger.error(f"Error stopping voice session: {e}")
     
     async def _on_audio_chunk_received(self, chunk: bytes, metadata: Dict[str, Any]):
-        """
+        """  
         Callback when audio chunk received from processor.
         
         Feeds chunk to VAD for speech detection, then to buffer manager.
         """
         try:
-            print(f"[DEBUG-CHUNK] Audio chunk: {len(chunk)} bytes for {self.peer_id}")
+            chunk_num = getattr(self, '_chunk_counter', 0)
+            self._chunk_counter = chunk_num + 1
+            
+            if chunk_num % 10 == 0:
+                print(f"[ADAPTER-IN] Chunk #{chunk_num}: received {len(chunk)} bytes from processor")
+            
             self.logger.debug(f"Audio chunk received: {len(chunk)} bytes")
             
             # Process with VAD
@@ -297,7 +360,11 @@ class WebRTCVoiceServiceAdapter:
             voice_detected = vad_result['voice_detected']
             silero_prob = vad_result.get('silero_probability', 0.0)
             webrtc_det = vad_result.get('webrtc_detected', False)
-            print(f"[DEBUG-VAD] State={voice_state}, detected={voice_detected}, silero_prob={silero_prob:.4f}, webrtc={webrtc_det}")
+            
+            if chunk_num % 10 == 0:
+                print(f"[ADAPTER-VAD] Chunk #{chunk_num}: VAD state={voice_state}, detected={voice_detected}")
+                print(f"[ADAPTER-BUFFER] Chunk #{chunk_num}: feeding {len(chunk)} bytes to buffer")
+            
             self.logger.info(f"[ADAPTER] VAD result for {self.peer_id}: state={voice_state}, detected={voice_detected}, chunk_size={len(chunk)}")
             
             # Feed to buffer manager with VAD state
@@ -327,19 +394,118 @@ class WebRTCVoiceServiceAdapter:
         This is where we inject the /no_think prefix and call SimpleVoiceService.
         """
         try:
+            original_len = len(audio_data)
+            duration_hint = metadata.get("duration_sec", 0.0)
+
+            sample_rate = ensure_sample_rate(
+                metadata.get("sample_rate") or (
+                    self.buffer_manager.config.sample_rate if self.buffer_manager else None
+                )
+            )
+
+            # Validate that audio is actually at the claimed sample rate
+            # Convert bytes to float to check actual content
+            audio_int16 = np.frombuffer(audio_data, dtype=np.int16)
+            
+            # Calculate expected duration based on claimed rate
+            expected_duration = len(audio_int16) / sample_rate
+            
+            # Sanity check: duration should be reasonable (0.5s to 10s for speech)
+            if not (0.3 <= expected_duration <= 15.0):
+                self.logger.warning(
+                    f"[ADAPTER] Suspicious audio duration: {expected_duration:.2f}s "
+                    f"(bytes={len(audio_data)}, claimed_rate={sample_rate}Hz) for {peer_id}"
+                )
+            
+            # CRITICAL: Verify sample rate is 16kHz as expected by Whisper
+            if sample_rate != 16000:
+                self.logger.error(
+                    f"[ADAPTER] Audio not at 16kHz! Got {sample_rate}Hz for {peer_id}. "
+                    f"This will cause incorrect transcription!"
+                )
+                # Convert to float and resample to 16kHz
+                audio_float = audio_int16.astype(np.float32) / 32768.0
+                from .utils.audio import to_float_mono_16k
+                audio_float, sample_rate = to_float_mono_16k(audio_float, sample_rate)
+                # Convert back to PCM
+                audio_data = (np.clip(audio_float, -1.0, 1.0) * 32767).astype(np.int16).tobytes()
+                self.logger.info(f"[ADAPTER] Resampled audio to 16kHz for {peer_id}")
+
+            # Audio is already 16kHz mono PCM from audio processor
+            pcm_bytes = audio_data
+
+            metadata["sample_rate"] = sample_rate
+            metadata["duration_sec"] = len(pcm_bytes) / (sample_rate * 2)
+
             self.logger.info(
                 f"Speech segment ready for {peer_id}: "
-                f"{len(audio_data)} bytes, {metadata['duration_sec']:.2f}s"
+                f"{original_len}→{len(pcm_bytes)} bytes, {metadata['duration_sec']:.2f}s"
             )
+
+            try:
+                backend_root = Path(__file__).resolve().parents[4]
+            except IndexError:
+                backend_root = Path.cwd()
+
+            segment_dump_dir = backend_root / "logs" / "webrtc"
+            segment_dump_dir.mkdir(parents=True, exist_ok=True)
+            segment_dump_path = segment_dump_dir / f"webrtc_segment_{peer_id}.wav"
+
+            try:
+                with wave.open(str(segment_dump_path), "wb") as wav_file:
+                    wav_file.setnchannels(1)
+                    wav_file.setsampwidth(2)
+                    wav_file.setframerate(sample_rate)
+                    wav_file.writeframes(pcm_bytes)
+                _log_pcm_stats(
+                    self.logger,
+                    label="post-vad",
+                    sample_rate=sample_rate,
+                    channels=1,
+                    audio_bytes=pcm_bytes,
+                )
+                self.logger.info(
+                    f"[ADAPTER] Saved latest WebRTC segment for {peer_id} to {segment_dump_path}"
+                )
+            except Exception as exc:
+                self.logger.warning(
+                    f"[ADAPTER] Failed to persist WebRTC segment for {peer_id}: {exc}"
+                )
+
+            dump_path_env = os.getenv("BEAUTYAI_DUMP_WEBRTC_STT")
+            if dump_path_env:
+                try:
+                    dump_path = Path(dump_path_env)
+                    dump_path.parent.mkdir(parents=True, exist_ok=True)
+                    with wave.open(str(dump_path), "wb") as wav_file:
+                        wav_file.setnchannels(1)
+                        wav_file.setsampwidth(2)
+                        wav_file.setframerate(sample_rate)
+                        wav_file.writeframes(pcm_bytes)
+
+                    self.logger.info(
+                        f"[ADAPTER] Dumped WebRTC STT segment to {dump_path} (sr={sample_rate})"
+                    )
+                except Exception as exc:
+                    self.logger.warning(
+                        f"[ADAPTER] Failed to dump WebRTC STT segment: {exc}"
+                    )
             
             start_time = time.time()
             
-            # Convert PCM bytes to numpy array for voice service
-            import numpy as np
-            audio_array = np.frombuffer(audio_data, dtype=np.int16)
-            
+            # Convert normalized PCM bytes to numpy array for voice service
+            audio_array = np.frombuffer(pcm_bytes, dtype=np.int16).copy()
+
             # Process through voice service (STT → LLM → TTS)
-            result = await self._process_voice_with_service(audio_array, metadata)
+            self._finalization_complete.clear()
+            self._finalization_task = asyncio.create_task(
+                self._process_voice_with_service(audio_array, metadata)
+            )
+            try:
+                result = await self._finalization_task
+            finally:
+                self._finalization_task = None
+                self._finalization_complete.set()
             
             processing_time = time.time() - start_time
             self.total_processing_time += processing_time
@@ -373,9 +539,49 @@ class WebRTCVoiceServiceAdapter:
         
         try:
             # 1. STT: Transcribe audio to text
+            segment_metadata = metadata or {}
+
+            sample_rate = segment_metadata.get("sample_rate")
+            if not sample_rate and self.buffer_manager and getattr(self.buffer_manager, "config", None):
+                sample_rate = getattr(self.buffer_manager.config, "sample_rate", None)
+            if not sample_rate and self.config.audio_config:
+                sample_rate = getattr(self.config.audio_config, "target_sample_rate", None)
+            if not sample_rate:
+                sample_rate = 16000
+
+            stt_metadata = {
+                "sample_rate": sample_rate,
+                "duration_sec": segment_metadata.get("duration_sec"),
+                "num_frames": segment_metadata.get("num_frames"),
+                "audio_format": "pcm"
+            }
+
+            stt_language = self.language if self.language in {"ar", "en"} else "en"
+            stt_metadata["language_hint"] = stt_language
+
+            try:
+                backend_root = Path(__file__).resolve().parents[4]
+            except IndexError:
+                backend_root = Path.cwd()
+            dump_dir = backend_root / "logs" / "webrtc"
+            dump_dir.mkdir(parents=True, exist_ok=True)
+            stt_metadata["dump_path"] = str(dump_dir / f"stt_input_{self.peer_id}.wav")
+
+            peak_int16 = int(audio_array.max()) if audio_array.size else 0
+            min_int16 = int(audio_array.min()) if audio_array.size else 0
+            duration_sec = (audio_array.size / float(sample_rate)) if audio_array.size else 0.0
+            self.logger.info(
+                f"[ADAPTER] Dispatching STT for {self.peer_id}: language={stt_language}, "
+                f"duration={duration_sec:.2f}s, sample_rate={sample_rate}, "
+                f"peak_int16={peak_int16}, min_int16={min_int16}"
+            )
+            self.logger.info(f"[ADAPTER] STT metadata for {self.peer_id}: {stt_metadata}")
+
             transcription_result = await self.voice_service.transcribe_audio(
                 audio_data=audio_array.tobytes(),
-                language=self.language if self.language != "en" else None  # Auto-detect for English
+                language=stt_language,
+                audio_format="pcm",
+                metadata=stt_metadata
             )
             
             if not transcription_result.get("success"):
@@ -388,7 +594,9 @@ class WebRTCVoiceServiceAdapter:
             
             if self._on_transcription:
                 self.logger.info(f"[ADAPTER] Calling on_transcription callback for peer {self.peer_id}")
-                self._on_transcription(self.peer_id, transcript)
+                callback_result = self._on_transcription(self.peer_id, transcript)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             else:
                 self.logger.warning(f"[ADAPTER] No on_transcription callback registered for peer {self.peer_id}")
             
@@ -422,7 +630,9 @@ class WebRTCVoiceServiceAdapter:
             
             if self._on_llm_response:
                 self.logger.info(f"[ADAPTER] Calling on_llm_response callback for peer {self.peer_id}")
-                self._on_llm_response(self.peer_id, llm_response)
+                callback_result = self._on_llm_response(self.peer_id, llm_response)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             else:
                 self.logger.warning(f"[ADAPTER] No on_llm_response callback registered for peer {self.peer_id}")
             
@@ -442,7 +652,9 @@ class WebRTCVoiceServiceAdapter:
             tts_audio = tts_result.get("audio_data")
             
             if self._on_tts_audio:
-                self._on_tts_audio(self.peer_id, tts_audio)
+                callback_result = self._on_tts_audio(self.peer_id, tts_audio)
+                if inspect.isawaitable(callback_result):
+                    await callback_result
             
             return {
                 "success": True,
@@ -577,6 +789,12 @@ class WebRTCVoiceServiceAdapter:
         self.logger.info(f"Cleaning up voice pipeline for {self.peer_id}")
         
         await self.stop_voice_session()
+
+        if self._finalization_task and not self._finalization_task.done():
+            self.logger.info(f"[ADAPTER] Awaiting finalization task for {self.peer_id} during cleanup")
+            await self._finalization_task
+
+        await self._finalization_complete.wait()
         
         if self.audio_processor:
             await self.audio_processor.stop_processing()

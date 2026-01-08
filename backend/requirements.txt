@@ -1,6 +1,7 @@
 # Core dependencies
 torch>=2.0.0
-transformers>=4.36.0
+# Transformers locked to <4.37 for Coqui TTS compatibility (BeamSearchScorer required)
+transformers>=4.36.0,<4.37.0
 accelerate>=0.25.0
 bitsandbytes>=0.41.0
 psutil>=5.9.0
@@ -12,6 +13,7 @@ librosa>=0.9.0
 fastapi>=0.104.0
 uvicorn[standard]>=0.24.0
 pydantic>=2.0.0
+email-validator>=2.0.0
 edge-tts>=6.1.0
 llama-cpp-python>=0.2.0
 soundfile>=0.12.0
@@ -23,6 +25,43 @@ silero-vad>=5.1.0
 websockets>=11.0.0
 pydub>=0.25.0
 python-json-logger>=2.0.7
+scipy>=1.10.0
+noisereduce>=2.0.0
+pydantic-settings>=2.0.0
+watchdog>=2.0.0
+
+# Database (PostgreSQL + SQLAlchemy + pgvector for RAG)
+sqlalchemy>=2.0.0
+asyncpg>=0.29.0
+psycopg2-binary>=2.9.0
+alembic>=1.13.0
+pgvector>=0.2.0
+
+# Auth (JWT + Password Hashing)
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.0
+
+# HTTP Client (for Meta WhatsApp API)
+httpx>=0.26.0
+
+# Payment Processing (Stripe)
+stripe>=7.0.0
+
+# Email Service (Alibaba DirectMail) - DEPRECATED in favor of SMTP
+# alibabacloud-dm20151123>=1.0.0
+# alibabacloud-tea-openapi>=0.3.0
+
+# Redis (Caching & Rate Limiting)
+redis>=5.0.0
+aioredis>=2.0.0
+
+# Knowledge Base (Embeddings & Document Processing)
+sentence-transformers>=2.2.0
+pymupdf>=1.23.0
+python-docx>=1.0.0
+
+# Prometheus Metrics
+prometheus-client>=0.19.0
 
 # WebRTC dependencies (Phase A - WebRTC Migration)
 aiortc>=1.5.0
@@ -38,3 +77,5 @@ webrtcvad>=2.0.10
 # isort
 # flake8
 # pytest
+aiosmtplib>=3.0.0
+msal>=1.25.0

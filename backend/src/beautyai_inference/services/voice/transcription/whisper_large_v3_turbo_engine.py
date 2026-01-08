@@ -25,9 +25,9 @@ import numpy as np
 
 import torch
 from transformers import (
-    AutoModelForSpeechSeq2Seq, 
-    AutoProcessor, 
-    pipeline
+    AutoModelForSpeechSeq2Seq,
+    AutoProcessor,
+    pipeline,
 )
 
 from .base_whisper_engine import BaseWhisperEngine
@@ -108,13 +108,24 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 torch.set_float32_matmul_precision("high")
             
             # Load model with optimal configuration
-            self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
-                model_id,
-                torch_dtype=self.torch_dtype,
-                low_cpu_mem_usage=self.low_cpu_mem_usage,
-                use_safetensors=self.use_safetensors,
-                attn_implementation=self.attn_implementation
-            )
+            model_kwargs = {
+                "low_cpu_mem_usage": self.low_cpu_mem_usage,
+                "use_safetensors": self.use_safetensors,
+                "attn_implementation": self.attn_implementation,
+            }
+            try:
+                model_kwargs["dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
+            except TypeError:
+                model_kwargs.pop("dtype", None)
+                model_kwargs["torch_dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
             self.model.to(self.device)
             
             # Configure static cache and compile model if supported
@@ -130,7 +141,6 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
                 model=self.model,
                 tokenizer=self.processor.tokenizer,
                 feature_extractor=self.processor.feature_extractor,
-                torch_dtype=self.torch_dtype,
                 device=self.device
             )
             
@@ -214,34 +224,66 @@ class WhisperLargeV3TurboEngine(BaseWhisperEngine):
             Transcribed text
         """
         try:
-            # Prepare audio input for pipeline
+            normalized_language = self._normalize_language_hint(language)
+            language_for_generation = normalized_language or "arabic"
+
+            if normalized_language:
+                logger.debug(f"Transcribing with specified language: {normalized_language}")
+            else:
+                logger.debug("Language hint missing or auto; defaulting to arabic")
+
+            forced_decoder_ids = None
+            if self.processor is not None:
+                try:
+                    forced_decoder_ids = self.processor.get_decoder_prompt_ids(
+                        language=language_for_generation,
+                        task="transcribe",
+                    )
+                except Exception as decoder_exc:
+                    logger.debug(
+                        "Unable to derive forced decoder ids for %s transcribe task: %s",
+                        language_for_generation,
+                        decoder_exc,
+                    )
+
+            if self.pipe is None:
+                logger.error("Whisper pipeline not initialized")
+                return ""
+
+            logger.info(
+                f"[WHISPER] Using turbo engine in {language_for_generation} transcribe mode"
+            )
+
             audio_input = {
                 "array": audio_array,
-                "sampling_rate": 16000
+                "sampling_rate": 16000,
+            }
+
+            # Build generate_kwargs for model.generate() call
+            # These are passed to the underlying model's generate() method
+            generate_kwargs = {
+                "language": language_for_generation,
+                "task": "transcribe",
+                "max_new_tokens": 256,
+                "num_beams": 1,
+                "do_sample": False,
+                "temperature": 0.0,
+                "condition_on_prev_tokens": False,
             }
             
-            # FIXED: Use generate_kwargs for language specification to avoid translation
-            kwargs = {}
-            
-            # Add language specification via generate_kwargs (prevents auto-detection and translation)
-            if language and language != "auto":
-                generate_kwargs = {}
-                if language == "ar":
-                    generate_kwargs["language"] = "arabic"
-                elif language == "en":
-                    generate_kwargs["language"] = "english"
-                else:
-                    generate_kwargs["language"] = language
-                
-                kwargs["generate_kwargs"] = generate_kwargs
-                logger.debug(f"Transcribing with specified language: {generate_kwargs['language']}")
+            # Add forced_decoder_ids if available for more robust language enforcement
+            if forced_decoder_ids:
+                generate_kwargs["forced_decoder_ids"] = forced_decoder_ids
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} with decoder_ids")
             else:
-                logger.debug(f"Transcribing with auto language detection")
-            
-            # Perform transcription with proper parameter structure
-            result = self.pipe(audio_input, **kwargs)
-            
-            # Extract and clean transcription
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} via generate_kwargs")
+
+            result = self.pipe(
+                audio_input,
+                return_timestamps=False,
+                generate_kwargs=generate_kwargs,
+            )
+
             transcribed_text = result.get("text", "").strip() if result else ""
             transcribed_text = self._clean_transcription_output(transcribed_text)
             

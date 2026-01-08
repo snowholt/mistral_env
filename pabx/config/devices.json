@@ -1,0 +1,65 @@
+{
+  "devices": [
+    {
+      "id": "ht813-001",
+      "type": "HT813",
+      "name": "Primary HT813",
+      "ip": "192.168.100.96",
+      "mac": "00:0B:82:XX:XX:XX",
+      "firmware_version": "1.0.8.6",
+      "ports": {
+        "fxs1": {
+          "enabled": true,
+          "extension": "2001",
+          "description": "Analog Phone Port 1"
+        },
+        "fxs2": {
+          "enabled": false,
+          "extension": "2002",
+          "description": "Analog Phone Port 2"
+        },
+        "fxo": {
+          "enabled": false,
+          "description": "PSTN Line Port"
+        }
+      },
+      "sip_accounts": [
+        {
+          "account_id": 1,
+          "extension": "2001",
+          "sip_server": "192.168.100.39",
+          "sip_port": 5060,
+          "auth_id": "2001",
+          "auth_password": "test123"
+        }
+      ],
+      "codec_preferences": [
+        "PCMU",
+        "PCMA",
+        "G722"
+      ],
+      "notes": "Main test device for PABX system"
+    }
+  ],
+  "device_templates": {
+    "ht813_default": {
+      "session_timer": {
+        "enabled": false,
+        "session_expiration": 0,
+        "caller_request_timer": 0,
+        "callee_request_timer": 0,
+        "force_timer": 0
+      },
+      "nat": {
+        "nat_traversal": "Keep-Alive",
+        "keep_alive_interval": 20
+      },
+      "audio": {
+        "vad": false,
+        "comfort_noise": false,
+        "echo_cancellation": true,
+        "gain_control": 0
+      }
+    }
+  }
+}
