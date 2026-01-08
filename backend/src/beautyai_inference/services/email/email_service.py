@@ -475,7 +475,9 @@ class EmailService:
         """Send demo access granted email with login credentials."""
         from .templates import EmailTemplates
         
-        login_url = f"{self.app_base_url}/demo/login"
+        # Demo login is on the portal subdomain, not the main site
+        portal_base_url = os.getenv("PORTAL_BASE_URL", "https://portal.gmai.sa")
+        login_url = f"{portal_base_url}/demo/login"
         
         html_body = EmailTemplates.demo_access_granted_email(
             full_name=full_name,

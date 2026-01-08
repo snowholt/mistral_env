@@ -438,18 +438,21 @@ class EmailTemplates:
         expires_days: int,
         max_conversations: int,
     ) -> str:
-        """Generate demo access granted email with login credentials."""
+        """Generate demo access granted email with setup link for account activation."""
+        # The access_token is actually the setup_token for the new password flow
+        # Build the activation URL with the token
+        activation_url = f"{login_url}?token={access_token}"
+        
         content = f"""
 <div class="content-ar">
     <p class="greeting">مبروك {full_name}! 🎉</p>
     <p>تمت الموافقة على طلبك! يمكنك الآن تجربة منصة GMAI.sa مجاناً.</p>
     
-    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0;">
-        <p style="margin: 0 0 15px 0; font-size: 16px;"><strong>🔑 معلومات الدخول:</strong></p>
-        <p style="margin: 5px 0; font-family: monospace; background-color: white; padding: 10px; border-radius: 4px;">
-            <strong>رمز الوصول:</strong><br>
-            <span style="color: #10B981; font-size: 14px; word-break: break-all;">{access_token}</span>
-        </p>
+    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
+        <p style="margin: 0 0 15px 0; font-size: 18px;"><strong>🔐 أنشئ كلمة المرور الخاصة بك</strong></p>
+        <p style="margin: 10px 0; color: #666;">اضغط على الزر أدناه لإنشاء كلمة مرور وتفعيل حسابك</p>
+        <a href="{activation_url}" style="display: inline-block; background-color: #10B981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold; margin: 15px 0;">تفعيل الحساب 🚀</a>
+        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ هذا الرابط صالح لمدة ساعة واحدة فقط</p>
     </div>
     
     <p><strong>حدود التجربة المجانية:</strong></p>
@@ -459,13 +462,9 @@ class EmailTemplates:
         <li>🎤 وصول كامل لمحادثة الصوت إلى الصوت بالذكاء الاصطناعي</li>
     </ul>
     
-    <div class="button-container">
-        <a href="{login_url}" class="button">تسجيل الدخول الآن 🚀</a>
-    </div>
-    
     <div class="note">
-        ⚠️ احتفظ برمز الوصول هذا في مكان آمن. ستحتاجه لتسجيل الدخول.<br>
-        💡 بعد انتهاء التجربة، يمكنك الترقية إلى حساب كامل.
+        💡 بعد إنشاء كلمة المرور، يمكنك تسجيل الدخول بالبريد الإلكتروني وكلمة المرور.<br>
+        📧 بعد انتهاء التجربة، يمكنك الترقية إلى حساب كامل.
     </div>
 </div>
 
@@ -475,12 +474,11 @@ class EmailTemplates:
     <p>Congratulations {full_name}! 🎉</p>
     <p>Your request has been approved! You can now try GMAI.sa platform for free.</p>
     
-    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0;">
-        <p style="margin: 0 0 15px 0; font-size: 16px;"><strong>🔑 Login Information:</strong></p>
-        <p style="margin: 5px 0; font-family: monospace; background-color: white; padding: 10px; border-radius: 4px;">
-            <strong>Access Token:</strong><br>
-            <span style="color: #10B981; font-size: 14px; word-break: break-all;">{access_token}</span>
-        </p>
+    <div style="background-color: #ecfdf5; border: 2px solid #10B981; padding: 20px; border-radius: 8px; margin: 20px 0; text-align: center;">
+        <p style="margin: 0 0 15px 0; font-size: 18px;"><strong>🔐 Create Your Password</strong></p>
+        <p style="margin: 10px 0; color: #666;">Click the button below to create a password and activate your account</p>
+        <a href="{activation_url}" style="display: inline-block; background-color: #10B981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold; margin: 15px 0;">Activate Account 🚀</a>
+        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ This link is valid for 1 hour only</p>
     </div>
     
     <p><strong>Free Trial Limits:</strong></p>
@@ -490,18 +488,14 @@ class EmailTemplates:
         <li>🎤 Full access to AI voice-to-voice chat</li>
     </ul>
     
-    <div class="button-container">
-        <a href="{login_url}" class="button">Login Now 🚀</a>
-    </div>
-    
     <p><small>
-        Keep this access token safe. You'll need it to log in.<br>
-        After the trial ends, you can upgrade to a full account.
+        💡 After creating your password, you can log in with your email and password.<br>
+        📧 After the trial ends, you can upgrade to a full account.
     </small></p>
 </div>
 """
         return cls.BASE_TEMPLATE.format(
-            title="تم منح الوصول إلى التجربة - Demo Access Granted",
+            title="تفعيل حسابك - Activate Your Account",
             content=content,
         )
 

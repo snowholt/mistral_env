@@ -1,0 +1,6 @@
+          email           | has_token |    setup_token_expires     | is_activated 
+--------------------------+-----------+----------------------------+--------------
+ snow.holt@gmail.com      | t         | 2026-01-07 22:15:51.303177 | f
+ jafari.nariman@gmail.com | t         | 2026-01-07 22:15:59.438542 | f
+(2 rows)
+

@@ -750,13 +750,19 @@ async def resend_demo_access_email(
         )
 
     guest_user = demo_request.guest_user
+    
+    # Generate a fresh setup token for account activation (1 hour validity)
+    # This replaces any existing setup token
+    setup_token = guest_user.create_setup_token(expires_hours=1)
+    await db.commit()
+    await db.refresh(guest_user)
 
     try:
         email_service = await get_email_service()
         send_result = await email_service.send_demo_access_granted(
             to_address=guest_user.email,
             full_name=demo_request.full_name(),
-            access_token=guest_user.access_token,
+            access_token=setup_token,  # Send unhashed setup token for activation
             expires_days=max(1, (guest_user.expires_at - datetime.utcnow()).days),
             max_conversations=guest_user.max_conversations,
         )
@@ -765,9 +771,9 @@ async def resend_demo_access_email(
             manual_instructions = (
                 "⚠️ Demo access email FAILED to send (resend).\n"
                 f"Guest email: {guest_user.email}\n"
-                f"Guest access token: {guest_user.access_token}\n"
-                "Guest login API: POST /api/v1/auth/guest/login (email + access_token)\n"
-                "Portal demo login (if available): /demo/login\n"
+                f"Setup token (expires in 1 hour): {setup_token}\n"
+                "Activation URL: https://portal.gmai.sa/demo/login?token=<setup_token>\n"
+                "After activation, user logs in with email + password\n"
                 f"Error: {send_result.get('error')}"
             )
             if demo_request.admin_notes:
