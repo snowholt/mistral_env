@@ -437,6 +437,7 @@ class EmailTemplates:
         login_url: str,
         expires_days: int,
         max_conversations: int,
+        activation_hours: int = 72,
     ) -> str:
         """Generate demo access granted email with setup link for account activation."""
         # The access_token is actually the setup_token for the new password flow
@@ -452,7 +453,7 @@ class EmailTemplates:
         <p style="margin: 0 0 15px 0; font-size: 18px;"><strong>🔐 أنشئ كلمة المرور الخاصة بك</strong></p>
         <p style="margin: 10px 0; color: #666;">اضغط على الزر أدناه لإنشاء كلمة مرور وتفعيل حسابك</p>
         <a href="{activation_url}" style="display: inline-block; background-color: #10B981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold; margin: 15px 0;">تفعيل الحساب 🚀</a>
-        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ هذا الرابط صالح لمدة ساعة واحدة فقط</p>
+        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ هذا الرابط صالح لمدة {activation_hours} ساعة فقط</p>
     </div>
     
     <p><strong>حدود التجربة المجانية:</strong></p>
@@ -478,7 +479,7 @@ class EmailTemplates:
         <p style="margin: 0 0 15px 0; font-size: 18px;"><strong>🔐 Create Your Password</strong></p>
         <p style="margin: 10px 0; color: #666;">Click the button below to create a password and activate your account</p>
         <a href="{activation_url}" style="display: inline-block; background-color: #10B981; color: white; padding: 15px 30px; text-decoration: none; border-radius: 8px; font-size: 16px; font-weight: bold; margin: 15px 0;">Activate Account 🚀</a>
-        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ This link is valid for 1 hour only</p>
+        <p style="margin: 15px 0 0 0; font-size: 12px; color: #888;">⏰ This link is valid for {activation_hours} hours only</p>
     </div>
     
     <p><strong>Free Trial Limits:</strong></p>

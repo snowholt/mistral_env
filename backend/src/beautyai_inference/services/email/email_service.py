@@ -478,6 +478,11 @@ class EmailService:
         # Demo login is on the portal subdomain, not the main site
         portal_base_url = os.getenv("PORTAL_BASE_URL", "https://portal.gmai.sa")
         login_url = f"{portal_base_url}/demo/login"
+
+        try:
+            activation_hours = int(os.getenv("GUEST_SETUP_TOKEN_EXPIRES_HOURS", "72"))
+        except ValueError:
+            activation_hours = 72
         
         html_body = EmailTemplates.demo_access_granted_email(
             full_name=full_name,
@@ -485,6 +490,7 @@ class EmailService:
             login_url=login_url,
             expires_days=expires_days,
             max_conversations=max_conversations,
+            activation_hours=activation_hours,
         )
         
         return await self.send_email(

@@ -32,8 +32,8 @@ from ...database.connection import get_db
 from ...database.models import (
     User, DemoRequest, GuestUser, DemoRequestStatus, UserRole
 )
-from ...auth.dependencies import get_current_active_user, get_current_guest_user
-from ...auth.jwt_handler import create_access_token
+from ...auth.dependencies import get_current_active_user, get_current_guest_user, oauth2_scheme_optional
+from ...auth.jwt_handler import create_access_token, verify_token, TokenType
 from ...auth.password import hash_password, verify_password, validate_password_strength, get_password_requirements
 from ...services.email import get_email_service
 
@@ -638,8 +638,13 @@ async def approve_demo_request(
         is_activated=False,  # Will be True after password is set
     )
     
-    # Generate short-lived setup token (1 hour) for secure account activation
-    setup_token = guest_user.create_setup_token(expires_hours=1)
+    # Generate setup token for secure account activation
+    # Default is 72 hours to avoid users missing the email; can be overridden via env.
+    try:
+        setup_token_hours = int(os.getenv("GUEST_SETUP_TOKEN_EXPIRES_HOURS", "72"))
+    except ValueError:
+        setup_token_hours = 72
+    setup_token = guest_user.create_setup_token(expires_hours=setup_token_hours)
     
     db.add(guest_user)
     await db.commit()
@@ -671,7 +676,7 @@ async def approve_demo_request(
             manual_instructions = (
                 "⚠️ Demo access email FAILED to send (email service not configured).\n"
                 f"Guest email: {guest_user.email}\n"
-                f"Setup token (expires in 1 hour): {setup_token}\n"
+                f"Setup token (expires in {setup_token_hours} hours): {setup_token}\n"
                 "Activation URL: https://portal.gmai.sa/demo/login?token=<setup_token>\n"
                 "After activation, user logs in with email + password"
             )
@@ -751,9 +756,13 @@ async def resend_demo_access_email(
 
     guest_user = demo_request.guest_user
     
-    # Generate a fresh setup token for account activation (1 hour validity)
-    # This replaces any existing setup token
-    setup_token = guest_user.create_setup_token(expires_hours=1)
+    # Generate a fresh setup token for account activation.
+    # Default is 72 hours; can be overridden via env.
+    try:
+        setup_token_hours = int(os.getenv("GUEST_SETUP_TOKEN_EXPIRES_HOURS", "72"))
+    except ValueError:
+        setup_token_hours = 72
+    setup_token = guest_user.create_setup_token(expires_hours=setup_token_hours)
     await db.commit()
     await db.refresh(guest_user)
 
@@ -771,7 +780,7 @@ async def resend_demo_access_email(
             manual_instructions = (
                 "⚠️ Demo access email FAILED to send (resend).\n"
                 f"Guest email: {guest_user.email}\n"
-                f"Setup token (expires in 1 hour): {setup_token}\n"
+                f"Setup token (expires in {setup_token_hours} hours): {setup_token}\n"
                 "Activation URL: https://portal.gmai.sa/demo/login?token=<setup_token>\n"
                 "After activation, user logs in with email + password\n"
                 f"Error: {send_result.get('error')}"
@@ -1345,9 +1354,15 @@ async def guest_login(
         )
     
     # Create JWT token for guest (includes guest_id in sub field)
+    try:
+        guest_jwt_expires_hours = int(os.getenv("GUEST_JWT_EXPIRES_HOURS", "72"))
+    except ValueError:
+        guest_jwt_expires_hours = 72
+
     jwt_token = create_access_token(
         user_id=guest_user.id,
-        email=guest_user.email
+        email=guest_user.email,
+        expires_delta=timedelta(hours=guest_jwt_expires_hours),
     )
     
     logger.info(f"Guest user {guest_user.email} logged in successfully")
@@ -1357,7 +1372,7 @@ async def guest_login(
         message="Login successful",
         jwt_token=jwt_token,
         token_type="bearer",
-        expires_in=3600,  # 1 hour
+        expires_in=guest_jwt_expires_hours * 3600,
         guest_user=GuestUserResponse(
             id=guest_user.id,
             email=guest_user.email,
@@ -1378,15 +1393,62 @@ async def guest_login(
 
 @guest_auth_router.get("/me", response_model=GuestUserResponse)
 async def get_guest_profile(
-    token: str,
+    token: Optional[str] = Query(default=None, description="Legacy guest access token (query param)"),
+    bearer_token: Optional[str] = Depends(oauth2_scheme_optional),
     db: AsyncSession = Depends(get_db),
 ):
     """
     Get current guest user profile and usage stats.
     
-    Requires guest access token in query parameter.
+    Accepts either:
+    - Legacy guest access token via `?token=...` (backward compatibility)
+    - Guest JWT via Authorization: Bearer <token>
     """
-    guest_user = await get_current_guest_user(token, db)
+    guest_user: Optional[GuestUser] = None
+
+    token_value = (token or "").strip()
+    if token_value and token_value.lower() not in {"null", "undefined"}:
+        guest_user = await get_current_guest_user(token_value, db)
+    elif bearer_token:
+        payload = verify_token(bearer_token, TokenType.ACCESS)
+        if payload is None:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate guest credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        result = await db.execute(select(GuestUser).where(GuestUser.id == payload.user_id))
+        guest_user = result.scalar_one_or_none()
+
+        if guest_user is None or guest_user.email.lower() != payload.email.lower():
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Could not validate guest credentials",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
+
+        if not guest_user.is_active:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Guest access has been disabled by administrator",
+            )
+        if guest_user.is_expired():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Demo access has expired. Your trial period has ended. Please contact us to upgrade.",
+            )
+        if guest_user.is_limit_reached():
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail=f"Usage limit reached. You have used all {guest_user.max_conversations} demo conversations. Please contact us to upgrade.",
+            )
+    else:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing guest credentials",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
     
     return GuestUserResponse(
         id=guest_user.id,
@@ -1459,8 +1521,11 @@ async def validate_guest_access(
         "max_conversations": guest_user.max_conversations,
         "days_remaining": guest_user.days_remaining(),
         "expires_at": guest_user.expires_at.isoformat(),
-        "can_access_demo": guest_user.can_access_demo(),
+        "can_access": guest_user.can_access_demo(),  # Frontend expects this
+        "can_access_demo": guest_user.can_access_demo(),  # Keep for backward compat
         "is_activated": guest_user.is_activated,
+        "is_expired": guest_user.is_expired(),
+        "is_limit_reached": guest_user.is_limit_reached(),
     }
 
 
@@ -1608,9 +1673,15 @@ async def set_guest_password(
     logger.info(f"Guest account {guest_user.email} activated with password")
     
     # Create JWT token for immediate login
+    try:
+        guest_jwt_expires_hours = int(os.getenv("GUEST_JWT_EXPIRES_HOURS", "72"))
+    except ValueError:
+        guest_jwt_expires_hours = 72
+
     jwt_token = create_access_token(
         user_id=guest_user.id,
-        email=guest_user.email
+        email=guest_user.email,
+        expires_delta=timedelta(hours=guest_jwt_expires_hours),
     )
     
     return SetPasswordResponse(
@@ -1618,7 +1689,7 @@ async def set_guest_password(
         message="Account activated successfully! You can now login with your email and password.",
         jwt_token=jwt_token,
         token_type="bearer",
-        expires_in=3600,
+        expires_in=guest_jwt_expires_hours * 3600,
         guest_user=GuestUserResponse(
             id=guest_user.id,
             email=guest_user.email,
