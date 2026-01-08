@@ -357,7 +357,10 @@ class WebRTCVoiceClient {
             });
             
             console.log('[WebRTC] ✅ Received SDP answer from server');
-            this.peerId = response.peer_id;
+            this.peerId = response.peer_id || response.session_id || response.sessionId;
+            if (!this.peerId) {
+                throw new Error('Signaling response missing peer_id/session_id');
+            }
             console.log('[WebRTC] Peer ID:', this.peerId);
             
             if (this.config.logSignaling) {
@@ -490,6 +493,7 @@ class WebRTCVoiceClient {
                 try {
                     await this.sendSignalingMessage('/ice', {
                         peer_id: this.peerId,
+                        session_id: this.peerId,
                         candidate: event.candidate.candidate,
                         sdp_mid: event.candidate.sdpMid,
                         sdp_m_line_index: event.candidate.sdpMLineIndex

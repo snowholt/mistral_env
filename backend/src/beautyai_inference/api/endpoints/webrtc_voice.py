@@ -34,7 +34,7 @@ from typing import Dict, Any, Optional, Union
 
 import numpy as np
 from fastapi import APIRouter, HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, AliasChoices
 from scipy.signal import butter, sosfiltfilt, resample_poly
 
 from aiortc import (
@@ -120,13 +120,24 @@ class OfferResponse(BaseModel):
     sdp: str
     type: str = "answer"
     session_id: str
+    # Backward/forward compatibility: some clients use peer_id naming
+    peer_id: str
 
 
 class ICERequest(BaseModel):
-    session_id: str = Field(..., alias="sessionId")
+    session_id: str = Field(
+        ...,
+        validation_alias=AliasChoices("sessionId", "session_id", "peer_id", "peerId"),
+    )
     candidate: Union[str, Dict[str, Any]]
-    sdp_mid: Optional[str] = Field(None, alias="sdpMid")
-    sdp_m_line_index: Optional[int] = Field(None, alias="sdpMLineIndex")
+    sdp_mid: Optional[str] = Field(
+        None,
+        validation_alias=AliasChoices("sdpMid", "sdp_mid"),
+    )
+    sdp_m_line_index: Optional[int] = Field(
+        None,
+        validation_alias=AliasChoices("sdpMLineIndex", "sdp_m_line_index"),
+    )
 
     class Config:
         populate_by_name = True
@@ -194,7 +205,30 @@ async def handle_offer(request: OfferRequest):
             model_manager = get_persistent_model_manager()
             session_context["whisper_model"] = model_manager.get_whisper_model()
             session_context["llm_model"] = model_manager.get_llm_model()
-            session_context["tts_model"] = model_manager.get_tts_engine()
+            
+            # TTS Loading with Fallback: Try primary TTS first, fall back to Edge TTS
+            tts_engine = model_manager.get_tts_engine()
+            if tts_engine:
+                tts_type = type(tts_engine).__name__
+                session_context["tts_model"] = tts_engine
+                print(f"[VOICE] ✅ TTS Model Loaded ({tts_type})", flush=True)
+            else:
+                # Primary TTS failed, try Edge TTS fallback
+                print("[VOICE] ⚠️ Primary TTS not available, trying Edge TTS fallback...", flush=True)
+                try:
+                    from ...core.model_manager import get_model_manager
+                    fallback_manager = get_model_manager()
+                    edge_tts = fallback_manager.get_tts_engine(model_name="edge-tts")
+                    if edge_tts:
+                        session_context["tts_model"] = edge_tts
+                        print("[VOICE] ✅ Edge TTS Fallback Loaded", flush=True)
+                    else:
+                        session_context["tts_model"] = None
+                        print("[VOICE] ⚠️ TTS Model NOT Available (no fallback)", flush=True)
+                except Exception as fallback_err:
+                    logger.error(f"[VOICE] Edge TTS fallback failed: {fallback_err}")
+                    session_context["tts_model"] = None
+                    print(f"[VOICE] ⚠️ TTS Fallback failed: {fallback_err}", flush=True)
 
             if session_context["whisper_model"]:
                 print("[VOICE] ✅ Whisper Model Loaded", flush=True)
@@ -205,12 +239,6 @@ async def handle_offer(request: OfferRequest):
                 print("[VOICE] ✅ LLM Model Loaded", flush=True)
             else:
                 print("[VOICE] ⚠️ LLM Model NOT Available", flush=True)
-            
-            if session_context["tts_model"]:
-                tts_type = type(session_context["tts_model"]).__name__
-                print(f"[VOICE] ✅ TTS Model Loaded ({tts_type})", flush=True)
-            else:
-                print("[VOICE] ⚠️ TTS Model NOT Available", flush=True)
 
         except Exception as e:
             logger.error(f"[VOICE] Model load error: {e}")
@@ -309,6 +337,7 @@ async def handle_offer(request: OfferRequest):
         return OfferResponse(
             sdp=pc.localDescription.sdp,
             session_id=session_id,
+            peer_id=session_id,
         )
 
     except Exception as e:
@@ -343,6 +372,8 @@ async def handle_ice(request: ICERequest):
         await pc.addIceCandidate(candidate)
         return {"status": "ok"}
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"[VOICE] ICE error: {e}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -782,9 +813,32 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             )
 
         # ============================================================
-        # TTS SYNTHESIS
+        # TTS SYNTHESIS (with fallback to Edge TTS if primary fails)
         # ============================================================
-        if tts and full_response.strip():
+        if full_response.strip():
+            async def _generate_tts(tts_engine, tts_text: str, language: str, loop) -> Optional[str]:
+                """Generate TTS audio with given engine."""
+                tts_args = {"text": tts_text, "language": language}
+                tts_type = type(tts_engine).__name__
+                
+                if tts_type == "EdgeTTSEngine":
+                    tts_args["gender"] = "female"
+                elif tts_type == "XTTSEngine":
+                    # Check for speaker reference
+                    if not getattr(tts_engine, "speaker_embedding", None):
+                        if language == "ar":
+                            fallback_wav = Path("/home/lumi/beautyai/voice_tests/input_test_questions/q1.wav")
+                        else:
+                            fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                        
+                        if fallback_wav.exists():
+                            tts_args["speaker_wav"] = str(fallback_wav)
+                
+                return await loop.run_in_executor(
+                    None,
+                    lambda: tts_engine.text_to_speech(**tts_args)
+                )
+            
             try:
                 # Clean the response for TTS (remove markdown, convert bullet points)
                 tts_text = clean_llm_response_for_tts(full_response, language=language)
@@ -797,35 +851,31 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                         dc.send(json.dumps({"type": "state", "state": "speaking"}))
                     
                     tts_start = time.time()
+                    audio_path = None
                     
-                    # Determine TTS arguments based on engine type
-                    tts_args = {"text": tts_text, "language": language}
-                    tts_type = type(tts).__name__
+                    # Try primary TTS engine first
+                    if tts:
+                        try:
+                            audio_path = await _generate_tts(tts, tts_text, language, loop)
+                        except Exception as primary_err:
+                            logger.warning(f"[VOICE] Primary TTS failed, trying Edge TTS fallback: {primary_err}")
+                            print(f"[VOICE] ⚠️ Primary TTS failed: {primary_err}, trying Edge TTS...", flush=True)
                     
-                    if tts_type == "EdgeTTSEngine":
-                        tts_args["gender"] = "female"
-                    elif tts_type == "XTTSEngine":
-                        # Check for speaker reference
-                        if not getattr(tts, "speaker_embedding", None):
-                            # Use Arabic speaker reference for proper pronunciation
-                            # Language-specific speaker reference selection
-                            if language == "ar":
-                                fallback_wav = Path("/home/lumi/beautyai/voice_tests/input_test_questions/q1.wav")
-                            else:
-                                # English or other languages use English speaker
-                                fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                    # Fallback to Edge TTS if primary failed or not available
+                    if not audio_path or not os.path.exists(str(audio_path) if audio_path else ""):
+                        try:
+                            from ...inference_engines.voice.tts import EdgeTTSEngine
+                            from ...config.config_manager import ModelConfig
                             
-                            if fallback_wav.exists():
-                                print(f"[VOICE] 🔊 Using speaker ref for {language}: {fallback_wav.name}", flush=True)
-                                tts_args["speaker_wav"] = str(fallback_wav)
-                            else:
-                                print(f"[VOICE] ⚠️ XTTS speaker ref not found: {fallback_wav}!", flush=True)
-                    
-                    # Generate TTS audio
-                    audio_path = await loop.run_in_executor(
-                        None,
-                        lambda: tts.text_to_speech(**tts_args)
-                    )
+                            print("[VOICE] 🔄 Using Edge TTS fallback...", flush=True)
+                            edge_config = ModelConfig(name="edge-tts", model_id="edge-tts", engine_type="edge_tts")
+                            edge_tts_fallback = EdgeTTSEngine(edge_config)
+                            edge_tts_fallback.load_model()
+                            
+                            audio_path = await _generate_tts(edge_tts_fallback, tts_text, language, loop)
+                        except Exception as fallback_err:
+                            logger.error(f"[VOICE] Edge TTS fallback also failed: {fallback_err}")
+                            print(f"[VOICE] ❌ Edge TTS fallback failed: {fallback_err}", flush=True)
                     
                     tts_time = (time.time() - tts_start) * 1000
                     print(f"[VOICE] 🔊 TTS generated in {tts_time:.0f}ms: {audio_path}", flush=True)

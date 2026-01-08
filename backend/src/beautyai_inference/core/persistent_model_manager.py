@@ -340,20 +340,21 @@ class PersistentModelManager:
             return False
     
     async def _preload_tts_model(self, config: Dict[str, Any]) -> bool:
-        """Preload Genius XTTS TTS model."""
+        """Preload TTS model (Edge TTS or XTTS)."""
         try:
-            model_id = config.get('model_id', 'genius-xtts-arabic')
-            self.logger.info(f"Preloading Genius XTTS model: {model_id}")
+            model_id = config.get('model_id', 'edge-tts')
+            engine_type = config.get('engine_type', 'edge_tts')
+            self.logger.info(f"Preloading TTS model: {model_id} ({engine_type})")
             
-            # Get TTS engine for Genius XTTS
+            # Get TTS engine
             tts_engine = self._model_manager.get_tts_engine(model_name=model_id)
             
             if tts_engine:
                 self._preloaded_models['tts'] = tts_engine
-                self.logger.info(f"✅ Genius XTTS model preloaded: {model_id}")
+                self.logger.info(f"✅ TTS model preloaded: {model_id} ({engine_type})")
                 return True
             else:
-                self.logger.error(f"Failed to preload Genius XTTS model: {model_id}")
+                self.logger.error(f"Failed to preload TTS model: {model_id}")
                 return False
                 
         except Exception as e:
