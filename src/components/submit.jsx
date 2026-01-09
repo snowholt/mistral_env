@@ -6,9 +6,9 @@ const Core = require('@alicloud/pop-core').RPCClient;
 
 // IMPORTANT: Replace with your actual credentials and region
 // Store these in environment variables for security in a real-world app.
-const accessKeyId = 'process.env.ALIBABA_ACCESS_KEY_ID || 'YOUR_ACCESS_KEY_ID'';
-const accessKeySecret = 'process.env.ALIBABA_ACCESS_KEY_SECRET || 'YOUR_ACCESS_KEY_SECRET'';
-const regionId = 'me-central-1a'; // e.g., 'ap-southeast-1' for Singapore
+const accessKeyId = process.env.ALIBABA_ACCESS_KEY_ID || 'YOUR_ACCESS_KEY_ID';
+const accessKeySecret = process.env.ALIBABA_ACCESS_KEY_SECRET || 'YOUR_ACCESS_KEY_SECRET';
+const regionId = process.env.ALIBABA_REGION_ID || 'me-central-1a'; // e.g., 'ap-southeast-1' for Singapore
 
 // Initialize the DirectMail client
 const client = new Core({
