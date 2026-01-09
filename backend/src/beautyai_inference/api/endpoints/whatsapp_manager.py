@@ -790,3 +790,548 @@ async def send_whatsapp_message(
         
         data = response.json()
         return data.get("messages", [{}])[0].get("id", "")
+
+
+# ============================================
+# Agent Configuration Wizard (Enhanced)
+# ============================================
+
+class ServiceItem(BaseModel):
+    """Service item for the wizard."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=500)
+    price: Optional[float] = None
+    price_display: Optional[str] = Field(None, max_length=100)
+    duration_minutes: Optional[int] = Field(None, ge=0)
+    warranty: Optional[str] = Field(None, max_length=255)
+    is_bookable: bool = True
+
+
+class ProductItem(BaseModel):
+    """Product item for the wizard."""
+    name: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=500)
+    price_min: Optional[float] = None
+    price_max: Optional[float] = None
+    price_range: Optional[str] = Field(None, max_length=100)
+    warranty: Optional[str] = Field(None, max_length=255)
+    shipping_cost: Optional[str] = Field(None, max_length=100)
+
+
+class LocationItem(BaseModel):
+    """Location item for the wizard."""
+    branch_name: str = Field(..., min_length=1, max_length=255)
+    address: Optional[str] = Field(None, max_length=500)
+    city: Optional[str] = Field(None, max_length=100)
+    google_maps_link: Optional[str] = Field(None, max_length=500)
+    working_hours: Optional[str] = Field(None, max_length=500)
+    contact_number: Optional[str] = Field(None, max_length=50)
+    extension: Optional[str] = Field(None, max_length=20)
+    whatsapp_number: Optional[str] = Field(None, max_length=50)
+    is_main_branch: bool = False
+
+
+class PromotionItem(BaseModel):
+    """Promotion item for the wizard."""
+    title: str = Field(..., min_length=1, max_length=255)
+    description: Optional[str] = Field(None, max_length=500)
+    discount_type: Optional[str] = Field(None, pattern="^(percentage|fixed|bogo|other)$")
+    discount_value: Optional[str] = Field(None, max_length=100)
+    terms_conditions: Optional[str] = Field(None, max_length=1000)
+    promo_code: Optional[str] = Field(None, max_length=50)
+    valid_from: Optional[datetime] = None
+    valid_until: Optional[datetime] = None
+
+
+class WizardConfigRequest(BaseModel):
+    """Complete wizard configuration request."""
+    customer_id: int
+    
+    # Step 1: Business Profile
+    business_name: str = Field(..., min_length=2, max_length=255)
+    business_description: Optional[str] = Field(None, max_length=2000)
+    business_type: str = Field(default="services", pattern="^(retail|services|both)$")
+    supported_language: str = Field(default="both", pattern="^(english|arabic|both)$")
+    tone: str = Field(default="professional", pattern="^(professional|friendly|casual|formal)$")
+    website_url: Optional[str] = Field(None, max_length=500)
+    
+    # Step 2: Services & Products
+    services: Optional[List[ServiceItem]] = Field(default_factory=list)
+    products: Optional[List[ProductItem]] = Field(default_factory=list)
+    
+    # Step 3: Locations
+    locations: Optional[List[LocationItem]] = Field(default_factory=list)
+    
+    # Step 4: Booking
+    booking_enabled: bool = False
+    booking_link: Optional[str] = Field(None, max_length=500)
+    
+    # Step 5: Promotions
+    promotions: Optional[List[PromotionItem]] = Field(default_factory=list)
+    
+    # Step 6: Policies & Advanced
+    business_policies: Optional[str] = Field(None, max_length=5000)
+    behavior_rules: Optional[str] = Field(None, max_length=2000)
+    custom_instructions: Optional[str] = Field(None, max_length=5000)
+    
+    # Wizard state
+    wizard_current_step: int = Field(default=1, ge=1, le=6)
+    wizard_completed: bool = False
+
+
+class WizardConfigResponse(BaseModel):
+    """Wizard configuration response."""
+    id: int
+    customer_id: int
+    
+    # Business Profile
+    business_name: str
+    business_description: Optional[str]
+    business_type: str
+    supported_language: str
+    tone: str
+    website_url: Optional[str]
+    
+    # Booking
+    booking_enabled: bool
+    booking_link: Optional[str]
+    
+    # Policies
+    business_policies: Optional[str]
+    behavior_rules: Optional[str]
+    custom_instructions: Optional[str]
+    
+    # Compiled prompt
+    system_prompt: str
+    
+    # AI Settings
+    ai_enabled: bool
+    
+    # Wizard state
+    wizard_current_step: int
+    wizard_completed: bool
+    
+    # Counts
+    services_count: int
+    products_count: int
+    locations_count: int
+    promotions_count: int
+    
+    created_at: datetime
+    updated_at: datetime
+
+
+@whatsapp_manager_router.post("/agents/wizard", response_model=WizardConfigResponse)
+async def configure_agent_wizard(
+    request: WizardConfigRequest,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Configure AI agent using the wizard-based configuration.
+    
+    This endpoint handles the complete agent setup including:
+    - Business profile (name, description, type, language)
+    - Services and products tables
+    - Business locations
+    - Booking integration
+    - Promotions
+    - Policies and behavior rules
+    
+    The system prompt is automatically compiled from all configuration fields.
+    """
+    from ...database.models import BusinessService, BusinessProduct, BusinessLocation, BusinessPromotion
+    
+    # Verify customer ownership
+    result = await db.execute(
+        select(Customer).where(
+            Customer.id == request.customer_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Check for existing config
+    result = await db.execute(
+        select(AgentConfig)
+        .options(
+            selectinload(AgentConfig.services),
+            selectinload(AgentConfig.products),
+            selectinload(AgentConfig.locations),
+            selectinload(AgentConfig.promotions),
+        )
+        .where(AgentConfig.customer_id == customer.id)
+    )
+    agent_config = result.scalar_one_or_none()
+    
+    # Prepare data for prompt compilation
+    services_data = [s.model_dump() for s in (request.services or [])]
+    products_data = [p.model_dump() for p in (request.products or [])]
+    locations_data = [l.model_dump() for l in (request.locations or [])]
+    promotions_data = [p.model_dump() for p in (request.promotions or [])]
+    
+    # Compile system prompt
+    system_prompt = AgentConfig.compile_system_prompt(
+        business_name=request.business_name,
+        tone=request.tone,
+        behavior_rules=request.behavior_rules,
+        custom_instructions=request.custom_instructions,
+        business_description=request.business_description,
+        business_type=request.business_type,
+        supported_language=request.supported_language,
+        website_url=request.website_url,
+        booking_enabled=request.booking_enabled,
+        booking_link=request.booking_link,
+        business_policies=request.business_policies,
+        services=services_data,
+        products=products_data,
+        locations=locations_data,
+        promotions=promotions_data,
+    )
+    
+    if agent_config:
+        # Update existing config
+        agent_config.business_name = request.business_name
+        agent_config.business_description = request.business_description
+        agent_config.business_type = request.business_type
+        agent_config.supported_language = request.supported_language
+        agent_config.tone = request.tone
+        agent_config.website_url = request.website_url
+        agent_config.booking_enabled = request.booking_enabled
+        agent_config.booking_link = request.booking_link
+        agent_config.business_policies = request.business_policies
+        agent_config.behavior_rules = request.behavior_rules
+        agent_config.custom_instructions = request.custom_instructions
+        agent_config.system_prompt = system_prompt
+        agent_config.wizard_current_step = request.wizard_current_step
+        agent_config.wizard_completed = request.wizard_completed
+        
+        # Clear and recreate related items
+        agent_config.services.clear()
+        agent_config.products.clear()
+        agent_config.locations.clear()
+        agent_config.promotions.clear()
+        await db.flush()
+        
+    else:
+        # Create new config
+        agent_config = AgentConfig(
+            customer_id=customer.id,
+            business_name=request.business_name,
+            business_description=request.business_description,
+            business_type=request.business_type,
+            supported_language=request.supported_language,
+            tone=request.tone,
+            website_url=request.website_url,
+            booking_enabled=request.booking_enabled,
+            booking_link=request.booking_link,
+            business_policies=request.business_policies,
+            behavior_rules=request.behavior_rules,
+            custom_instructions=request.custom_instructions,
+            system_prompt=system_prompt,
+            wizard_current_step=request.wizard_current_step,
+            wizard_completed=request.wizard_completed,
+            ai_enabled=True,
+        )
+        db.add(agent_config)
+        await db.flush()
+    
+    # Add services
+    for i, svc in enumerate(request.services or []):
+        service = BusinessService(
+            agent_config_id=agent_config.id,
+            name=svc.name,
+            description=svc.description,
+            price=svc.price,
+            price_display=svc.price_display,
+            duration_minutes=svc.duration_minutes,
+            warranty=svc.warranty,
+            is_bookable=svc.is_bookable,
+            sort_order=i,
+        )
+        db.add(service)
+    
+    # Add products
+    for i, prod in enumerate(request.products or []):
+        product = BusinessProduct(
+            agent_config_id=agent_config.id,
+            name=prod.name,
+            description=prod.description,
+            price_min=prod.price_min,
+            price_max=prod.price_max,
+            price_range=prod.price_range,
+            warranty=prod.warranty,
+            shipping_cost=prod.shipping_cost,
+            sort_order=i,
+        )
+        db.add(product)
+    
+    # Add locations
+    for i, loc in enumerate(request.locations or []):
+        location = BusinessLocation(
+            agent_config_id=agent_config.id,
+            branch_name=loc.branch_name,
+            address=loc.address,
+            city=loc.city,
+            google_maps_link=loc.google_maps_link,
+            working_hours=loc.working_hours,
+            contact_number=loc.contact_number,
+            extension=loc.extension,
+            whatsapp_number=loc.whatsapp_number,
+            is_main_branch=loc.is_main_branch,
+            sort_order=i,
+        )
+        db.add(location)
+    
+    # Add promotions
+    for i, promo in enumerate(request.promotions or []):
+        promotion = BusinessPromotion(
+            agent_config_id=agent_config.id,
+            title=promo.title,
+            description=promo.description,
+            discount_type=promo.discount_type,
+            discount_value=promo.discount_value,
+            terms_conditions=promo.terms_conditions,
+            promo_code=promo.promo_code,
+            valid_from=promo.valid_from,
+            valid_until=promo.valid_until,
+            sort_order=i,
+        )
+        db.add(promotion)
+    
+    await db.commit()
+    await db.refresh(agent_config)
+    
+    logger.info(f"Agent wizard config saved for customer {customer.id}")
+    
+    return WizardConfigResponse(
+        id=agent_config.id,
+        customer_id=agent_config.customer_id,
+        business_name=agent_config.business_name,
+        business_description=agent_config.business_description,
+        business_type=agent_config.business_type or "services",
+        supported_language=agent_config.supported_language,
+        tone=agent_config.tone,
+        website_url=agent_config.website_url,
+        booking_enabled=agent_config.booking_enabled,
+        booking_link=agent_config.booking_link,
+        business_policies=agent_config.business_policies,
+        behavior_rules=agent_config.behavior_rules,
+        custom_instructions=agent_config.custom_instructions,
+        system_prompt=agent_config.system_prompt,
+        ai_enabled=agent_config.ai_enabled,
+        wizard_current_step=agent_config.wizard_current_step,
+        wizard_completed=agent_config.wizard_completed,
+        services_count=len(request.services or []),
+        products_count=len(request.products or []),
+        locations_count=len(request.locations or []),
+        promotions_count=len(request.promotions or []),
+        created_at=agent_config.created_at,
+        updated_at=agent_config.updated_at,
+    )
+
+
+@whatsapp_manager_router.get("/agents/wizard/{customer_id}", response_model=WizardConfigResponse)
+async def get_agent_wizard_config(
+    customer_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get the current wizard configuration for a customer.
+    
+    Returns all wizard configuration fields including services, products, locations, and promotions.
+    """
+    from ...database.models import BusinessService, BusinessProduct, BusinessLocation, BusinessPromotion
+    
+    # Verify customer ownership
+    result = await db.execute(
+        select(Customer).where(
+            Customer.id == customer_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Get config with related items
+    result = await db.execute(
+        select(AgentConfig)
+        .options(
+            selectinload(AgentConfig.services),
+            selectinload(AgentConfig.products),
+            selectinload(AgentConfig.locations),
+            selectinload(AgentConfig.promotions),
+        )
+        .where(AgentConfig.customer_id == customer_id)
+    )
+    agent_config = result.scalar_one_or_none()
+    
+    if not agent_config:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Agent configuration not found. Use POST /agents/wizard to create one."
+        )
+    
+    return WizardConfigResponse(
+        id=agent_config.id,
+        customer_id=agent_config.customer_id,
+        business_name=agent_config.business_name,
+        business_description=agent_config.business_description,
+        business_type=agent_config.business_type or "services",
+        supported_language=agent_config.supported_language,
+        tone=agent_config.tone,
+        website_url=agent_config.website_url,
+        booking_enabled=agent_config.booking_enabled,
+        booking_link=agent_config.booking_link,
+        business_policies=agent_config.business_policies,
+        behavior_rules=agent_config.behavior_rules,
+        custom_instructions=agent_config.custom_instructions,
+        system_prompt=agent_config.system_prompt,
+        ai_enabled=agent_config.ai_enabled,
+        wizard_current_step=agent_config.wizard_current_step,
+        wizard_completed=agent_config.wizard_completed,
+        services_count=len(agent_config.services),
+        products_count=len(agent_config.products),
+        locations_count=len(agent_config.locations),
+        promotions_count=len(agent_config.promotions),
+        created_at=agent_config.created_at,
+        updated_at=agent_config.updated_at,
+    )
+
+
+@whatsapp_manager_router.get("/agents/wizard/{customer_id}/details")
+async def get_agent_wizard_details(
+    customer_id: int,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Get complete wizard details including all services, products, locations, and promotions.
+    """
+    from ...database.models import BusinessService, BusinessProduct, BusinessLocation, BusinessPromotion
+    
+    # Verify customer ownership
+    result = await db.execute(
+        select(Customer).where(
+            Customer.id == customer_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    customer = result.scalar_one_or_none()
+    
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found"
+        )
+    
+    # Get config with related items
+    result = await db.execute(
+        select(AgentConfig)
+        .options(
+            selectinload(AgentConfig.services),
+            selectinload(AgentConfig.products),
+            selectinload(AgentConfig.locations),
+            selectinload(AgentConfig.promotions),
+        )
+        .where(AgentConfig.customer_id == customer_id)
+    )
+    agent_config = result.scalar_one_or_none()
+    
+    if not agent_config:
+        # Return empty wizard state
+        return {
+            "config": None,
+            "services": [],
+            "products": [],
+            "locations": [],
+            "promotions": [],
+        }
+    
+    return {
+        "config": {
+            "id": agent_config.id,
+            "business_name": agent_config.business_name,
+            "business_description": agent_config.business_description,
+            "business_type": agent_config.business_type,
+            "supported_language": agent_config.supported_language,
+            "tone": agent_config.tone,
+            "website_url": agent_config.website_url,
+            "booking_enabled": agent_config.booking_enabled,
+            "booking_link": agent_config.booking_link,
+            "business_policies": agent_config.business_policies,
+            "behavior_rules": agent_config.behavior_rules,
+            "custom_instructions": agent_config.custom_instructions,
+            "wizard_current_step": agent_config.wizard_current_step,
+            "wizard_completed": agent_config.wizard_completed,
+        },
+        "services": [
+            {
+                "id": s.id,
+                "name": s.name,
+                "description": s.description,
+                "price": s.price,
+                "price_display": s.price_display,
+                "duration_minutes": s.duration_minutes,
+                "warranty": s.warranty,
+                "is_bookable": s.is_bookable,
+            }
+            for s in sorted(agent_config.services, key=lambda x: x.sort_order)
+        ],
+        "products": [
+            {
+                "id": p.id,
+                "name": p.name,
+                "description": p.description,
+                "price_min": p.price_min,
+                "price_max": p.price_max,
+                "price_range": p.price_range,
+                "warranty": p.warranty,
+                "shipping_cost": p.shipping_cost,
+            }
+            for p in sorted(agent_config.products, key=lambda x: x.sort_order)
+        ],
+        "locations": [
+            {
+                "id": l.id,
+                "branch_name": l.branch_name,
+                "address": l.address,
+                "city": l.city,
+                "google_maps_link": l.google_maps_link,
+                "working_hours": l.working_hours,
+                "contact_number": l.contact_number,
+                "extension": l.extension,
+                "whatsapp_number": l.whatsapp_number,
+                "is_main_branch": l.is_main_branch,
+            }
+            for l in sorted(agent_config.locations, key=lambda x: x.sort_order)
+        ],
+        "promotions": [
+            {
+                "id": p.id,
+                "title": p.title,
+                "description": p.description,
+                "discount_type": p.discount_type,
+                "discount_value": p.discount_value,
+                "terms_conditions": p.terms_conditions,
+                "promo_code": p.promo_code,
+                "valid_from": p.valid_from.isoformat() if p.valid_from else None,
+                "valid_until": p.valid_until.isoformat() if p.valid_until else None,
+                "is_active": p.is_currently_valid(),
+            }
+            for p in sorted(agent_config.promotions, key=lambda x: x.sort_order)
+        ],
+        "system_prompt_preview": agent_config.system_prompt,
+    }

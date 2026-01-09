@@ -96,6 +96,11 @@ README.md
 backend/rnnoise/
 backend/.env
 
-# Website snapshots
-_website_snapshot/
+# Website snapshots - track source code, ignore build/dependencies
+# Note: We track _website_snapshot/gmai.sa/gmai.sa/ for version control
+# Dependencies and build outputs are ignored via nested .gitignore
+_website_snapshot/gmai.sa/gmai.sa/node_modules/
+_website_snapshot/gmai.sa/gmai.sa/dist/
+_website_snapshot/gmai.sa/gmai.sa/.vite/
+_website_snapshot/gmai.sa/gmai.sa/*.local
 

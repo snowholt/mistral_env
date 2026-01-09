@@ -832,3 +832,257 @@ async def get_metrics_alias(
         },
         "timestamp": now.isoformat(),
     }
+
+
+# ============================================
+# GPU Benchmarking Endpoints
+# ============================================
+
+class BenchmarkRequest(BaseModel):
+    """Request for GPU benchmarking."""
+    prompt: str = Field(
+        default="What are the benefits of healthy skincare?",
+        description="Prompt to use for benchmarking"
+    )
+    max_tokens: int = Field(default=100, ge=10, le=500)
+    num_runs: int = Field(default=3, ge=1, le=10, description="Number of benchmark runs")
+
+
+class BenchmarkResult(BaseModel):
+    """Single benchmark result."""
+    run_number: int
+    tokens_generated: int
+    time_seconds: float
+    tokens_per_second: float
+
+
+class BenchmarkResponse(BaseModel):
+    """Benchmark response with aggregated stats."""
+    model_name: str
+    prompt: str
+    num_runs: int
+    results: List[BenchmarkResult]
+    average_tokens_per_second: float
+    min_tokens_per_second: float
+    max_tokens_per_second: float
+    total_tokens_generated: int
+    total_time_seconds: float
+    gpu_name: Optional[str] = None
+    gpu_memory_used_gb: Optional[float] = None
+    gpu_memory_total_gb: Optional[float] = None
+
+
+def _get_gpu_info() -> tuple:
+    """Get GPU name and memory info."""
+    gpu_name = None
+    gpu_memory_used_gb = None
+    gpu_memory_total_gb = None
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_name = pynvml.nvmlDeviceGetName(handle)
+        if isinstance(gpu_name, bytes):
+            gpu_name = gpu_name.decode('utf-8')
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        gpu_memory_used_gb = round(memory_info.used / (1024**3), 2)
+        gpu_memory_total_gb = round(memory_info.total / (1024**3), 2)
+        pynvml.nvmlShutdown()
+    except Exception:
+        pass
+    return gpu_name, gpu_memory_used_gb, gpu_memory_total_gb
+
+
+@admin_router.post("/benchmark/gpu")
+async def run_gpu_benchmark(
+    request: BenchmarkRequest = BenchmarkRequest(),
+    admin: User = Depends(require_admin),
+):
+    """
+    Run GPU benchmarking to measure tokens per second.
+    
+    This endpoint runs inference on the loaded model multiple times
+    and calculates token generation speed metrics.
+    """
+    import time
+    
+    # Get the loaded model
+    try:
+        from ...core.model_manager import PersistentModelManager
+        model_manager = PersistentModelManager()
+        
+        if not model_manager.is_model_loaded():
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="No model is currently loaded. Please load a model first."
+            )
+        
+        engine = model_manager.get_engine()
+        model_name = model_manager.get_current_model_name() or "unknown"
+        
+    except ImportError:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Model manager not available"
+        )
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail=f"Error accessing model: {str(e)}"
+        )
+    
+    # Get GPU info
+    gpu_name = None
+    gpu_memory_used_gb = None
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_name = pynvml.nvmlDeviceGetName(handle)
+        if isinstance(gpu_name, bytes):
+            gpu_name = gpu_name.decode('utf-8')
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        gpu_memory_used_gb = round(memory_info.used / (1024**3), 2)
+        pynvml.nvmlShutdown()
+    except Exception:
+        pass
+    
+    # Run benchmarks
+    results = []
+    
+    for run_num in range(1, request.num_runs + 1):
+        try:
+            # Format messages for the model
+            messages = [
+                {"role": "system", "content": "You are a helpful assistant."},
+                {"role": "user", "content": request.prompt}
+            ]
+            
+            start_time = time.perf_counter()
+            
+            # Run inference
+            response = engine.generate(
+                messages=messages,
+                max_tokens=request.max_tokens,
+                temperature=0.7,
+            )
+            
+            end_time = time.perf_counter()
+            elapsed = end_time - start_time
+            
+            # Count tokens in response
+            response_text = response.get("content", "") if isinstance(response, dict) else str(response)
+            # Rough token estimate (more accurate would use tokenizer)
+            tokens_generated = len(response_text.split()) * 1.3  # Approximate
+            tokens_generated = int(tokens_generated)
+            
+            if tokens_generated == 0:
+                tokens_generated = request.max_tokens // 2  # Fallback estimate
+            
+            tokens_per_second = tokens_generated / elapsed if elapsed > 0 else 0
+            
+            results.append(BenchmarkResult(
+                run_number=run_num,
+                tokens_generated=tokens_generated,
+                time_seconds=round(elapsed, 3),
+                tokens_per_second=round(tokens_per_second, 2)
+            ))
+            
+        except Exception as e:
+            logger.error(f"Benchmark run {run_num} failed: {e}")
+            # Add a failed result
+            results.append(BenchmarkResult(
+                run_number=run_num,
+                tokens_generated=0,
+                time_seconds=0,
+                tokens_per_second=0
+            ))
+    
+    # Calculate aggregates
+    valid_results = [r for r in results if r.tokens_per_second > 0]
+    
+    if valid_results:
+        avg_tps = sum(r.tokens_per_second for r in valid_results) / len(valid_results)
+        min_tps = min(r.tokens_per_second for r in valid_results)
+        max_tps = max(r.tokens_per_second for r in valid_results)
+    else:
+        avg_tps = min_tps = max_tps = 0
+    
+    total_tokens = sum(r.tokens_generated for r in results)
+    total_time = sum(r.time_seconds for r in results)
+    
+    # Get GPU total memory for full response
+    _, _, gpu_memory_total_gb = _get_gpu_info()
+    
+    # Return format that matches frontend expectations
+    return {
+        "tokens_per_second": round(avg_tps, 2),
+        "total_tokens": total_tokens,
+        "inference_time_seconds": round(total_time, 3),
+        "model_name": model_name,
+        "prompt_tokens": len(request.prompt.split()) * 2,  # Approximate
+        "completion_tokens": total_tokens,
+        "runs": request.num_runs,
+        "gpu_name": gpu_name or "Unknown",
+        "gpu_memory_used_gb": gpu_memory_used_gb or 0,
+        "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+        # Also include detailed results for advanced use
+        "detailed_results": [r.model_dump() for r in results],
+        "average_tokens_per_second": round(avg_tps, 2),
+        "min_tokens_per_second": round(min_tps, 2),
+        "max_tokens_per_second": round(max_tps, 2),
+    }
+
+
+@admin_router.get("/benchmark/gpu/quick")
+async def quick_gpu_benchmark(
+    admin: User = Depends(require_admin),
+):
+    """
+    Quick GPU benchmark that returns current tokens/sec performance.
+    
+    Uses a single run for fast results. Use POST /benchmark/gpu for detailed benchmarks.
+    If no model is loaded, returns GPU info with null performance metrics.
+    """
+    gpu_name, gpu_memory_used_gb, gpu_memory_total_gb = _get_gpu_info()
+    
+    # Try to run actual benchmark
+    try:
+        request = BenchmarkRequest(
+            prompt="Hello, how are you?",
+            max_tokens=50,
+            num_runs=1
+        )
+        
+        result = await run_gpu_benchmark(request, admin)
+        
+        return {
+            "tokens_per_second": result.average_tokens_per_second,
+            "total_tokens": result.total_tokens_generated,
+            "inference_time_seconds": result.total_time_seconds,
+            "model_name": result.model_name,
+            "prompt_tokens": 10,  # Approximate for quick test
+            "completion_tokens": result.total_tokens_generated,
+            "runs": result.num_runs,
+            "gpu_name": result.gpu_name or gpu_name or "Unknown",
+            "gpu_memory_used_gb": result.gpu_memory_used_gb or gpu_memory_used_gb or 0,
+            "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    except HTTPException:
+        # Model not loaded - return GPU info only
+        return {
+            "tokens_per_second": 0,
+            "total_tokens": 0,
+            "inference_time_seconds": 0,
+            "model_name": "No model loaded",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "runs": 0,
+            "gpu_name": gpu_name or "Unknown",
+            "gpu_memory_used_gb": gpu_memory_used_gb or 0,
+            "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": "No model is currently loaded. Load a model to run benchmarks.",
+        }
+
