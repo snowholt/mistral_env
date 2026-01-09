@@ -5,12 +5,15 @@
  * token refresh, and error handling.
  */
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://api.gmai.sa';
+// Prefer same-origin API calls by default so portal.gmai.sa can proxy /api/* to the backend.
+// Override with VITE_API_URL if you want a dedicated API origin.
+const API_BASE_URL = import.meta.env.VITE_API_URL || '';
 
 // Token storage keys
 const ACCESS_TOKEN_KEY = 'beautyai_access_token';
 const REFRESH_TOKEN_KEY = 'beautyai_refresh_token';
 const USER_KEY = 'beautyai_user';
+const GUEST_TOKEN_KEY = 'beautyai_guest_token';
 
 // Types
 export interface User {
@@ -50,10 +53,23 @@ export const tokenManager = {
     }
   },
 
+  setToken: (token: string): void => {
+    localStorage.setItem(ACCESS_TOKEN_KEY, token);
+  },
+
+  getGuestToken: (): string | null => {
+    return localStorage.getItem(GUEST_TOKEN_KEY);
+  },
+
+  setGuestToken: (token: string): void => {
+    localStorage.setItem(GUEST_TOKEN_KEY, token);
+  },
+
   clearTokens: (): void => {
     localStorage.removeItem(ACCESS_TOKEN_KEY);
     localStorage.removeItem(REFRESH_TOKEN_KEY);
     localStorage.removeItem(USER_KEY);
+    localStorage.removeItem(GUEST_TOKEN_KEY);
   },
 
   getUser: (): User | null => {
@@ -342,15 +358,18 @@ export const demoApi = {
 
 // ===== Guest Auth API =====
 export const guestApi = {
+  // Legacy token-based login (backward compatibility)
   login: async (accessToken: string) => {
     const response = await api.post<{
-      access_token: string;
+      jwt_token: string;
+      access_token: string; // Keep for backward compatibility types if needed
       token_type: string;
       guest_user: {
         id: number;
         email: string;
         access_token: string;
         is_active: boolean;
+        is_activated: boolean;
         max_conversations: number;
         conversations_used: number;
         expires_at: string;
@@ -360,12 +379,84 @@ export const guestApi = {
       { access_token: accessToken },
       false,
     );
-    // Store guest token
-    tokenManager.setToken(response.access_token);
+    // Store JWT token for API access
+    tokenManager.setToken(response.jwt_token);
+    // Store Guest Access Token for guest-specific endpoints
+    tokenManager.setGuestToken(response.guest_user.access_token);
     return response;
   },
 
+  // New password-based login for activated accounts
+  passwordLogin: async (email: string, password: string) => {
+    const response = await api.post<{
+      jwt_token: string;
+      access_token: string;
+      token_type: string;
+      guest_user: {
+        id: number;
+        email: string;
+        access_token: string;
+        is_active: boolean;
+        is_activated: boolean;
+        max_conversations: number;
+        conversations_used: number;
+        expires_at: string;
+      };
+    }>(
+      '/api/v1/auth/guest/login',
+      { email, password },
+      false,
+    );
+    // Store JWT token for API access
+    tokenManager.setToken(response.jwt_token);
+    // Store Guest Access Token for guest-specific endpoints
+    tokenManager.setGuestToken(response.guest_user.access_token);
+    return response;
+  },
+
+  // Validate setup token from email link
+  validateSetupToken: async (token: string) => {
+    return api.post<{
+      valid: boolean;
+      email: string;
+      message: string;
+    }>(
+      '/api/v1/auth/guest/validate-setup-token',
+      { token },
+      false,
+    );
+  },
+
+  // Set password for guest account (activates the account)
+  setPassword: async (token: string, password: string) => {
+    return api.post<{
+      message: string;
+      email: string;
+      is_activated: boolean;
+    }>(
+      '/api/v1/auth/guest/set-password',
+      { token, password },
+      false,
+    );
+  },
+
+  // Get password requirements for display
+  getPasswordRequirements: async () => {
+    return api.get<{
+      min_length: number;
+      require_uppercase: boolean;
+      require_lowercase: boolean;
+      require_digit: boolean;
+      require_special: boolean;
+      special_characters: string;
+    }>(
+      '/api/v1/auth/guest/password-requirements',
+      false,
+    );
+  },
+
   getProfile: async () => {
+    const token = tokenManager.getGuestToken();
     return api.get<{
       id: number;
       email: string;
@@ -378,10 +469,11 @@ export const guestApi = {
       can_access: boolean;
       days_remaining: number;
       conversations_remaining: number;
-    }>('/api/v1/auth/guest/me');
+    }>(token ? `/api/v1/auth/guest/me?token=${encodeURIComponent(token)}` : `/api/v1/auth/guest/me`);
   },
 
   validateAccess: async () => {
+    const token = tokenManager.getGuestToken();
     return api.get<{
       can_access: boolean;
       is_expired: boolean;
@@ -389,15 +481,16 @@ export const guestApi = {
       days_remaining: number;
       conversations_remaining: number;
       message: string;
-    }>('/api/v1/auth/guest/validate-access');
+    }>(`/api/v1/auth/guest/validate-access?token=${token}`);
   },
 
   incrementUsage: async () => {
+    const token = tokenManager.getGuestToken();
     return api.post<{
       message: string;
       conversations_used: number;
       conversations_remaining: number;
-    }>('/api/v1/auth/guest/increment-usage', {});
+    }>(`/api/v1/auth/guest/increment-usage?token=${token}`, {});
   },
 
   logout: () => {

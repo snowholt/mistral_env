@@ -3,7 +3,7 @@ import { Link } from "react-router-dom";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { Loader2, Save, Bot, Power, PauseCircle, PlayCircle, AlertCircle } from "lucide-react";
+import { Loader2, Save, Bot, Power, PauseCircle, PlayCircle, AlertCircle, Wand2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
@@ -177,25 +177,59 @@ export default function AgentSetup() {
           <p className="text-gray-600 mt-1">Customize your AI assistant's personality and behavior</p>
         </div>
         
-        {/* Customer Selector (if multiple) */}
-        {customers.length > 1 && (
-          <Select 
-            value={selectedCustomerId?.toString()} 
-            onValueChange={(val) => setSelectedCustomerId(parseInt(val))}
-          >
-            <SelectTrigger className="w-[200px]">
-              <SelectValue placeholder="Select Business" />
-            </SelectTrigger>
-            <SelectContent>
-              {customers.map((c) => (
-                <SelectItem key={c.id} value={c.id.toString()}>
-                  {c.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+        <div className="flex items-center gap-2">
+          <Link to="/app/agent-wizard">
+            <Button variant="outline" className="gap-2">
+              <Wand2 className="h-4 w-4" />
+              Setup Wizard
+            </Button>
+          </Link>
+          
+          {/* Customer Selector (if multiple) */}
+          {customers.length > 1 && (
+            <Select 
+              value={selectedCustomerId?.toString()} 
+              onValueChange={(val) => setSelectedCustomerId(parseInt(val))}
+            >
+              <SelectTrigger className="w-[200px]">
+                <SelectValue placeholder="Select Business" />
+              </SelectTrigger>
+              <SelectContent>
+                {customers.map((c) => (
+                  <SelectItem key={c.id} value={c.id.toString()}>
+                    {c.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+        </div>
       </div>
+
+      {/* Wizard Prompt Banner */}
+      {!agentConfig?.wizard_completed && (
+        <Card className="bg-gradient-to-r from-blue-50 to-indigo-50 border-blue-200">
+          <CardContent className="pt-6">
+            <div className="flex items-center gap-4">
+              <div className="p-3 rounded-full bg-blue-100 text-blue-600">
+                <Wand2 className="h-6 w-6" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-semibold text-lg text-blue-900">Complete the Setup Wizard</h3>
+                <p className="text-blue-700 text-sm">
+                  Use our step-by-step wizard to configure services, locations, promotions, and more.
+                </p>
+              </div>
+              <Link to="/app/agent-wizard">
+                <Button>
+                  <Wand2 className="h-4 w-4 mr-2" />
+                  Start Wizard
+                </Button>
+              </Link>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* AI Status Card */}
       <Card className="bg-gradient-to-r from-slate-50 to-white border-l-4 border-l-primary">

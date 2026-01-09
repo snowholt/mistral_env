@@ -1,5 +1,6 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useMutation } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import { toast } from "sonner";
 import {
   Card,
   CardContent,
@@ -33,6 +34,8 @@ import {
   Mic,
   Bot,
   Database,
+  Play,
+  Gauge,
 } from "lucide-react";
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
@@ -72,9 +75,23 @@ interface MetricsResponse {
   timestamp: string;
 }
 
+interface GPUBenchmarkResult {
+  tokens_per_second: number;
+  total_tokens: number;
+  inference_time_seconds: number;
+  gpu_name: string;
+  gpu_memory_used_gb: number;
+  gpu_memory_total_gb: number;
+  model_name: string;
+  prompt_tokens: number;
+  completion_tokens: number;
+  runs: number;
+}
+
 export default function AdminMetrics() {
   const [timeRange, setTimeRange] = useState("24h");
   const [autoRefresh, setAutoRefresh] = useState(true);
+  const [benchmarkResult, setBenchmarkResult] = useState<GPUBenchmarkResult | null>(null);
 
   const { data, isLoading, error, refetch, isFetching } = useQuery<MetricsResponse>({
     queryKey: ["admin-metrics", timeRange],
@@ -82,6 +99,33 @@ export default function AdminMetrics() {
       return api.get<MetricsResponse>(`/api/v1/admin/metrics?range=${timeRange}`);
     },
     refetchInterval: autoRefresh ? 30000 : false, // Refresh every 30 seconds
+  });
+
+  // GPU Benchmark mutations
+  const quickBenchmarkMutation = useMutation({
+    mutationFn: async () => {
+      return api.get<GPUBenchmarkResult>('/api/v1/admin/benchmark/gpu/quick');
+    },
+    onSuccess: (result) => {
+      setBenchmarkResult(result);
+      toast.success(`Benchmark complete: ${result.tokens_per_second.toFixed(1)} tokens/sec`);
+    },
+    onError: (error: any) => {
+      toast.error(error.detail || 'Benchmark failed');
+    },
+  });
+
+  const fullBenchmarkMutation = useMutation({
+    mutationFn: async () => {
+      return api.post<GPUBenchmarkResult>('/api/v1/admin/benchmark/gpu', { runs: 3 });
+    },
+    onSuccess: (result) => {
+      setBenchmarkResult(result);
+      toast.success(`Full benchmark complete: ${result.tokens_per_second.toFixed(1)} tokens/sec`);
+    },
+    onError: (error: any) => {
+      toast.error(error.detail || 'Benchmark failed');
+    },
   });
 
   // Force refetch on mount
@@ -407,6 +451,95 @@ export default function AdminMetrics() {
               </CardContent>
             </Card>
           </div>
+
+          {/* GPU Benchmark */}
+          <Card>
+            <CardHeader>
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Gauge className="h-5 w-5" />
+                    GPU Benchmark
+                  </CardTitle>
+                  <CardDescription>
+                    Measure LLM inference performance (tokens per second)
+                  </CardDescription>
+                </div>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => quickBenchmarkMutation.mutate()}
+                    disabled={quickBenchmarkMutation.isPending || fullBenchmarkMutation.isPending}
+                  >
+                    {quickBenchmarkMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Play className="h-4 w-4 mr-2" />
+                    )}
+                    Quick Test
+                  </Button>
+                  <Button
+                    size="sm"
+                    onClick={() => fullBenchmarkMutation.mutate()}
+                    disabled={quickBenchmarkMutation.isPending || fullBenchmarkMutation.isPending}
+                  >
+                    {fullBenchmarkMutation.isPending ? (
+                      <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                    ) : (
+                      <Gauge className="h-4 w-4 mr-2" />
+                    )}
+                    Full Benchmark
+                  </Button>
+                </div>
+              </div>
+            </CardHeader>
+            <CardContent>
+              {benchmarkResult ? (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-6">
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">Tokens/Second</p>
+                    <p className="text-3xl font-bold text-primary">
+                      {benchmarkResult.tokens_per_second.toFixed(1)}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">Total Tokens</p>
+                    <p className="text-2xl font-semibold">
+                      {benchmarkResult.total_tokens}
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">Inference Time</p>
+                    <p className="text-2xl font-semibold">
+                      {benchmarkResult.inference_time_seconds.toFixed(2)}s
+                    </p>
+                  </div>
+                  <div className="text-center">
+                    <p className="text-sm text-gray-500">GPU</p>
+                    <p className="text-lg font-medium truncate" title={benchmarkResult.gpu_name}>
+                      {benchmarkResult.gpu_name.split(' ').slice(0, 3).join(' ')}
+                    </p>
+                  </div>
+                  <div className="col-span-2 md:col-span-4 pt-4 border-t">
+                    <div className="flex flex-wrap gap-4 text-sm text-gray-600">
+                      <span>Model: <strong>{benchmarkResult.model_name}</strong></span>
+                      <span>Prompt: <strong>{benchmarkResult.prompt_tokens} tokens</strong></span>
+                      <span>Completion: <strong>{benchmarkResult.completion_tokens} tokens</strong></span>
+                      <span>Runs: <strong>{benchmarkResult.runs}</strong></span>
+                      <span>VRAM: <strong>{formatBytes(benchmarkResult.gpu_memory_used_gb)} / {formatBytes(benchmarkResult.gpu_memory_total_gb)}</strong></span>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="text-center py-8 text-gray-500">
+                  <Gauge className="h-12 w-12 mx-auto mb-4 opacity-30" />
+                  <p>Run a benchmark to measure GPU inference performance</p>
+                  <p className="text-sm mt-1">Quick test: ~5 seconds • Full benchmark: ~30 seconds</p>
+                </div>
+              )}
+            </CardContent>
+          </Card>
 
           {/* Last Updated */}
           <p className="text-sm text-gray-500 text-center">

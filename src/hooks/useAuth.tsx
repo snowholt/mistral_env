@@ -33,6 +33,7 @@ interface AuthState {
 interface AuthContextType extends AuthState {
   login: (email: string, password: string) => Promise<void>;
   guestLogin: (accessToken: string) => Promise<void>;
+  guestPasswordLogin: (email: string, password: string) => Promise<void>;
   register: (email: string, password: string, fullName?: string) => Promise<{ message: string }>;
   logout: () => void;
   verifyEmail: (token: string) => Promise<void>;
@@ -152,6 +153,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     });
   }, []);
 
+  const guestPasswordLogin = useCallback(async (email: string, password: string) => {
+    const response = await guestApi.passwordLogin(email, password);
+    localStorage.setItem('isGuest', 'true');
+    setState({
+      user: null,
+      guestUser: response.guest_user,
+      isAuthenticated: true,
+      isGuest: true,
+      isLoading: false,
+      isAdmin: false,
+    });
+  }, []);
+
   const register = useCallback(async (email: string, password: string, fullName?: string) => {
     const response = await authApi.register(email, password, fullName);
     return response;
@@ -211,6 +225,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     ...state,
     login,
     guestLogin,
+    guestPasswordLogin,
     register,
     logout,
     verifyEmail,

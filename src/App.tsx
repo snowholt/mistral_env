@@ -28,6 +28,7 @@ import DashboardHome from "./pages/app/Home";
 import Businesses from "./pages/app/Businesses";
 import Inbox from "./pages/app/Inbox";
 import AgentSetup from "./pages/app/AgentSetup";
+import AgentSetupWizard from "./pages/app/AgentSetupWizard";
 import KnowledgeBase from "./pages/app/KnowledgeBase";
 import Billing from "./pages/app/Billing";
 import Settings from "./pages/app/Settings";
@@ -97,6 +98,7 @@ function AppContent() {
           <Route path="businesses" element={<Businesses />} />
           <Route path="inbox" element={<Inbox />} />
           <Route path="agent" element={<AgentSetup />} />
+          <Route path="agent-wizard" element={<AgentSetupWizard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="billing" element={<Billing />} />
           <Route path="settings" element={<Settings />} />

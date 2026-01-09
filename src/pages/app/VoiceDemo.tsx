@@ -8,6 +8,18 @@ import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import { guestApi } from '@/lib/api';
 
+// Helper to check if user has guest-level access
+// Supports both guest-login flow (isGuest + guestUser) and unified auth (user.role === 'guest')
+const hasGuestAccess = (isGuest: boolean, guestUser: any, user: any, isAdmin: boolean): boolean => {
+  // Admin can always access
+  if (isAdmin) return true;
+  // Guest login flow
+  if (isGuest && guestUser) return true;
+  // Unified auth: regular login with guest role
+  if (user?.role === 'guest') return true;
+  return false;
+};
+
 interface Message {
   role: 'user' | 'assistant' | 'system';
   text: string;
@@ -46,7 +58,7 @@ const translations = {
 export default function VoiceDemo() {
   const { language: appLanguage } = useLanguage();
   const navigate = useNavigate();
-  const { guestUser, isGuest } = useAuth();
+  const { guestUser, isGuest, user, isAdmin, isAuthenticated } = useAuth();
 
   const t = translations[appLanguage as keyof typeof translations] || translations.en;
 
@@ -74,32 +86,44 @@ export default function VoiceDemo() {
 
   // Check guest access on mount
   useEffect(() => {
-    if (!isGuest || !guestUser) {
-      navigate('/demo/login');
+    // Check if user has guest-level access (either via guest login or unified auth with guest role)
+    if (!isAuthenticated) {
+      navigate('/login');
+      return;
+    }
+    
+    // Allow access for: guest login users, unified auth guest users, or admins
+    const canAccess = hasGuestAccess(isGuest, guestUser, user, isAdmin);
+    if (!canAccess) {
+      // Regular users without guest access get redirected to main app
+      navigate('/app');
       return;
     }
 
-    // Validate access
-    const validateAccess = async () => {
-      try {
-        const validation = await guestApi.validateAccess();
-        if (!validation.can_access) {
-          if (validation.is_expired) {
-            setError('Your demo access has expired. Please contact support.');
-          } else if (validation.is_limit_reached) {
-            setError('You have reached the maximum number of conversations for your demo.');
-          } else {
-            setError('Access denied. Please contact support.');
+    // Validate access for guest users (check limits, expiration)
+    // Only do validation if we have actual guest user data (guest login flow)
+    if (isGuest && guestUser) {
+      const validateAccess = async () => {
+        try {
+          const validation = await guestApi.validateAccess();
+          if (!validation.can_access) {
+            if (validation.is_expired) {
+              setError('Your demo access has expired. Please contact support.');
+            } else if (validation.is_limit_reached) {
+              setError('You have reached the maximum number of conversations for your demo.');
+            } else {
+              setError('Access denied. Please contact support.');
+            }
           }
+        } catch (err: any) {
+          console.error('Access validation failed:', err);
+          setError(err.response?.data?.message || 'Failed to validate access');
         }
-      } catch (err: any) {
-        console.error('Access validation failed:', err);
-        setError(err.response?.data?.message || 'Failed to validate access');
-      }
-    };
-
-    validateAccess();
-  }, [isGuest, guestUser, navigate]);
+      };
+      validateAccess();
+    }
+    // For unified auth guest users (user.role === 'guest'), validation happens server-side
+  }, [isGuest, guestUser, user, isAdmin, isAuthenticated, navigate]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -338,7 +362,7 @@ export default function VoiceDemo() {
             method: 'POST',
             headers: {
               'Content-Type': 'application/json',
-              'Authorization': `Bearer ${localStorage.getItem('guestAccessToken')}`
+              'Authorization': `Bearer ${localStorage.getItem('beautyai_access_token')}`
             },
             body: JSON.stringify({
               candidate: event.candidate.toJSON()
@@ -364,7 +388,7 @@ export default function VoiceDemo() {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${localStorage.getItem('guestAccessToken')}`
+          'Authorization': `Bearer ${localStorage.getItem('beautyai_access_token')}`
         },
         body: JSON.stringify({
           sdp: offer.sdp,
