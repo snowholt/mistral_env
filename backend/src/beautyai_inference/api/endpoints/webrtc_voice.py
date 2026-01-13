@@ -893,7 +893,7 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                                 json.dumps(
                                     {
                                         "type": "tts_audio",
-                                        "audio": audio_b64,
+                                        "audio_base64": audio_b64,
                                         "format": "wav",
                                         "language": language,
                                         "tts_time_ms": tts_time,

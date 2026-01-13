@@ -588,9 +588,54 @@ class WebRTCVoiceClient {
                     const message = JSON.parse(event.data);
                     console.log('[WebRTC] Data channel message:', message);
 
-                    // Handle server-side VAD state or other diagnostics
-                    if (message.type === 'vad_state') {
-                        console.log('[WebRTC] Server VAD state:', message.state);
+                    switch (message.type) {
+                        case 'vad_state':
+                            // Handle server-side VAD state
+                            console.log('[WebRTC] Server VAD state:', message.state);
+                            break;
+                            
+                        case 'transcription':
+                            // Handle transcription result
+                            console.log('[WebRTC] 📝 Transcription:', message.text);
+                            if (this.config.onTranscription) {
+                                this.config.onTranscription(message.text, message.timestamp);
+                            }
+                            break;
+                            
+                        case 'assistant_response':
+                            // Handle assistant text response
+                            console.log('[WebRTC] 🤖 Assistant response:', message.text);
+                            if (this.config.onAssistantResponse) {
+                                this.config.onAssistantResponse(message.text, message.timestamp);
+                            }
+                            break;
+                            
+                        case 'tts_audio':
+                            // Handle TTS audio playback
+                            console.log('[WebRTC] 🔊 TTS audio received, format:', message.format, 'time:', message.tts_time_ms, 'ms');
+                            this.playTTSAudio(message.audio_base64, message.format);
+                            break;
+                            
+                        case 'mic_control':
+                            // Handle mic control commands from server
+                            console.log('[WebRTC] 🎤 Mic control:', message.action);
+                            if (message.action === 'mute' && this.localAudioTrack) {
+                                this.localAudioTrack.enabled = false;
+                            } else if (message.action === 'unmute' && this.localAudioTrack) {
+                                this.localAudioTrack.enabled = true;
+                            }
+                            break;
+                            
+                        case 'state':
+                            // Handle state updates from server
+                            console.log('[WebRTC] 📊 State update:', message.state);
+                            if (this.config.onStateChange) {
+                                this.config.onStateChange(message.state);
+                            }
+                            break;
+                            
+                        default:
+                            console.log('[WebRTC] Unknown message type:', message.type);
                     }
                 } catch (error) {
                     console.warn('[WebRTC] Failed to parse data channel message:', error);
@@ -915,6 +960,84 @@ class WebRTCVoiceClient {
         } catch (error) {
             console.error('[WebRTC] Failed to get connection stats:', error);
             return null;
+        }
+    }
+
+    /**
+     * Play TTS audio from base64 encoded data
+     * @param {string} audioBase64 - Base64 encoded audio data
+     * @param {string} format - Audio format (e.g., 'wav', 'mp3')
+     */
+    async playTTSAudio(audioBase64, format = 'wav') {
+        try {
+            if (!audioBase64) {
+                console.warn('[WebRTC] No audio data to play');
+                return;
+            }
+
+            console.log('[WebRTC] 🔊 Playing TTS audio...');
+            
+            // Mute microphone while playing to prevent feedback
+            if (this.localAudioTrack) {
+                this.localAudioTrack.enabled = false;
+            }
+
+            // Decode base64 to binary
+            const audioBytes = Uint8Array.from(atob(audioBase64), c => c.charCodeAt(0));
+            const mimeType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+            const audioBlob = new Blob([audioBytes], { type: mimeType });
+            const audioUrl = URL.createObjectURL(audioBlob);
+
+            // Create audio element for playback
+            const audio = new Audio(audioUrl);
+            audio.volume = 1.0;
+
+            // Track playback state
+            this.state.speaking = true;
+            if (this.config.onAudioReceived) {
+                this.config.onAudioReceived();
+            }
+
+            // Handle playback completion
+            audio.onended = () => {
+                console.log('[WebRTC] 🔊 TTS audio playback completed');
+                URL.revokeObjectURL(audioUrl);
+                this.state.speaking = false;
+                
+                // Re-enable microphone after playback
+                if (this.localAudioTrack && this.state.recording) {
+                    this.localAudioTrack.enabled = true;
+                }
+                
+                if (this.config.onAudioEnded) {
+                    this.config.onAudioEnded();
+                }
+            };
+
+            // Handle playback errors
+            audio.onerror = (error) => {
+                console.error('[WebRTC] ❌ TTS audio playback error:', error);
+                URL.revokeObjectURL(audioUrl);
+                this.state.speaking = false;
+                
+                // Re-enable microphone on error too
+                if (this.localAudioTrack && this.state.recording) {
+                    this.localAudioTrack.enabled = true;
+                }
+            };
+
+            // Start playback
+            await audio.play();
+            console.log('[WebRTC] ✅ TTS audio playback started');
+
+        } catch (error) {
+            console.error('[WebRTC] Failed to play TTS audio:', error);
+            this.state.speaking = false;
+            
+            // Re-enable microphone on error
+            if (this.localAudioTrack && this.state.recording) {
+                this.localAudioTrack.enabled = true;
+            }
         }
     }
 
