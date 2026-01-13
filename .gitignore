@@ -1,4 +1,10 @@
-# Python virtual environments
+# ============================================
+# BeautyAI Platform - .gitignore
+# ============================================
+
+# =====================
+# Python Dependencies
+# =====================
 venv/
 env/
 ENV/
@@ -7,9 +13,10 @@ virtualenv/
 venv_backup/
 venv-11/
 .env/
-.env.production
 .python-version
 temp_benchmark_venv/
+backend/venv/
+backend/venv.backup.py312/
 
 # Python byte-compiled files
 __pycache__/
@@ -18,69 +25,100 @@ __pycache__/
 *.so
 
 # Distribution / packaging
-dist/
 build/
 *.egg-info/
 *.egg
 
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.tox/
+# =====================
+# Node.js / React Frontend
+# =====================
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+*.local
+bun.lockb
 
-# OpenAI API credentials (sensitive)
+# =====================
+# Environment & Secrets
+# =====================
+.env
+.env.local
+.env.production
+.env.*.local
+backend/.env
 tests/openai_validation/.env
-tests/openai_validation/validation_results.json
 
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IDE specific files
+# =====================
+# IDE & Editor
+# =====================
 .idea/
 .vscode/
 *.swp
 *.swo
+*.sublime-*
 
-# OS specific files
+# =====================
+# OS Files
+# =====================
 .DS_Store
 Thumbs.db
+
+# =====================
+# Testing & Coverage
+# =====================
+.coverage
+htmlcov/
+.pytest_cache/
+.tox/
+tests/openai_validation/validation_results.json
 tests/Wahtsapp_unpacked/
 tests/Wahtsapp.zip
-# Log files
-*.log
+tests/webrtc/xtts_whisper_test_outputs/
 
-# Reports and logs directories
+# =====================
+# Logs & Reports
+# =====================
+*.log
 reports/
 logs/
+backend/logs/
 
-# Audio test files and debug captures
+# =====================
+# Audio & Media Files
+# =====================
 *.webm
-
 *.mp3
 *.pcm
+*.wav
 vad_testting_temp/
 backend/vad_testting_temp/
-tests/webrtc/xtts_whisper_test_outputs/
-# Model state files
-**/loaded_models_state.json
+voice_tests/
 
-# WebRTC session files
+# =====================
+# Session & State Files
+# =====================
+**/loaded_models_state.json
 backend/sessions/voice/webrtc/webrtc_session_*.json
 **/webrtc_session_*.json
+sessions/
 
-# Additional project-specific ignores
-backend/venv.backup.py312/
-venv/bin/activate
-prompts/
-refrences/
-.github/
-.vscode/
-copilot_resources/plans
-voice_tests/
-test_temp_venv.py
+# =====================
+# Build Artifacts
+# =====================
+dist/
+*.zip
 
-# Configuration and service files (local customizations)
+# =====================
+# Project-Specific Ignores
+# =====================
+# RNNoise library (compiled locally)
+backend/rnnoise/
+
+# Jupyter Notebook
+.ipynb_checkpoints
+
+# Local configuration files
 beautyai-api.service
 beautyai-api.service.alibaba
 beautyai-webui.service
@@ -90,23 +128,12 @@ deploy_alibaba.sh
 gmai.sa.backup
 nginx-beautyai-config.alibaba.conf
 nginx-beautyai-config.conf
-README.md
 
-# RNNoise library (compiled from source, don't track)
-backend/rnnoise/
-backend/.env
+# Development resources (not for production)
+prompts/
+refrences/
+copilot_resources/plans
+test_temp_venv.py
 
-# Website snapshots - track source code, ignore build/dependencies
-# Note: We track _website_snapshot/gmai.sa/gmai.sa/ for version control
-# Dependencies and build outputs are ignored via nested .gitignore
-_website_snapshot/gmai.sa/gmai.sa/node_modules/
-_website_snapshot/gmai.sa/gmai.sa/dist/
-_website_snapshot/gmai.sa/gmai.sa/.vite/
-_website_snapshot/gmai.sa/gmai.sa/*.local
-
-
-# React Frontend
-frontend/node_modules/
-frontend/dist/
-frontend/.vite/
-
+# Old/deprecated folders (cleaned up)
+_website_snapshot/
