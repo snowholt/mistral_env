@@ -1,106 +1,24 @@
-# Python virtual environments
-venv/
-env/
-ENV/
-virtualenv/
-.venv/
-venv_backup/
-venv-11/
-.env/
-.env.production
-.python-version
-temp_benchmark_venv/
-
-# Python byte-compiled files
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-
-# Distribution / packaging
-dist/
-build/
-*.egg-info/
-*.egg
-
-# Testing
-.coverage
-htmlcov/
-.pytest_cache/
-.tox/
-
-# OpenAI API credentials (sensitive)
-tests/openai_validation/.env
-tests/openai_validation/validation_results.json
-
-# Jupyter Notebook
-.ipynb_checkpoints
-
-# IDE specific files
-.idea/
-.vscode/
-*.swp
-*.swo
-
-# OS specific files
-.DS_Store
-Thumbs.db
-tests/Wahtsapp_unpacked/
-tests/Wahtsapp.zip
-# Log files
+# Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
 
-# Reports and logs directories
-reports/
-logs/
+node_modules
+dist
+dist-ssr
+*.local
 
-# Audio test files and debug captures
-*.webm
-
-*.mp3
-*.pcm
-vad_testting_temp/
-backend/vad_testting_temp/
-tests/webrtc/xtts_whisper_test_outputs/
-# Model state files
-**/loaded_models_state.json
-
-# WebRTC session files
-backend/sessions/voice/webrtc/webrtc_session_*.json
-**/webrtc_session_*.json
-
-# Additional project-specific ignores
-backend/venv.backup.py312/
-venv/bin/activate
-prompts/
-refrences/
-.github/
-.vscode/
-copilot_resources/plans
-voice_tests/
-test_temp_venv.py
-
-# Configuration and service files (local customizations)
-beautyai-api.service
-beautyai-api.service.alibaba
-beautyai-webui.service
-beautyai-webui.service.alibaba
-config_requirements.txt
-deploy_alibaba.sh
-gmai.sa.backup
-nginx-beautyai-config.alibaba.conf
-nginx-beautyai-config.conf
-README.md
-
-# RNNoise library (compiled from source, don't track)
-backend/rnnoise/
-backend/.env
-
-# Website snapshots - track source code, ignore build/dependencies
-# Note: We track _website_snapshot/gmai.sa/gmai.sa/ for version control
-# Dependencies and build outputs are ignored via nested .gitignore
-_website_snapshot/gmai.sa/gmai.sa/node_modules/
-_website_snapshot/gmai.sa/gmai.sa/dist/
-_website_snapshot/gmai.sa/gmai.sa/.vite/
-_website_snapshot/gmai.sa/gmai.sa/*.local
-
+# Editor directories and files
+.vscode/*
+!.vscode/extensions.json
+.idea
+.DS_Store
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
