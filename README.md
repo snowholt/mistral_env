@@ -1,74 +1,79 @@
-# BeautyAI Inference Framework
+# Welcome to your Lovable project
 
-Professional-grade multilingual (Arabic-focused) inference stack for text + real‑time voice. This root README is intentionally concise. Detailed operational & implementation docs now live in component READMEs.
+## Project info
 
-## ✨ Core Highlights
-| Area | Summary |
-|------|---------|
-| Backend | FastAPI + WebSocket ultra‑fast (<2s) voice + rich chat inference (25+ params) |
-| Frontend | Flask UI + new Live Streaming & PCM Debug consoles |
-| Models | Transformers (primary), LlamaCpp; quantized 4/8-bit; Arabic optimized |
-| Voice | Auto speech detection, STT (Whisper optimized), TTS (Edge TTS) |
-| Tooling | Unified CLI `beautyai`, benchmarking, memory + system services (systemd) |
+**URL**: https://lovable.dev/projects/063c261f-aea5-4a26-9cff-9d6157e292f2
 
-## 🚀 Quick Start (Dev)
-```bash
-# Backend
-cd backend && python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python run_server.py        # -> http://localhost:8000/docs
+## How can I edit this code?
 
-# Frontend (optional UI)
-cd ../frontend && python3 -m venv venv && source venv/bin/activate
-pip install -r requirements.txt
-python src/app.py           # -> http://localhost:5001
+There are several ways of editing your application.
+
+**Use Lovable**
+
+Simply visit the [Lovable Project](https://lovable.dev/projects/063c261f-aea5-4a26-9cff-9d6157e292f2) and start prompting.
+
+Changes made via Lovable will be committed automatically to this repo.
+
+**Use your preferred IDE**
+
+If you want to work locally using your own IDE, you can clone this repo and push changes. Pushed changes will also be reflected in Lovable.
+
+The only requirement is having Node.js & npm installed - [install with nvm](https://github.com/nvm-sh/nvm#installing-and-updating)
+
+Follow these steps:
+
+```sh
+# Step 1: Clone the repository using the project's Git URL.
+git clone <YOUR_GIT_URL>
+
+# Step 2: Navigate to the project directory.
+cd <YOUR_PROJECT_NAME>
+
+# Step 3: Install the necessary dependencies.
+npm i
+
+# Step 4: Start the development server with auto-reloading and an instant preview.
+npm run dev
+
+# Step 5: start buidling the files for the server
+npm run build
+
+# Step 6: upload the files to the server
+scp -r dist/* root@8.213.48.89:/var/www/gmai.sa/dist/
 ```
-CLI (after activating backend venv):
-```bash
-beautyai model list
-beautyai run chat --preset qwen_optimized
-beautyai system status
-```
 
-## 🎤 Live Voice Debug Tools (Current Dev Env)
-| Tool | URL (example deployment) | Purpose |
-|------|--------------------------|---------|
-| Live Streaming Console | https://dev.gmai.sa/debug/streaming-live | Real mic → streaming transcription + model replies |
-| Voice WebSocket Tester | https://dev.gmai.sa/debug/voice-websocket-tester | Test voice websockets with various audio files, frame-by-frame replay, latency metrics |
+**Edit a file directly in GitHub**
 
-## ✅ Latest Weekly Progress (Aug 16–22, 2025)
-Short summary (full details in backend & frontend READMEs):
-- Added dual debug consoles with real-time metrics & export.
-- Fixed conversation bleeding (buffer + decoder state resets per utterance).
-- Implemented thinking-mode filtering & LlamaCpp parameter alignment.
-- Achieved first-partial transcription latency ~65ms (audio worklet path).
-- Roadmap next: Echo / self‑voice suppression → WebRTC low-latency → mobile optimizations.
+- Navigate to the desired file(s).
+- Click the "Edit" button (pencil icon) at the top right of the file view.
+- Make your changes and commit the changes.
 
-## 🗂️ Where To Find Details
-| Topic | Location |
-|-------|----------|
-| Backend API / Models / Voice pipeline | `backend/README.md` |
-| Frontend UI / Debug consoles / Audio stack | `frontend/README.md` |
-| Deployment (systemd, nginx, logging) | `docs/DEPLOYMENT.md` |
-| Streaming, Voice internals | `docs/VOICE.md`, `docs/STREAMING_DEBUG_UI_ENHANCEMENT_VALIDATION.md` |
+**Use GitHub Codespaces**
 
-## 🧱 Minimal Concepts
-- Model registry JSON defines engines + quantization.
-- Unified CLI orchestrates loading, chat, benchmarks.
-- WebSocket `/ws/voice-conversation` handles streaming audio + TTS.
-- Auto language detection (Arabic / English) in streaming path.
+- Navigate to the main page of your repository.
+- Click on the "Code" button (green button) near the top right.
+- Select the "Codespaces" tab.
+- Click on "New codespace" to launch a new Codespace environment.
+- Edit files directly within the Codespace and commit and push your changes once you're done.
 
-## ⚙️ Requirements (Summary)
-GPU (≥8GB VRAM recommended), Python 3.11+, CUDA, Hugging Face token (private models), microphone for voice.
+## What technologies are used for this project?
 
-## 🛠️ Production (Very Brief)
-Systemd units: `beautyai-api.service`, `beautyai-webui.service` (see backend & frontend READMEs + deployment docs). Nginx handles SSL + WS proxy.
+This project is built with:
 
-## 🤝 Contributing (Essentials)
-PRs: keep root README lean; place depth in component docs. Maintain CLI & API backward compatibility. Add tests for new service logic.
+- Vite
+- TypeScript
+- React
+- shadcn-ui
+- Tailwind CSS
 
-## 📄 License
-MIT – see `LICENSE`.
+## How can I deploy this project?
 
----
-Need depth? Jump to: [Backend](backend/README.md) · [Frontend](frontend/README.md) · [API Docs (running)](http://localhost:8000/docs)
+Simply open [Lovable](https://lovable.dev/projects/063c261f-aea5-4a26-9cff-9d6157e292f2) and click on Share -> Publish.
+
+## Can I connect a custom domain to my Lovable project?
+
+Yes, you can!
+
+To connect a domain, navigate to Project > Settings > Domains and click Connect Domain.
+
+Read more here: [Setting up a custom domain](https://docs.lovable.dev/tips-tricks/custom-domain#step-by-step-guide)
