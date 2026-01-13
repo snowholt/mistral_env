@@ -69,6 +69,11 @@ export default function VoiceDemo() {
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidate[]>([]);
   const remoteDescriptionSetRef = useRef(false);
+  const sessionIdRef = useRef<string | null>(null);
+  const pendingLocalIceCandidatesRef = useRef<RTCIceCandidate[]>([]);
+  const isTTSPlayingRef = useRef<boolean>(false);  // Track TTS playback state
+  const pendingMicEnableRef = useRef<boolean>(false);  // Queue mic enable until TTS finishes
+  const currentAssistantMessageRef = useRef<string>('');  // Ref to avoid stale closure
 
   // State
   const [language, setLanguage] = useState<'ar' | 'en'>(appLanguage === 'ar' ? 'ar' : 'en');
@@ -146,14 +151,18 @@ export default function VoiceDemo() {
 
   // Update assistant message (streaming)
   const updateAssistantMessage = (chunk: string) => {
-    setCurrentAssistantMessage(prev => prev + chunk);
+    currentAssistantMessageRef.current += chunk;
+    setCurrentAssistantMessage(currentAssistantMessageRef.current);
   };
 
-  // Commit assistant message
+  // Commit assistant message - uses ref to avoid stale closure issues
   const commitAssistantMessage = () => {
-    if (currentAssistantMessage) {
-      const isRTL = isArabicText(currentAssistantMessage);
-      setMessages(prev => [...prev, { role: 'assistant', text: currentAssistantMessage, isRTL }]);
+    const msgText = currentAssistantMessageRef.current;
+    if (msgText) {
+      console.log('💬 Committing assistant message:', msgText.substring(0, 50) + '...');
+      const isRTL = isArabicText(msgText);
+      setMessages(prev => [...prev, { role: 'assistant', text: msgText, isRTL }]);
+      currentAssistantMessageRef.current = '';
       setCurrentAssistantMessage('');
     }
   };
@@ -178,6 +187,9 @@ export default function VoiceDemo() {
         audioPlayerRef.current = null;
       }
 
+      // Mark TTS as playing
+      isTTSPlayingRef.current = true;
+
       // Decode base64 to binary
       const binaryString = atob(base64Audio);
       const bytes = new Uint8Array(binaryString.length);
@@ -195,22 +207,45 @@ export default function VoiceDemo() {
         console.log('🔊 TTS playback finished');
         URL.revokeObjectURL(audioUrl);
         audioPlayerRef.current = null;
+        isTTSPlayingRef.current = false;
+        
+        // Enable mic if it was queued during TTS playback
+        if (pendingMicEnableRef.current) {
+          console.log('🎤 Enabling mic after TTS finished');
+          handleMicControl(true);
+          pendingMicEnableRef.current = false;
+        }
       };
 
       audioPlayer.onerror = (e) => {
         console.error('❌ TTS playback error:', e);
         URL.revokeObjectURL(audioUrl);
         audioPlayerRef.current = null;
+        isTTSPlayingRef.current = false;
+        
+        // Enable mic if it was queued
+        if (pendingMicEnableRef.current) {
+          handleMicControl(true);
+          pendingMicEnableRef.current = false;
+        }
       };
 
       audioPlayer.play().then(() => {
         console.log('🔊 TTS playback started');
       }).catch(e => {
         console.error('❌ TTS play failed:', e);
+        isTTSPlayingRef.current = false;
         addMessage('system', '⚠️ Click anywhere to enable audio playback');
+        
+        // Enable mic if it was queued
+        if (pendingMicEnableRef.current) {
+          handleMicControl(true);
+          pendingMicEnableRef.current = false;
+        }
       });
     } catch (e) {
       console.error('❌ TTS audio error:', e);
+      isTTSPlayingRef.current = false;
     }
   };
 
@@ -257,6 +292,8 @@ export default function VoiceDemo() {
         switch (data.type) {
           case 'transcription':
             if (data.text) {
+              // Commit any pending assistant message before starting new turn
+              commitAssistantMessage();
               addMessage('user', data.text);
             }
             break;
@@ -281,12 +318,37 @@ export default function VoiceDemo() {
             break;
 
           case 'mic_control':
-            handleMicControl(data.enable);
+            // Handle both formats: {enable: bool} and {action: "mute"/"unmute"}
+            let shouldEnable: boolean;
+            if (data.enable !== undefined) {
+              shouldEnable = data.enable;
+            } else if (data.action !== undefined) {
+              shouldEnable = data.action === 'unmute';
+            } else {
+              console.warn('⚠️ mic_control missing enable/action field:', data);
+              break;
+            }
+            
+            // If trying to enable mic but TTS is still playing, queue it
+            if (shouldEnable && isTTSPlayingRef.current) {
+              console.log('🎤 Mic enable queued (TTS still playing)');
+              pendingMicEnableRef.current = true;
+            } else {
+              handleMicControl(shouldEnable);
+              if (!shouldEnable) {
+                pendingMicEnableRef.current = false;  // Clear pending if muting
+              }
+            }
             break;
 
           case 'tts_audio':
-            if (data.audio_data) {
-              playTTSAudio(data.audio_data);
+            // Backend sends audio_base64, handle both field names for compatibility
+            const audioData = data.audio_base64 || data.audio_data;
+            if (audioData) {
+              console.log('🔊 Received TTS audio, length:', audioData.length);
+              playTTSAudio(audioData);
+            } else {
+              console.warn('⚠️ tts_audio received but no audio data found in payload:', Object.keys(data));
             }
             break;
 
@@ -358,6 +420,15 @@ export default function VoiceDemo() {
       pc.onicecandidate = (event) => {
         if (event.candidate) {
           console.log('🧊 New ICE candidate');
+          
+          // Queue if we don't have session_id yet
+          if (!sessionIdRef.current) {
+            console.log('🧊 Queuing ICE candidate (no session_id yet)');
+            pendingLocalIceCandidatesRef.current.push(event.candidate);
+            return;
+          }
+          
+          // Send with session_id
           fetch(`${API_BASE}/api/v1/webrtc/voice/ice`, {
             method: 'POST',
             headers: {
@@ -365,7 +436,10 @@ export default function VoiceDemo() {
               'Authorization': `Bearer ${localStorage.getItem('beautyai_access_token')}`
             },
             body: JSON.stringify({
-              candidate: event.candidate.toJSON()
+              session_id: sessionIdRef.current,
+              candidate: event.candidate.candidate,
+              sdp_mid: event.candidate.sdpMid,
+              sdp_m_line_index: event.candidate.sdpMLineIndex
             })
           }).catch(e => console.error('❌ Error sending ICE candidate:', e));
         }
@@ -403,6 +477,10 @@ export default function VoiceDemo() {
 
       const data = await response.json();
       console.log('📥 Received answer from server');
+      
+      // Store session ID
+      sessionIdRef.current = data.session_id || data.peer_id;
+      console.log('🔑 Session ID:', sessionIdRef.current);
 
       // Set remote description
       await pc.setRemoteDescription(new RTCSessionDescription({
@@ -411,6 +489,31 @@ export default function VoiceDemo() {
       }));
       remoteDescriptionSetRef.current = true;
       console.log('✅ Remote description set');
+      
+      // Send queued local ICE candidates
+      if (pendingLocalIceCandidatesRef.current.length > 0 && sessionIdRef.current) {
+        console.log(`🧊 Sending ${pendingLocalIceCandidatesRef.current.length} queued local ICE candidates`);
+        for (const candidate of pendingLocalIceCandidatesRef.current) {
+          try {
+            await fetch(`${API_BASE}/api/v1/webrtc/voice/ice`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${localStorage.getItem('beautyai_access_token')}`
+              },
+              body: JSON.stringify({
+                session_id: sessionIdRef.current,
+                candidate: candidate.candidate,
+                sdp_mid: candidate.sdpMid,
+                sdp_m_line_index: candidate.sdpMLineIndex
+              })
+            });
+          } catch (e) {
+            console.error('❌ Error sending queued ICE candidate:', e);
+          }
+        }
+        pendingLocalIceCandidatesRef.current = [];
+      }
 
       // Process queued ICE candidates
       await processIceCandidateQueue();
@@ -472,6 +575,8 @@ export default function VoiceDemo() {
     dcRef.current = null;
     remoteDescriptionSetRef.current = false;
     iceCandidateQueueRef.current = [];
+    sessionIdRef.current = null;
+    pendingLocalIceCandidatesRef.current = [];
     setConnectionState('disconnected');
     setVadStatus('🔇 Mic Muted');
     setIsMicMuted(false);
@@ -556,34 +661,65 @@ export default function VoiceDemo() {
                 {/* Chat messages */}
                 <div 
                   ref={chatBoxRef}
-                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-gray-50 rounded-lg space-y-3"
+                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-gray-50 rounded-lg space-y-4"
                 >
                   {messages.map((msg, idx) => (
                     <div
                       key={idx}
-                      className={`p-3 rounded-lg ${
-                        msg.role === 'user' 
-                          ? 'bg-blue-100 ml-auto max-w-[80%]' 
-                          : msg.role === 'assistant'
-                          ? 'bg-white mr-auto max-w-[80%] border border-gray-200'
-                          : 'bg-gray-200 text-center text-sm text-gray-600'
-                      } ${msg.isRTL ? 'text-right' : 'text-left'}`}
-                      dir={msg.isRTL ? 'rtl' : 'ltr'}
+                      className={`${
+                        msg.role === 'system' 
+                          ? 'text-center text-sm text-gray-500 py-2'
+                          : 'flex flex-col'
+                      }`}
                     >
-                      {msg.text}
+                      {msg.role === 'system' ? (
+                        <span className="bg-gray-200 px-3 py-1 rounded-full inline-block">
+                          {msg.text}
+                        </span>
+                      ) : (
+                        <>
+                          {/* Role label */}
+                          <span className={`text-xs font-semibold mb-1 ${
+                            msg.role === 'user' 
+                              ? 'text-blue-600' 
+                              : 'text-emerald-600'
+                          }`}>
+                            {msg.role === 'user' 
+                              ? (language === 'ar' ? '👤 أنت' : '👤 You') 
+                              : (language === 'ar' ? '🤖 المساعد' : '🤖 AI Assistant')
+                            }
+                          </span>
+                          {/* Message bubble */}
+                          <div
+                            className={`p-3 rounded-lg ${
+                              msg.role === 'user' 
+                                ? 'bg-blue-100 border-l-4 border-blue-500' 
+                                : 'bg-emerald-50 border-l-4 border-emerald-500'
+                            } ${msg.isRTL ? 'text-right' : 'text-left'}`}
+                            dir={msg.isRTL ? 'rtl' : 'ltr'}
+                          >
+                            {msg.text}
+                          </div>
+                        </>
+                      )}
                     </div>
                   ))}
                   
                   {/* Current assistant message (streaming) */}
                   {currentAssistantMessage && (
-                    <div
-                      className={`p-3 rounded-lg bg-white mr-auto max-w-[80%] border border-gray-200 ${
-                        isArabicText(currentAssistantMessage) ? 'text-right' : 'text-left'
-                      }`}
-                      dir={isArabicText(currentAssistantMessage) ? 'rtl' : 'ltr'}
-                    >
-                      {currentAssistantMessage}
-                      <span className="inline-block w-2 h-4 ml-1 bg-gray-400 animate-pulse" />
+                    <div className="flex flex-col">
+                      <span className="text-xs font-semibold mb-1 text-emerald-600">
+                        {language === 'ar' ? '🤖 المساعد' : '🤖 AI Assistant'}
+                      </span>
+                      <div
+                        className={`p-3 rounded-lg bg-emerald-50 border-l-4 border-emerald-500 ${
+                          isArabicText(currentAssistantMessage) ? 'text-right' : 'text-left'
+                        }`}
+                        dir={isArabicText(currentAssistantMessage) ? 'rtl' : 'ltr'}
+                      >
+                        {currentAssistantMessage}
+                        <span className="inline-block w-2 h-4 ml-1 bg-emerald-400 animate-pulse" />
+                      </div>
                     </div>
                   )}
                 </div>
