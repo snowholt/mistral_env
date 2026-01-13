@@ -104,3 +104,9 @@ _website_snapshot/gmai.sa/gmai.sa/dist/
 _website_snapshot/gmai.sa/gmai.sa/.vite/
 _website_snapshot/gmai.sa/gmai.sa/*.local
 
+
+# React Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+
