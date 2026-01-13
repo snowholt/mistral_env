@@ -84,6 +84,7 @@ class UserRole(enum.Enum):
     """User roles for RBAC."""
     USER = "user"      # Regular customer
     ADMIN = "admin"    # Platform administrator (@gmai.sa domain)
+    GUEST = "guest"    # Guest/Demo user (limited access)
 
 
 class SubscriptionStatus(enum.Enum):
@@ -191,20 +192,67 @@ class User(Base):
     # Stripe integration
     stripe_customer_id: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, unique=True)
     
+    # Guest/Demo fields
+    demo_request_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("demo_requests.id", ondelete="SET NULL"), nullable=True, index=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    max_conversations: Mapped[Optional[int]] = mapped_column(Integer, default=10, nullable=True)
+    conversations_used: Mapped[int] = mapped_column(Integer, default=0)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     customers: Mapped[List["Customer"]] = relationship("Customer", back_populates="user", lazy="selectin")
+    demo_request: Mapped[Optional["DemoRequest"]] = relationship("DemoRequest", foreign_keys=[demo_request_id], back_populates="created_user")
     
     def is_admin(self) -> bool:
         """Check if user has admin role."""
         return self.role == UserRole.ADMIN
+
+    def is_guest(self) -> bool:
+        """Check if user has guest role."""
+        return self.role == UserRole.GUEST
     
     @classmethod
     def should_be_admin(cls, email: str) -> bool:
         """Check if email should automatically get admin role."""
         return email.lower().endswith("@gmai.sa")
+
+    # Guest/Demo helper methods
+    def is_expired(self) -> bool:
+        """Check if demo access has expired (for guest users)."""
+        if not self.expires_at:
+            return False
+        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at
+    
+    def is_limit_reached(self) -> bool:
+        """Check if usage limit has been reached (for guest users)."""
+        if self.max_conversations is None:
+            return False
+        return self.conversations_used >= self.max_conversations
+    
+    def can_access_demo(self) -> bool:
+        """Check if user can currently access the demo."""
+        if not self.is_guest():
+            return True # Regular users/admins can access
+        return self.is_active and not self.is_expired() and not self.is_limit_reached()
+    
+    def increment_conversations(self) -> None:
+        """Increment conversation usage counter."""
+        self.conversations_used += 1
+    
+    def days_remaining(self) -> int:
+        """Calculate days remaining until expiry."""
+        if not self.expires_at or self.is_expired():
+            return 0
+        delta = self.expires_at - datetime.now(timezone.utc).replace(tzinfo=None)
+        return max(0, delta.days)
+    
+    def conversations_remaining(self) -> int:
+        """Calculate conversations remaining."""
+        if self.max_conversations is None:
+            return 9999
+        return max(0, self.max_conversations - self.conversations_used)
     
     def generate_verification_token(self) -> str:
         """Generate a new email verification token."""
@@ -323,6 +371,20 @@ class WhatsAppAccount(Base):
         return f"<WhatsAppAccount(id={self.id}, phone_number_id='{self.phone_number_id}')>"
 
 
+class BusinessType(enum.Enum):
+    """Business type for configuration wizard."""
+    RETAIL = "retail"
+    SERVICES = "services"
+    BOTH = "both"
+
+
+class SupportedLanguage(enum.Enum):
+    """Languages supported for AI responses."""
+    ENGLISH = "english"
+    ARABIC = "arabic"
+    BOTH = "both"
+
+
 class AgentConfig(Base):
     """
     AI agent configuration for a customer.
@@ -341,6 +403,20 @@ class AgentConfig(Base):
     behavior_rules: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     custom_instructions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Override for power users
     
+    # NEW: Wizard-based configuration fields
+    # Step 1: Business Profile
+    business_description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Brief about what the business does
+    business_type: Mapped[Optional[str]] = mapped_column(String(20), default="services")  # retail, services, both
+    supported_language: Mapped[str] = mapped_column(String(20), default="both")  # english, arabic, both
+    website_url: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Step 2: Booking/Scheduling
+    booking_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    booking_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)  # Calendly, Cal.com, etc.
+    
+    # Step 3: Policies (force AI to follow)
+    business_policies: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Business policies the AI must follow
+    
     # Compiled system prompt
     system_prompt: Mapped[str] = mapped_column(Text, nullable=False)
     
@@ -349,11 +425,19 @@ class AgentConfig(Base):
     ai_pause_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)  # NULL = active
     ai_pause_duration_minutes: Mapped[int] = mapped_column(Integer, default=30)
     
+    # Wizard completion tracking
+    wizard_completed: Mapped[bool] = mapped_column(Boolean, default=False)
+    wizard_current_step: Mapped[int] = mapped_column(Integer, default=1)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", back_populates="agent_config")
+    services: Mapped[List["BusinessService"]] = relationship("BusinessService", back_populates="agent_config", cascade="all, delete-orphan", lazy="selectin")
+    products: Mapped[List["BusinessProduct"]] = relationship("BusinessProduct", back_populates="agent_config", cascade="all, delete-orphan", lazy="selectin")
+    locations: Mapped[List["BusinessLocation"]] = relationship("BusinessLocation", back_populates="agent_config", cascade="all, delete-orphan", lazy="selectin")
+    promotions: Mapped[List["BusinessPromotion"]] = relationship("BusinessPromotion", back_populates="agent_config", cascade="all, delete-orphan", lazy="selectin")
     
     @classmethod
     def compile_system_prompt(
@@ -361,12 +445,25 @@ class AgentConfig(Base):
         business_name: str,
         tone: str = "professional",
         behavior_rules: Optional[str] = None,
-        custom_instructions: Optional[str] = None
+        custom_instructions: Optional[str] = None,
+        # NEW: Wizard-based fields
+        business_description: Optional[str] = None,
+        business_type: Optional[str] = None,
+        supported_language: str = "both",
+        website_url: Optional[str] = None,
+        booking_enabled: bool = False,
+        booking_link: Optional[str] = None,
+        business_policies: Optional[str] = None,
+        services: Optional[List[dict]] = None,
+        products: Optional[List[dict]] = None,
+        locations: Optional[List[dict]] = None,
+        promotions: Optional[List[dict]] = None,
     ) -> str:
         """
         Compile template fields into a system prompt string.
         
         If custom_instructions is provided, it overrides the template.
+        Generates locale-specific prompts based on supported_language.
         """
         if custom_instructions:
             return custom_instructions.strip()
@@ -379,15 +476,129 @@ class AgentConfig(Base):
         }
         tone_desc = tone_descriptions.get(tone, "professional and courteous")
         
+        # Language-specific instructions
+        language_instructions = {
+            "english": "Respond ONLY in English. Do not use Arabic.",
+            "arabic": "أجب باللغة العربية فقط. لا تستخدم اللغة الإنجليزية. Respond ONLY in Arabic.",
+            "both": "Respond in the same language the customer uses. If they write in Arabic, respond in Arabic. If they write in English, respond in English. You are fluent in both Arabic and English."
+        }
+        lang_instruction = language_instructions.get(supported_language, language_instructions["both"])
+        
         prompt_parts = [
             f"You are {business_name}'s AI assistant.",
             f"Communicate in a {tone_desc} manner.",
+            "",
+            f"## Language Instructions",
+            lang_instruction,
+            "",
             "Be helpful, accurate, and concise in your responses.",
             "If you don't know something, say so honestly."
         ]
         
+        # Add business description
+        if business_description:
+            prompt_parts.extend([
+                "",
+                "## About the Business",
+                business_description.strip()
+            ])
+        
+        # Add website
+        if website_url:
+            prompt_parts.extend([
+                "",
+                f"Website: {website_url}"
+            ])
+        
+        # Add services (for service-based businesses)
+        if services and business_type in ["services", "both"]:
+            prompt_parts.extend([
+                "",
+                "## Services Offered",
+                "| Service | Description | Price | Duration | Warranty |",
+                "|---------|-------------|-------|----------|----------|"
+            ])
+            for svc in services:
+                name = svc.get("name", "")
+                desc = svc.get("description", "")
+                price = svc.get("price_display", "")
+                duration = svc.get("duration_minutes", "")
+                warranty = svc.get("warranty", "")
+                prompt_parts.append(f"| {name} | {desc} | {price} | {duration} min | {warranty} |")
+        
+        # Add products (for retail businesses)
+        if products and business_type in ["retail", "both"]:
+            prompt_parts.extend([
+                "",
+                "## Products Available",
+                "| Product | Description | Price Range | Warranty | Shipping |",
+                "|---------|-------------|-------------|----------|----------|"
+            ])
+            for prod in products:
+                name = prod.get("name", "")
+                desc = prod.get("description", "")
+                price_range = prod.get("price_range", "")
+                warranty = prod.get("warranty", "")
+                shipping = prod.get("shipping_cost", "")
+                prompt_parts.append(f"| {name} | {desc} | {price_range} | {warranty} | {shipping} |")
+        
+        # Add locations
+        if locations:
+            prompt_parts.extend([
+                "",
+                "## Business Locations",
+                "| Branch | Address | Working Hours | Contact |",
+                "|--------|---------|---------------|---------|"
+            ])
+            for loc in locations:
+                branch = loc.get("branch_name", "")
+                address = loc.get("address", "")
+                hours = loc.get("working_hours", "")
+                contact = loc.get("contact_number", "")
+                prompt_parts.append(f"| {branch} | {address} | {hours} | {contact} |")
+        
+        # Add booking information
+        if booking_enabled and booking_link:
+            prompt_parts.extend([
+                "",
+                "## Appointments & Booking",
+                f"Customers can book appointments at: {booking_link}",
+                "When customers ask about scheduling, direct them to the booking link."
+            ])
+        
+        # Add active promotions
+        if promotions:
+            active_promos = [p for p in promotions if p.get("is_active", True)]
+            if active_promos:
+                prompt_parts.extend([
+                    "",
+                    "## Current Promotions",
+                    "Share these promotions when relevant to the customer's inquiry:"
+                ])
+                for promo in active_promos:
+                    title = promo.get("title", "")
+                    desc = promo.get("description", "")
+                    valid_until = promo.get("valid_until", "")
+                    prompt_parts.append(f"- **{title}**: {desc}")
+                    if valid_until:
+                        prompt_parts.append(f"  (Valid until: {valid_until})")
+        
+        # Add business policies (MUST FOLLOW)
+        if business_policies:
+            prompt_parts.extend([
+                "",
+                "## Business Policies (MUST FOLLOW)",
+                "You MUST adhere to these business policies at all times:",
+                business_policies.strip()
+            ])
+        
+        # Add additional behavior rules
         if behavior_rules:
-            prompt_parts.append(f"\nAdditional rules:\n{behavior_rules.strip()}")
+            prompt_parts.extend([
+                "",
+                "## Additional Guidelines",
+                behavior_rules.strip()
+            ])
         
         return "\n".join(prompt_parts)
     
@@ -410,6 +621,217 @@ class AgentConfig(Base):
     
     def __repr__(self) -> str:
         return f"<AgentConfig(id={self.id}, business_name='{self.business_name}')>"
+
+
+# ============================================================================
+# Business Configuration (Wizard-based)
+# ============================================================================
+
+
+class BusinessService(Base):
+    """
+    Services offered by a business (for service-based businesses).
+    
+    Used by the AI to provide accurate service information to customers.
+    """
+    __tablename__ = "business_services"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_config_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Service details
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_display: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "SAR 100", "From SAR 50"
+    duration_minutes: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)  # Service duration
+    warranty: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)  # Warranty info
+    
+    # Booking integration
+    is_bookable: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    agent_config: Mapped["AgentConfig"] = relationship("AgentConfig", back_populates="services")
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for prompt compilation."""
+        return {
+            "name": self.name,
+            "description": self.description or "",
+            "price": self.price,
+            "price_display": self.price_display or "",
+            "duration_minutes": self.duration_minutes or "",
+            "warranty": self.warranty or "",
+            "is_bookable": self.is_bookable,
+        }
+    
+    def __repr__(self) -> str:
+        return f"<BusinessService(id={self.id}, name='{self.name}')>"
+
+
+class BusinessProduct(Base):
+    """
+    Products sold by a business (for retail businesses).
+    
+    Used by the AI to provide accurate product information to customers.
+    """
+    __tablename__ = "business_products"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_config_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Product details
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    price_min: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_max: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    price_range: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "SAR 100 - 200"
+    warranty: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    shipping_cost: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # e.g., "Free", "SAR 25"
+    
+    # Status
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    agent_config: Mapped["AgentConfig"] = relationship("AgentConfig", back_populates="products")
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for prompt compilation."""
+        return {
+            "name": self.name,
+            "description": self.description or "",
+            "price_range": self.price_range or "",
+            "warranty": self.warranty or "",
+            "shipping_cost": self.shipping_cost or "",
+            "is_available": self.is_available,
+        }
+    
+    def __repr__(self) -> str:
+        return f"<BusinessProduct(id={self.id}, name='{self.name}')>"
+
+
+class BusinessLocation(Base):
+    """
+    Physical locations/branches of a business.
+    
+    Used by the AI to direct customers to the right location.
+    """
+    __tablename__ = "business_locations"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_config_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Location details
+    branch_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    address: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    google_maps_link: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+    
+    # Working hours (stored as JSON for flexibility)
+    # Format: {"sunday": {"open": "09:00", "close": "18:00"}, ...}
+    working_hours: Mapped[Optional[str]] = mapped_column(Text, nullable=True)  # Human readable or JSON
+    working_hours_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+    
+    # Contact
+    contact_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    extension: Mapped[Optional[str]] = mapped_column(String(20), nullable=True)
+    whatsapp_number: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+    # Status
+    is_main_branch: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    agent_config: Mapped["AgentConfig"] = relationship("AgentConfig", back_populates="locations")
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for prompt compilation."""
+        return {
+            "branch_name": self.branch_name,
+            "address": self.address or "",
+            "city": self.city or "",
+            "working_hours": self.working_hours or "",
+            "contact_number": self.contact_number or "",
+            "google_maps_link": self.google_maps_link or "",
+        }
+    
+    def __repr__(self) -> str:
+        return f"<BusinessLocation(id={self.id}, branch_name='{self.branch_name}')>"
+
+
+class BusinessPromotion(Base):
+    """
+    Active promotions and special offers.
+    
+    AI can share these promotions when relevant to customer inquiries.
+    """
+    __tablename__ = "business_promotions"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    agent_config_id: Mapped[int] = mapped_column(Integer, ForeignKey("agent_configs.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Promotion details
+    title: Mapped[str] = mapped_column(String(255), nullable=False)
+    description: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    discount_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)  # percentage, fixed, bogo
+    discount_value: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # "20%", "SAR 50"
+    
+    # Conditions
+    terms_conditions: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    promo_code: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    
+    # Validity
+    valid_from: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    valid_until: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    agent_config: Mapped["AgentConfig"] = relationship("AgentConfig", back_populates="promotions")
+    
+    def is_currently_valid(self) -> bool:
+        """Check if promotion is currently valid based on dates."""
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.valid_from and now < self.valid_from:
+            return False
+        if self.valid_until and now > self.valid_until:
+            return False
+        return self.is_active
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for prompt compilation."""
+        return {
+            "title": self.title,
+            "description": self.description or "",
+            "discount_value": self.discount_value or "",
+            "promo_code": self.promo_code or "",
+            "valid_until": self.valid_until.strftime("%Y-%m-%d") if self.valid_until else "",
+            "is_active": self.is_currently_valid(),
+        }
+    
+    def __repr__(self) -> str:
+        return f"<BusinessPromotion(id={self.id}, title='{self.title}')>"
 
 
 class Conversation(Base):
@@ -1012,6 +1434,7 @@ class DemoRequest(Base):
     
     # Relationships
     assigned_to_admin: Mapped[Optional["User"]] = relationship("User", foreign_keys=[assigned_to_admin_id], lazy="selectin")
+    created_user: Mapped[Optional["User"]] = relationship("User", foreign_keys="[User.demo_request_id]", back_populates="demo_request", uselist=False)
     guest_user: Mapped[Optional["GuestUser"]] = relationship("GuestUser", back_populates="demo_request", uselist=False, lazy="selectin")
     
     def full_name(self) -> str:

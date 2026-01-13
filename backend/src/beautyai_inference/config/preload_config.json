@@ -28,16 +28,15 @@
       "description": "Qwen3 14B Q4_K_S - Unsloth optimized (8.0GB)"
     },
     "tts": {
-      "model_id": "genius-xtts-arabic",
-      "model_path": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/xtts/GPT_XTTS_v2.0_LJSpeech_FT-December-01-2025_08+00PM-2b091fe",
-      "device": "cuda",
+      "model_id": "edge-tts",
+      "device": "cpu",
       "priority": 3,
-      "engine_type": "xtts",
+      "engine_type": "edge_tts",
       "sample_rate": 24000,
       "streaming": true,
-      "voice_cloning": true,
+      "voice_cloning": false,
       "target_latency_ms": 150,
-      "description": "Genius AI fine-tuned Coqui XTTS v2 - Arabic TTS (5.6GB)"
+      "description": "Microsoft Edge TTS - Cloud-based, low latency, multilingual"
     }
   },
   "memory_thresholds": {

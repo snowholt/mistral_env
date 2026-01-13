@@ -832,3 +832,314 @@ async def get_metrics_alias(
         },
         "timestamp": now.isoformat(),
     }
+
+
+# ============================================
+# GPU Benchmarking Endpoints
+# ============================================
+
+class BenchmarkRequest(BaseModel):
+    """Request for GPU benchmarking."""
+    prompt: str = Field(
+        default="What are the benefits of healthy skincare?",
+        description="Prompt to use for benchmarking"
+    )
+    max_tokens: int = Field(default=100, ge=10, le=500)
+    num_runs: int = Field(default=3, ge=1, le=10, description="Number of benchmark runs")
+
+
+class BenchmarkResult(BaseModel):
+    """Single benchmark result."""
+    run_number: int
+    tokens_generated: int
+    time_seconds: float
+    tokens_per_second: float
+
+
+class BenchmarkResponse(BaseModel):
+    """Benchmark response with aggregated stats."""
+    model_name: str
+    prompt: str
+    num_runs: int
+    results: List[BenchmarkResult]
+    average_tokens_per_second: float
+    min_tokens_per_second: float
+    max_tokens_per_second: float
+    total_tokens_generated: int
+    total_time_seconds: float
+    gpu_name: Optional[str] = None
+    gpu_memory_used_gb: Optional[float] = None
+    gpu_memory_total_gb: Optional[float] = None
+
+
+def _get_gpu_info() -> tuple:
+    """Get GPU name and memory info."""
+    gpu_name = None
+    gpu_memory_used_gb = None
+    gpu_memory_total_gb = None
+    try:
+        import pynvml
+        pynvml.nvmlInit()
+        handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+        gpu_name = pynvml.nvmlDeviceGetName(handle)
+        if isinstance(gpu_name, bytes):
+            gpu_name = gpu_name.decode('utf-8')
+        memory_info = pynvml.nvmlDeviceGetMemoryInfo(handle)
+        gpu_memory_used_gb = round(memory_info.used / (1024**3), 2)
+        gpu_memory_total_gb = round(memory_info.total / (1024**3), 2)
+        pynvml.nvmlShutdown()
+        return gpu_name, gpu_memory_used_gb, gpu_memory_total_gb
+    except Exception:
+        # NVML isn't always available in minimal/prod deployments.
+        # Fall back to torch.cuda so the UI still shows meaningful VRAM values.
+        try:
+            import torch
+
+            if torch.cuda.is_available():
+                try:
+                    gpu_name = torch.cuda.get_device_name(0)
+                except Exception:
+                    gpu_name = gpu_name
+
+                total_bytes = None
+                free_bytes = None
+                try:
+                    free_bytes, total_bytes = torch.cuda.mem_get_info(0)
+                except Exception:
+                    try:
+                        total_bytes = int(torch.cuda.get_device_properties(0).total_memory)
+                    except Exception:
+                        total_bytes = None
+
+                if total_bytes is not None:
+                    gpu_memory_total_gb = round(total_bytes / (1024**3), 2)
+
+                if total_bytes is not None and free_bytes is not None:
+                    used_bytes = max(0, int(total_bytes - free_bytes))
+                    gpu_memory_used_gb = round(used_bytes / (1024**3), 2)
+                else:
+                    # Process-only fallback (still better than 0)
+                    try:
+                        gpu_memory_used_gb = round(float(torch.cuda.memory_reserved(0)) / (1024**3), 2)
+                    except Exception:
+                        gpu_memory_used_gb = gpu_memory_used_gb
+        except Exception:
+            pass
+    return gpu_name, gpu_memory_used_gb, gpu_memory_total_gb
+
+
+@admin_router.post("/benchmark/gpu")
+async def run_gpu_benchmark(
+    request: BenchmarkRequest = BenchmarkRequest(),
+    admin: User = Depends(require_admin),
+):
+    """
+    Run GPU benchmarking to measure tokens per second.
+    
+    This endpoint runs inference on the loaded model multiple times
+    and calculates token generation speed metrics.
+    If no model is loaded, returns GPU info with zero performance metrics.
+    """
+    import time
+    
+    # Get GPU info first
+    gpu_name, gpu_memory_used_gb, gpu_memory_total_gb = _get_gpu_info()
+    
+    # Get the loaded LLM model (must be loaded in *this* process)
+    model_instance = None
+    model_name = "No model loaded"
+
+    try:
+        from ...core.model_manager import ModelManager
+
+        def _looks_like_llm(loaded_name: str, instance: object) -> bool:
+            lowered = (loaded_name or "").lower()
+            config = getattr(instance, "config", None)
+            engine_type = (getattr(config, "engine_type", None) or "").lower()
+            model_id = (getattr(config, "model_id", None) or "").lower()
+
+            if engine_type in {"llamacpp", "transformers", "vllm"}:
+                return True
+
+            # Filter out known non-LLM workloads
+            if "whisper" in lowered or "whisper" in model_id:
+                return False
+            if "tts" in lowered or "tts" in model_id:
+                return False
+
+            # Fallback: if it has a usable benchmark() method, treat as candidate
+            return callable(getattr(instance, "benchmark", None))
+
+        model_manager = ModelManager()
+        loaded_models = model_manager.list_loaded_models()
+
+        # Prefer an LLM-looking model; otherwise fall back to any loaded model with benchmark()
+        for candidate_name in loaded_models:
+            candidate_instance = model_manager.get_loaded_model(candidate_name)
+            if candidate_instance and _looks_like_llm(candidate_name, candidate_instance):
+                model_instance = candidate_instance
+                model_name = candidate_name
+                break
+
+        if model_instance is None:
+            for candidate_name in loaded_models:
+                candidate_instance = model_manager.get_loaded_model(candidate_name)
+                if candidate_instance and callable(getattr(candidate_instance, "benchmark", None)):
+                    model_instance = candidate_instance
+                    model_name = candidate_name
+                    break
+
+        if model_instance is None:
+            logger.warning(
+                "No suitable LLM model found for benchmark (loaded_models=%s)",
+                loaded_models,
+            )
+
+    except Exception as e:
+        logger.warning(f"Error accessing model for benchmark: {e}")
+
+    # If no model is loaded/available, return empty results with GPU info
+    if model_instance is None:
+        return {
+            "tokens_per_second": 0,
+            "total_tokens": 0,
+            "inference_time_seconds": 0,
+            "model_name": model_name,
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "runs": 0,
+            "gpu_name": gpu_name or "Unknown",
+            "gpu_memory_used_gb": gpu_memory_used_gb or 0,
+            "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+            "detailed_results": [],
+            "average_tokens_per_second": 0,
+            "min_tokens_per_second": 0,
+            "max_tokens_per_second": 0,
+            "error": "No suitable LLM model is currently loaded in this process. Load an LLM model to run benchmarks.",
+        }
+    
+    # Run benchmarks
+    results = []
+    
+    for run_num in range(1, request.num_runs + 1):
+        try:
+            # Prefer the model's built-in benchmark() implementation for accurate timing.
+            # Most LLM engines accept max_new_tokens.
+            bench = model_instance.benchmark(
+                request.prompt,
+                max_new_tokens=request.max_tokens,
+            )
+
+            elapsed = float(bench.get("inference_time") or 0)
+            tokens_generated = int(bench.get("output_tokens") or 0)
+            tokens_per_second = float(bench.get("tokens_per_second") or 0)
+
+            # Fallback safety if an engine returns partial stats
+            if elapsed <= 0 and tokens_per_second > 0 and tokens_generated > 0:
+                elapsed = tokens_generated / tokens_per_second
+            
+            results.append(BenchmarkResult(
+                run_number=run_num,
+                tokens_generated=tokens_generated,
+                time_seconds=round(elapsed, 3),
+                tokens_per_second=round(tokens_per_second, 2)
+            ))
+            
+        except Exception as e:
+            logger.error(f"Benchmark run {run_num} failed: {e}")
+            # Add a failed result
+            results.append(BenchmarkResult(
+                run_number=run_num,
+                tokens_generated=0,
+                time_seconds=0,
+                tokens_per_second=0
+            ))
+    
+    # Calculate aggregates
+    valid_results = [r for r in results if r.tokens_per_second > 0]
+    
+    if valid_results:
+        avg_tps = sum(r.tokens_per_second for r in valid_results) / len(valid_results)
+        min_tps = min(r.tokens_per_second for r in valid_results)
+        max_tps = max(r.tokens_per_second for r in valid_results)
+    else:
+        avg_tps = min_tps = max_tps = 0
+    
+    total_tokens = sum(r.tokens_generated for r in results)
+    total_time = sum(r.time_seconds for r in results)
+    
+    # Return format that matches frontend expectations
+    return {
+        "tokens_per_second": round(avg_tps, 2),
+        "total_tokens": total_tokens,
+        "inference_time_seconds": round(total_time, 3),
+        "model_name": model_name,
+        "prompt_tokens": int(len(request.prompt.split()) * 2),  # Approximate
+        "completion_tokens": total_tokens,
+        "runs": request.num_runs,
+        "gpu_name": gpu_name or "Unknown",
+        "gpu_memory_used_gb": gpu_memory_used_gb or 0,
+        "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+        # Also include detailed results for advanced use
+        "detailed_results": [r.model_dump() for r in results],
+        "average_tokens_per_second": round(avg_tps, 2),
+        "min_tokens_per_second": round(min_tps, 2),
+        "max_tokens_per_second": round(max_tps, 2),
+    }
+
+
+@admin_router.get("/benchmark/gpu/quick")
+async def quick_gpu_benchmark(
+    admin: User = Depends(require_admin),
+):
+    """
+    Quick GPU benchmark that returns current tokens/sec performance.
+    
+    Uses a single run for fast results. Use POST /benchmark/gpu for detailed benchmarks.
+    If no model is loaded, returns GPU info with null performance metrics.
+    """
+    gpu_name, gpu_memory_used_gb, gpu_memory_total_gb = _get_gpu_info()
+    
+    # Try to run actual benchmark
+    try:
+        request = BenchmarkRequest(
+            prompt="Hello, how are you?",
+            max_tokens=50,
+            num_runs=1
+        )
+        
+        result = await run_gpu_benchmark(request, admin)
+        
+        # run_gpu_benchmark returns a dict now, so use dict access
+        return {
+            "tokens_per_second": result.get("tokens_per_second", 0),
+            "total_tokens": result.get("total_tokens", 0),
+            "inference_time_seconds": result.get("inference_time_seconds", 0),
+            "model_name": result.get("model_name", "Unknown"),
+            "prompt_tokens": result.get("prompt_tokens", 0),
+            "completion_tokens": result.get("completion_tokens", 0),
+            "runs": result.get("runs", 0),
+            "gpu_name": result.get("gpu_name") or gpu_name or "Unknown",
+            "gpu_memory_used_gb": result.get("gpu_memory_used_gb") or gpu_memory_used_gb or 0,
+            "gpu_memory_total_gb": result.get("gpu_memory_total_gb") or gpu_memory_total_gb or 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": result.get("error"),  # Pass through any error message
+        }
+    except Exception as e:
+        # Any error - return GPU info only
+        logger.warning(f"Quick benchmark failed: {e}")
+        return {
+            "tokens_per_second": 0,
+            "total_tokens": 0,
+            "inference_time_seconds": 0,
+            "model_name": "No model loaded",
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "runs": 0,
+            "gpu_name": gpu_name or "Unknown",
+            "gpu_memory_used_gb": gpu_memory_used_gb or 0,
+            "gpu_memory_total_gb": gpu_memory_total_gb or 0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "error": str(e) if str(e) else "Benchmark failed",
+        }
+

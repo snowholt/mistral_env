@@ -164,8 +164,10 @@ class EdgeTTSEngine(ModelInterface):
             if not text:
                 raise ValueError("Empty text provided")
             
-            # Optimize for short texts (< 200 chars) - use sync generation
-            if len(text) < 200:
+            # Optimize for short texts (< 1000 chars) - use sync generation
+            # NOTE: Parallel processing has issues with combining MP3 chunks, so use
+            # sync generation for most conversational responses
+            if len(text) < 1000:
                 return self._generate_fast_sync(text, language, speaker_voice, output_path, gender)
             # For longer texts, use parallel processing
             else:
@@ -190,9 +192,10 @@ class EdgeTTSEngine(ModelInterface):
         
         logger.debug(f"Fast TTS generation: {len(text)} chars, voice: {voice}")
         
-        # Use optimized async execution with shorter timeout
+        # Use optimized async execution with adaptive timeout based on text length
+        timeout_seconds = max(8, len(text) // 100 + 5)  # ~100 chars/sec + 5s buffer
         future = self._executor.submit(self._run_async_in_thread_fast, text, voice, output_path)
-        future.result(timeout=8)  # Reduced timeout for faster failure detection
+        future.result(timeout=timeout_seconds)
         
         logger.debug(f"Edge TTS audio saved to: {output_path}")
         return output_path
