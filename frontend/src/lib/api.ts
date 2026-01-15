@@ -20,9 +20,18 @@ export interface User {
   id: number;
   email: string;
   full_name: string | null;
-  role: 'user' | 'admin';
+  role: 'user' | 'admin' | 'guest';
   is_verified: boolean;
   created_at: string;
+  // Guest-specific fields (only populated when role=guest)
+  expires_at?: string;
+  max_conversations?: number;
+  conversations_used?: number;
+  is_expired?: boolean;
+  is_limit_reached?: boolean;
+  days_remaining?: number;
+  conversations_remaining?: number;
+  can_access_demo?: boolean;
 }
 
 export interface AuthTokens {
@@ -164,7 +173,7 @@ class ApiClient {
 
   private async doRefreshToken(refreshToken: string): Promise<boolean> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/v1/whatsapp/auth/refresh`, {
+      const response = await fetch(`${this.baseUrl}/api/v1/auth/refresh`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ refresh_token: refreshToken }),
@@ -276,7 +285,7 @@ export const api = new ApiClient();
 export const authApi = {
   login: async (email: string, password: string) => {
     const response = await api.post<AuthTokens & { user: User }>(
-      '/api/v1/whatsapp/auth/login',
+      '/api/v1/auth/login',
       { email, password },
       false,
     );
@@ -287,7 +296,7 @@ export const authApi = {
 
   register: async (email: string, password: string, fullName?: string) => {
     const response = await api.post<{ message: string; user_id: number }>(
-      '/api/v1/whatsapp/auth/register',
+      '/api/v1/auth/register',
       { email, password, full_name: fullName },
       false,
     );
@@ -296,7 +305,7 @@ export const authApi = {
 
   verifyEmail: async (token: string) => {
     return api.post<{ message: string }>(
-      '/api/v1/whatsapp/auth/verify-email',
+      '/api/v1/auth/verify-email',
       { token },
       false,
     );
@@ -304,7 +313,7 @@ export const authApi = {
 
   resendVerification: async (email: string) => {
     return api.post<{ message: string }>(
-      '/api/v1/whatsapp/auth/resend-verification',
+      '/api/v1/auth/resend-verification',
       { email },
       false,
     );
@@ -312,7 +321,7 @@ export const authApi = {
 
   forgotPassword: async (email: string) => {
     return api.post<{ message: string }>(
-      '/api/v1/whatsapp/auth/forgot-password',
+      '/api/v1/auth/forgot-password',
       { email },
       false,
     );
@@ -320,14 +329,14 @@ export const authApi = {
 
   resetPassword: async (token: string, newPassword: string) => {
     return api.post<{ message: string }>(
-      '/api/v1/whatsapp/auth/reset-password',
+      '/api/v1/auth/reset-password',
       { token, new_password: newPassword },
       false,
     );
   },
 
   getMe: async () => {
-    const user = await api.get<User>('/api/v1/whatsapp/auth/me');
+    const user = await api.get<User>('/api/v1/auth/me');
     tokenManager.setUser(user);
     return user;
   },

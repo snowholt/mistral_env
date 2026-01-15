@@ -51,7 +51,7 @@ def login():
         try:
             # Call backend login API
             response = requests.post(
-                f"{API_BASE}/api/v1/whatsapp/auth/login",
+                f"{API_BASE}/api/v1/auth/login",
                 json={"email": email, "password": password},
                 timeout=10
             )
@@ -99,7 +99,7 @@ def register():
         try:
             # Call backend register API
             response = requests.post(
-                f"{API_BASE}/api/v1/whatsapp/auth/register",
+                f"{API_BASE}/api/v1/auth/register",
                 json={
                     "email": email,
                     "password": password,

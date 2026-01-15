@@ -140,9 +140,16 @@ class MessageResponse(BaseModel):
 # ============================================================================
 
 async def get_customer_for_user(db: AsyncSession, user: User) -> Customer:
-    """Get customer associated with user."""
+    """Get customer associated with user.
+    
+    If user has multiple customers, returns the first one (by created_at).
+    In the future, this should be changed to require customer_id parameter.
+    """
     result = await db.execute(
-        select(Customer).where(Customer.user_id == user.id)
+        select(Customer)
+        .where(Customer.user_id == user.id)
+        .order_by(Customer.created_at.asc())
+        .limit(1)
     )
     customer = result.scalar_one_or_none()
     if not customer:

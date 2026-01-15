@@ -22,13 +22,13 @@ logger = logging.getLogger(__name__)
 
 # OAuth2 scheme for bearer token extraction
 oauth2_scheme = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/whatsapp/auth/login",
+    tokenUrl="/api/v1/auth/login",
     auto_error=True
 )
 
 # Optional version that doesn't raise on missing token
 oauth2_scheme_optional = OAuth2PasswordBearer(
-    tokenUrl="/api/v1/whatsapp/auth/login",
+    tokenUrl="/api/v1/auth/login",
     auto_error=False
 )
 

@@ -41,7 +41,7 @@ except ImportError as e:
 
 # Import WhatsApp Manager routers
 try:
-    from .endpoints.whatsapp_auth import whatsapp_auth_router
+    from .endpoints.whatsapp_auth import auth_router
     from .endpoints.whatsapp_manager import whatsapp_manager_router
     from .endpoints.whatsapp_webhook import whatsapp_webhook_router
     from .endpoints.whatsapp_inbox_ws import whatsapp_inbox_ws_router
@@ -268,14 +268,14 @@ if debug_capture_router_available:
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
 
-# Include WhatsApp Manager routers if available
+# Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:
-    app.include_router(whatsapp_auth_router, tags=["whatsapp-auth"])
+    app.include_router(auth_router, tags=["auth"])
     app.include_router(whatsapp_manager_router, tags=["whatsapp-manager"])
     app.include_router(whatsapp_webhook_router, tags=["whatsapp-webhook"])
     app.include_router(whatsapp_inbox_ws_router, tags=["whatsapp-inbox-ws"])
+    logger.info("✅ Auth endpoints registered at /api/v1/auth/*")
     logger.info("✅ WhatsApp Manager endpoints registered:")
-    logger.info("   - Auth: /api/v1/whatsapp/auth/*")
     logger.info("   - Manager: /api/v1/whatsapp/*")
     logger.info("   - Webhook: /api/v1/whatsapp/webhook")
     logger.info("   - Inbox WS: /api/v1/whatsapp/inbox/ws")

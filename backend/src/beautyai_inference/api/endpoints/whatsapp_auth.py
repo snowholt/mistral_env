@@ -26,7 +26,9 @@ from ...services.cache import RateLimiter, get_redis, rate_limit_auth
 
 logger = logging.getLogger(__name__)
 
-whatsapp_auth_router = APIRouter(prefix="/api/v1/whatsapp/auth", tags=["whatsapp-auth"])
+# Main auth router - handles user registration, login, profile, etc.
+# Note: This was previously at /api/v1/whatsapp/auth but moved to /api/v1/auth for clarity
+auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 
 # ============================================
@@ -93,6 +95,15 @@ class UserResponse(BaseModel):
     is_verified: bool
     created_at: datetime
     customers: list
+    # Guest-specific fields (only populated when role=guest)
+    expires_at: Optional[datetime] = None
+    max_conversations: Optional[int] = None
+    conversations_used: Optional[int] = None
+    is_expired: Optional[bool] = None
+    is_limit_reached: Optional[bool] = None
+    days_remaining: Optional[int] = None
+    conversations_remaining: Optional[int] = None
+    can_access_demo: Optional[bool] = None
 
 
 class ChangePasswordRequest(BaseModel):
@@ -132,7 +143,7 @@ class AdminInviteRequest(BaseModel):
 # API Endpoints
 # ============================================
 
-@whatsapp_auth_router.post("/register", response_model=RegisterResponse)
+@auth_router.post("/register", response_model=RegisterResponse)
 async def register(
     request: RegisterRequest,
     db: AsyncSession = Depends(get_db),
@@ -246,7 +257,7 @@ async def register(
     )
 
 
-@whatsapp_auth_router.post("/login", response_model=LoginResponse)
+@auth_router.post("/login", response_model=LoginResponse)
 async def login(
     request: LoginRequest,
     db: AsyncSession = Depends(get_db)
@@ -299,7 +310,7 @@ async def login(
     )
 
 
-@whatsapp_auth_router.post("/refresh", response_model=RefreshResponse)
+@auth_router.post("/refresh", response_model=RefreshResponse)
 async def refresh_token(
     request: RefreshRequest,
     db: AsyncSession = Depends(get_db)
@@ -339,7 +350,7 @@ async def refresh_token(
     )
 
 
-@whatsapp_auth_router.get("/me", response_model=UserResponse)
+@auth_router.get("/me", response_model=UserResponse)
 async def get_current_user_profile(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db)
@@ -353,15 +364,16 @@ async def get_current_user_profile(
     # Eager load customers if not already loaded
     await db.refresh(current_user, ["customers"])
     
-    return UserResponse(
-        id=current_user.id,
-        email=current_user.email,
-        full_name=current_user.full_name,
-        role=current_user.role.value,
-        is_active=current_user.is_active,
-        is_verified=current_user.is_verified,
-        created_at=current_user.created_at,
-        customers=[
+    # Build response with guest fields if applicable
+    response_data = {
+        "id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "role": current_user.role.value,
+        "is_active": current_user.is_active,
+        "is_verified": current_user.is_verified,
+        "created_at": current_user.created_at,
+        "customers": [
             {
                 "id": c.id,
                 "name": c.name,
@@ -370,10 +382,25 @@ async def get_current_user_profile(
             }
             for c in current_user.customers
         ]
-    )
+    }
+    
+    # Add guest-specific fields if user is a guest
+    if current_user.is_guest():
+        response_data.update({
+            "expires_at": current_user.expires_at,
+            "max_conversations": current_user.max_conversations,
+            "conversations_used": current_user.conversations_used,
+            "is_expired": current_user.is_expired(),
+            "is_limit_reached": current_user.is_limit_reached(),
+            "days_remaining": current_user.days_remaining(),
+            "conversations_remaining": current_user.conversations_remaining(),
+            "can_access_demo": current_user.can_access_demo(),
+        })
+    
+    return UserResponse(**response_data)
 
 
-@whatsapp_auth_router.post("/change-password")
+@auth_router.post("/change-password")
 async def change_password(
     request: ChangePasswordRequest,
     current_user: User = Depends(get_current_active_user),
@@ -400,7 +427,7 @@ async def change_password(
     return {"success": True, "message": "Password changed successfully"}
 
 
-@whatsapp_auth_router.post("/logout")
+@auth_router.post("/logout")
 async def logout(
     current_user: User = Depends(get_current_user)
 ):
@@ -423,7 +450,7 @@ async def logout(
 # Email Verification Endpoints
 # ============================================
 
-@whatsapp_auth_router.post("/verify-email")
+@auth_router.post("/verify-email")
 async def verify_email(
     request: VerifyEmailRequest,
     db: AsyncSession = Depends(get_db),
@@ -473,7 +500,7 @@ async def verify_email(
     }
 
 
-@whatsapp_auth_router.post("/resend-verification")
+@auth_router.post("/resend-verification")
 async def resend_verification(
     request: ResendVerificationRequest,
     db: AsyncSession = Depends(get_db),
@@ -521,7 +548,7 @@ async def resend_verification(
 # Password Reset Endpoints
 # ============================================
 
-@whatsapp_auth_router.post("/forgot-password")
+@auth_router.post("/forgot-password")
 async def forgot_password(
     request: ForgotPasswordRequest,
     db: AsyncSession = Depends(get_db),
@@ -564,7 +591,7 @@ async def forgot_password(
     return {"success": True, "message": "If the email exists, a password reset email has been sent."}
 
 
-@whatsapp_auth_router.post("/reset-password")
+@auth_router.post("/reset-password")
 async def reset_password(
     request: ResetPasswordRequest,
     db: AsyncSession = Depends(get_db),
@@ -608,7 +635,7 @@ async def reset_password(
 # Admin Invite Endpoints
 # ============================================
 
-@whatsapp_auth_router.post("/admin/invite")
+@auth_router.post("/admin/invite")
 async def create_admin_invite(
     request: AdminInviteRequest,
     current_user: User = Depends(get_current_active_user),
@@ -666,7 +693,7 @@ async def create_admin_invite(
     }
 
 
-@whatsapp_auth_router.get("/admin/invites")
+@auth_router.get("/admin/invites")
 async def list_admin_invites(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),

@@ -54,9 +54,12 @@ async def get_dashboard_stats(
     last_24h = now - timedelta(hours=24)
     last_7d = now - timedelta(days=7)
     
-    # Get the user's customer (business)
+    # Get the user's customer (business) - use first one if multiple exist
     result = await db.execute(
-        select(Customer).where(Customer.user_id == current_user.id)
+        select(Customer)
+        .where(Customer.user_id == current_user.id)
+        .order_by(Customer.created_at.asc())
+        .limit(1)
     )
     customer = result.scalar_one_or_none()
     
@@ -202,9 +205,12 @@ async def get_setup_status(
     """
     from ...database.models import WhatsAppAccount, KnowledgeBase
     
-    # Get the user's customer
+    # Get the user's customer - use first one if multiple exist
     result = await db.execute(
-        select(Customer).where(Customer.user_id == current_user.id)
+        select(Customer)
+        .where(Customer.user_id == current_user.id)
+        .order_by(Customer.created_at.asc())
+        .limit(1)
     )
     customer = result.scalar_one_or_none()
     

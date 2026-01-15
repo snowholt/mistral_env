@@ -15,12 +15,15 @@ import {
   Clock,
   CheckCircle2,
   AlertCircle,
+  Sparkles,
 } from 'lucide-react';
 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import { Progress } from '@/components/ui/progress';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import api from '@/lib/api';
@@ -55,6 +58,23 @@ const translations = {
     today: 'Today',
     yesterday: 'Yesterday',
     thisWeek: 'This Week',
+    // Guest status translations
+    demoAccount: 'Demo Account',
+    active: 'Active',
+    expired: 'Expired',
+    limited: 'Limited',
+    conversations: 'Conversations',
+    timeRemaining: 'Time Remaining',
+    days: 'days',
+    conversationsRemaining: 'conversations remaining',
+    noConversationsRemaining: 'No conversations remaining',
+    expiringSoon: '⚠️ Expiring soon!',
+    expiresOn: 'Expires on',
+    demoExpiredTitle: 'Demo access has expired',
+    trialEnded: 'Your free trial period has ended',
+    limitReached: 'You have reached the maximum conversations limit',
+    upgradeMessage: 'Enjoy unlimited features with the full plan',
+    upgradeNow: 'Upgrade Now',
   },
   ar: {
     welcome: 'مرحباً بعودتك',
@@ -85,6 +105,23 @@ const translations = {
     today: 'اليوم',
     yesterday: 'أمس',
     thisWeek: 'هذا الأسبوع',
+    // Guest status translations
+    demoAccount: 'حساب تجريبي',
+    active: 'نشط',
+    expired: 'منتهي',
+    limited: 'محدود',
+    conversations: 'المحادثات',
+    timeRemaining: 'الوقت المتبقي',
+    days: 'يوم',
+    conversationsRemaining: 'محادثة متبقية',
+    noConversationsRemaining: 'لا توجد محادثات متبقية',
+    expiringSoon: '⚠️ ينتهي قريباً!',
+    expiresOn: 'تنتهي في',
+    demoExpiredTitle: 'انتهت صلاحية الوصول التجريبي',
+    trialEnded: 'انتهت فترة التجربة المجانية',
+    limitReached: 'وصلت إلى الحد الأقصى للمحادثات',
+    upgradeMessage: 'استمتع بمزايا غير محدودة مع الخطة الكاملة',
+    upgradeNow: 'ترقية الحساب',
   },
 };
 
@@ -102,6 +139,21 @@ export default function DashboardHome() {
   const [isLoading, setIsLoading] = useState(true);
 
   const t = translations[language as keyof typeof translations] || translations.en;
+
+  // Guest user status (only for users with role=guest)
+  const isGuestUser = user?.role === 'guest';
+  const conversationProgress = isGuestUser && user.max_conversations 
+    ? ((user.conversations_used || 0) / user.max_conversations) * 100 
+    : 0;
+  const isExpiringSoon = isGuestUser && (user.days_remaining ?? 0) <= 2;
+  const isExpired = isGuestUser && user.is_expired;
+  const isLimitReached = isGuestUser && user.is_limit_reached;
+
+  // Determine alert variant for guest banner
+  const getGuestAlertVariant = (): "default" | "destructive" => {
+    if (isExpired || isLimitReached) return "destructive";
+    return "default";
+  };
 
   useEffect(() => {
     // Fetch real stats from backend API
@@ -149,6 +201,103 @@ export default function DashboardHome() {
         </h1>
         <p className="text-muted-foreground">{t.overview}</p>
       </div>
+
+      {/* Guest User Status Banner */}
+      {isGuestUser && user && (
+        <Alert variant={getGuestAlertVariant()}>
+          <Sparkles className="h-4 w-4" />
+          <AlertTitle className="flex items-center justify-between">
+            <span className="font-semibold">{t.demoAccount}</span>
+            <Badge variant={user.can_access_demo ? "default" : "secondary"}>
+              {user.can_access_demo
+                ? t.active
+                : isExpired
+                  ? t.expired
+                  : t.limited
+              }
+            </Badge>
+          </AlertTitle>
+          <AlertDescription>
+            <div className="mt-3 space-y-4">
+              {/* Usage Metrics Grid */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {/* Conversations Used */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <MessageSquare className="h-4 w-4" />
+                      <span className="font-medium">{t.conversations}</span>
+                    </div>
+                    <span className="font-bold">
+                      {user.conversations_used || 0} / {user.max_conversations || 0}
+                    </span>
+                  </div>
+                  <Progress value={conversationProgress} className="h-2" />
+                  <p className="text-xs text-muted-foreground">
+                    {(user.conversations_remaining ?? 0) > 0
+                      ? `${user.conversations_remaining} ${t.conversationsRemaining}`
+                      : t.noConversationsRemaining
+                    }
+                  </p>
+                </div>
+
+                {/* Time Remaining */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between text-sm">
+                    <div className="flex items-center gap-2">
+                      <Clock className="h-4 w-4" />
+                      <span className="font-medium">{t.timeRemaining}</span>
+                    </div>
+                    <span className="font-bold">
+                      {user.days_remaining || 0} {t.days}
+                    </span>
+                  </div>
+                  <Progress 
+                    value={Math.min(100, ((user.days_remaining || 0) / 7) * 100)} 
+                    className="h-2" 
+                  />
+                  <p className="text-xs text-muted-foreground">
+                    {isExpiringSoon && !isExpired
+                      ? t.expiringSoon
+                      : isExpired
+                        ? t.expired
+                        : user.expires_at 
+                          ? `${t.expiresOn} ${new Date(user.expires_at).toLocaleDateString(language === 'ar' ? 'ar' : 'en')}`
+                          : ''
+                    }
+                  </p>
+                </div>
+              </div>
+
+              {/* Warning Messages */}
+              {(isExpired || isLimitReached) && (
+                <div className="flex items-start gap-2 p-3 bg-destructive/10 border border-destructive/20 rounded-md">
+                  <AlertCircle className="h-5 w-5 text-destructive mt-0.5" />
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-destructive">
+                      {t.demoExpiredTitle}
+                    </p>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {isExpired ? t.trialEnded : t.limitReached}
+                    </p>
+                  </div>
+                </div>
+              )}
+
+              {/* Upgrade CTA */}
+              <div className="flex items-center justify-between pt-2 border-t">
+                <p className="text-sm">{t.upgradeMessage}</p>
+                <Link to="/app/billing">
+                  <Button size="sm" variant="default" className="gap-2">
+                    <TrendingUp className="h-4 w-4" />
+                    {t.upgradeNow}
+                  </Button>
+                </Link>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
 
       {/* Stats Grid */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
