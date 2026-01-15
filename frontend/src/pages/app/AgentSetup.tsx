@@ -186,9 +186,9 @@ export default function AgentSetup() {
           </Link>
           
           {/* Customer Selector (if multiple) */}
-          {customers.length > 1 && (
+          {customers.length > 1 && selectedCustomerId && (
             <Select 
-              value={selectedCustomerId?.toString()} 
+              value={selectedCustomerId.toString()} 
               onValueChange={(val) => setSelectedCustomerId(parseInt(val))}
             >
               <SelectTrigger className="w-[200px]">
@@ -318,7 +318,7 @@ export default function AgentSetup() {
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Communication Tone</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value}>
+                        <Select onValueChange={field.onChange} value={field.value || "professional"}>
                           <FormControl>
                             <SelectTrigger>
                               <SelectValue placeholder="Select a tone" />
