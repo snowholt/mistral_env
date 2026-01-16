@@ -53,6 +53,7 @@ class EdgeTTSEngine(ModelInterface):
         
         # Performance optimizations
         self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=6)  # Increased for better parallelism
+        self._executor_lock = threading.Lock()  # Lock for thread-safe executor access
         self._voice_cache = {}  # Cache voice objects for reuse
         self._loop_cache = {}   # Cache event loops per thread
         
@@ -125,11 +126,24 @@ class EdgeTTSEngine(ModelInterface):
     def unload_model(self) -> bool:
         """Unload the model and cleanup resources."""
         logger.info("Edge TTS model unloaded - cleaning up resources")
-        if hasattr(self, '_executor'):
-            self._executor.shutdown(wait=True)
+        with self._executor_lock:
+            if hasattr(self, '_executor') and self._executor is not None:
+                try:
+                    self._executor.shutdown(wait=True, cancel_futures=False)
+                except Exception as e:
+                    logger.warning(f"Error shutting down executor: {e}")
+                self._executor = None  # Mark as shutdown, will be recreated on next use
         self._voice_cache.clear()
         self._loop_cache.clear()
         return True
+
+    def _ensure_executor(self):
+        """Ensure executor is available, recreate if needed (thread-safe)."""
+        with self._executor_lock:
+            if not hasattr(self, '_executor') or self._executor is None:
+                logger.info("Recreating ThreadPoolExecutor for Edge TTS")
+                self._executor = concurrent.futures.ThreadPoolExecutor(max_workers=6)
+            return self._executor
 
     def generate(self, prompt: str, **kwargs) -> str:
         """Generate speech from text."""
@@ -194,7 +208,8 @@ class EdgeTTSEngine(ModelInterface):
         
         # Use optimized async execution with adaptive timeout based on text length
         timeout_seconds = max(8, len(text) // 100 + 5)  # ~100 chars/sec + 5s buffer
-        future = self._executor.submit(self._run_async_in_thread_fast, text, voice, output_path)
+        executor = self._ensure_executor()  # Get or recreate executor
+        future = executor.submit(self._run_async_in_thread_fast, text, voice, output_path)
         future.result(timeout=timeout_seconds)
         
         logger.debug(f"Edge TTS audio saved to: {output_path}")

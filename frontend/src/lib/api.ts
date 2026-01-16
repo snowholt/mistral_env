@@ -483,6 +483,17 @@ export const guestApi = {
 
   validateAccess: async () => {
     const token = tokenManager.getGuestToken();
+    if (!token) {
+      console.warn('[GuestAuth] No guest token available for validate-access');
+      return {
+        can_access: false,
+        is_expired: false,
+        is_limit_reached: false,
+        days_remaining: 0,
+        conversations_remaining: 0,
+        message: 'No guest token available'
+      };
+    }
     return api.get<{
       can_access: boolean;
       is_expired: boolean;
@@ -495,6 +506,14 @@ export const guestApi = {
 
   incrementUsage: async () => {
     const token = tokenManager.getGuestToken();
+    if (!token) {
+      console.warn('[GuestAuth] No guest token available for increment-usage');
+      return { 
+        message: 'No guest token available',
+        conversations_used: 0,
+        conversations_remaining: 0 
+      };
+    }
     return api.post<{
       message: string;
       conversations_used: number;

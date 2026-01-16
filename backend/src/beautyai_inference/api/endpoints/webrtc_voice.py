@@ -98,6 +98,31 @@ DEBUG_CAPTURE_DIR = Path(os.getenv("VOICE_DEBUG_CAPTURE_DIR", "/home/lumi/beauty
 if ENABLE_DEBUG_CAPTURE:
     DEBUG_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
 
+# ============================================================
+# TTS FALLBACK SINGLETON (prevents "cannot schedule new futures after shutdown")
+# ============================================================
+_edge_tts_fallback_instance = None
+_edge_tts_fallback_lock = asyncio.Lock()
+
+
+async def _get_edge_tts_fallback():
+    """Get or create the singleton Edge TTS fallback instance (thread-safe)."""
+    global _edge_tts_fallback_instance
+    
+    async with _edge_tts_fallback_lock:
+        if _edge_tts_fallback_instance is None:
+            from ...inference_engines.voice.tts import EdgeTTSEngine
+            from ...config.config_manager import ModelConfig
+            
+            logger.info("[VOICE] 🔧 Creating persistent Edge TTS fallback instance")
+            edge_config = ModelConfig(name="edge-tts-fallback", model_id="edge-tts", engine_type="edge_tts")
+            _edge_tts_fallback_instance = EdgeTTSEngine(edge_config)
+            _edge_tts_fallback_instance.load_model()
+            logger.info("[VOICE] ✅ Edge TTS fallback instance ready")
+        
+        return _edge_tts_fallback_instance
+
+
 webrtc_voice_router = APIRouter(
     prefix="/api/v1/webrtc/voice",
     tags=["webrtc-voice"],
@@ -639,6 +664,19 @@ async def _process_speech_segment(
 
         start_time = time.time()
         duration = len(audio_data) / 16000
+        
+        # Audio length validation: Whisper fails for audio > 30 seconds
+        MAX_WHISPER_DURATION_SECONDS = 30.0
+        if duration > MAX_WHISPER_DURATION_SECONDS:
+            logger.warning(f"[VOICE] Audio too long ({duration:.1f}s > {MAX_WHISPER_DURATION_SECONDS}s), truncating to last 30s")
+            print(f"[VOICE] ⚠️ Audio too long ({duration:.1f}s), truncating to last 30s", flush=True)
+            # Keep the last 30 seconds (most recent speech)
+            max_samples = int(MAX_WHISPER_DURATION_SECONDS * 16000)
+            audio_data = audio_data[-max_samples:]
+            audio_int16 = (np.clip(audio_data, -1.0, 1.0) * 32767).astype(np.int16)
+            audio_bytes = audio_int16.tobytes()
+            duration = MAX_WHISPER_DURATION_SECONDS
+        
         print(f"[VOICE] 🗣️ Transcribing {duration:.2f}s (lang={language})...", flush=True)
 
         raw_text = await loop.run_in_executor(
@@ -864,14 +902,8 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                     # Fallback to Edge TTS if primary failed or not available
                     if not audio_path or not os.path.exists(str(audio_path) if audio_path else ""):
                         try:
-                            from ...inference_engines.voice.tts import EdgeTTSEngine
-                            from ...config.config_manager import ModelConfig
-                            
-                            print("[VOICE] 🔄 Using Edge TTS fallback...", flush=True)
-                            edge_config = ModelConfig(name="edge-tts", model_id="edge-tts", engine_type="edge_tts")
-                            edge_tts_fallback = EdgeTTSEngine(edge_config)
-                            edge_tts_fallback.load_model()
-                            
+                            print("[VOICE] 🔄 Using Edge TTS fallback (singleton)...", flush=True)
+                            edge_tts_fallback = await _get_edge_tts_fallback()
                             audio_path = await _generate_tts(edge_tts_fallback, tts_text, language, loop)
                         except Exception as fallback_err:
                             logger.error(f"[VOICE] Edge TTS fallback also failed: {fallback_err}")

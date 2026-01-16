@@ -36,6 +36,8 @@ class ModelManager:
                 cls._instance._model_timers = {}  # Dict[str, Timer] - auto-unload timers
                 cls._instance._model_last_used = {}  # Dict[str, float] - last access timestamps
                 cls._instance._auto_unload_minutes = 60  # Default 60 minutes keep-alive
+                cls._instance._disabled_auto_unload_models = set()  # Models with auto-unload disabled
+                cls._instance._voice_model_prefixes = ("whisper:", "tts:", "llm:")  # Voice-critical prefixes
                 cls._instance._initialize_persistence()
             return cls._instance
     
@@ -498,6 +500,16 @@ class ModelManager:
     
     def _start_model_timer(self, model_name: str):
         """Start or reset the keep-alive timer for a model."""
+        # Skip auto-unload for voice-critical models (Whisper, TTS, LLM)
+        if any(model_name.startswith(prefix) for prefix in self._voice_model_prefixes):
+            logger.info(f"⏭️ Skipping auto-unload timer for voice-critical model '{model_name}' (always persistent)")
+            return
+        
+        # Also skip if model is in disabled set
+        if model_name in self._disabled_auto_unload_models:
+            logger.info(f"⏭️ Skipping auto-unload timer for model '{model_name}' (manually disabled)")
+            return
+        
         self._stop_model_timer(model_name)  # Ensure no duplicate timers
         timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
         timer.daemon = True  # Allow tests and short-lived processes to exit immediately
@@ -666,9 +678,10 @@ class ModelManager:
         with self._lock:
             if model_name not in self._loaded_models:
                 return False
-                
+            
+            self._disabled_auto_unload_models.add(model_name)
             self._stop_model_timer(model_name)
-            logger.info(f"Disabled auto-unload timer for model '{model_name}'")
+            logger.info(f"Disabled auto-unload timer for model '{model_name}' (added to permanent disabled list)")
             return True
 
     def enable_model_timer(self, model_name: str, timeout_minutes: Optional[int] = None) -> bool:
@@ -685,6 +698,13 @@ class ModelManager:
         with self._lock:
             if model_name not in self._loaded_models:
                 return False
+            
+            # Remove from disabled set if present
+            self._disabled_auto_unload_models.discard(model_name)
+            
+            # Note: voice-critical models still won't get timers unless forced
+            if any(model_name.startswith(prefix) for prefix in self._voice_model_prefixes):
+                logger.warning(f"Model '{model_name}' is voice-critical, enabling timer anyway (not recommended)")
                 
             # Update last used timestamp
             self._model_last_used[model_name] = time.time()
@@ -692,10 +712,19 @@ class ModelManager:
             if timeout_minutes is not None:
                 old_timeout = self._auto_unload_minutes
                 self._auto_unload_minutes = timeout_minutes
-                self._start_model_timer(model_name)
+                # Force timer creation by directly creating it
+                self._stop_model_timer(model_name)
+                timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
+                timer.daemon = True
+                timer.start()
+                self._model_timers[model_name] = timer
                 self._auto_unload_minutes = old_timeout
             else:
-                self._start_model_timer(model_name)
+                self._stop_model_timer(model_name)
+                timer = Timer(self._auto_unload_minutes * 60, self._auto_unload_model, args=[model_name])
+                timer.daemon = True
+                timer.start()
+                self._model_timers[model_name] = timer
                 
             logger.info(f"Enabled auto-unload timer for model '{model_name}'")
             return True
