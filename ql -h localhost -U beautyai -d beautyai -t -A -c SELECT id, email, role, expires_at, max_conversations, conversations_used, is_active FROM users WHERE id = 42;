@@ -1,5 +1,0 @@
- id |          email           | role  |         expires_at         | max_conversations | conversations_used | is_active 
-----+--------------------------+-------+----------------------------+-------------------+--------------------+-----------
- 42 | jafari.nariman@gmail.com | guest | 2026-01-14 21:00:34.495334 |                10 |                  2 | t
-(1 row)
-
