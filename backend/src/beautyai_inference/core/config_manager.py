@@ -25,6 +25,21 @@ from watchdog.events import FileSystemEventHandler
 logger = logging.getLogger(__name__)
 
 
+def _get_project_root() -> Path:
+    """Get the project root directory (where config/ should live)."""
+    # This file is at: backend/src/beautyai_inference/core/config_manager.py
+    # Project root is 4 levels up
+    current = Path(__file__).resolve()
+    project_root = current.parents[4]
+    
+    # Verify we found the right directory (should have config/ subfolder)
+    if (project_root / "config").is_dir():
+        return project_root
+    
+    # Fallback: use CWD if structure doesn't match
+    return Path.cwd()
+
+
 class DuplexStreamingConfig(BaseSettings):
     """Configuration for duplex streaming features."""
     
@@ -206,7 +221,10 @@ class ConfigManager:
             enable_hot_reload: Enable hot-reloading of config files
             enable_encryption: Enable secrets encryption
         """
-        self.config_dir = config_dir or Path("./config")
+        # Use project root config directory by default
+        if config_dir is None:
+            config_dir = _get_project_root() / "config"
+        self.config_dir = config_dir
         self.enable_hot_reload = enable_hot_reload
         self.enable_encryption = enable_encryption
         

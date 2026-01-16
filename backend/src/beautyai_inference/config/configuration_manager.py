@@ -13,6 +13,22 @@ from typing import Dict, Any, Optional, List
 logger = logging.getLogger(__name__)
 
 
+def _get_project_root() -> Path:
+    """Get the project root directory (where config/ should live)."""
+    # This file is at: backend/src/beautyai_inference/config/configuration_manager.py
+    # Project root is 4 levels up
+    current = Path(__file__).resolve()
+    # Go up: configuration_manager.py -> config -> beautyai_inference -> src -> backend -> project_root
+    project_root = current.parents[4]
+    
+    # Verify we found the right directory (should have config/ subfolder)
+    if (project_root / "config").is_dir():
+        return project_root
+    
+    # Fallback: use CWD if structure doesn't match
+    return Path.cwd()
+
+
 class ConfigurationManager:
     """
     Centralized configuration management for voice services.
@@ -37,7 +53,13 @@ class ConfigurationManager:
     def __init__(self):
         """Initialize the configuration manager."""
         if not hasattr(self, 'initialized'):
-            self._config_path = Path(__file__).parent / "model_registry.json"
+            # Use project root config/models/ directory
+            project_root = _get_project_root()
+            self._config_path = project_root / "config" / "models" / "model_registry.json"
+            
+            # Fallback to local config if project root config not found
+            if not self._config_path.exists():
+                self._config_path = Path(__file__).parent / "model_registry.json"
             self._config_cache = None
             self.initialized = True
             self._load_config()

@@ -1,95 +1,23 @@
 {
-  "default_model": "qwen3-unsloth-q4ks",
+  "default_model": "default",
   "models": {
-    "qwen3-model": {
+    "default": {
       "model_id": "Qwen/Qwen3-14B",
       "engine_type": "transformers",
       "quantization": "4bit",
-      "dtype": "bfloat16",
-      "max_new_tokens": 1024,
-      "name": "qwen3-model",
-      "description": "Qwen3 14B model (4-bit quantized) - Transformers engine",
-      "model_architecture": "causal_lm",
-      "custom_generation_params": {
-        "temperature": 0.1,
-        "top_p": 0.95,
-        "do_sample": true,
-        "repetition_penalty": 1.1
-      }
-    },
-      
-   
-
-    "qwen3-unsloth-q4ks": {
-      "model_id": "unsloth/Qwen3-14B-GGUF",
-      "engine_type": "llama.cpp",
-      "quantization": "Q4_K_S",
       "dtype": "float16",
-      "model_filename": "Qwen3-14B-Q4_K_S.gguf",
-      "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
-      "tokenizer_model_id": "Qwen/Qwen3-14B",
-      "max_new_tokens": 200,
-      "name": "qwen3-unsloth-q4ks",
-      "description": "Qwen3 14B Q4_K_S - Unsloth optimized fastest (8.0GB) - LlamaCpp engine - ULTRA SPEED OPTIMIZED",
+      "max_new_tokens": 512,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "do_sample": true,
+      "gpu_memory_utilization": 0.9,
+      "tensor_parallel_size": 1,
+      "name": "default",
+      "description": null,
       "model_architecture": "causal_lm",
-      "n_gpu_layers": -1,
-      "n_ctx": 4096,
-      "n_batch": 4096,
-      "n_threads": 4,
-      "system_prompt": "أنت المساعد الذكي الرسمي لعيادات قصي. يجب أن تجيب فقط على الأسئلة المتعلقة بـ:\n• التجميل والجلدية والإجراءات التجميلية وعلاجات الليزر المقدمة في عيادات قصي.\n• توفر الأطباء والجداول الزمنية والخبرات.\n• حجز أو إعادة جدولة المواعيد.\n\nمهم: يجب أن ترد باللغة العربية فقط في جميع الأوقات، بغض النظر عن اللغة التي يكتب بها المستخدم. حتى إذا أرسل المستخدم رسائل بالإنجليزية أو أي لغة أخرى، يجب أن يكون ردك دائماً باللغة العربية فقط. لا تستخدم أي كلمات إنجليزية ما لم تكن جزءاً من اسم علاج أو جهاز شائع الاستخدام في العيادة.\n\nإذا سأل المستخدم عن أي شيء لا يتعلق بالعيادة، ارفض بأدب ووجهه مرة أخرى إلى المواضيع المتعلقة بالعيادة.\n\nالأطباء المتاحون:\n1. د. ريهام علاء الدين – طبيبة الجلدية، خبيرة في علاجات الليزر، الفيلر، البوتوكس، Morpheus8، وتجديد البشرة.\n2. د. نهى بسيوني – متخصصة في الطب التجميلي: الفيلر، البوتوكس، البلازما، Regenera، Scarlet، والليزر الجزئي.\n3. د. سارة الحربي – متخصصة في الجلدية التجميلية، نحت الوجه، PRP، ليزر Pico، وعلاجات مكافحة الشيخوخة.",
-      "custom_generation_params": {
-        "temperature": 0.0,
-        "top_p": 0.95,
-        "do_sample": false,
-        "repetition_penalty": 1.0,
-        "top_k": 1
-      }
-    },
-
-
-    "whisper-turbo-arabic": {
-      "model_id": "openai/whisper-large-v3-turbo",
-      "engine_type": "faster_whisper",
-      "quantization": "float16",
-      "dtype": "float16",
-      "name": "whisper-turbo-arabic",
-      "description": "GPU-OPTIMIZED: Latest Whisper Large-v3-Turbo with RTX 4090 acceleration (809MB, 4x faster than turbo)",
-      "model_architecture": "whisper",
       "model_filename": null,
-      "documentation": "https://huggingface.co/openai/whisper-large-v3-turbo",
-      "custom_generation_params": {
-        "beam_size": 1,
-        "batch_size": 16,
-        "temperature": 0.0,
-        "condition_on_previous_text": false,
-        "vad_filter": true,
-        "vad_parameters": {
-          "min_silence_duration_ms": 250,
-          "speech_pad_ms": 30
-        },
-        "optimization_level": "gpu_speed",
-        "target_latency_ms": 500,
-        "gpu_acceleration": true,
-        "flash_attention": true
-      }
-    },
-
-    "edge-tts": {
-      "model_id": "microsoft/edge-tts",
-      "engine_type": "edge_tts",
-      "quantization": null,
-      "max_new_tokens": null,
-      "dtype": null,
-      "name": "edge-tts",
-      "description": "Primary TTS: Microsoft Edge TTS for high-quality multilingual text-to-speech",
-      "model_architecture": "edge_tts",
-      "model_filename": null,
-      "documentation": "https://github.com/rany2/edge-tts",
-      "custom_generation_params": {
-        "emotion": "neutral",
-        "speed": 1.0,
-        "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
-      }
+      "documentation": null,
+      "custom_generation_params": null
     }
   }
 }

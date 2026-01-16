@@ -18,12 +18,10 @@ from pathlib import Path
 logger = logging.getLogger(__name__)
 
 # Import the routers
-from .endpoints import health_router, models_router, inference_router, config_router, system_router, streaming_voice_router
+from .endpoints import health_router, models_router, inference_router, config_router, system_router
 from .endpoints.debug_router import debug_router
-from .endpoints.websocket_simple_voice import websocket_simple_voice_router
-from .endpoints.ws_audio_debug import ws_audio_debug_router
 
-# Import WebRTC voice router (Phase B - WebRTC Migration)
+# Import WebRTC voice router (Primary voice endpoint)
 try:
     from .endpoints.webrtc_voice import webrtc_voice_router
     webrtc_router_available = True
@@ -63,14 +61,8 @@ except ImportError as e:
 # Define OpenAPI tags for better documentation organization
 tags_metadata = [
     {
-        "name": "simple-voice",
-        "description": "🏎️ **Simple Voice Chat** - Ultra-fast voice conversations with Edge TTS. "
-                      "Perfect for real-time chat with <2 second response times. "
-                      "Arabic and English support only."
-    },
-    {
         "name": "webrtc-voice",
-        "description": "🌐 **WebRTC Voice** - Browser-based WebRTC voice-to-voice signaling endpoints. "
+        "description": "🌐 **WebRTC Voice** - Primary voice-to-voice endpoint. "
                       "Supports SDP offer/answer exchange, ICE candidates, and peer connection management. "
                       "Enables high-quality, low-latency voice communication with built-in audio processing."
     },
@@ -227,28 +219,7 @@ if performance_router_available:
 else:
     logger.warning("Performance dashboard endpoints not registered - module not available")
 
-# Conditionally include streaming voice scaffold (Phase 1) if feature flag set and router imported.
-if streaming_voice_router is not None:  # pragma: no cover (env dependent)
-    app.include_router(
-        streaming_voice_router,
-        prefix="/api/v1",
-        tags=["streaming-voice"],
-    )
-
-# Include voice WebSocket routers with proper prefixes and tags
-app.include_router(
-    websocket_simple_voice_router,
-    prefix="/api/v1",
-    tags=["simple-voice"]
-)
-
-# Include WebSocket audio debug router
-app.include_router(
-    ws_audio_debug_router,
-    tags=["debug"]
-)
-
-# Include WebRTC voice router if available (Phase B - WebRTC Migration)
+# Include WebRTC voice router (Primary voice endpoint)
 if webrtc_router_available:
     app.include_router(
         webrtc_voice_router,
