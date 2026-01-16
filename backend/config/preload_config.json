@@ -1,7 +1,0 @@
-{
-    "voice_stt": {
-        "model_id": "genius-whisper-arabic",
-        "device": "cuda",
-        "compute_type": "float16"
-    }
-}

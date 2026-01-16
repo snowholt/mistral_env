@@ -114,7 +114,7 @@ dist/
 # =====================
 # RNNoise library (compiled locally)
 backend/rnnoise/
-
+.backup_deprecated
 # Jupyter Notebook
 .ipynb_checkpoints
 
