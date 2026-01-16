@@ -90,6 +90,27 @@
         "speed": 1.0,
         "supported_languages": ["ar", "en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "zh", "ja", "hu", "ko"]
       }
+    },
+
+    "saudi-tts": {
+      "model_id": "AhmedEladl/saudi-tts",
+      "engine_type": "saudi_xtts",
+      "quantization": null,
+      "max_new_tokens": null,
+      "dtype": "float16",
+      "name": "saudi-tts",
+      "description": "Saudi Arabic TTS: Fine-tuned XTTS v2 for Saudi Arabic dialect with DeepSpeed acceleration",
+      "model_architecture": "xtts_v2",
+      "model_path": "/home/lumi/.cache/beautyai-models/saudi-tts",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav",
+      "use_deepspeed": true,
+      "model_filename": null,
+      "documentation": "https://huggingface.co/AhmedEladl/saudi-tts",
+      "custom_generation_params": {
+        "temperature": 0.75,
+        "supported_languages": ["ar"],
+        "sample_rate": 24000
+      }
     }
   }
 }

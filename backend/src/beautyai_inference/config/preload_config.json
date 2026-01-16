@@ -1,0 +1,21 @@
+{
+  "preload_on_startup": true,
+  "models": {
+    "whisper": {
+      "model_id": "whisper-large-v3-turbo",
+      "device": "cuda",
+      "compute_type": "float16",
+      "priority": 1
+    },
+    "llm": {
+      "model_path": "qwen3-unsloth-q4ks",
+      "context_size": 4096,
+      "priority": 2
+    }
+  },
+  "memory_thresholds": {
+    "max_gpu_memory_mb": 20000,
+    "warning_threshold_mb": 16000,
+    "min_free_memory_mb": 4000
+  }
+}

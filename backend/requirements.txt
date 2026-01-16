@@ -23,8 +23,10 @@ bitsandbytes>=0.41.0
 # -----------------------------------------------------------------------------
 faster-whisper>=0.10.0          # Speech-to-text (Whisper)
 edge-tts>=6.1.0                 # Text-to-speech (Microsoft Edge)
+TTS>=0.22.0                     # Coqui TTS (XTTS v2, Saudi XTTS)
 silero-vad>=5.1.0               # Voice Activity Detection
 llama-cpp-python>=0.2.0         # GGUF model inference
+deepspeed>=0.12.0               # DeepSpeed for XTTS acceleration (optional)
 
 # -----------------------------------------------------------------------------
 # Audio Processing

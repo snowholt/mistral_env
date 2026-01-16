@@ -231,19 +231,22 @@ async def handle_offer(request: OfferRequest):
             session_context["whisper_model"] = model_manager.get_whisper_model()
             session_context["llm_model"] = model_manager.get_llm_model()
             
-            # TTS Loading with Fallback: Try primary TTS first, fall back to Edge TTS
-            tts_engine = model_manager.get_tts_engine()
+            # TTS Loading with Language-based routing: Arabic -> Saudi XTTS, English -> Edge TTS
+            # Also load Edge TTS as fallback for Saudi XTTS failures
+            from ...core.model_manager import get_model_manager
+            base_model_manager = get_model_manager()
+            
+            # Get language-appropriate TTS engine
+            tts_engine = base_model_manager.get_tts_engine(language=target_language)
             if tts_engine:
                 tts_type = type(tts_engine).__name__
                 session_context["tts_model"] = tts_engine
-                print(f"[VOICE] ✅ TTS Model Loaded ({tts_type})", flush=True)
+                print(f"[VOICE] ✅ TTS Model Loaded ({tts_type}) for language={target_language}", flush=True)
             else:
                 # Primary TTS failed, try Edge TTS fallback
                 print("[VOICE] ⚠️ Primary TTS not available, trying Edge TTS fallback...", flush=True)
                 try:
-                    from ...core.model_manager import get_model_manager
-                    fallback_manager = get_model_manager()
-                    edge_tts = fallback_manager.get_tts_engine(model_name="edge-tts")
+                    edge_tts = base_model_manager.get_tts_engine(model_name="edge-tts")
                     if edge_tts:
                         session_context["tts_model"] = edge_tts
                         print("[VOICE] ✅ Edge TTS Fallback Loaded", flush=True)
@@ -852,6 +855,7 @@ async def _trigger_llm_response(session_id: str, context: Dict):
 
         # ============================================================
         # TTS SYNTHESIS (with fallback to Edge TTS if primary fails)
+        # Supports: EdgeTTSEngine, XTTSEngine, SaudiXTTSEngine
         # ============================================================
         if full_response.strip():
             async def _generate_tts(tts_engine, tts_text: str, language: str, loop) -> Optional[str]:
@@ -871,6 +875,15 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                         
                         if fallback_wav.exists():
                             tts_args["speaker_wav"] = str(fallback_wav)
+                elif tts_type == "SaudiXTTSEngine":
+                    # Saudi XTTS has pre-computed speaker embeddings at load time
+                    # If not available, try fallback speaker reference
+                    if not getattr(tts_engine, "has_speaker_conditioning", lambda: False)():
+                        fallback_wav = Path("/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav")
+                        if fallback_wav.exists():
+                            tts_args["speaker_wav"] = str(fallback_wav)
+                        else:
+                            logger.warning("[VOICE] SaudiXTTSEngine has no speaker conditioning and no fallback WAV")
                 
                 return await loop.run_in_executor(
                     None,
@@ -882,7 +895,8 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                 tts_text = clean_llm_response_for_tts(full_response, language=language)
                 
                 if tts_text:
-                    print(f"[VOICE] 🔊 Synthesizing TTS ({len(tts_text)} chars, lang={language})...", flush=True)
+                    tts_type_name = type(tts).__name__ if tts else "None"
+                    print(f"[VOICE] 🔊 Synthesizing TTS ({len(tts_text)} chars, lang={language}, engine={tts_type_name})...", flush=True)
                     
                     # Notify client: TTS starting
                     if dc and dc.readyState == "open":
@@ -896,7 +910,7 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                         try:
                             audio_path = await _generate_tts(tts, tts_text, language, loop)
                         except Exception as primary_err:
-                            logger.warning(f"[VOICE] Primary TTS failed, trying Edge TTS fallback: {primary_err}")
+                            logger.warning(f"[VOICE] Primary TTS ({tts_type_name}) failed, trying Edge TTS fallback: {primary_err}")
                             print(f"[VOICE] ⚠️ Primary TTS failed: {primary_err}, trying Edge TTS...", flush=True)
                     
                     # Fallback to Edge TTS if primary failed or not available

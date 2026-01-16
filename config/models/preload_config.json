@@ -1,6 +1,6 @@
 {
   "preload_on_startup": true,
-  "description": "Preload configuration for BeautyAI - 3 Genius AI models persistent on GPU",
+  "description": "Preload configuration for BeautyAI - 4 models persistent on GPU (LLM, STT, TTS Arabic, TTS English fallback)",
   "models": {
     "stt": {
       "model_id": "whisper-large-v3-turbo",
@@ -28,23 +28,44 @@
       "description": "Qwen3 14B Q4_K_S - Unsloth optimized (8.0GB)"
     },
     "tts": {
+      "model_id": "saudi-tts",
+      "model_path": "/home/lumi/.cache/beautyai-models/saudi-tts",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav",
+      "device": "cuda",
+      "priority": 3,
+      "engine_type": "saudi_xtts",
+      "use_deepspeed": true,
+      "sample_rate": 24000,
+      "streaming": true,
+      "voice_cloning": true,
+      "target_latency_ms": 150,
+      "description": "Saudi Arabic XTTS v2 - DeepSpeed accelerated, persistent speaker embedding (~2GB VRAM)"
+    },
+    "tts_fallback": {
       "model_id": "edge-tts",
       "device": "cpu",
-      "priority": 3,
+      "priority": 4,
       "engine_type": "edge_tts",
       "sample_rate": 24000,
       "streaming": true,
       "voice_cloning": false,
       "target_latency_ms": 150,
-      "description": "Microsoft Edge TTS - Cloud-based, low latency, multilingual"
+      "description": "Microsoft Edge TTS - Cloud-based fallback for English and TTS failures"
     }
+  },
+  "language_routing": {
+    "ar": "saudi-tts",
+    "arabic": "saudi-tts",
+    "en": "edge-tts",
+    "english": "edge-tts",
+    "default": "edge-tts"
   },
   "memory_thresholds": {
     "max_gpu_memory_mb": 20000,
     "warning_threshold_mb": 16000,
     "min_free_memory_mb": 2000,
-    "expected_total_vram_gb": 10.0,
-    "comment": "Genius Whisper (~1.5GB) + Qwen3 (~8GB) + XTTS (~0.5GB) = ~10GB total"
+    "expected_total_vram_gb": 12.0,
+    "comment": "Whisper (~1.5GB) + Qwen3 (~8GB) + Saudi XTTS (~2GB) = ~11.5GB total"
   },
   "performance_targets": {
     "vad_detection_latency_ms": 50,
@@ -56,11 +77,11 @@
   },
   "startup_sequence": {
     "parallel_loading": false,
-    "load_order": ["llm", "stt", "tts"],
+    "load_order": ["llm", "stt", "tts", "tts_fallback"],
     "timeout_per_model_s": 120,
-    "total_startup_timeout_s": 360,
+    "total_startup_timeout_s": 480,
     "fallback_on_failure": true,
-    "comment": "Sequential loading: LLM first (largest), then STT, then TTS"
+    "comment": "Sequential loading: LLM first (largest), then STT, then TTS (Arabic primary + Edge fallback)"
   },
   "monitoring": {
     "memory_check_interval_s": 30,

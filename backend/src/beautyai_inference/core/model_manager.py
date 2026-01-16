@@ -1064,19 +1064,35 @@ class ModelManager:
             return None
 
     # ================= TTS Engine Management =================
-    def get_tts_engine(self, model_name: Optional[str] = None) -> Optional[Any]:
+    def get_tts_engine(self, model_name: Optional[str] = None, language: Optional[str] = None) -> Optional[Any]:
         """Retrieve (and lazily load) a TTS engine (e.g., Edge TTS, XTTS) by model name.
 
         Args:
             model_name: Optional model key from voice registry (defaults to registry default)
+            language: Optional language code for language-based TTS routing (ar -> Saudi XTTS, en -> Edge TTS)
         Returns:
             Loaded TTS engine instance or None.
         """
         try:
             from ..config.voice_config_loader import get_voice_config
             voice_config = get_voice_config()
+            
+            # Language-based TTS routing: Arabic -> Saudi XTTS, English/other -> Edge TTS
             if model_name is None:
-                model_name = voice_config._config["default_models"]["tts"]
+                if language and language.lower() in ("ar", "arabic"):
+                    # Try Saudi XTTS for Arabic
+                    if "saudi-tts" in voice_config._config.get("models", {}):
+                        model_name = "saudi-tts"
+                        logger.info(f"🌍 Language routing: Arabic -> Saudi XTTS")
+                    else:
+                        model_name = voice_config._config["default_models"]["tts"]
+                elif language and language.lower() in ("en", "english"):
+                    # Use Edge TTS for English
+                    model_name = "edge-tts"
+                    logger.info(f"🌍 Language routing: English -> Edge TTS")
+                else:
+                    model_name = voice_config._config["default_models"]["tts"]
+            
             internal_name = f"tts:{model_name}"
             with self._lock:
                 if internal_name in self._loaded_models:
@@ -1113,6 +1129,35 @@ class ModelManager:
                     # Pass model_path directly to XTTSEngine
                     engine = XTTSEngine(model_config=config, model_path=model_path)
                     logger.info(f"Creating XTTS engine with path: {model_path}")
+                elif engine_type == "saudi_xtts":
+                    from ..inference_engines.voice.tts import SaudiXTTSEngine
+                    from ..config.config_manager import ModelConfig
+                    from pathlib import Path
+                    
+                    # For Saudi XTTS, model_id can be HF model ID or local path
+                    model_path_str = model_entry.get("model_path", model_entry.get("model_id", ""))
+                    speaker_wav_str = model_entry.get("speaker_wav", None)
+                    use_deepspeed = model_entry.get("use_deepspeed", True)
+                    
+                    # Resolve paths
+                    model_path = Path(model_path_str) if model_path_str else None
+                    speaker_wav_path = Path(speaker_wav_str) if speaker_wav_str else None
+                    
+                    # Create config
+                    config = ModelConfig(
+                        name=model_name,
+                        model_id=model_entry.get("model_id", model_name),
+                        engine_type=engine_type
+                    )
+                    
+                    # Create Saudi XTTS engine
+                    engine = SaudiXTTSEngine(
+                        model_config=config,
+                        model_path=model_path,
+                        speaker_wav_path=speaker_wav_path,
+                        use_deepspeed=use_deepspeed,
+                    )
+                    logger.info(f"Creating Saudi XTTS engine (DeepSpeed: {use_deepspeed})")
                 else:
                     logger.warning(f"Unknown TTS engine_type '{engine_type}', attempting Edge TTS fallback")
                     from ..inference_engines.voice.tts import EdgeTTSEngine
@@ -1130,3 +1175,19 @@ class ModelManager:
         except Exception as e:  # pragma: no cover - defensive
             logger.error(f"Failed to get/load TTS engine '{model_name}': {e}")
             return None
+
+
+# ============================================================
+# Module-level Helper Function
+# ============================================================
+def get_model_manager() -> ModelManager:
+    """
+    Get the singleton ModelManager instance.
+    
+    This is a convenience function for accessing the ModelManager singleton
+    without needing to instantiate it directly.
+    
+    Returns:
+        ModelManager: The singleton instance
+    """
+    return ModelManager()

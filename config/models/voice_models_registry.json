@@ -183,6 +183,51 @@
       }
     },
 
+    "saudi-tts": {
+      "model_id": "AhmedEladl/saudi-tts",
+      "engine_type": "saudi_xtts",
+      "type": "text_to_speech",
+      "description": "Saudi Arabic XTTS v2 - Fine-tuned for Saudi dialect (HuggingFace: AhmedEladl/saudi-tts)",
+      "supported_languages": ["ar"],
+      "gpu_enabled": true,
+      "performance_profile": "saudi_arabic_tts",
+      "model_path": "/home/lumi/.cache/beautyai-models/saudi-tts",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav",
+      "use_deepspeed": true,
+      "documentation": {
+        "huggingface": "https://huggingface.co/AhmedEladl/saudi-tts",
+        "demo_space": "https://huggingface.co/spaces/AhmedEladl/saudi-tts-demo",
+        "base_model": "https://huggingface.co/coqui/XTTS-v2"
+      },
+      "model_info": {
+        "size": "~5GB local storage",
+        "latency": "50-150ms for streaming (with DeepSpeed)",
+        "quality": "High-quality Saudi Arabic dialect synthesis",
+        "streaming": true,
+        "voice_cloning": true,
+        "sample_rate": 24000,
+        "deepspeed_acceleration": true
+      },
+      "training_details": {
+        "author": "Ahmed Eladl",
+        "fine_tuning_date": "2025",
+        "base_model": "coqui/XTTS-v2",
+        "optimization_target": "Saudi Arabic dialect synthesis"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 6,
+        "recommended_vram_gb": 10,
+        "supports_streaming": true,
+        "supports_deepspeed": true,
+        "local_storage": true
+      },
+      "fallback": {
+        "enabled": true,
+        "fallback_model": "edge-tts",
+        "fallback_voice": "ar-SA-ZariyahNeural"
+      }
+    },
+
     "genius-xtts-arabic": {
       "model_id": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/xtts/GPT_XTTS_v2.0_LJSpeech_FT-December-01-2025_08+00PM-2b091fe",
       "engine_type": "xtts",
@@ -221,7 +266,8 @@
 
   "default_models": {
     "stt": "whisper-large-v3-turbo",
-    "tts": "edge-tts"
+    "tts": "edge-tts",
+    "tts_arabic": "saudi-tts"
   },
 
   "voice_settings": {
