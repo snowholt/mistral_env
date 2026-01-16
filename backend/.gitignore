@@ -1,1 +1,52 @@
+# =============================================================================
+# BeautyAI Backend - Git Ignore
+# =============================================================================
+
+# Backup/deprecated code
 .backup_deprecated/
+
+# Runtime files
+*.pid
+server.pid
+server_pid.txt
+nohup.out
+
+# Environment
+.env
+.env.*
+!.env.example
+venv/
+venv.*/
+__pycache__/
+*.pyc
+*.pyo
+.Python
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Logs (use root logs/ directory)
+*.log
+*.jsonl
+
+# Compiled/Cache
+*.so
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+
+# Model cache (large files)
+*.gguf
+*.bin
+*.safetensors
