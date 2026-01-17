@@ -18,6 +18,22 @@
       "model_filename": null,
       "documentation": null,
       "custom_generation_params": null
+    },
+    "llm:qwen3-chat": {
+      "model_id": "unsloth/Qwen3-14B-GGUF",
+      "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
+      "engine_type": "llama.cpp",
+      "name": "llm:qwen3-chat",
+      "description": "Qwen3 14B Q4_K_S - GGUF quantized for fast inference via llama.cpp",
+      "model_architecture": "causal_lm",
+      "n_gpu_layers": -1,
+      "n_ctx": 4096,
+      "n_batch": 4096,
+      "n_threads": 4,
+      "max_new_tokens": 512,
+      "temperature": 0.7,
+      "top_p": 0.95,
+      "do_sample": true
     }
   }
 }

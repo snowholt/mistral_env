@@ -453,11 +453,43 @@ class PersistentModelManager:
         if 'llm' in self._preloaded_models:
             return self._preloaded_models['llm']
         
-        # Fallback to ModelManager
+        # Fallback to ModelManager - try to load LLM from registry
         self.logger.warning("LLM model not preloaded, using ModelManager fallback")
-        loaded_models = self._model_manager.list_loaded_models()
-        if loaded_models:
-            return self._model_manager.get_loaded_model(loaded_models[0])
+        try:
+            # Try to load an actual LLM model from voice config registry
+            from ..config.voice_config_loader import get_voice_config
+            voice_config = get_voice_config()
+            
+            # Get default LLM from registry or use fallback
+            default_llm = voice_config._config.get("default_models", {}).get("llm", "qwen3-chat")
+            llm_config = voice_config._config.get("models", {}).get(default_llm)
+            
+            if llm_config:
+                engine_type = llm_config.get("engine_type", "llama.cpp")
+                model_path = llm_config.get("model_path", llm_config.get("model_id"))
+                
+                if engine_type == "llama.cpp":
+                    # Correct import path - llamacpp_engine is directly under inference_engines
+                    from ..inference_engines.llamacpp_engine import LlamaCppEngine
+                    from ..config.config_manager import ModelConfig
+                    
+                    config = ModelConfig(
+                        name=default_llm,
+                        model_id=model_path,
+                        engine_type=engine_type
+                    )
+                    engine = LlamaCppEngine(config)
+                    engine.load_model()
+                    
+                    # Store for reuse
+                    self._preloaded_models['llm'] = engine
+                    self.logger.info(f"✅ LLM model loaded on-demand: {default_llm}")
+                    return engine
+        except Exception as e:
+            self.logger.error(f"Failed to load LLM on-demand: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+        
         return None
     
     def get_tts_engine(self) -> Optional[Any]:

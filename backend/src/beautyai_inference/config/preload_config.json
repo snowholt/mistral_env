@@ -8,14 +8,24 @@
       "priority": 1
     },
     "llm": {
-      "model_path": "qwen3-unsloth-q4ks",
+      "model_id": "llm:qwen3-chat",
       "context_size": 4096,
-      "priority": 2
+      "priority": 2,
+      "engine_type": "llama.cpp"
+    },
+    "tts": {
+      "model_id": "saudi-tts",
+      "model_path": "/home/lumi/.cache/beautyai-models/saudi-tts",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav",
+      "device": "cuda",
+      "priority": 3,
+      "engine_type": "saudi_xtts",
+      "use_deepspeed": true
     }
   },
   "memory_thresholds": {
     "max_gpu_memory_mb": 20000,
     "warning_threshold_mb": 16000,
-    "min_free_memory_mb": 4000
+    "min_free_memory_mb": 2000
   }
 }
