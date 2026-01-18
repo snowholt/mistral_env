@@ -864,6 +864,9 @@ class ModelManager:
                 # For Genius Arabic, model_id is actually the directory path
                 model_path = Path(whisper_config.model_id) if whisper_config.model_id else None
                 return WhisperGeniusArabicEngine(model_path=model_path)
+            elif engine_type == "whisper_byne_arabic":
+                from ..inference_engines.voice.stt import WhisperByneArabicEngine
+                return WhisperByneArabicEngine()
             else:
                 logger.warning(f"Unknown Whisper engine type: {engine_type}, using turbo as fallback")
                 from ..inference_engines.voice.stt import WhisperLargeV3TurboEngine

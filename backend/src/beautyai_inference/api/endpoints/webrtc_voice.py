@@ -776,13 +776,15 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             "You are a helpful AI assistant having a voice conversation. "
             "Respond naturally and conversationally. "
             "When listing items, use words like 'first', 'second', 'next', 'also', 'finally' instead of numbers. "
-            "Keep responses concise and suitable for spoken dialogue. "
-            "/no_think"
+            "Keep responses concise and suitable for spoken dialogue."
         )
+        
+        # Add /no_think prefix to force fast responses without reasoning
+        user_message = f"/no_think {full_text}"
         
         prompt = (
             f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-            f"<|im_start|>user\n{full_text}<|im_end|>\n"
+            f"<|im_start|>user\n{user_message}<|im_end|>\n"
             f"<|im_start|>assistant\n"
         )
 
@@ -811,6 +813,7 @@ async def _trigger_llm_response(session_id: str, context: Dict):
         loop.run_in_executor(None, generate_and_enqueue)
 
         full_response = ""
+        last_sent_length = 0  # Track what we've already sent to client
 
         while True:
             chunk = await queue.get()
@@ -821,19 +824,29 @@ async def _trigger_llm_response(session_id: str, context: Dict):
             full_response += delta
             token_count += 1
 
-            # Filter <think> tags for display
-            clean_delta = delta.replace("<think>", "").replace("</think>", "")
-
-            if clean_delta and dc and dc.readyState == "open":
-                dc.send(
-                    json.dumps(
-                        {
-                            "type": "response_chunk",
-                            "text": clean_delta,
-                            "role": "assistant",
-                        }
+            # Clean the accumulated response and send only new visible content
+            # This handles <think>...</think> blocks that span multiple chunks
+            import re
+            clean_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL)
+            # Also remove incomplete <think> blocks (still being generated)
+            clean_response = re.sub(r'<think>.*$', '', clean_response, flags=re.DOTALL)
+            clean_response = clean_response.replace("</think>", "")
+            
+            # Only send the new portion since last send
+            if len(clean_response) > last_sent_length:
+                new_content = clean_response[last_sent_length:]
+                last_sent_length = len(clean_response)
+                
+                if new_content.strip() and dc and dc.readyState == "open":
+                    dc.send(
+                        json.dumps(
+                            {
+                                "type": "response_chunk",
+                                "text": new_content,
+                                "role": "assistant",
+                            }
+                        )
                     )
-                )
 
         llm_time = time.time() - start_time
         tps = token_count / llm_time if llm_time > 0 else 0

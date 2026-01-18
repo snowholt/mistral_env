@@ -433,8 +433,8 @@ async def preload_voice_models():
         success = await persistent_mgr.preload_models()
         
         if success:
-            logger.info("✅ All Genius AI models pre-loaded successfully from config")
-            logger.info("🎯 Models ready: qwen3-unsloth-q4ks, genius-whisper-arabic, genius-xtts-arabic")
+            logger.info("✅ All voice models pre-loaded successfully from config")
+            logger.info("🎯 Models ready: qwen3-unsloth-q4ks, whisper-byne-arabic, saudi-xtts")
         else:
             logger.warning("⚠️ Some models failed to preload - check logs for details")
         

@@ -22,7 +22,8 @@ from ....inference_engines.voice.stt import (
     WhisperLargeV3TurboEngine,
     WhisperArabicTurboEngine,
     WhisperFinetunedArabicEngine,
-    WhisperGeniusArabicEngine
+    WhisperGeniusArabicEngine,
+    WhisperByneArabicEngine,
 )
 
 logger = logging.getLogger(__name__)
@@ -106,6 +107,7 @@ def create_transcription_service() -> TranscriptionServiceProtocol:
             "whisper_arabic_turbo": WhisperArabicTurboEngine,
             "whisper_finetuned_arabic": WhisperFinetunedArabicEngine,
             "whisper_genius_arabic": WhisperGeniusArabicEngine,
+            "whisper_byne_arabic": WhisperByneArabicEngine,
             # Legacy support
             "transformers": WhisperLargeV3TurboEngine,
             "faster-whisper": WhisperLargeV3TurboEngine,

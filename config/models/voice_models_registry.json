@@ -129,6 +129,39 @@
       }
     },
 
+    "whisper-byne-arabic": {
+      "model_id": "Byne/whisper-large-v3-arabic",
+      "engine_type": "whisper_byne_arabic",
+      "type": "speech_to_text",
+      "description": "Byne Arabic-optimized Whisper Large v3 (1.55B params, highest accuracy for Arabic)",
+      "supported_languages": ["ar"],
+      "gpu_enabled": true,
+      "performance_profile": "byne_arabic_accuracy",
+      "documentation": {
+        "hugging_face": "https://huggingface.co/Byne/whisper-large-v3-arabic",
+        "base_model": "https://huggingface.co/openai/whisper-large-v3",
+        "paper": "https://arxiv.org/abs/2212.04356"
+      },
+      "model_info": {
+        "size": "1.55B parameters (~3GB download)",
+        "speed": "Slower than turbo, but highest accuracy",
+        "architecture": "Full 32 decoder layers, fine-tuned on Arabic data",
+        "optimization": "GPU float16, SDPA attention",
+        "performance": "Best Arabic transcription accuracy, recommended for production"
+      },
+      "training_details": {
+        "dataset": "Arabic speech corpus",
+        "base_model": "openai/whisper-large-v3",
+        "fine_tuning_focus": "Arabic speech recognition"
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 6,
+        "recommended_vram_gb": 10,
+        "supports_flash_attention": true,
+        "supports_torch_compile": true
+      }
+    },
+
     "genius-whisper-arabic": {
       "model_id": "/home/lumi/.cache/geniusai-arabic-models/2025-12-06/whisper/whisper",
       "engine_type": "whisper_genius_arabic",
@@ -293,7 +326,7 @@
   },
 
   "default_models": {
-    "stt": "whisper-large-v3-turbo",
+    "stt": "whisper-byne-arabic",
     "tts": "edge-tts",
     "tts_arabic": "saudi-tts",
     "llm": "qwen3-chat"

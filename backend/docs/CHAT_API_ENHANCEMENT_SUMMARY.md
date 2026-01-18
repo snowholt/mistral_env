@@ -65,7 +65,7 @@ Easy thinking mode control for Qwen3 models:
 ```json
 {
   "model_name": "qwen3-model",
-  "message": "/no_think Explain briefly",
+  "message": "_thin/nok Explain briefly",
   "preset": "speed_optimized"
 }
 ```

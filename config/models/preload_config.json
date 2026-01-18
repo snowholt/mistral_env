@@ -3,15 +3,15 @@
   "description": "Preload configuration for BeautyAI - 4 models persistent on GPU (LLM, STT, TTS Arabic, TTS English fallback)",
   "models": {
     "stt": {
-      "model_id": "whisper-large-v3-turbo",
-      "model_path": "openai/whisper-large-v3-turbo",
+      "model_id": "whisper-byne-arabic",
+      "model_path": "Byne/whisper-large-v3-arabic",
       "device": "cuda",
       "compute_type": "float16",
       "priority": 1,
-      "engine_type": "whisper_large_v3_turbo",
-      "optimization_level": "gpu_speed",
-      "target_latency_ms": 500,
-      "description": "OpenAI Whisper Large v3 Turbo - 4x faster (809M params, ~1.5GB VRAM)"
+      "engine_type": "whisper_byne_arabic",
+      "optimization_level": "gpu_accuracy",
+      "target_latency_ms": 1000,
+      "description": "Byne Whisper Large v3 Arabic - highest accuracy (1.55B params, ~3GB VRAM)"
     },
     "llm": {
       "model_id": "qwen3-unsloth-q4ks",

@@ -27,10 +27,11 @@ interface Message {
 }
 
 interface Metrics {
-  tps?: number;
-  llm_latency?: number;
-  stt_time?: number;
-  tts_time?: number;
+  tps?: number;          // tokens per second (from LLM)
+  llm_latency?: number;  // LLM response time in ms
+  stt_time?: number;     // Speech-to-text time in ms
+  tts_time?: number;     // Text-to-speech time in ms
+  total_tokens?: number; // Total tokens generated
 }
 
 type ConnectionState = 'disconnected' | 'connecting' | 'connected' | 'listening' | 'processing' | 'speaking';
@@ -295,6 +296,11 @@ export default function VoiceDemo() {
               // Commit any pending assistant message before starting new turn
               commitAssistantMessage();
               addMessage('user', data.text);
+              // Capture STT metrics from transcription message
+              if (data.metrics?.whisper_ms) {
+                console.log('📊 STT metric received:', data.metrics.whisper_ms, 'ms');
+                setMetrics(prev => ({ ...prev, stt_time: data.metrics.whisper_ms }));
+              }
             }
             break;
 
@@ -309,12 +315,19 @@ export default function VoiceDemo() {
             break;
 
           case 'metrics':
-            setMetrics({
-              tps: data.tps,
-              llm_latency: data.llm_latency,
-              stt_time: data.stt_time,
-              tts_time: data.tts_time
+            // Map backend field names to frontend state
+            // Backend sends: tokens_per_sec, llm_time_ms, total_tokens
+            console.log('📊 LLM metrics received:', {
+              tps: data.tokens_per_sec,
+              llm_time_ms: data.llm_time_ms,
+              total_tokens: data.total_tokens
             });
+            setMetrics(prev => ({
+              ...prev,
+              tps: data.tokens_per_sec ?? data.tps,
+              llm_latency: data.llm_time_ms ?? data.llm_latency,
+              total_tokens: data.total_tokens
+            }));
             break;
 
           case 'mic_control':
@@ -347,6 +360,11 @@ export default function VoiceDemo() {
             if (audioData) {
               console.log('🔊 Received TTS audio, length:', audioData.length);
               playTTSAudio(audioData);
+              // Capture TTS time from audio message
+              if (data.tts_time_ms) {
+                console.log('📊 TTS metric received:', data.tts_time_ms, 'ms');
+                setMetrics(prev => ({ ...prev, tts_time: data.tts_time_ms }));
+              }
             } else {
               console.warn('⚠️ tts_audio received but no audio data found in payload:', Object.keys(data));
             }
@@ -797,35 +815,55 @@ export default function VoiceDemo() {
                     {language === 'ar' ? 'الكلمات في الثانية' : 'Tokens/Second'}
                   </div>
                   <div className="text-2xl font-bold text-blue-600">
-                    {metrics.tps?.toFixed(2) || '--'}
+                    {metrics.tps?.toFixed(1) || '--'}
                   </div>
+                  {metrics.total_tokens && (
+                    <div className="text-xs text-gray-400">
+                      {metrics.total_tokens} tokens total
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'زمن الاستجابة' : 'LLM Latency'}
+                    {language === 'ar' ? 'زمن LLM' : 'LLM Latency'}
                   </div>
                   <div className="text-2xl font-bold text-purple-600">
-                    {metrics.llm_latency?.toFixed(2) || '--'}s
+                    {metrics.llm_latency ? (metrics.llm_latency / 1000).toFixed(2) : '--'}s
                   </div>
+                  {metrics.llm_latency && (
+                    <div className="text-xs text-gray-400">
+                      {metrics.llm_latency.toFixed(0)}ms
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت التعرف على الصوت' : 'STT Time'}
+                    {language === 'ar' ? 'وقت STT' : 'STT Time'}
                   </div>
                   <div className="text-2xl font-bold text-green-600">
-                    {metrics.stt_time?.toFixed(2) || '--'}s
+                    {metrics.stt_time ? (metrics.stt_time / 1000).toFixed(2) : '--'}s
                   </div>
+                  {metrics.stt_time && (
+                    <div className="text-xs text-gray-400">
+                      {metrics.stt_time.toFixed(0)}ms
+                    </div>
+                  )}
                 </div>
 
                 <div>
                   <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت توليد الصوت' : 'TTS Time'}
+                    {language === 'ar' ? 'وقت TTS' : 'TTS Time'}
                   </div>
                   <div className="text-2xl font-bold text-pink-600">
-                    {metrics.tts_time?.toFixed(2) || '--'}s
+                    {metrics.tts_time ? (metrics.tts_time / 1000).toFixed(2) : '--'}s
                   </div>
+                  {metrics.tts_time && (
+                    <div className="text-xs text-gray-400">
+                      {metrics.tts_time.toFixed(0)}ms
+                    </div>
+                  )}
                 </div>
 
                 <div className="pt-4 border-t">

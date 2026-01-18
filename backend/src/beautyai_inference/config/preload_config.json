@@ -1,11 +1,12 @@
 {
   "preload_on_startup": true,
   "models": {
-    "whisper": {
-      "model_id": "whisper-large-v3-turbo",
+    "stt": {
+      "model_id": "whisper-byne-arabic",
       "device": "cuda",
       "compute_type": "float16",
-      "priority": 1
+      "priority": 1,
+      "engine_type": "whisper_byne_arabic"
     },
     "llm": {
       "model_id": "llm:qwen3-chat",

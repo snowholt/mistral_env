@@ -270,10 +270,10 @@ class PersistentModelManager:
             return False
     
     async def _preload_whisper_model(self, config: Dict[str, Any]) -> bool:
-        """Preload Genius Whisper model using ModelManager."""
+        """Preload Whisper model using ModelManager."""
         try:
-            model_id = config.get('model_id', 'genius-whisper-arabic')
-            self.logger.info(f"Preloading Genius Whisper model: {model_id}")
+            model_id = config.get('model_id', 'whisper-byne-arabic')
+            self.logger.info(f"Preloading Whisper model: {model_id}")
             
             # Use ModelManager's get_streaming_whisper with proper model name
             whisper_engine = self._model_manager.get_streaming_whisper(
@@ -284,10 +284,10 @@ class PersistentModelManager:
             if whisper_engine:
                 self._preloaded_models['whisper'] = whisper_engine
                 self._preloaded_models['stt'] = whisper_engine  # Alias for compatibility
-                self.logger.info(f"✅ Genius Whisper model preloaded: {model_id}")
+                self.logger.info(f"✅ Whisper model preloaded: {model_id}")
                 return True
             else:
-                self.logger.error(f"Failed to preload Genius Whisper model: {model_id}")
+                self.logger.error(f"Failed to preload Whisper model: {model_id}")
                 return False
                 
         except Exception as e:

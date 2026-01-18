@@ -11,6 +11,11 @@ import socket
 from pathlib import Path
 import logging
 
+# Add project root and src to path immediately
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
+
 try:
     # Configure logging early (idempotent)
     from beautyai_inference.logging.setup import configure_logging
@@ -32,10 +37,6 @@ except Exception as e:
 # Set environment variables for better compilation behavior
 os.environ.setdefault("TORCH_COMPILE_MODE", "default")
 os.environ.setdefault("TORCH_LOGS", "")  # Set to "recompiles" for debugging
-
-# Add the project root to Python path
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
 
 def _env_flag(name: str, default: str = "0") -> str:
     """Return normalized boolean-ish environment variable (string)."""
