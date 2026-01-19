@@ -254,6 +254,10 @@ class SimpleVoiceService:
 
         # Thinking mode must stay disabled for voice
         base["thinking_mode"] = False
+        
+        # Check for dev mode to disable safeguards (for testing)
+        if os.getenv('DISABLE_SYSTEM_PROMPT_SAFEGUARDS', '').lower() in ('1', 'true', 'yes'):
+            base["disable_system_prompt_safeguards"] = True
 
         # Voice responses should not be too random
         try:

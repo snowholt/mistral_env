@@ -342,7 +342,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         if getattr(candidate, "candidate", None) in (None, ""):
             return
         candidate_payload = {
-            "peer_id": peer_id,
+            "session_id": peer_id,
             "candidate": candidate.candidate,
             "sdp_mid": candidate.sdpMid,
             "sdp_m_line_index": candidate.sdpMLineIndex,
@@ -379,9 +379,9 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         offer_response = await _post_json(offer_url, offer_payload)
         print(f"[TEST] Offer response keys: {list(offer_response.keys())}")
 
-        peer_id = offer_response.get("peer_id")
+        peer_id = offer_response.get("session_id")
         if not peer_id:
-            raise AssertionError("Signaling server did not assign peer_id")
+            raise AssertionError("Signaling server did not assign session_id")
 
         answer_sdp = offer_response.get("sdp") or offer_response.get("answer")
         if not answer_sdp:
@@ -402,7 +402,7 @@ async def _exercise_round_trip(signaling_base: str) -> Dict[str, object]:
         # Flush queued ICE once peer_id is known
         while pending_ice:
             candidate_payload = pending_ice.pop(0)
-            candidate_payload["peer_id"] = peer_id
+            candidate_payload["session_id"] = peer_id
             await _send_ice(candidate_payload)
 
         await asyncio.wait_for(connection_ready.wait(), timeout=CONNECTION_TIMEOUT_SECONDS)

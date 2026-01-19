@@ -1,0 +1,408 @@
+"""
+Whisper Large v3 Turbo Speed-Optimized Transcription Engine for BeautyAI Framework.
+
+This engine implements the openai/whisper-large-v3-turbo model optimized for maximum speed
+with torch.compile support, static cache, and minimal beam search for 4x faster inference
+while maintaining good accuracy.
+
+Key Features:
+- Pruned 809M parameter model with 4 decoder layers
+- torch.compile optimization with static cache
+- Speed-optimized generation parameters
+- SDPA attention implementation
+- Warmup routine for consistent performance
+
+Author: BeautyAI Framework  
+Date: 2025-01-30
+"""
+
+import logging
+import time
+import os
+from typing import Dict, Any, Optional
+from enum import Enum
+from contextlib import contextmanager
+import numpy as np
+
+import torch
+from transformers import (
+    AutoModelForSpeechSeq2Seq,
+    AutoProcessor,
+    pipeline,
+)
+
+from .base_whisper_engine import BaseWhisperEngine
+
+
+try:
+    from torch.nn.attention import SDPBackend, sdpa_kernel
+except ImportError:  # pragma: no cover - compatibility fallback for older torch builds
+    logging.getLogger(__name__).warning(
+        "torch.nn.attention not available; falling back to no-op sdpa_kernel context"
+    )
+
+    class SDPBackend(Enum):
+        """Minimal stub for SDPBackend when torch.nn.attention is unavailable."""
+
+        MATH = "math"
+
+    @contextmanager
+    def sdpa_kernel(_backend):
+        yield
+
+
+logger = logging.getLogger(__name__)
+
+
+class WhisperLargeV3TurboEngine(BaseWhisperEngine):
+    """
+    Speed-optimized Whisper Large v3 Turbo transcription engine.
+    
+    Optimized for maximum speed using the pruned 809M parameter model with
+    torch.compile optimization and aggressive speed-focused parameters.
+    """
+    
+    def __init__(self):
+        """Initialize Whisper Large v3 Turbo engine with speed-focused configuration."""
+        super().__init__()
+        
+        # Configure Triton cache directory to a writable location
+        # This fixes "Read-only file system" errors when running as a service with ProtectHome=read-only
+        try:
+            # Use a path within the writable backend directory
+            triton_cache_dir = "/home/lumi/beautyai/backend/logs/triton_cache"
+            os.makedirs(triton_cache_dir, exist_ok=True)
+            os.environ["TRITON_CACHE_DIR"] = triton_cache_dir
+            logger.info(f"Set TRITON_CACHE_DIR to {triton_cache_dir}")
+        except Exception as e:
+            logger.warning(f"Failed to set TRITON_CACHE_DIR: {e}")
+
+        # Engine-specific configuration
+        self.pipe = None
+        self.compiled_model = None
+        self.is_warmed_up = False
+        self.supports_torch_compile = self._check_torch_compile_support()
+        self.static_cache_enabled = True
+        
+        # Model configuration
+        self.low_cpu_mem_usage = True
+        self.use_safetensors = True
+        self.attn_implementation = "sdpa"  # SDPA is optimal for turbo + compile
+        
+        logger.info(f"WhisperLargeV3TurboEngine initialized - Torch Compile: {self.supports_torch_compile}, "
+                   f"Static Cache: {self.static_cache_enabled}")
+    
+    def _get_engine_name(self) -> str:
+        """Return the name of this engine."""
+        return "whisper_large_v3_turbo"
+    
+    def _check_torch_compile_support(self) -> bool:
+        """Check if torch.compile is available and recommended."""
+        # Enable torch.compile for maximum speed on Linux/CUDA
+        # DISABLED: Causing CUDAGraphs memory overwrite errors in production
+        # import sys
+        # return sys.platform == "linux" and torch.cuda.is_available()
+        return False
+    
+    def _load_model_implementation(self, model_id: str) -> bool:
+        """
+        Load Whisper Large v3 Turbo model with speed optimizations.
+        
+        Args:
+            model_id: Hugging Face model identifier
+            
+        Returns:
+            bool: True if loading successful, False otherwise
+        """
+        try:
+            logger.info(f"Loading Whisper Large v3 Turbo model: {model_id}")
+            logger.info(f"Torch compile enabled: {self.supports_torch_compile}")
+            
+            # Set precision for optimal compile performance
+            if self.supports_torch_compile:
+                torch.set_float32_matmul_precision("high")
+            
+            # Load model with optimal configuration
+            model_kwargs = {
+                "low_cpu_mem_usage": self.low_cpu_mem_usage,
+                "use_safetensors": self.use_safetensors,
+                "attn_implementation": self.attn_implementation,
+            }
+            try:
+                model_kwargs["dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
+            except TypeError:
+                model_kwargs.pop("dtype", None)
+                model_kwargs["torch_dtype"] = self.torch_dtype
+                self.model = AutoModelForSpeechSeq2Seq.from_pretrained(
+                    model_id,
+                    **model_kwargs
+                )
+            self.model.to(self.device)
+            
+            # Configure static cache and compile model if supported
+            if self.supports_torch_compile:
+                self._setup_torch_compile()
+            
+            # Load processor
+            self.processor = AutoProcessor.from_pretrained(model_id)
+            
+            # FIXED: Create simplified pipeline to avoid parameter conflicts
+            self.pipe = pipeline(
+                "automatic-speech-recognition",
+                model=self.model,
+                tokenizer=self.processor.tokenizer,
+                feature_extractor=self.processor.feature_extractor,
+                device=self.device,
+                torch_dtype=self.torch_dtype
+            )
+            
+            # Perform warmup if torch.compile is enabled to avoid first-inference latency
+            if self.supports_torch_compile:
+                self._warmup_model()
+            
+            logger.info("✅ Whisper Large v3 Turbo model loaded successfully")
+            return True
+            
+        except Exception as e:
+            logger.error(f"❌ Failed to load Whisper Large v3 Turbo model: {e}")
+            return False
+    
+    def _setup_torch_compile(self):
+        """Configure torch.compile with optimal settings for Whisper Turbo."""
+        try:
+            logger.info("Setting up torch.compile optimization...")
+            
+            # Enable static cache for consistent performance
+            self.model.generation_config.cache_implementation = "static"
+            self.model.generation_config.max_new_tokens = 256
+            
+            # Compile the forward pass with optimal settings
+            self.model.forward = torch.compile(
+                self.model.forward, 
+                mode="reduce-overhead",  # Optimal for inference
+                fullgraph=True
+            )
+            
+            logger.info("✅ torch.compile setup completed")
+            
+        except Exception as e:
+            logger.warning(f"torch.compile setup failed, continuing without: {e}")
+            self.supports_torch_compile = False
+    
+    def _warmup_model(self, warmup_steps: int = 2):
+        """
+        Perform warmup inference to optimize torch.compile performance.
+        
+        Args:
+            warmup_steps: Number of warmup iterations
+        """
+        try:
+            logger.info(f"Performing {warmup_steps} warmup steps...")
+            
+            # Create dummy audio for warmup (1 second of silence)
+            dummy_audio = np.zeros(16000, dtype=np.float32)
+            audio_input = {"array": dummy_audio, "sampling_rate": 16000}
+            
+            # Warmup iterations
+            for i in range(warmup_steps):
+                with sdpa_kernel(SDPBackend.MATH):
+                    _ = self.pipe(
+                        audio_input.copy(), 
+                        generate_kwargs={
+                            "min_new_tokens": 32,
+                            "max_new_tokens": 32,
+                            "num_beams": 1,
+                            "temperature": 0.0
+                        }
+                    )
+                logger.debug(f"Warmup step {i+1}/{warmup_steps} completed")
+            
+            self.is_warmed_up = True
+            logger.info("✅ Model warmup completed")
+            
+        except Exception as e:
+            logger.warning(f"Model warmup failed: {e}")
+            self.is_warmed_up = False
+    
+    def _transcribe_implementation(self, audio_array: np.ndarray, language: str) -> str:
+        """
+        Perform speed-optimized transcription using Whisper Large v3 Turbo.
+        
+        Args:
+            audio_array: Preprocessed audio array (16kHz mono float32)
+            language: Language code for transcription
+            
+        Returns:
+            Transcribed text
+        """
+        try:
+            normalized_language = self._normalize_language_hint(language)
+            language_for_generation = normalized_language or "arabic"
+
+            if normalized_language:
+                logger.debug(f"Transcribing with specified language: {normalized_language}")
+            else:
+                logger.debug("Language hint missing or auto; defaulting to arabic")
+
+            forced_decoder_ids = None
+            if self.processor is not None:
+                try:
+                    forced_decoder_ids = self.processor.get_decoder_prompt_ids(
+                        language=language_for_generation,
+                        task="transcribe",
+                    )
+                except Exception as decoder_exc:
+                    logger.debug(
+                        "Unable to derive forced decoder ids for %s transcribe task: %s",
+                        language_for_generation,
+                        decoder_exc,
+                    )
+
+            if self.pipe is None:
+                logger.error("Whisper pipeline not initialized")
+                return ""
+
+            logger.info(
+                f"[WHISPER] Using turbo engine in {language_for_generation} transcribe mode"
+            )
+
+            audio_input = {
+                "array": audio_array,
+                "sampling_rate": 16000,
+            }
+
+            # Build generate_kwargs for model.generate() call
+            # These are passed to the underlying model's generate() method
+            generate_kwargs = {
+                "language": language_for_generation,
+                "task": "transcribe",
+                "max_new_tokens": 256,
+                "num_beams": 1,
+                "do_sample": False,
+                "temperature": 0.0,
+            }
+            
+            # Add forced_decoder_ids if available for more robust language enforcement
+            if forced_decoder_ids:
+                generate_kwargs["forced_decoder_ids"] = forced_decoder_ids
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} with decoder_ids")
+            else:
+                logger.debug(f"[WHISPER] Forcing language={language_for_generation} via generate_kwargs")
+
+            result = self.pipe(
+                audio_input,
+                return_timestamps=False,
+                generate_kwargs=generate_kwargs,
+            )
+
+            transcribed_text = result.get("text", "").strip() if result else ""
+            transcribed_text = self._clean_transcription_output(transcribed_text)
+            
+            logger.debug(f"Transcription result: '{transcribed_text[:100]}...'")
+            return transcribed_text
+            
+        except Exception as e:
+            logger.error(f"Whisper Large v3 Turbo transcription failed: {e}")
+            # Return empty string instead of attempting fallback to avoid more errors
+            return ""
+    
+    def _get_speed_optimized_parameters(self, language: str) -> Dict[str, Any]:
+        """
+        Get speed-optimized generation parameters.
+        
+        Args:
+            language: Target language
+            
+        Returns:
+            Dictionary of generation parameters optimized for speed
+        """
+        # Base parameters optimized for speed
+        params = {
+            "max_new_tokens": 256,  # Reduced for speed
+            "num_beams": 1,  # Greedy search for maximum speed
+            "compression_ratio_threshold": 2.4,
+            "temperature": 0.0,  # Deterministic for speed
+            "logprob_threshold": -1.0,
+            "no_speech_threshold": 0.6,
+            "return_timestamps": False,
+            "task": "transcribe"
+        }
+        
+        # Add static cache parameters if enabled
+        if self.static_cache_enabled and self.supports_torch_compile:
+            params.update({
+                "min_new_tokens": 32,  # Help with static cache
+                "max_new_tokens": 256
+            })
+        
+        # Add language specification if provided
+        if language and language != "auto":
+            if language == "ar":
+                params["language"] = "arabic"
+            elif language == "en":
+                params["language"] = "english"
+            else:
+                params["language"] = language
+        
+        return params
+    
+    def _clean_transcription_output(self, text: str) -> str:
+        """
+        Minimal cleaning of transcription output - only remove excessive whitespace.
+        
+        Args:
+            text: Raw transcription text
+            
+        Returns:
+            Cleaned transcription text
+        """
+        if not text:
+            return ""
+        
+        # Only remove excessive whitespace
+        text = " ".join(text.split())
+        
+        return text
+    
+    def get_model_info(self) -> Dict[str, Any]:
+        """Get detailed information about the Whisper Large v3 Turbo model."""
+        base_info = super().get_model_info()
+        
+        if self.model:
+            base_info.update({
+                "model_size": "809M parameters (pruned from 1.55B)",
+                "architecture": "4 decoder layers (down from 32)",
+                "torch_compile_enabled": self.supports_torch_compile,
+                "static_cache_enabled": self.static_cache_enabled,
+                "is_warmed_up": self.is_warmed_up,
+                "attention_implementation": self.attn_implementation,
+                "speed_optimized": True,
+                "pipeline_batch_size": getattr(self.pipe, 'batch_size', 'N/A') if self.pipe else 'N/A'
+            })
+        
+        return base_info
+    
+    def cleanup(self):
+        """Enhanced cleanup for Whisper Large v3 Turbo resources."""
+        try:
+            if self.pipe is not None:
+                del self.pipe
+                self.pipe = None
+            
+            if self.compiled_model is not None:
+                del self.compiled_model
+                self.compiled_model = None
+                
+            self.is_warmed_up = False
+            
+            # Call base cleanup
+            super().cleanup()
+            
+            logger.info("✅ Whisper Large v3 Turbo cleanup completed")
+            
+        except Exception as e:
+            logger.error(f"❌ Error during Whisper Large v3 Turbo cleanup: {e}")

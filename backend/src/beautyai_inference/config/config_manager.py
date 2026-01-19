@@ -39,6 +39,8 @@ class ModelConfig:
     n_ctx: Optional[int] = None  # Context size for llama.cpp
     n_batch: Optional[int] = None  # Batch size for llama.cpp
     n_threads: Optional[int] = None  # Number of threads for llama.cpp
+    # System prompt for the model
+    system_prompt: Optional[str] = None  # Default system prompt for this model
     # Store any extra fields that aren't explicitly defined
     extra_fields: Optional[Dict[str, Any]] = None
     
@@ -83,6 +85,10 @@ class ModelConfig:
             result["n_batch"] = self.n_batch
         if self.n_threads is not None:
             result["n_threads"] = self.n_threads
+        
+        # Add system prompt if it exists
+        if self.system_prompt is not None:
+            result["system_prompt"] = self.system_prompt
             
         # Add any extra fields
         if self.extra_fields:
@@ -167,7 +173,7 @@ class ModelRegistry:
                 'tensor_parallel_size', 'name', 'description', 'model_architecture',
                 'model_filename', 'documentation', 'custom_generation_params',
                 'tokenizer_model_id', 'tokenizer_fallback', 'n_gpu_layers', 'n_ctx',
-                'n_batch', 'n_threads'
+                'n_batch', 'n_threads', 'system_prompt'
             }
             
             config_fields = {}

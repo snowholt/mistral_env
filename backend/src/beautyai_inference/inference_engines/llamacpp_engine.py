@@ -120,7 +120,7 @@ class LlamaCppEngine(ModelInterface):
             "model_path": model_path,
             "n_gpu_layers": n_gpu_layers,
             "n_ctx": n_ctx,
-            "verbose": False,
+            "verbose": True,
         }
         
         # Add only essential parameters that are known to work
@@ -130,6 +130,8 @@ class LlamaCppEngine(ModelInterface):
                 "n_batch": n_batch,  # Use config value for maximum speed
                 "n_threads": n_threads,  # Use config value for optimal threading
             })
+            # Apply optimized GPU settings
+            model_params.update(gpu_settings)
             logger.info(f"Using OPTIMIZED GPU parameters: n_gpu_layers={n_gpu_layers}, n_batch={n_batch}, n_threads={n_threads}")
         else:
             # CPU-only parameters - still use config values
@@ -472,12 +474,34 @@ class LlamaCppEngine(ModelInterface):
         if not self.model:
             self.load_model()
         
+        # **NEW: Handle enable_thinking parameter**
+        enable_thinking = kwargs.get('enable_thinking', False)  # Default to False as per user request
+        
         # Convert messages to llama.cpp format
         formatted_messages = []
-        for msg in messages:
+        
+        # Find last user message index to append /no_think if needed
+        last_user_idx = -1
+        if not enable_thinking:
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i]["role"] == "user":
+                    last_user_idx = i
+                    break
+        
+        for i, msg in enumerate(messages):
+            content = msg["content"]
+            role = msg["role"]
+            
+            # If thinking is disabled, append /no_think to the last user message
+            if not enable_thinking and i == last_user_idx:
+                # Only append if not already present
+                if "/no_think" not in content:
+                    content = f"{content}\n/no_think"
+                    logger.debug(f"Appended /no_think to user message: {content[:50]}...")
+            
             formatted_messages.append(ChatCompletionMessage(
-                role=msg["role"],
-                content=msg["content"]
+                role=role,
+                content=content
             ))
         
         # Use more reliable parameters instead of ultra-aggressive ones
@@ -580,6 +604,11 @@ class LlamaCppEngine(ModelInterface):
             
             if response and 'choices' in response and len(response['choices']) > 0:
                 content = response['choices'][0]['message']['content'].strip()
+                
+                # **NEW: Post-process response based on thinking mode**
+                if not enable_thinking:
+                    content = self._clean_thinking_blocks(content)
+                
                 logger.info(f"Chat response length: {len(content)} chars")
                 return content
             else:

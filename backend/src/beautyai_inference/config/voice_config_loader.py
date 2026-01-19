@@ -17,6 +17,22 @@ from dataclasses import dataclass
 
 logger = logging.getLogger(__name__)
 
+
+def _get_project_root() -> Path:
+    """Get the project root directory (where config/ should live)."""
+    # This file is at: backend/src/beautyai_inference/config/voice_config_loader.py
+    # Project root is 4 levels up
+    current = Path(__file__).resolve()
+    project_root = current.parents[4]
+    
+    # Verify we found the right directory (should have config/ subfolder)
+    if (project_root / "config").is_dir():
+        return project_root
+    
+    # Fallback: use CWD if structure doesn't match
+    return Path.cwd()
+
+
 @dataclass
 class VoiceModelConfig:
     """Configuration for a voice model."""
@@ -62,8 +78,20 @@ class VoiceConfigLoader:
     """
     
     def __init__(self):
-        self.config_path = Path(__file__).parent / "voice_models_registry.json"
-        self.preload_config_path = Path(__file__).parent / "preload_config.json"
+        # Use project root config/models/ directory
+        project_root = _get_project_root()
+        models_config_dir = project_root / "config" / "models"
+        
+        # Primary paths in new location
+        self.config_path = models_config_dir / "voice_models_registry.json"
+        self.preload_config_path = models_config_dir / "preload_config.json"
+        
+        # Fallback to local config if project root config not found
+        if not self.config_path.exists():
+            self.config_path = Path(__file__).parent / "voice_models_registry.json"
+        if not self.preload_config_path.exists():
+            self.preload_config_path = Path(__file__).parent / "preload_config.json"
+            
         self._config = None
         self._preload_config = None
         self._load_config()

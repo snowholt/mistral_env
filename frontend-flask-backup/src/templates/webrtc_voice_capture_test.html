@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>WebRTC Voice Capture Test - BeautyAI</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            border-radius: 20px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            padding: 40px;
+            max-width: 600px;
+            width: 100%;
+        }
+        h1 {
+            color: #667eea;
+            margin-bottom: 10px;
+            font-size: 28px;
+        }
+        .subtitle {
+            color: #666;
+            margin-bottom: 30px;
+            font-size: 14px;
+        }
+        .status {
+            background: #f0f0f0;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        .status-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 5px 0;
+        }
+        .status-label {
+            font-weight: 600;
+            color: #333;
+        }
+        .status-value {
+            color: #667eea;
+            font-family: monospace;
+        }
+        .btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 10px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            width: 100%;
+            transition: all 0.3s ease;
+            margin: 10px 0;
+        }
+        .btn:hover {
+            background: #5568d3;
+            transform: translateY(-2px);
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        .btn:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+        .btn-stop {
+            background: #e74c3c;
+        }
+        .btn-stop:hover {
+            background: #c0392b;
+        }
+        .logs {
+            background: #1e1e1e;
+            color: #00ff00;
+            padding: 15px;
+            border-radius: 10px;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            margin-top: 20px;
+        }
+        .log-entry {
+            margin: 2px 0;
+            word-wrap: break-word;
+        }
+        .log-info { color: #00ff00; }
+        .log-warn { color: #ffaa00; }
+        .log-error { color: #ff4444; }
+        .audio-visualizer {
+            width: 100%;
+            height: 60px;
+            background: #f0f0f0;
+            border-radius: 10px;
+            margin: 20px 0;
+            position: relative;
+            overflow: hidden;
+        }
+        .audio-bar {
+            position: absolute;
+            bottom: 0;
+            background: linear-gradient(to top, #667eea, #764ba2);
+            width: 100%;
+            transition: height 0.1s ease;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 WebRTC Voice Capture Test</h1>
+        <p class="subtitle">Debug tool for capturing audio at each processing layer</p>
+        
+        <div class="status">
+            <div class="status-item">
+                <span class="status-label">Connection:</span>
+                <span class="status-value" id="connectionStatus">Not connected</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Peer ID:</span>
+                <span class="status-value" id="peerId">-</span>
+            </div>
+            <div class="status-item">
+                <span class="status-label">Audio Captured:</span>
+                <span class="status-value" id="audioCaptured">0 frames</span>
+            </div>
+        </div>
+
+        <div class="audio-visualizer">
+            <div class="audio-bar" id="audioBar"></div>
+        </div>
+
+        <button class="btn" id="startBtn" onclick="startCapture()">
+            🎙️ Start Voice Capture
+        </button>
+        <button class="btn btn-stop" id="stopBtn" onclick="stopCapture()" disabled>
+            ⏹️ Stop Capture
+        </button>
+
+        <div class="logs" id="logs"></div>
+    </div>
+
+    <script>
+        let pc = null;
+        let localStream = null;
+        let peerId = null;
+        let frameCount = 0;
+        let audioContext = null;
+        let analyser = null;
+        let dataArray = null;
+
+        const API_BASE = window.location.origin;
+
+        function log(message, type = 'info') {
+            const logs = document.getElementById('logs');
+            const entry = document.createElement('div');
+            entry.className = `log-entry log-${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logs.appendChild(entry);
+            logs.scrollTop = logs.scrollHeight;
+            console.log(message);
+        }
+
+        function updateStatus(field, value) {
+            document.getElementById(field).textContent = value;
+        }
+
+        function visualizeAudio() {
+            if (!analyser) return;
+            
+            analyser.getByteFrequencyData(dataArray);
+            const average = dataArray.reduce((a, b) => a + b) / dataArray.length;
+            const height = (average / 255) * 100;
+            
+            document.getElementById('audioBar').style.height = `${height}%`;
+            
+            if (localStream) {
+                requestAnimationFrame(visualizeAudio);
+            }
+        }
+
+        async function startCapture() {
+            try {
+                log('🎤 Requesting microphone access...', 'info');
+                
+                // Get microphone stream
+                localStream = await navigator.mediaDevices.getUserMedia({
+                    audio: {
+                        echoCancellation: true,
+                        noiseSuppression: true,
+                        autoGainControl: true,
+                        sampleRate: 48000
+                    },
+                    video: false
+                });
+                
+                log('✅ Microphone access granted', 'info');
+                
+                // Setup audio visualization
+                audioContext = new AudioContext();
+                const source = audioContext.createMediaStreamSource(localStream);
+                analyser = audioContext.createAnalyser();
+                analyser.fftSize = 256;
+                source.connect(analyser);
+                dataArray = new Uint8Array(analyser.frequencyBinCount);
+                visualizeAudio();
+                
+                // Create peer connection
+                pc = new RTCPeerConnection({
+                    iceServers: [{ urls: 'stun:stun.l.google.com:19302' }]
+                });
+                
+                // Add audio track
+                localStream.getTracks().forEach(track => {
+                    pc.addTrack(track, localStream);
+                    log(`📡 Added ${track.kind} track (${track.label})`, 'info');
+                });
+                
+                // Create data channel for receiving status updates
+                const dataChannel = pc.createDataChannel('debug_capture', { ordered: true });
+                
+                dataChannel.onopen = () => {
+                    log('✅ Data channel opened', 'info');
+                };
+                
+                dataChannel.onmessage = (event) => {
+                    try {
+                        const data = JSON.parse(event.data);
+                        log(`📊 Server: ${data.message || JSON.stringify(data)}`, 'info');
+                        
+                        if (data.frames_captured) {
+                            frameCount = data.frames_captured;
+                            updateStatus('audioCaptured', `${frameCount} frames`);
+                        }
+                    } catch (e) {
+                        log(`📩 Server: ${event.data}`, 'info');
+                    }
+                };
+                
+                // ICE connection state
+                pc.oniceconnectionstatechange = () => {
+                    log(`🔌 ICE state: ${pc.iceConnectionState}`, 'info');
+                    updateStatus('connectionStatus', pc.iceConnectionState);
+                    
+                    if (pc.iceConnectionState === 'connected') {
+                        log('✅ Connected! Audio is being captured...', 'info');
+                    }
+                };
+                
+                // Create offer
+                log('📝 Creating SDP offer...', 'info');
+                const offer = await pc.createOffer();
+                await pc.setLocalDescription(offer);
+                
+                // Send offer to server
+                log('📤 Sending offer to server...', 'info');
+                const response = await fetch(`${API_BASE}/api/v1/webrtc/debug/voice-capture/offer`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        sdp: offer.sdp,
+                        type: 'offer'
+                    })
+                });
+                
+                if (!response.ok) {
+                    throw new Error(`Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                peerId = data.peer_id;
+                updateStatus('peerId', peerId);
+                log(`✅ Got peer ID: ${peerId}`, 'info');
+                
+                // Set remote description
+                await pc.setRemoteDescription({
+                    type: 'answer',
+                    sdp: data.sdp
+                });
+                
+                log('✅ WebRTC connection established', 'info');
+                
+                // Handle ICE candidates
+                pc.onicecandidate = async (event) => {
+                    if (event.candidate) {
+                        try {
+                            await fetch(`${API_BASE}/api/v1/webrtc/debug/voice-capture/ice`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    peer_id: peerId,
+                                    candidate: event.candidate.candidate,
+                                    sdp_mid: event.candidate.sdpMid,
+                                    sdp_m_line_index: event.candidate.sdpMLineIndex
+                                })
+                            });
+                        } catch (e) {
+                            log(`⚠️ ICE candidate error: ${e.message}`, 'warn');
+                        }
+                    }
+                };
+                
+                // Update UI
+                document.getElementById('startBtn').disabled = true;
+                document.getElementById('stopBtn').disabled = false;
+                
+            } catch (error) {
+                log(`❌ Error: ${error.message}`, 'error');
+                console.error(error);
+            }
+        }
+
+        async function stopCapture() {
+            log('⏹️ Stopping capture...', 'info');
+            
+            if (pc) {
+                pc.close();
+                pc = null;
+            }
+            
+            if (localStream) {
+                localStream.getTracks().forEach(track => track.stop());
+                localStream = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            if (peerId) {
+                try {
+                    await fetch(`${API_BASE}/api/v1/webrtc/debug/voice-capture/${peerId}`, {
+                        method: 'DELETE'
+                    });
+                    log(`✅ Cleanup complete. Check logs/webrtc/debug_capture_${peerId}.wav`, 'info');
+                } catch (e) {
+                    log(`⚠️ Cleanup error: ${e.message}`, 'warn');
+                }
+            }
+            
+            // Reset UI
+            document.getElementById('startBtn').disabled = false;
+            document.getElementById('stopBtn').disabled = true;
+            updateStatus('connectionStatus', 'Disconnected');
+            updateStatus('peerId', '-');
+            updateStatus('audioCaptured', '0 frames');
+            
+            log('✅ Capture stopped', 'info');
+        }
+    </script>
+</body>
+</html>

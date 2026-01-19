@@ -1,6 +1,0 @@
-aioice==0.10.1
-aiortc==1.14.0
-av==16.0.1
-pyee==13.0.0
-pystun==0.1.0
-webrtcvad==2.0.10

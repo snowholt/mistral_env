@@ -1,0 +1,223 @@
+{% extends "whatsapp/base.html" %}
+
+{% block title %}Configure AI Agent{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto">
+    <!-- Progress Steps -->
+    <nav aria-label="Progress" class="mb-8">
+        <ol class="flex items-center justify-center">
+            <li class="relative pr-8 sm:pr-20">
+                <div class="flex items-center">
+                    <div class="h-10 w-10 rounded-full bg-whatsapp-600 flex items-center justify-center">
+                        <i class="fas fa-check text-white"></i>
+                    </div>
+                    <span class="ml-3 text-sm font-medium text-whatsapp-600">Connect Account</span>
+                </div>
+                <div class="absolute top-5 left-10 w-full h-0.5 bg-whatsapp-600"></div>
+            </li>
+            <li class="relative pr-8 sm:pr-20">
+                <div class="flex items-center">
+                    <div class="h-10 w-10 rounded-full bg-whatsapp-600 flex items-center justify-center">
+                        <span class="text-white font-medium">2</span>
+                    </div>
+                    <span class="ml-3 text-sm font-medium text-whatsapp-600">Configure AI</span>
+                </div>
+                <div class="absolute top-5 left-10 w-full h-0.5 bg-gray-200"></div>
+            </li>
+            <li class="relative">
+                <div class="flex items-center">
+                    <div class="h-10 w-10 rounded-full bg-gray-200 flex items-center justify-center">
+                        <span class="text-gray-500 font-medium">3</span>
+                    </div>
+                    <span class="ml-3 text-sm font-medium text-gray-500">Start Chatting</span>
+                </div>
+            </li>
+        </ol>
+    </nav>
+
+    <!-- Main Card -->
+    <div class="bg-white shadow-lg rounded-lg overflow-hidden">
+        <div class="px-6 py-8">
+            <div class="text-center mb-8">
+                <div class="mx-auto h-20 w-20 bg-blue-100 rounded-full flex items-center justify-center mb-4">
+                    <i class="fas fa-robot text-blue-600 text-4xl"></i>
+                </div>
+                <h2 class="text-2xl font-bold text-gray-900">Configure Your AI Agent</h2>
+                <p class="mt-2 text-gray-600">
+                    Tell us about your business and how you want your AI to communicate
+                </p>
+            </div>
+
+            <form method="POST" action="/whatsapp/agent-setup" class="space-y-6">
+                <!-- Customer Selection (if multiple) -->
+                {% if customers and customers|length > 1 %}
+                <div>
+                    <label for="customer_id" class="block text-sm font-medium text-gray-700">
+                        Select Business
+                    </label>
+                    <select id="customer_id" name="customer_id" required
+                            class="mt-1 block w-full pl-3 pr-10 py-3 text-base border-gray-300 focus:outline-none focus:ring-whatsapp-500 focus:border-whatsapp-500 sm:text-sm rounded-md border">
+                        {% for customer in customers %}
+                        <option value="{{ customer.id }}" {% if customer.id == customer_id %}selected{% endif %}>
+                            {{ customer.name }}
+                        </option>
+                        {% endfor %}
+                    </select>
+                </div>
+                {% elif customers and customers|length == 1 %}
+                <input type="hidden" name="customer_id" value="{{ customers[0].id }}">
+                {% else %}
+                <input type="hidden" name="customer_id" value="{{ customer_id or 1 }}">
+                {% endif %}
+
+                <!-- Business Name -->
+                <div>
+                    <label for="business_name" class="block text-sm font-medium text-gray-700">
+                        Business Name <span class="text-red-500">*</span>
+                    </label>
+                    <input type="text" name="business_name" id="business_name" required
+                           value="{{ existing_config.business_name if existing_config else '' }}"
+                           placeholder="e.g., Acme Coffee Shop"
+                           class="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-3 px-4 focus:ring-whatsapp-500 focus:border-whatsapp-500 sm:text-sm border">
+                    <p class="mt-1 text-xs text-gray-500">
+                        Your AI will introduce itself as "[Business Name]'s assistant"
+                    </p>
+                </div>
+
+                <!-- Tone Selection -->
+                <div>
+                    <label class="block text-sm font-medium text-gray-700 mb-3">
+                        Communication Tone <span class="text-red-500">*</span>
+                    </label>
+                    <div class="grid grid-cols-2 gap-4">
+                        <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none hover:border-whatsapp-500 transition-colors">
+                            <input type="radio" name="tone" value="professional" class="sr-only peer" 
+                                   {{ 'checked' if not existing_config or existing_config.tone == 'professional' else '' }}>
+                            <span class="flex flex-1">
+                                <span class="flex flex-col">
+                                    <span class="block text-sm font-medium text-gray-900">
+                                        <i class="fas fa-briefcase mr-2 text-gray-400"></i>Professional
+                                    </span>
+                                    <span class="mt-1 text-xs text-gray-500">Courteous and business-like</span>
+                                </span>
+                            </span>
+                            <span class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-whatsapp-500"></span>
+                        </label>
+                        
+                        <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none hover:border-whatsapp-500 transition-colors">
+                            <input type="radio" name="tone" value="friendly" class="sr-only peer"
+                                   {{ 'checked' if existing_config and existing_config.tone == 'friendly' else '' }}>
+                            <span class="flex flex-1">
+                                <span class="flex flex-col">
+                                    <span class="block text-sm font-medium text-gray-900">
+                                        <i class="fas fa-smile mr-2 text-gray-400"></i>Friendly
+                                    </span>
+                                    <span class="mt-1 text-xs text-gray-500">Warm and approachable</span>
+                                </span>
+                            </span>
+                            <span class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-whatsapp-500"></span>
+                        </label>
+                        
+                        <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none hover:border-whatsapp-500 transition-colors">
+                            <input type="radio" name="tone" value="casual" class="sr-only peer"
+                                   {{ 'checked' if existing_config and existing_config.tone == 'casual' else '' }}>
+                            <span class="flex flex-1">
+                                <span class="flex flex-col">
+                                    <span class="block text-sm font-medium text-gray-900">
+                                        <i class="fas fa-coffee mr-2 text-gray-400"></i>Casual
+                                    </span>
+                                    <span class="mt-1 text-xs text-gray-500">Relaxed and conversational</span>
+                                </span>
+                            </span>
+                            <span class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-whatsapp-500"></span>
+                        </label>
+                        
+                        <label class="relative flex cursor-pointer rounded-lg border bg-white p-4 shadow-sm focus:outline-none hover:border-whatsapp-500 transition-colors">
+                            <input type="radio" name="tone" value="formal" class="sr-only peer"
+                                   {{ 'checked' if existing_config and existing_config.tone == 'formal' else '' }}>
+                            <span class="flex flex-1">
+                                <span class="flex flex-col">
+                                    <span class="block text-sm font-medium text-gray-900">
+                                        <i class="fas fa-user-tie mr-2 text-gray-400"></i>Formal
+                                    </span>
+                                    <span class="mt-1 text-xs text-gray-500">Respectful and traditional</span>
+                                </span>
+                            </span>
+                            <span class="pointer-events-none absolute -inset-px rounded-lg border-2 border-transparent peer-checked:border-whatsapp-500"></span>
+                        </label>
+                    </div>
+                </div>
+
+                <!-- Behavior Rules -->
+                <div>
+                    <label for="behavior_rules" class="block text-sm font-medium text-gray-700">
+                        Behavior Rules <span class="text-gray-400">(optional)</span>
+                    </label>
+                    <textarea name="behavior_rules" id="behavior_rules" rows="4"
+                              placeholder="Add any specific instructions for your AI, e.g.:
+- Always ask for order details before providing pricing
+- Don't discuss competitor products
+- Redirect complaints to human support"
+                              class="mt-1 block w-full border-gray-300 rounded-md shadow-sm py-3 px-4 focus:ring-whatsapp-500 focus:border-whatsapp-500 sm:text-sm border">{{ existing_config.behavior_rules if existing_config else '' }}</textarea>
+                </div>
+
+                <!-- Advanced: Custom Instructions -->
+                <div class="border-t pt-6">
+                    <button type="button" onclick="toggleAdvanced()" class="flex items-center text-sm text-gray-600 hover:text-gray-900">
+                        <i id="advanced-icon" class="fas fa-chevron-right mr-2 transition-transform"></i>
+                        Advanced: Custom System Prompt
+                    </button>
+                    
+                    <div id="advanced-section" class="hidden mt-4">
+                        <div class="bg-yellow-50 border border-yellow-200 rounded-md p-3 mb-4">
+                            <p class="text-xs text-yellow-800">
+                                <i class="fas fa-exclamation-triangle mr-1"></i>
+                                <strong>Power User Feature:</strong> This overrides the template above. 
+                                Only use if you know what you're doing!
+                            </p>
+                        </div>
+                        <textarea name="custom_instructions" id="custom_instructions" rows="6"
+                                  placeholder="You are a helpful AI assistant for [Company Name]..."
+                                  class="block w-full border-gray-300 rounded-md shadow-sm py-3 px-4 focus:ring-whatsapp-500 focus:border-whatsapp-500 sm:text-sm border font-mono text-sm">{{ existing_config.custom_instructions if existing_config else '' }}</textarea>
+                    </div>
+                </div>
+
+                <!-- Submit Button -->
+                <div class="pt-4">
+                    <button type="submit" 
+                            class="w-full flex justify-center py-3 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-whatsapp-600 hover:bg-whatsapp-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-whatsapp-500 transition-colors">
+                        <i class="fas fa-save mr-2"></i>
+                        Save Configuration
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    function toggleAdvanced() {
+        const section = document.getElementById('advanced-section');
+        const icon = document.getElementById('advanced-icon');
+        
+        if (section.classList.contains('hidden')) {
+            section.classList.remove('hidden');
+            icon.style.transform = 'rotate(90deg)';
+        } else {
+            section.classList.add('hidden');
+            icon.style.transform = 'rotate(0deg)';
+        }
+    }
+    
+    // Show advanced section if custom_instructions already has content
+    document.addEventListener('DOMContentLoaded', function() {
+        const customInstructions = document.getElementById('custom_instructions');
+        if (customInstructions && customInstructions.value.trim()) {
+            toggleAdvanced();
+        }
+    });
+</script>
+{% endblock %}

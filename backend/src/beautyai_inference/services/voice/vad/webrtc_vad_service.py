@@ -101,6 +101,7 @@ class WebRTCVADConfig:
     
     # Monitoring
     log_vad_decisions: bool = True  # Log detailed VAD decisions for debugging (ENABLED)
+    enable_debug_dump: Optional[bool] = None  # Enable WAV file dumping (None = check env var)
 
 
 @dataclass
@@ -194,7 +195,12 @@ class WebRTCVADService:
         self._processing_lock = asyncio.Lock()
 
         # Debug capture configuration
-        self.debug_enabled = os.getenv("BEAUTYAI_VAD_DEBUG", "1") not in {"0", "false", "False"}
+        # Priority: Config > Env Var > Default (False)
+        if self.config.enable_debug_dump is not None:
+            self.debug_enabled = self.config.enable_debug_dump
+        else:
+            self.debug_enabled = os.getenv("BEAUTYAI_VAD_DEBUG", "0") not in {"0", "false", "False"}
+            
         self._debug_webrtc_chunks: list[bytes] = []
         self._debug_silero_chunks: list[bytes] = []
         self._debug_segment_index: int = 0
@@ -487,10 +493,10 @@ class WebRTCVADService:
                 # Calculate processing time
                 processing_time_ms = (time.time() - start_time) * 1000
                 
-                # Log VAD decision if enabled
+                # Log VAD decision if enabled (using INFO level for visibility in production logs)
                 if self.config.log_vad_decisions:
-                    self.logger.debug(
-                        f"VAD decision for {self.peer_id}: "
+                    self.logger.info(
+                        f"[VAD-DECISION] {self.peer_id}: "
                         f"webrtc={webrtc_detected}, silero={silero_detected} "
                         f"(prob={silero_probability:.3f}), sustained={self.sustained_speech_counter}/{self.config.min_sustained_speech_frames}, "
                         f"warmup={warmup_active}, final={voice_detected}, state={new_state.value}"
@@ -786,11 +792,15 @@ class WebRTCVADService:
                     if self._on_voice_end:
                         self._on_voice_end(self.peer_id, speech_duration)
                     
+                    # Transition to VOICE_END (will be reset to INACTIVE on next cycle)
                     self.current_state = VADState.VOICE_END
-                    # Reset to inactive after end
+                    # Reset timing but keep VOICE_END state for this cycle
                     self.speech_start_time = None
                     self.silence_start_time = None
-                    self.current_state = VADState.INACTIVE
+            
+            elif self.current_state == VADState.VOICE_END:
+                # One cycle after VOICE_END, transition to INACTIVE
+                self.current_state = VADState.INACTIVE
         
         # Notify state change
         if self.current_state != previous_state:

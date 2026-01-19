@@ -92,15 +92,15 @@ system:
   health_check_interval_s: 30
 
 models:
-  # Default Models
-  default_asr_model: "openai/whisper-large-v3"
-  default_llm_model: "microsoft/DialoGPT-large"
-  default_tts_model: "edge-tts"
+  # Default Models - Genius AI Fine-tuned Models
+  default_asr_model: "genius-whisper-arabic"
+  default_llm_model: "qwen3-unsloth-q4ks"
+  default_tts_model: "genius-xtts-arabic"
   
-  # Model Loading
+  # Model Loading - Enable persistent preloading
   model_load_timeout_s: 120
   model_unload_delay_s: 300
-  preload_models: []
+  preload_models: ["qwen3-unsloth-q4ks", "genius-whisper-arabic", "genius-xtts-arabic"]
   
   # Quantization
   quantization_enabled: true

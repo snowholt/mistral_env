@@ -41,12 +41,7 @@ setup(
         "audio": ["soundfile>=0.12.0", "sox>=1.4.0"],  # Additional audio dependencies
         "dev": ["black", "isort", "flake8", "pytest"],
     },
-    entry_points={
-        "console_scripts": [
-            # Primary unified CLI entry point
-            "beautyai=beautyai_inference.cli.unified_cli:main",
-        ],
-    },
+    # CLI entry points removed - API server is the primary interface
     classifiers=[
         "Development Status :: 4 - Beta",
         "Intended Audience :: Developers",

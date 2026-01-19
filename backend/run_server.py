@@ -11,6 +11,11 @@ import socket
 from pathlib import Path
 import logging
 
+# Add project root and src to path immediately
+project_root = Path(__file__).parent
+sys.path.insert(0, str(project_root))
+sys.path.insert(0, str(project_root / "src"))
+
 try:
     # Configure logging early (idempotent)
     from beautyai_inference.logging.setup import configure_logging
@@ -32,10 +37,6 @@ except Exception as e:
 # Set environment variables for better compilation behavior
 os.environ.setdefault("TORCH_COMPILE_MODE", "default")
 os.environ.setdefault("TORCH_LOGS", "")  # Set to "recompiles" for debugging
-
-# Add the project root to Python path
-project_root = Path(__file__).parent
-sys.path.insert(0, str(project_root))
 
 def _env_flag(name: str, default: str = "0") -> str:
     """Return normalized boolean-ish environment variable (string)."""
@@ -100,10 +101,6 @@ def main():
         http="auto",
     )
 
-    streaming_enabled = _env_flag("VOICE_STREAMING_ENABLED", "1") == "1"
-    phase4 = _env_flag("VOICE_STREAMING_PHASE4", "0") == "1"
-    streaming_path = "/api/v1/ws/streaming-voice"
-
     print("🚀 Starting BeautyAI Inference API Server")
     print("=" * 60)
     print(f"📡 Host: {config.host}:{config.port}")
@@ -111,11 +108,7 @@ def main():
     print(f"🔧 WebSocket Max Size: {config.ws_max_size / (1024 * 1024):.1f} MB")
     print(f"📚 API Docs: http://localhost:{config.port}/docs")
     print(f"📘 Redoc: http://localhost:{config.port}/redoc")
-    print(f"🎤 Legacy Voice WS: ws://localhost:{config.port}/ws/voice-conversation")
-    if streaming_enabled:
-        print(f"🌊 Streaming Voice WS: ws://localhost:{config.port}{streaming_path} (phase={'4' if phase4 else '2'})")
-    else:
-        print("🌊 Streaming Voice WS: disabled (set VOICE_STREAMING_ENABLED=1 to enable)")
+    print(f"🎤 WebRTC Voice: /api/v1/webrtc/voice")
     print("=" * 60)
 
     server = uvicorn.Server(config)

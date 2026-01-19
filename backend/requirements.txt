@@ -1,40 +1,130 @@
-# Core dependencies
+# =============================================================================
+# BeautyAI Voice-to-Voice Platform - Backend Requirements
+# =============================================================================
+# Python 3.11+ required
+# Install: pip install -r requirements.txt
+# 
+# For GPU support: Ensure CUDA toolkit matches torch version
+# For WebRTC: Install system deps (libopus, libvpx, libsrtp2)
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Core ML/AI Stack
+# -----------------------------------------------------------------------------
 torch>=2.0.0
-transformers>=4.36.0
+torchaudio>=2.0.0
+# Transformers locked to <4.37 for Coqui TTS compatibility (BeamSearchScorer)
+transformers>=4.36.0,<4.37.0
 accelerate>=0.25.0
 bitsandbytes>=0.41.0
-psutil>=5.9.0
-argcomplete>=3.0.0
-torchaudio>=2.0.0
-numpy>=1.21.0
-faster-whisper>=0.10.0
-librosa>=0.9.0
-fastapi>=0.104.0
-uvicorn[standard]>=0.24.0
-pydantic>=2.0.0
-edge-tts>=6.1.0
-llama-cpp-python>=0.2.0
-soundfile>=0.12.0
-huggingface-hub>=0.20.0
-click>=8.0.0
-jsonschema>=4.0.0
-python-multipart>=0.0.6
-silero-vad>=5.1.0
-websockets>=11.0.0
-pydub>=0.25.0
-python-json-logger>=2.0.7
 
-# WebRTC dependencies (Phase A - WebRTC Migration)
-aiortc>=1.5.0
-pyee>=11.0.0
-webrtcvad>=2.0.10
+# -----------------------------------------------------------------------------
+# Voice Pipeline - STT/TTS
+# -----------------------------------------------------------------------------
+faster-whisper>=0.10.0          # Speech-to-text (Whisper)
+edge-tts>=6.1.0                 # Text-to-speech (Microsoft Edge)
+TTS>=0.22.0                     # Coqui TTS (XTTS v2, Saudi XTTS)
+silero-vad>=5.1.0               # Voice Activity Detection
+llama-cpp-python>=0.2.0         # GGUF model inference
+deepspeed>=0.12.0               # DeepSpeed for XTTS acceleration (optional)
 
-# Optional dependencies
-# vllm>=0.2.0  # Uncomment for vLLM support
-# sox>=1.4.0   # Uncomment for additional audio support
+# -----------------------------------------------------------------------------
+# Audio Processing
+# -----------------------------------------------------------------------------
+librosa>=0.9.0                  # Audio analysis
+soundfile>=0.12.0               # Audio file I/O
+pydub>=0.25.0                   # Audio manipulation
+scipy>=1.10.0                   # Signal processing
+noisereduce>=2.0.0              # Noise reduction
+numpy>=1.21.0                   # Numerical operations
 
-# Development dependencies (optional)
-# black
-# isort
-# flake8
-# pytest
+# -----------------------------------------------------------------------------
+# WebRTC & Real-time Communication
+# -----------------------------------------------------------------------------
+aiortc>=1.5.0                   # Python WebRTC
+aioice>=0.9.0                   # ICE implementation
+av>=12.0.0                      # PyAV for media codecs
+pyee>=11.0.0                    # Event emitter
+webrtcvad>=2.0.10               # Voice Activity Detection (WebRTC)
+
+# -----------------------------------------------------------------------------
+# Web Framework & API
+# -----------------------------------------------------------------------------
+fastapi>=0.104.0                # REST API framework
+uvicorn[standard]>=0.24.0       # ASGI server
+pydantic>=2.0.0                 # Data validation
+pydantic-settings>=2.0.0        # Settings management
+email-validator>=2.0.0          # Email validation
+python-multipart>=0.0.6         # Form data handling
+websockets>=11.0.0              # WebSocket support
+
+# -----------------------------------------------------------------------------
+# Database (PostgreSQL + pgvector for RAG)
+# -----------------------------------------------------------------------------
+sqlalchemy>=2.0.0               # ORM
+asyncpg>=0.29.0                 # Async PostgreSQL driver
+psycopg2-binary>=2.9.0          # PostgreSQL adapter
+alembic>=1.13.0                 # Database migrations
+pgvector>=0.2.0                 # Vector similarity search
+
+# -----------------------------------------------------------------------------
+# Authentication & Security
+# -----------------------------------------------------------------------------
+python-jose[cryptography]>=3.3.0  # JWT tokens
+passlib[bcrypt]>=1.7.0          # Password hashing
+cryptography>=41.0.0            # Encryption utilities
+msal>=1.25.0                    # Microsoft Authentication Library
+
+# -----------------------------------------------------------------------------
+# HTTP & External Services
+# -----------------------------------------------------------------------------
+httpx>=0.26.0                   # Async HTTP client
+stripe>=7.0.0                   # Payment processing
+aiosmtplib>=3.0.0               # Async SMTP for email
+
+# -----------------------------------------------------------------------------
+# Caching & Performance
+# -----------------------------------------------------------------------------
+redis>=5.0.0                    # Redis client
+aioredis>=2.0.0                 # Async Redis
+
+# -----------------------------------------------------------------------------
+# Knowledge Base & Embeddings
+# -----------------------------------------------------------------------------
+sentence-transformers>=2.2.0    # Embeddings
+huggingface-hub>=0.20.0         # Model downloads
+pymupdf>=1.23.0                 # PDF processing
+python-docx>=1.0.0              # Word document processing
+
+# -----------------------------------------------------------------------------
+# Configuration & Utilities
+# -----------------------------------------------------------------------------
+PyYAML>=6.0                     # YAML config support
+python-dotenv>=1.0.0            # Environment variables
+jsonschema>=4.0.0               # JSON schema validation
+watchdog>=3.0.0                 # File system monitoring
+click>=8.0.0                    # CLI utilities
+argcomplete>=3.0.0              # Shell completion
+psutil>=5.9.0                   # System monitoring
+python-json-logger>=2.0.7       # JSON logging
+
+# -----------------------------------------------------------------------------
+# Observability
+# -----------------------------------------------------------------------------
+prometheus-client>=0.19.0       # Metrics export
+
+# -----------------------------------------------------------------------------
+# Development (optional - uncomment as needed)
+# -----------------------------------------------------------------------------
+# pytest>=7.0.0
+# pytest-asyncio>=0.21.0
+# black>=23.0.0
+# isort>=5.12.0
+# flake8>=6.0.0
+# mypy>=1.0.0
+
+# -----------------------------------------------------------------------------
+# Optional Backends (uncomment if needed)
+# -----------------------------------------------------------------------------
+# vllm>=0.2.0                   # vLLM for high-throughput inference
+# sox>=1.4.0                    # SoX audio processing

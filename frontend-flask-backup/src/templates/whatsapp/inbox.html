@@ -1,0 +1,557 @@
+{% extends "whatsapp/base.html" %}
+
+{% block title %}Inbox{% endblock %}
+
+{% block extra_css %}
+<style>
+    .inbox-container {
+        height: calc(100vh - 140px);
+        min-height: 500px;
+    }
+    
+    .conversation-list {
+        height: 100%;
+        overflow-y: auto;
+    }
+    
+    .message-container {
+        height: calc(100% - 140px);
+        overflow-y: auto;
+    }
+    
+    .message-bubble {
+        max-width: 75%;
+        word-wrap: break-word;
+    }
+    
+    .message-customer {
+        background-color: #f3f4f6;
+        border-radius: 18px 18px 18px 4px;
+    }
+    
+    .message-ai {
+        background-color: #25D366;
+        color: white;
+        border-radius: 18px 18px 4px 18px;
+    }
+    
+    .message-human {
+        background-color: #3B82F6;
+        color: white;
+        border-radius: 18px 18px 4px 18px;
+    }
+    
+    .conversation-item:hover {
+        background-color: #f0fdf4;
+    }
+    
+    .conversation-item.active {
+        background-color: #dcfce7;
+        border-left: 3px solid #25D366;
+    }
+    
+    .typing-indicator span {
+        animation: bounce 1.4s infinite ease-in-out;
+    }
+    
+    .typing-indicator span:nth-child(1) { animation-delay: -0.32s; }
+    .typing-indicator span:nth-child(2) { animation-delay: -0.16s; }
+    
+    @keyframes bounce {
+        0%, 80%, 100% { transform: scale(0); }
+        40% { transform: scale(1); }
+    }
+    
+    .fade-in {
+        animation: fadeIn 0.3s ease-in;
+    }
+    
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
+    }
+</style>
+{% endblock %}
+
+{% block content %}
+<div class="inbox-container flex bg-white rounded-lg shadow-lg overflow-hidden">
+    <!-- Sidebar: Conversation List -->
+    <div class="w-1/3 border-r border-gray-200 flex flex-col">
+        <!-- Customer Selector -->
+        <div class="p-4 border-b border-gray-200 bg-gray-50">
+            <select id="customer-selector" 
+                    class="block w-full pl-3 pr-10 py-2 text-base border-gray-300 focus:outline-none focus:ring-whatsapp-500 focus:border-whatsapp-500 sm:text-sm rounded-md border">
+                {% for customer in customers %}
+                <option value="{{ customer.id }}" {% if customer.id == customer_id %}selected{% endif %}>
+                    {{ customer.name }}
+                </option>
+                {% endfor %}
+            </select>
+        </div>
+        
+        <!-- Search Bar -->
+        <div class="p-3 border-b border-gray-200">
+            <div class="relative">
+                <input type="text" id="search-conversations" placeholder="Search conversations..."
+                       class="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-full text-sm focus:ring-whatsapp-500 focus:border-whatsapp-500">
+                <i class="fas fa-search absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400"></i>
+            </div>
+        </div>
+        
+        <!-- Conversations -->
+        <div id="conversation-list" class="conversation-list">
+            <div id="loading-conversations" class="p-4 text-center text-gray-500">
+                <i class="fas fa-spinner fa-spin mr-2"></i> Loading conversations...
+            </div>
+            <!-- Conversations will be populated by JavaScript -->
+        </div>
+    </div>
+    
+    <!-- Main: Chat Area -->
+    <div class="flex-1 flex flex-col">
+        <!-- Chat Header -->
+        <div id="chat-header" class="p-4 border-b border-gray-200 bg-gray-50 flex items-center justify-between hidden">
+            <div class="flex items-center">
+                <div class="h-10 w-10 rounded-full bg-whatsapp-100 flex items-center justify-center mr-3">
+                    <i class="fas fa-user text-whatsapp-600"></i>
+                </div>
+                <div>
+                    <h3 id="contact-name" class="font-medium text-gray-900">Customer Name</h3>
+                    <p id="contact-phone" class="text-sm text-gray-500">+1234567890</p>
+                </div>
+            </div>
+            <div class="flex items-center space-x-3">
+                <span id="ai-status" class="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
+                    <i class="fas fa-robot mr-1"></i> AI Active
+                </span>
+                <button id="toggle-ai-btn" onclick="toggleAI()" 
+                        class="px-3 py-1 text-sm border border-gray-300 rounded-md hover:bg-gray-100 transition-colors">
+                    <i class="fas fa-pause mr-1"></i> Pause AI
+                </button>
+            </div>
+        </div>
+        
+        <!-- Empty State -->
+        <div id="empty-state" class="flex-1 flex items-center justify-center">
+            <div class="text-center">
+                <div class="mx-auto h-24 w-24 bg-gray-100 rounded-full flex items-center justify-center mb-4">
+                    <i class="fas fa-comments text-gray-400 text-4xl"></i>
+                </div>
+                <h3 class="text-lg font-medium text-gray-900">No conversation selected</h3>
+                <p class="mt-1 text-gray-500">Choose a conversation from the list to start chatting</p>
+            </div>
+        </div>
+        
+        <!-- Messages Container -->
+        <div id="messages-container" class="message-container p-4 space-y-3 hidden">
+            <!-- Messages will be populated by JavaScript -->
+        </div>
+        
+        <!-- Message Input -->
+        <div id="message-input-area" class="p-4 border-t border-gray-200 bg-gray-50 hidden">
+            <form id="message-form" class="flex items-center space-x-3">
+                <input type="text" id="message-input" placeholder="Type a message..."
+                       class="flex-1 px-4 py-3 border border-gray-300 rounded-full focus:ring-whatsapp-500 focus:border-whatsapp-500">
+                <button type="submit" 
+                        class="px-6 py-3 bg-blue-600 text-white rounded-full hover:bg-blue-700 transition-colors flex items-center">
+                    <i class="fas fa-user mr-2"></i> Send as Human
+                </button>
+            </form>
+            <p class="mt-2 text-xs text-gray-500 text-center">
+                <i class="fas fa-info-circle mr-1"></i>
+                Sending a message will pause AI responses for 30 minutes
+            </p>
+        </div>
+    </div>
+</div>
+
+<!-- WebSocket Status -->
+<div id="ws-status" class="fixed bottom-4 right-4 hidden">
+    <span class="inline-flex items-center px-3 py-1 rounded-full text-sm bg-red-100 text-red-800">
+        <i class="fas fa-wifi mr-1"></i> Reconnecting...
+    </span>
+</div>
+
+<!-- Data attributes for JS -->
+<div id="inbox-data" 
+     data-customer-id="{{ customer_id or '' }}"
+     data-ws-url="{{ ws_url }}"
+     style="display:none;"></div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // State
+    let ws = null;
+    let currentConversationId = null;
+    const inboxData = document.getElementById('inbox-data');
+    let currentCustomerId = inboxData.dataset.customerId ? parseInt(inboxData.dataset.customerId) : null;
+    const wsUrlFromServer = inboxData.dataset.wsUrl;
+    let conversations = [];
+    let reconnectAttempts = 0;
+    const maxReconnectAttempts = 5;
+    
+    // API Helpers
+    async function fetchAPI(url) {
+        const response = await fetch(url);
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return response.json();
+    }
+    
+    async function postAPI(url, data) {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(data)
+        });
+        if (!response.ok) throw new Error(`API error: ${response.status}`);
+        return response.json();
+    }
+    
+    // WebSocket Connection
+    function connectWebSocket() {
+        ws = new WebSocket(wsUrlFromServer);
+        
+        ws.onopen = function() {
+            console.log('WebSocket connected');
+            document.getElementById('ws-status').classList.add('hidden');
+            reconnectAttempts = 0;
+            
+            // Subscribe to current conversation
+            if (currentConversationId) {
+                ws.send(JSON.stringify({
+                    type: 'subscribe',
+                    conversation_id: currentConversationId
+                }));
+            }
+        };
+        
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            console.log('WS message:', data);
+            
+            if (data.type === 'new_message' && data.conversation_id === currentConversationId) {
+                appendMessage(data.message);
+                scrollToBottom();
+            } else if (data.type === 'pong') {
+                // Heartbeat response
+            }
+        };
+        
+        ws.onclose = function() {
+            console.log('WebSocket disconnected');
+            document.getElementById('ws-status').classList.remove('hidden');
+            
+            // Reconnect with exponential backoff
+            if (reconnectAttempts < maxReconnectAttempts) {
+                const delay = Math.min(1000 * Math.pow(2, reconnectAttempts), 10000);
+                reconnectAttempts++;
+                setTimeout(connectWebSocket, delay);
+            }
+        };
+        
+        ws.onerror = function(error) {
+            console.error('WebSocket error:', error);
+        };
+    }
+    
+    // Load Conversations
+    async function loadConversations() {
+        try {
+            const data = await fetchAPI(`/whatsapp/api/conversations?customer_id=${currentCustomerId}`);
+            conversations = data.conversations || [];
+            renderConversations();
+        } catch (error) {
+            console.error('Failed to load conversations:', error);
+            document.getElementById('loading-conversations').innerHTML = `
+                <span class="text-red-500"><i class="fas fa-exclamation-circle mr-2"></i>Failed to load</span>
+            `;
+        }
+    }
+    
+    // Render Conversations List
+    function renderConversations() {
+        const list = document.getElementById('conversation-list');
+        
+        if (conversations.length === 0) {
+            list.innerHTML = `
+                <div class="p-6 text-center text-gray-500">
+                    <i class="fas fa-inbox text-4xl mb-3"></i>
+                    <p>No conversations yet</p>
+                    <p class="text-xs mt-1">Incoming messages will appear here</p>
+                </div>
+            `;
+            return;
+        }
+        
+        list.innerHTML = conversations.map(conv => `
+            <div class="conversation-item p-4 border-b border-gray-100 cursor-pointer ${conv.id === currentConversationId ? 'active' : ''}"
+                 onclick="selectConversation(${conv.id})">
+                <div class="flex items-center">
+                    <div class="h-12 w-12 rounded-full bg-whatsapp-100 flex items-center justify-center mr-3">
+                        <i class="fas fa-user text-whatsapp-600"></i>
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex items-center justify-between">
+                            <p class="text-sm font-medium text-gray-900 truncate">
+                                ${conv.contact_name || conv.contact_phone}
+                            </p>
+                            <p class="text-xs text-gray-500">${formatTime(conv.updated_at)}</p>
+                        </div>
+                        <p class="text-sm text-gray-500 truncate">${conv.last_message || 'No messages'}</p>
+                    </div>
+                    ${conv.unread_count > 0 ? `
+                        <span class="ml-2 h-5 w-5 bg-whatsapp-500 rounded-full flex items-center justify-center text-xs text-white">
+                            ${conv.unread_count}
+                        </span>
+                    ` : ''}
+                </div>
+            </div>
+        `).join('');
+    }
+    
+    // Select Conversation
+    async function selectConversation(conversationId) {
+        // Unsubscribe from previous
+        if (ws && ws.readyState === WebSocket.OPEN && currentConversationId) {
+            ws.send(JSON.stringify({
+                type: 'unsubscribe',
+                conversation_id: currentConversationId
+            }));
+        }
+        
+        currentConversationId = conversationId;
+        
+        // Update UI
+        document.querySelectorAll('.conversation-item').forEach(el => {
+            el.classList.remove('active');
+        });
+        event.currentTarget?.classList.add('active');
+        
+        // Show chat area
+        document.getElementById('empty-state').classList.add('hidden');
+        document.getElementById('chat-header').classList.remove('hidden');
+        document.getElementById('messages-container').classList.remove('hidden');
+        document.getElementById('message-input-area').classList.remove('hidden');
+        
+        // Find conversation details
+        const conv = conversations.find(c => c.id === conversationId);
+        if (conv) {
+            document.getElementById('contact-name').textContent = conv.contact_name || 'Unknown';
+            document.getElementById('contact-phone').textContent = conv.contact_phone;
+            updateAIStatus(conv.ai_active);
+        }
+        
+        // Load messages
+        await loadMessages(conversationId);
+        
+        // Subscribe via WebSocket
+        if (ws && ws.readyState === WebSocket.OPEN) {
+            ws.send(JSON.stringify({
+                type: 'subscribe',
+                conversation_id: conversationId
+            }));
+        }
+    }
+    
+    // Load Messages
+    async function loadMessages(conversationId) {
+        const container = document.getElementById('messages-container');
+        container.innerHTML = `
+            <div class="text-center text-gray-500">
+                <i class="fas fa-spinner fa-spin"></i> Loading messages...
+            </div>
+        `;
+        
+        try {
+            const data = await fetchAPI(`/whatsapp/api/conversations/${conversationId}/messages`);
+            const messages = data.messages || [];
+            
+            container.innerHTML = messages.map(msg => renderMessage(msg)).join('');
+            scrollToBottom();
+        } catch (error) {
+            console.error('Failed to load messages:', error);
+            container.innerHTML = `
+                <div class="text-center text-red-500">
+                    <i class="fas fa-exclamation-circle"></i> Failed to load messages
+                </div>
+            `;
+        }
+    }
+    
+    // Render Message
+    function renderMessage(msg) {
+        const isCustomer = msg.source === 'CUSTOMER' || msg.source === 'customer';
+        const isAI = msg.source === 'AI' || msg.source === 'ai';
+        const isHuman = msg.source === 'HUMAN' || msg.source === 'human';
+        
+        let bubbleClass = 'message-customer';
+        let alignClass = 'justify-start';
+        let icon = '';
+        
+        if (isAI) {
+            bubbleClass = 'message-ai';
+            alignClass = 'justify-end';
+            icon = '<i class="fas fa-robot text-xs mr-1"></i>';
+        } else if (isHuman) {
+            bubbleClass = 'message-human';
+            alignClass = 'justify-end';
+            icon = '<i class="fas fa-user text-xs mr-1"></i>';
+        }
+        
+        return `
+            <div class="flex ${alignClass} fade-in">
+                <div class="message-bubble ${bubbleClass} px-4 py-2">
+                    <p class="text-sm">${escapeHtml(msg.content)}</p>
+                    <p class="text-xs opacity-75 mt-1 flex items-center">
+                        ${icon}${formatTime(msg.created_at)}
+                        ${msg.status ? `<span class="ml-1"><i class="fas fa-check${msg.status === 'delivered' ? '-double' : ''}"></i></span>` : ''}
+                    </p>
+                </div>
+            </div>
+        `;
+    }
+    
+    // Append New Message
+    function appendMessage(msg) {
+        const container = document.getElementById('messages-container');
+        container.insertAdjacentHTML('beforeend', renderMessage(msg));
+    }
+    
+    // Send Message
+    document.getElementById('message-form').addEventListener('submit', async function(e) {
+        e.preventDefault();
+        
+        const input = document.getElementById('message-input');
+        const content = input.value.trim();
+        
+        if (!content || !currentConversationId) return;
+        
+        input.value = '';
+        input.disabled = true;
+        
+        try {
+            await postAPI(`/whatsapp/api/conversations/${currentConversationId}/messages`, { content });
+            
+            // Optimistically add message
+            appendMessage({
+                content: content,
+                source: 'HUMAN',
+                created_at: new Date().toISOString()
+            });
+            scrollToBottom();
+            
+            // AI is now paused
+            updateAIStatus(false);
+        } catch (error) {
+            console.error('Failed to send message:', error);
+            alert('Failed to send message. Please try again.');
+            input.value = content;
+        } finally {
+            input.disabled = false;
+            input.focus();
+        }
+    });
+    
+    // Toggle AI
+    async function toggleAI() {
+        const conv = conversations.find(c => c.id === currentConversationId);
+        if (!conv) return;
+        
+        const action = conv.ai_active ? 'pause' : 'resume';
+        
+        try {
+            await postAPI(`/whatsapp/agents/config/${currentCustomerId}/ai-control`, { action });
+            conv.ai_active = !conv.ai_active;
+            updateAIStatus(conv.ai_active);
+        } catch (error) {
+            console.error('Failed to toggle AI:', error);
+            alert('Failed to toggle AI status');
+        }
+    }
+    
+    // Update AI Status UI
+    function updateAIStatus(isActive) {
+        const statusEl = document.getElementById('ai-status');
+        const toggleBtn = document.getElementById('toggle-ai-btn');
+        
+        if (isActive) {
+            statusEl.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800';
+            statusEl.innerHTML = '<i class="fas fa-robot mr-1"></i> AI Active';
+            toggleBtn.innerHTML = '<i class="fas fa-pause mr-1"></i> Pause AI';
+        } else {
+            statusEl.className = 'inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800';
+            statusEl.innerHTML = '<i class="fas fa-hand-paper mr-1"></i> Human Mode';
+            toggleBtn.innerHTML = '<i class="fas fa-play mr-1"></i> Resume AI';
+        }
+    }
+    
+    // Helpers
+    function scrollToBottom() {
+        const container = document.getElementById('messages-container');
+        container.scrollTop = container.scrollHeight;
+    }
+    
+    function formatTime(dateStr) {
+        if (!dateStr) return '';
+        const date = new Date(dateStr);
+        const now = new Date();
+        const diff = now - date;
+        
+        if (diff < 60000) return 'Just now';
+        if (diff < 3600000) return `${Math.floor(diff/60000)}m ago`;
+        if (diff < 86400000) return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+        return date.toLocaleDateString();
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
+    
+    // Customer Selector
+    document.getElementById('customer-selector').addEventListener('change', function() {
+        currentCustomerId = parseInt(this.value);
+        currentConversationId = null;
+        
+        // Reset UI
+        document.getElementById('empty-state').classList.remove('hidden');
+        document.getElementById('chat-header').classList.add('hidden');
+        document.getElementById('messages-container').classList.add('hidden');
+        document.getElementById('message-input-area').classList.add('hidden');
+        
+        loadConversations();
+    });
+    
+    // Search Conversations
+    document.getElementById('search-conversations').addEventListener('input', function() {
+        const query = this.value.toLowerCase();
+        const filtered = conversations.filter(c => 
+            (c.contact_name && c.contact_name.toLowerCase().includes(query)) ||
+            c.contact_phone.includes(query)
+        );
+        
+        // Temporarily replace and render
+        const original = conversations;
+        conversations = filtered;
+        renderConversations();
+        conversations = original;
+    });
+    
+    // Initialize
+    document.addEventListener('DOMContentLoaded', function() {
+        if (currentCustomerId) {
+            loadConversations();
+        }
+        connectWebSocket();
+        
+        // Heartbeat every 30s
+        setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ type: 'ping' }));
+            }
+        }, 30000);
+    });
+</script>
+{% endblock %}

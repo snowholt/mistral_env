@@ -1,0 +1,92 @@
+{
+  "preload_on_startup": true,
+  "description": "Preload configuration for BeautyAI - 4 models persistent on GPU (LLM, STT, TTS Arabic, TTS English fallback)",
+  "models": {
+    "stt": {
+      "model_id": "whisper-byne-arabic",
+      "model_path": "Byne/whisper-large-v3-arabic",
+      "device": "cuda",
+      "compute_type": "float16",
+      "priority": 1,
+      "engine_type": "whisper_byne_arabic",
+      "optimization_level": "gpu_accuracy",
+      "target_latency_ms": 1000,
+      "description": "Byne Whisper Large v3 Arabic - highest accuracy (1.55B params, ~3GB VRAM)"
+    },
+    "llm": {
+      "model_id": "qwen3-unsloth-q4ks",
+      "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
+      "n_gpu_layers": -1,
+      "n_ctx": 4096,
+      "n_batch": 4096,
+      "n_threads": 4,
+      "priority": 2,
+      "engine_type": "llama.cpp",
+      "quantization": "Q4_K_S",
+      "max_new_tokens": 200,
+      "optimization": "ultra_speed",
+      "description": "Qwen3 14B Q4_K_S - Unsloth optimized (8.0GB)"
+    },
+    "tts": {
+      "model_id": "saudi-tts",
+      "model_path": "/home/lumi/.cache/beautyai-models/saudi-tts",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav",
+      "device": "cuda",
+      "priority": 3,
+      "engine_type": "saudi_xtts",
+      "use_deepspeed": true,
+      "sample_rate": 24000,
+      "streaming": true,
+      "voice_cloning": true,
+      "target_latency_ms": 150,
+      "description": "Saudi Arabic XTTS v2 - DeepSpeed accelerated, persistent speaker embedding (~2GB VRAM)"
+    },
+    "tts_fallback": {
+      "model_id": "edge-tts",
+      "device": "cpu",
+      "priority": 4,
+      "engine_type": "edge_tts",
+      "sample_rate": 24000,
+      "streaming": true,
+      "voice_cloning": false,
+      "target_latency_ms": 150,
+      "description": "Microsoft Edge TTS - Cloud-based fallback for English and TTS failures"
+    }
+  },
+  "language_routing": {
+    "ar": "saudi-tts",
+    "arabic": "saudi-tts",
+    "en": "edge-tts",
+    "english": "edge-tts",
+    "default": "edge-tts"
+  },
+  "memory_thresholds": {
+    "max_gpu_memory_mb": 20000,
+    "warning_threshold_mb": 16000,
+    "min_free_memory_mb": 2000,
+    "expected_total_vram_gb": 12.0,
+    "comment": "Whisper (~1.5GB) + Qwen3 (~8GB) + Saudi XTTS (~2GB) = ~11.5GB total"
+  },
+  "performance_targets": {
+    "vad_detection_latency_ms": 50,
+    "transcription_latency_ms": 1000,
+    "llm_response_latency_s": 2,
+    "tts_generation_latency_ms": 150,
+    "total_round_trip_latency_s": 4,
+    "comment": "With persistent loading: ~4s total (vs 42s+ with on-demand loading)"
+  },
+  "startup_sequence": {
+    "parallel_loading": false,
+    "load_order": ["llm", "stt", "tts", "tts_fallback"],
+    "timeout_per_model_s": 120,
+    "total_startup_timeout_s": 480,
+    "fallback_on_failure": true,
+    "comment": "Sequential loading: LLM first (largest), then STT, then TTS (Arabic primary + Edge fallback)"
+  },
+  "monitoring": {
+    "memory_check_interval_s": 30,
+    "model_health_check_interval_s": 60,
+    "performance_logging": true,
+    "gpu_memory_logging": true
+  }
+}

@@ -1,0 +1,70 @@
+graph TD
+    %% Styles
+    classDef client fill:#e1f5fe,stroke:#01579b,stroke-width:2px;
+    classDef admin fill:#fce4ec,stroke:#880e4f,stroke-width:2px;
+    classDef enduser fill:#e8f5e9,stroke:#2e7d32,stroke-width:2px;
+    classDef system fill:#fff,stroke:#333,stroke-width:1px,stroke-dasharray: 5 5;
+    classDef action fill:#f0f4c3,stroke:#827717,stroke-width:1px;
+    classDef ai fill:#e1bee7,stroke:#4a148c,stroke-width:2px;
+
+    %% Actors
+    Client([👤 Client / Business Owner]):::client
+    Admin([👮 BeautyAI Admin]):::admin
+    EndUser([📱 End User / Customer]):::enduser
+
+    %% Main System
+    subgraph "BeautyAI Dashboard Platform"
+        direction TB
+        
+        %% Client Flow
+        subgraph "Client Experience"
+            C_Login[Login / Sign Up]
+            Purchase["🛒 Purchase Service or Request Demo<br/>(WhatsApp / Web Chatbot)"]:::action
+            
+            subgraph "Configuration & AI Training"
+                Upload["📚 Upload Business Knowledge<br/>(FAQs, Company Info, Instructions)"]:::action
+                Customize["⚙️ Configure Settings<br/>(Tone, Rules, WhatsApp Number)"]:::action
+            end
+            
+            subgraph "Testing & Launch"
+                TestZone["🧪 Live Testing Zone<br/>(Verify AI Responses)"]
+                Integrate["🚀 Go Live<br/>(Connect WhatsApp / Embed on Website)"]:::action
+            end
+        end
+
+        %% Admin Flow
+        subgraph "Admin Oversight"
+            A_Login[Admin Login]
+            Dashboard[📊 Master Dashboard]
+            Insights["📈 View Analytics<br/>(Usage, Income, Customer Growth)"]:::action
+            Billing["💰 Manage Billing<br/>(Charge Accounts, Credits)"]:::action
+        end
+        
+        %% AI Engine
+        GeniusAI[["🧠 Genius AI LLM<br/>(Powered by Your Data)"]]:::ai
+    end
+
+    %% Client Connections
+    Client --> C_Login
+    C_Login --> Purchase
+    Purchase --> Upload
+    Upload --> Customize
+    Customize --> TestZone
+    TestZone -->|"Does it answer correctly?"| Integrate
+    
+    %% AI Connections
+    Customize -.->|"Configures"| GeniusAI
+    Upload -.->|"Trains/Context"| GeniusAI
+    Integrate -->|"Activates"| GeniusAI
+
+    %% End User Interaction
+    EndUser <==>|"💬 WhatsApp Chat / Web Chat<br/>(Customer Service)"| GeniusAI
+
+    %% Admin Connections
+    Admin --> A_Login
+    A_Login --> Dashboard
+    Dashboard --> Insights
+    Dashboard --> Billing
+    
+    %% Business Value Link
+    Billing -.->|Enables Service| Purchase

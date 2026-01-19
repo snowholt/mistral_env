@@ -1,0 +1,27 @@
+{
+  "name": "beautyai-frontend",
+  "version": "1.0.0",
+  "description": "Web UI for BeautyAI Inference Framework - Voice-to-Voice Interface",
+  "main": "src/app.py",
+  "scripts": {
+    "start": "python src/app.py",
+    "dev": "python src/app.py --dev",
+    "build": "echo 'Static assets are already built'",
+    "test": "python -m pytest tests/"
+  },
+  "dependencies": {
+    "flask": "^2.0.0",
+    "flask-socketio": "^5.0.0",
+    "websocket-client": "^1.0.0"
+  },
+  "devDependencies": {
+    "pytest": "^7.0.0"
+  },
+  "author": "Lumi AI",
+  "license": "MIT",
+  "keywords": ["voice-ui", "websocket", "flask", "beautyai"],
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/lumiai/beautyai-inference"
+  }
+}
