@@ -129,23 +129,23 @@ interface WizardFormData {
   supported_language: 'en' | 'ar' | 'both';
   tone: 'professional' | 'friendly' | 'casual' | 'formal';
   website_url?: string;
-  
+
   // Step 2: Business Type & Services
-  business_type: 'salon' | 'clinic' | 'restaurant' | 'retail' | 'service' | 'other';
+  business_type: 'Retail' | 'Service' | 'Both';
   services: ServiceItem[];
   products: ProductItem[];
-  
+
   // Step 3: Knowledge Base
   knowledge_base_ids: number[];
-  
+
   // Step 4: Locations
   locations: LocationItem[];
   booking_enabled: boolean;
   booking_link?: string;
-  
+
   // Step 5: Promotions
   promotions: PromotionItem[];
-  
+
   // Step 6: Policies & Advanced
   business_policies: string;
   custom_instructions?: string;
@@ -165,7 +165,7 @@ const WIZARD_STEPS = [
 
 function Step1BusinessProfile() {
   const { data, updateData } = useWizard();
-  
+
   return (
     <Card>
       <CardHeader>
@@ -181,7 +181,7 @@ function Step1BusinessProfile() {
         <div className="space-y-2">
           <label className="text-sm font-medium">Business Name *</label>
           <Input
-            placeholder="e.g., Kesay Beauty Clinic"
+            placeholder="e.g., Genius AI"
             value={data.business_name || ''}
             onChange={e => updateData({ business_name: e.target.value })}
           />
@@ -252,44 +252,86 @@ function Step1BusinessProfile() {
 
 function Step2ServicesProducts() {
   const { data, updateData } = useWizard();
-  const [showServiceDialog, setShowServiceDialog] = useState(false);
-  const [showProductDialog, setShowProductDialog] = useState(false);
-  const [editingService, setEditingService] = useState<ServiceItem | null>(null);
-  const [editingProduct, setEditingProduct] = useState<ProductItem | null>(null);
 
   const services: ServiceItem[] = data.services || [];
   const products: ProductItem[] = data.products || [];
+  const businessType = data.business_type || 'Service';
 
-  const handleSaveService = (service: ServiceItem) => {
-    if (editingService) {
-      updateData({
-        services: services.map(s => (s === editingService ? service : s)),
-      });
-    } else {
-      updateData({ services: [...services, service] });
+  // Determine which tables to show based on business type
+  const showServices = businessType === 'Service' || businessType === 'Both';
+  const showProducts = businessType === 'Retail' || businessType === 'Both';
+
+  // Helper to create an empty service row
+  const createEmptyService = (): ServiceItem => ({
+    name: '',
+    description: '',
+    price: undefined,
+    duration_minutes: undefined,
+  });
+
+  // Helper to create an empty product row
+  const createEmptyProduct = (): ProductItem => ({
+    name: '',
+    description: '',
+    price_min: undefined,
+    price_max: undefined,
+  });
+
+  // Initialize with one empty row if needed
+  const servicesWithEmpty = [...services];
+  if (showServices && (servicesWithEmpty.length === 0 || servicesWithEmpty[servicesWithEmpty.length - 1]?.name?.trim())) {
+    servicesWithEmpty.push(createEmptyService());
+  }
+
+  const productsWithEmpty = [...products];
+  if (showProducts && (productsWithEmpty.length === 0 || productsWithEmpty[productsWithEmpty.length - 1]?.name?.trim())) {
+    productsWithEmpty.push(createEmptyProduct());
+  }
+
+  const handleServiceChange = (index: number, field: keyof ServiceItem, value: any) => {
+    const updatedServices = [...services];
+
+    // If editing the empty row (last row), add it to the actual services array
+    if (index >= services.length) {
+      updatedServices.push(createEmptyService());
     }
-    setShowServiceDialog(false);
-    setEditingService(null);
+
+    updatedServices[index] = { ...updatedServices[index], [field]: value };
+
+    // Filter out completely empty rows except the last one
+    const filteredServices = updatedServices.filter((s, i) =>
+      i === updatedServices.length - 1 || s.name?.trim()
+    );
+
+    updateData({ services: filteredServices });
   };
 
-  const handleDeleteService = (service: ServiceItem) => {
-    updateData({ services: services.filter(s => s !== service) });
+  const handleDeleteService = (index: number) => {
+    const updatedServices = services.filter((_, i) => i !== index);
+    updateData({ services: updatedServices });
   };
 
-  const handleSaveProduct = (product: ProductItem) => {
-    if (editingProduct) {
-      updateData({
-        products: products.map(p => (p === editingProduct ? product : p)),
-      });
-    } else {
-      updateData({ products: [...products, product] });
+  const handleProductChange = (index: number, field: keyof ProductItem, value: any) => {
+    const updatedProducts = [...products];
+
+    // If editing the empty row (last row), add it to the actual products array
+    if (index >= products.length) {
+      updatedProducts.push(createEmptyProduct());
     }
-    setShowProductDialog(false);
-    setEditingProduct(null);
+
+    updatedProducts[index] = { ...updatedProducts[index], [field]: value };
+
+    // Filter out completely empty rows except the last one
+    const filteredProducts = updatedProducts.filter((p, i) =>
+      i === updatedProducts.length - 1 || p.name?.trim()
+    );
+
+    updateData({ products: filteredProducts });
   };
 
-  const handleDeleteProduct = (product: ProductItem) => {
-    updateData({ products: products.filter(p => p !== product) });
+  const handleDeleteProduct = (index: number) => {
+    const updatedProducts = products.filter((_, i) => i !== index);
+    updateData({ products: updatedProducts });
   };
 
   return (
@@ -298,175 +340,200 @@ function Step2ServicesProducts() {
       <Card>
         <CardHeader>
           <CardTitle>Business Type</CardTitle>
+          <CardDescription>Select your business type to see the relevant input fields.</CardDescription>
         </CardHeader>
         <CardContent>
           <Select
-            value={data.business_type || 'service'}
+            value={businessType}
             onValueChange={value => updateData({ business_type: value as any })}
           >
             <SelectTrigger>
               <SelectValue placeholder="Select business type" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem value="salon">Beauty Salon / Spa</SelectItem>
-              <SelectItem value="clinic">Medical Clinic / Healthcare</SelectItem>
-              <SelectItem value="restaurant">Restaurant / Food Service</SelectItem>
-              <SelectItem value="retail">Retail Store</SelectItem>
-              <SelectItem value="service">Service Business</SelectItem>
-              <SelectItem value="other">Other</SelectItem>
+              <SelectItem value="Retail">Retail Store (Products only)</SelectItem>
+              <SelectItem value="Service">Service Business (Services only)</SelectItem>
+              <SelectItem value="Both">Both (Services & Products)</SelectItem>
             </SelectContent>
           </Select>
         </CardContent>
       </Card>
 
-      {/* Services */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle className="flex items-center gap-2">
-                <Package className="h-5 w-5" />
-                Services
-              </CardTitle>
-              <CardDescription>Add your services with pricing and duration.</CardDescription>
-            </div>
-            <Dialog open={showServiceDialog} onOpenChange={setShowServiceDialog}>
-              <DialogTrigger asChild>
-                <Button onClick={() => setEditingService(null)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Service
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <ServiceForm
-                  initial={editingService}
-                  onSave={handleSaveService}
-                  onCancel={() => setShowServiceDialog(false)}
-                />
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {services.length === 0 ? (
-            <div className="text-center py-8 text-gray-500">
-              <Package className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No services added yet</p>
-            </div>
-          ) : (
+      {/* Services - Only show if Service or Both */}
+      {showServices && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Package className="h-5 w-5" />
+              Services
+            </CardTitle>
+            <CardDescription>Add your services with pricing and duration. A new row appears when you fill the current one.</CardDescription>
+          </CardHeader>
+          <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Service</TableHead>
-                  <TableHead>Price</TableHead>
-                  <TableHead>Duration</TableHead>
-                  <TableHead className="w-[80px]"></TableHead>
+                  <TableHead className="w-[30%]">Service Name *</TableHead>
+                  <TableHead className="w-[25%]">Description</TableHead>
+                  <TableHead className="w-[15%]">Price ($)</TableHead>
+                  <TableHead className="w-[15%]">Duration (min)</TableHead>
+                  <TableHead className="w-[15%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {services.map((service, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell>
-                      <div>
-                        <p className="font-medium">{service.name}</p>
-                        {service.description && (
-                          <p className="text-xs text-gray-500 truncate max-w-[200px]">{service.description}</p>
-                        )}
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      {service.price ? `$${service.price}` : '-'}
-                    </TableCell>
-                    <TableCell>
-                      {service.duration_minutes ? `${service.duration_minutes}m` : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleDeleteService(service)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-        </CardContent>
-      </Card>
+                {servicesWithEmpty.map((service, idx) => {
+                  const isLastRow = idx === servicesWithEmpty.length - 1 && !service.name?.trim();
+                  const isFilledRow = service.name?.trim();
 
-      {/* Products */}
-      <Card>
-        <CardHeader>
-          <div className="flex items-center justify-between">
-            <div>
-              <CardTitle>Products (Optional)</CardTitle>
-              <CardDescription>Add products you sell if applicable.</CardDescription>
-            </div>
-            <Dialog open={showProductDialog} onOpenChange={setShowProductDialog}>
-              <DialogTrigger asChild>
-                <Button variant="outline" onClick={() => setEditingProduct(null)}>
-                  <Plus className="h-4 w-4 mr-2" />
-                  Add Product
-                </Button>
-              </DialogTrigger>
-              <DialogContent>
-                <ProductForm
-                  initial={editingProduct}
-                  onSave={handleSaveProduct}
-                  onCancel={() => setShowProductDialog(false)}
-                />
-              </DialogContent>
-            </Dialog>
-          </div>
-        </CardHeader>
-        <CardContent>
-          {products.length === 0 ? (
-            <div className="text-center py-6 text-gray-500 text-sm">
-              No products added (optional)
-            </div>
-          ) : (
+                  return (
+                    <TableRow key={idx} className={isLastRow ? 'bg-gray-50/50' : ''}>
+                      <TableCell>
+                        <Input
+                          placeholder="e.g., Deep Tissue Massage"
+                          value={service.name || ''}
+                          onChange={e => handleServiceChange(idx, 'name', e.target.value)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          placeholder="Brief description..."
+                          value={service.description || ''}
+                          onChange={e => handleServiceChange(idx, 'description', e.target.value)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={service.price || ''}
+                          onChange={e => handleServiceChange(idx, 'price', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          placeholder="60"
+                          value={service.duration_minutes || ''}
+                          onChange={e => handleServiceChange(idx, 'duration_minutes', e.target.value ? parseInt(e.target.value) : undefined)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {isFilledRow && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteService(idx)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+            {services.filter(s => s.name?.trim()).length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                {services.filter(s => s.name?.trim()).length} service(s) added
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Products - Only show if Retail or Both */}
+      {showProducts && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-5 w-5" />
+              Products
+            </CardTitle>
+            <CardDescription>Add products you sell. A new row appears when you fill the current one.</CardDescription>
+          </CardHeader>
+          <CardContent>
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
-                  <TableHead>Price Range</TableHead>
-                  <TableHead className="w-[80px]"></TableHead>
+                  <TableHead className="w-[30%]">Product Name *</TableHead>
+                  <TableHead className="w-[25%]">Description</TableHead>
+                  <TableHead className="w-[15%]">Min Price ($)</TableHead>
+                  <TableHead className="w-[15%]">Max Price ($)</TableHead>
+                  <TableHead className="w-[15%]"></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {products.map((product, idx) => (
-                  <TableRow key={idx}>
-                    <TableCell>
-                      <p className="font-medium">{product.name}</p>
-                    </TableCell>
-                    <TableCell>
-                      {product.price_min && product.price_max
-                        ? `$${product.price_min} - $${product.price_max}`
-                        : product.price_min
-                        ? `$${product.price_min}+`
-                        : '-'}
-                    </TableCell>
-                    <TableCell>
-                      <Button
-                        variant="ghost"
-                        size="icon"
-                        className="h-8 w-8 text-destructive"
-                        onClick={() => handleDeleteProduct(product)}
-                      >
-                        <Trash2 className="h-4 w-4" />
-                      </Button>
-                    </TableCell>
-                  </TableRow>
-                ))}
+                {productsWithEmpty.map((product, idx) => {
+                  const isLastRow = idx === productsWithEmpty.length - 1 && !product.name?.trim();
+                  const isFilledRow = product.name?.trim();
+
+                  return (
+                    <TableRow key={idx} className={isLastRow ? 'bg-gray-50/50' : ''}>
+                      <TableCell>
+                        <Input
+                          placeholder="e.g., Organic Face Serum"
+                          value={product.name || ''}
+                          onChange={e => handleProductChange(idx, 'name', e.target.value)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          placeholder="Brief description..."
+                          value={product.description || ''}
+                          onChange={e => handleProductChange(idx, 'description', e.target.value)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={product.price_min || ''}
+                          onChange={e => handleProductChange(idx, 'price_min', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        <Input
+                          type="number"
+                          placeholder="0.00"
+                          value={product.price_max || ''}
+                          onChange={e => handleProductChange(idx, 'price_max', e.target.value ? parseFloat(e.target.value) : undefined)}
+                          className="h-9"
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {isFilledRow && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-8 w-8 text-destructive hover:text-destructive hover:bg-destructive/10"
+                            onClick={() => handleDeleteProduct(idx)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
               </TableBody>
             </Table>
-          )}
-        </CardContent>
-      </Card>
+            {products.filter(p => p.name?.trim()).length > 0 && (
+              <p className="text-xs text-gray-500 mt-2">
+                {products.filter(p => p.name?.trim()).length} product(s) added
+              </p>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
@@ -680,7 +747,7 @@ function Step4Locations() {
                 <MapPin className="h-5 w-5" />
                 Business Locations
               </CardTitle>
-              <CardDescription>Add your branches or service locations.</CardDescription>
+              <CardDescription>Add your branches or service locations (optional).</CardDescription>
             </div>
             <Dialog open={showLocationDialog} onOpenChange={setShowLocationDialog}>
               <DialogTrigger asChild>
@@ -703,7 +770,7 @@ function Step4Locations() {
           {locations.length === 0 ? (
             <div className="text-center py-8 text-gray-500">
               <MapPin className="h-8 w-8 mx-auto mb-2 opacity-50" />
-              <p>No locations added yet</p>
+              <p>No locations added yet (optional)</p>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
@@ -924,8 +991,8 @@ function Step5Promotions() {
                       )}
                       {promo.discount_value && (
                         <Badge variant="secondary" className="mt-2">
-                          {promo.discount_type === 'percentage' 
-                            ? `${promo.discount_value}% OFF` 
+                          {promo.discount_type === 'percentage'
+                            ? `${promo.discount_value}% OFF`
                             : `$${promo.discount_value} OFF`}
                         </Badge>
                       )}
@@ -1105,6 +1172,14 @@ function WizardContent() {
   const { data: customers } = useCustomers();
   const navigate = useNavigate();
   const customerId = customers?.[0]?.id;
+  const [powerUserMode, setPowerUserMode] = useState(false);
+
+  // Filter steps based on power user mode
+  const visibleSteps = powerUserMode
+    ? WIZARD_STEPS
+    : WIZARD_STEPS.filter(s => s.id !== 'policies');
+
+  const totalVisibleSteps = visibleSteps.length;
 
   // Load existing wizard config
   useEffect(() => {
@@ -1154,12 +1229,12 @@ function WizardContent() {
       await api.post(`/api/v1/whatsapp/agents/wizard`, {
         customer_id: customerId,
         ...data,
-        wizard_completed: currentStep === WIZARD_STEPS.length - 1,
+        wizard_completed: currentStep === totalVisibleSteps - 1,
         wizard_current_step: currentStep,
       });
       toast.success('Configuration saved successfully!');
-      
-      if (currentStep === WIZARD_STEPS.length - 1) {
+
+      if (currentStep === totalVisibleSteps - 1) {
         toast.success('Wizard completed! Your AI agent is now configured.');
         navigate('/app/agent-setup');
       }
@@ -1177,14 +1252,26 @@ function WizardContent() {
           <h1 className="text-2xl font-bold text-gray-900">AI Agent Setup Wizard</h1>
           <p className="text-gray-600 mt-1">Configure your AI assistant step by step.</p>
         </div>
-        <Link to="/app/agent-setup">
-          <Button variant="outline">Skip to Advanced</Button>
-        </Link>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 text-sm">
+            <Switch
+              id="power-user-mode"
+              checked={powerUserMode}
+              onCheckedChange={setPowerUserMode}
+            />
+            <label
+              htmlFor="power-user-mode"
+              className="text-gray-600 cursor-pointer select-none"
+            >
+              Power User Mode
+            </label>
+          </div>
+        </div>
       </div>
 
       {/* Steps indicator */}
       <WizardSteps
-        steps={WIZARD_STEPS.map((s, i) => ({
+        steps={visibleSteps.map((s, i) => ({
           id: i,
           title: s.title,
           icon: s.icon,
@@ -1197,11 +1284,13 @@ function WizardContent() {
       <WizardStepContent step={2}><Step3KnowledgeBase /></WizardStepContent>
       <WizardStepContent step={3}><Step4Locations /></WizardStepContent>
       <WizardStepContent step={4}><Step5Promotions /></WizardStepContent>
-      <WizardStepContent step={5}><Step6PoliciesAdvanced /></WizardStepContent>
+      {powerUserMode && (
+        <WizardStepContent step={5}><Step6PoliciesAdvanced /></WizardStepContent>
+      )}
 
       {/* Navigation */}
       <WizardNavigation
-        totalSteps={WIZARD_STEPS.length}
+        totalSteps={totalVisibleSteps}
         onSave={handleSave}
         canProceed={!!data.business_name?.trim()}
       />
