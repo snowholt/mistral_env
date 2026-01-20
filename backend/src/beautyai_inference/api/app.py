@@ -209,6 +209,14 @@ app.include_router(config_router)
 app.include_router(system_router)
 app.include_router(debug_router)
 
+# Include cluster management router
+try:
+    from .endpoints.cluster import router as cluster_router
+    app.include_router(cluster_router, tags=["cluster"])
+    logger.info("✅ Cluster management endpoints registered at /cluster/*")
+except ImportError as e:
+    logger.warning(f"Cluster router not available: {e}")
+
 # Include performance dashboard router if available
 if performance_router_available:
     app.include_router(
@@ -499,6 +507,20 @@ async def startup_event():
         logger.warning(f"⚠️ Failed to initialize buffer optimization: {e}")
         logger.info("📊 Continuing without buffer optimization")
     
+    # Initialize cluster coordinator for distributed architecture
+    try:
+        from ..core.cluster_coordinator import initialize_cluster
+        cluster_started = await initialize_cluster()
+        if cluster_started:
+            from ..core.cluster_coordinator import get_cluster_coordinator
+            coordinator = await get_cluster_coordinator()
+            logger.info(f"🌐 Cluster coordinator initialized in {coordinator.config.mode.value} mode")
+        else:
+            logger.info("🌐 Cluster coordinator running in standalone mode")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to initialize cluster coordinator: {e}")
+        logger.info("🌐 Continuing in standalone mode")
+    
     # Check if model preloading should be skipped (useful for development/testing)
     skip_preload = os.getenv("SKIP_MODEL_PRELOAD", "0") == "1"
     if skip_preload:
@@ -553,6 +575,22 @@ async def shutdown_event():
         logger.info("📊 Buffer optimization system shut down successfully")
     except Exception as e:
         logger.warning(f"⚠️ Error shutting down buffer optimization: {e}")
+    
+    # Shutdown cluster coordinator
+    try:
+        from ..core.cluster_coordinator import shutdown_cluster
+        await shutdown_cluster()
+        logger.info("🌐 Cluster coordinator shut down successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Error shutting down cluster coordinator: {e}")
+    
+    # Shutdown Redis client
+    try:
+        from ..core.redis_client import shutdown_redis
+        await shutdown_redis()
+        logger.info("🔴 Redis client disconnected")
+    except Exception as e:
+        logger.warning(f"⚠️ Error disconnecting Redis: {e}")
 
 
 @app.get("/")

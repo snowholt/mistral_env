@@ -11,6 +11,7 @@ Features:
 - Thread-safe access to persistent model instances
 - Memory monitoring and cleanup methods
 - Graceful fallback to existing ModelManager
+- LLM pool support for concurrent request handling
 
 Author: BeautyAI Framework
 Date: 2024-09-11
@@ -22,14 +23,27 @@ import os
 import time
 import threading
 import gc
-from typing import Dict, Any, Optional, List, Union
+from typing import Dict, Any, Optional, List, Union, Tuple
 from pathlib import Path
+
+# Load .env file from backend directory
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).parent.parent.parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except ImportError:
+    pass  # dotenv not installed, rely on system environment
 
 from .model_manager import ModelManager
 from ..config.config_manager import ModelConfig
 from ..utils.memory_utils import clear_gpu_memory, get_gpu_memory_stats
 
 logger = logging.getLogger(__name__)
+
+# LLM Pool configuration from environment (loaded from .env)
+_pool_size_str = os.getenv("LLM_POOL_SIZE", "1")
+LLM_POOL_SIZE = int(_pool_size_str) if _pool_size_str else 1  # Default 1, set to 2 for dual-LLM
 
 
 class PersistentModelManager:
@@ -76,6 +90,11 @@ class PersistentModelManager:
             'min_free_memory_mb': 4000   # 4GB minimum free memory
         }
         self._initialized = False
+        
+        # LLM Pool support
+        self._llm_pool: List[Tuple[str, Any]] = []  # List of (instance_id, model_instance)
+        self._llm_pool_size = LLM_POOL_SIZE
+        self._inference_router = None  # Set lazily to avoid circular import
         
         self.logger.info("PersistentModelManager instance created")
     
@@ -297,14 +316,16 @@ class PersistentModelManager:
             return False
     
     async def _preload_llm_model(self, config: Dict[str, Any]) -> bool:
-        """Preload LLM model using ModelManager registry."""
+        """Preload LLM model(s) using ModelManager registry. Supports LLM pooling."""
         try:
             from ..config.config_manager import AppConfig, ModelRegistry
             from pathlib import Path
             
             # Get model ID from config
             model_id = config.get('model_id', 'qwen3-unsloth-q4ks')
-            self.logger.info(f"Preloading LLM model from registry: {model_id}")
+            pool_size = config.get('pool_size', self._llm_pool_size)
+            
+            self.logger.info(f"Preloading LLM model from registry: {model_id} (pool_size={pool_size})")
             
             # Load the model registry
             config_dir = Path(__file__).parent.parent / "config"
@@ -323,10 +344,16 @@ class PersistentModelManager:
             
             self.logger.info(f"Loaded registry config for {model_id}: engine={model_config.engine_type}, path={getattr(model_config, 'model_path', 'N/A')}")
             
-            # Load model using ModelManager
+            # Load model pool if pool_size > 1
+            if pool_size > 1:
+                return await self._preload_llm_pool(model_id, model_config, pool_size)
+            
+            # Single instance mode
             model_instance = self._model_manager.load_model(model_config)
             if model_instance:
                 self._preloaded_models['llm'] = model_instance
+                # Also register with inference router
+                self._register_llm_with_router(f"llm:{model_id}:0", model_instance, model_id)
                 self.logger.info(f"✅ LLM model preloaded: {model_id}")
                 return True
             else:
@@ -338,6 +365,66 @@ class PersistentModelManager:
             import traceback
             self.logger.error(traceback.format_exc())
             return False
+    
+    async def _preload_llm_pool(self, model_id: str, model_config: Any, pool_size: int) -> bool:
+        """
+        Preload multiple LLM instances for concurrent request handling.
+        
+        Args:
+            model_id: Model identifier
+            model_config: Model configuration
+            pool_size: Number of instances to load
+            
+        Returns:
+            bool: True if at least one instance loaded successfully
+        """
+        self.logger.info(f"🚀 Loading LLM pool with {pool_size} instances...")
+        
+        successful = 0
+        for i in range(pool_size):
+            instance_id = f"llm:{model_id}:{i}"
+            
+            try:
+                self.logger.info(f"Loading LLM instance {i+1}/{pool_size}: {instance_id}")
+                
+                # Load model instance
+                model_instance = self._model_manager.load_model(model_config)
+                
+                if model_instance:
+                    self._llm_pool.append((instance_id, model_instance))
+                    self._register_llm_with_router(instance_id, model_instance, model_id)
+                    successful += 1
+                    self.logger.info(f"✅ LLM instance {i+1} loaded: {instance_id}")
+                else:
+                    self.logger.error(f"Failed to load LLM instance {i+1}")
+                    
+            except Exception as e:
+                self.logger.error(f"Error loading LLM instance {i+1}: {e}")
+                import traceback
+                self.logger.error(traceback.format_exc())
+        
+        if successful > 0:
+            # Store first instance as default for backward compatibility
+            self._preloaded_models['llm'] = self._llm_pool[0][1]
+            self.logger.info(f"✅ LLM pool ready: {successful}/{pool_size} instances loaded")
+            return True
+        else:
+            self.logger.error("❌ Failed to load any LLM instances")
+            return False
+    
+    def _register_llm_with_router(self, instance_id: str, model_instance: Any, model_name: str) -> None:
+        """Register LLM instance with inference router."""
+        try:
+            if self._inference_router is None:
+                from .inference_router import get_inference_router
+                self._inference_router = get_inference_router(
+                    max_local_instances=self._llm_pool_size
+                )
+            
+            self._inference_router.register_instance(instance_id, model_instance, model_name)
+            
+        except Exception as e:
+            self.logger.warning(f"Could not register LLM with router: {e}")
     
     async def _preload_tts_model(self, config: Dict[str, Any]) -> bool:
         """Preload TTS model (Edge TTS or XTTS)."""
@@ -447,9 +534,21 @@ class PersistentModelManager:
         """
         Get persistent LLM model instance.
         
+        For pooled LLM setup, returns an available instance via router.
+        For single instance, returns the preloaded model directly.
+        
         Returns:
             Persistent LLM model instance or None if not loaded
         """
+        # Try to get from pool via router first
+        if self._llm_pool and self._inference_router:
+            result = self._inference_router.get_any_available_instance()
+            if result:
+                instance_id, model_instance = result
+                self.logger.debug(f"Returning LLM from pool: {instance_id}")
+                return model_instance
+        
+        # Fallback to single preloaded instance
         if 'llm' in self._preloaded_models:
             return self._preloaded_models['llm']
         
@@ -491,6 +590,71 @@ class PersistentModelManager:
             self.logger.error(traceback.format_exc())
         
         return None
+    
+    async def get_llm_for_request(self, request_id: str) -> Optional[Tuple[str, Any]]:
+        """
+        Get an LLM instance for a specific request, tracking it via router.
+        
+        This method should be used for concurrent request handling to properly
+        track which instance is handling which request.
+        
+        Args:
+            request_id: Unique request identifier for tracking
+            
+        Returns:
+            Tuple of (instance_id, model_instance) or None
+        """
+        if not self._inference_router:
+            # No router, return default instance
+            llm = self.get_llm_model()
+            return ("default", llm) if llm else None
+        
+        # Get routing decision
+        decision = await self._inference_router.get_route(request_id)
+        
+        if decision.route_local and decision.instance_id:
+            # Start tracking request
+            await self._inference_router.start_request(request_id, decision.instance_id)
+            
+            # Get instance
+            model = self._inference_router.get_instance(decision.instance_id)
+            return (decision.instance_id, model) if model else None
+        
+        # Check if we need to redirect (cluster routing)
+        if not decision.route_local and decision.redirect_url:
+            self.logger.info(f"Request {request_id} should be redirected to: {decision.redirect_url}")
+            return None  # Caller should handle redirect
+        
+        # Fallback to any available
+        return self._inference_router.get_any_available_instance()
+    
+    async def release_llm_request(self, request_id: str, tokens_generated: int = 0, error: bool = False) -> None:
+        """
+        Release LLM instance after request completion.
+        
+        Args:
+            request_id: Request identifier
+            tokens_generated: Number of tokens generated
+            error: True if request failed
+        """
+        if self._inference_router:
+            await self._inference_router.end_request(request_id, tokens_generated, error)
+    
+    def get_llm_pool_status(self) -> Dict[str, Any]:
+        """
+        Get status of LLM pool.
+        
+        Returns:
+            Dictionary with pool status information
+        """
+        if self._inference_router:
+            return self._inference_router.get_cluster_load_info()
+        
+        return {
+            "instance_count": 1 if 'llm' in self._preloaded_models else 0,
+            "pool_enabled": False,
+            "has_capacity": 'llm' in self._preloaded_models,
+        }
     
     def get_tts_engine(self) -> Optional[Any]:
         """

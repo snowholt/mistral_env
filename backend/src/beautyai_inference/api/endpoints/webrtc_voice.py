@@ -146,7 +146,10 @@ class OfferResponse(BaseModel):
     type: str = "answer"
     session_id: str
     # Backward/forward compatibility: some clients use peer_id naming
-    peer_id: str
+    peer_id: Optional[str] = None
+    # Cluster redirect support
+    redirect_url: Optional[str] = Field(default=None, description="URL to redirect for load balancing")
+    reason: Optional[str] = Field(default=None, description="Reason for redirect")
 
 
 class ICERequest(BaseModel):
@@ -186,6 +189,31 @@ async def handle_offer(request: OfferRequest):
         # Default to English if not specified (fixes language mixing issue)
         target_language = request.language or "en"
         print(f"[VOICE] 🚀 Creating session {session_id} (language={target_language})", flush=True)
+        
+        # ============================================================
+        # CLUSTER ROUTING CHECK
+        # Check if we should redirect to another server (load balancing)
+        # ============================================================
+        try:
+            from ...core.cluster_coordinator import get_cluster_coordinator
+            coordinator = await get_cluster_coordinator()
+            
+            if coordinator.should_redirect():
+                # Get routing decision with redirect URL
+                decision = await coordinator.route_request(session_id)
+                
+                if not decision.route_local and decision.redirect_url:
+                    print(f"[VOICE] 🔀 Redirecting session to: {decision.redirect_url}", flush=True)
+                    return OfferResponse(
+                        session_id=session_id,
+                        sdp="",  # Empty SDP signals redirect
+                        type="redirect",
+                        redirect_url=decision.redirect_url,
+                        reason=decision.reason,
+                    )
+        except Exception as cluster_err:
+            # Cluster check failed, continue with local processing
+            logger.warning(f"[VOICE] Cluster routing check failed (continuing locally): {cluster_err}")
 
         # RTC Configuration
         config = RTCConfiguration(
