@@ -181,6 +181,11 @@ class PersistentModelManager:
             self.logger.error(f"Error loading preload configuration: {e}")
             # Use fallback configuration
             self._preload_config = await self._get_fallback_config()
+
+    @property
+    def preload_config(self) -> Optional[Dict[str, Any]]:
+        """Expose the loaded preload configuration (read-only)."""
+        return self._preload_config
     
     async def _create_default_preload_config(self, config_file: Path):
         """Create default preload configuration file."""
@@ -370,6 +375,8 @@ class PersistentModelManager:
         """
         Preload multiple LLM instances for concurrent request handling.
         
+        Each instance is loaded as a SEPARATE model in GPU memory for true parallel inference.
+        
         Args:
             model_id: Model identifier
             model_config: Model configuration
@@ -378,7 +385,7 @@ class PersistentModelManager:
         Returns:
             bool: True if at least one instance loaded successfully
         """
-        self.logger.info(f"🚀 Loading LLM pool with {pool_size} instances...")
+        self.logger.info(f"🚀 Loading LLM pool with {pool_size} SEPARATE instances (true parallel)...")
         
         successful = 0
         for i in range(pool_size):
@@ -387,8 +394,14 @@ class PersistentModelManager:
             try:
                 self.logger.info(f"Loading LLM instance {i+1}/{pool_size}: {instance_id}")
                 
-                # Load model instance
-                model_instance = self._model_manager.load_model(model_config)
+                # Create a unique model config for each instance to force separate loading
+                # This ensures each instance gets its own GPU memory allocation
+                from copy import deepcopy
+                instance_config = deepcopy(model_config)
+                instance_config.name = f"{model_config.name}:pool-{i}"
+                
+                # Load model instance with unique name (forces fresh load)
+                model_instance = self._model_manager.load_model(instance_config)
                 
                 if model_instance:
                     self._llm_pool.append((instance_id, model_instance))
@@ -598,6 +611,9 @@ class PersistentModelManager:
         This method should be used for concurrent request handling to properly
         track which instance is handling which request.
         
+        The router now atomically assigns and marks the instance as busy,
+        preventing race conditions where multiple requests get the same instance.
+        
         Args:
             request_id: Unique request identifier for tracking
             
@@ -609,16 +625,16 @@ class PersistentModelManager:
             llm = self.get_llm_model()
             return ("default", llm) if llm else None
         
-        # Get routing decision
-        decision = await self._inference_router.get_route(request_id)
+        # Get routing decision (auto_start=True atomically assigns and marks busy)
+        decision = await self._inference_router.get_route(request_id, auto_start=True)
         
         if decision.route_local and decision.instance_id:
-            # Start tracking request
-            await self._inference_router.start_request(request_id, decision.instance_id)
-            
-            # Get instance
+            # Instance already marked as busy via auto_start, just get the model
             model = self._inference_router.get_instance(decision.instance_id)
-            return (decision.instance_id, model) if model else None
+            if model:
+                self.logger.info(f"✅ Request {request_id} assigned to {decision.instance_id}")
+                return (decision.instance_id, model)
+            return None
         
         # Check if we need to redirect (cluster routing)
         if not decision.route_local and decision.redirect_url:

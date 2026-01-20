@@ -107,10 +107,15 @@ class InferenceRouter:
     
     @classmethod
     def get_instance(cls, **kwargs) -> "InferenceRouter":
-        """Get singleton instance."""
+        """Get singleton instance. kwargs only used on first creation."""
         with cls._lock:
             if cls._instance is None:
-                cls._instance = cls(**kwargs)
+                # Filter to valid __init__ params only
+                valid_kwargs = {
+                    k: v for k, v in kwargs.items() 
+                    if k in ('max_local_instances', 'strategy', 'max_queue_per_instance')
+                }
+                cls._instance = cls(**valid_kwargs)
             return cls._instance
     
     def set_cluster_coordinator(self, coordinator) -> None:
@@ -171,13 +176,14 @@ class InferenceRouter:
     
     # ========== Routing Logic ==========
     
-    async def get_route(self, request_id: str, prefer_local: bool = True) -> RoutingDecision:
+    async def get_route(self, request_id: str, prefer_local: bool = True, auto_start: bool = True) -> RoutingDecision:
         """
         Determine where to route an inference request.
         
         Args:
             request_id: Unique request identifier
             prefer_local: Prefer local instances over remote
+            auto_start: If True, automatically marks the instance as busy (atomically)
             
         Returns:
             RoutingDecision with routing information
@@ -187,6 +193,9 @@ class InferenceRouter:
             local_instance = self._select_local_instance()
             
             if local_instance:
+                # CRITICAL: Atomically mark as busy to prevent race conditions
+                if auto_start:
+                    self._mark_instance_busy_sync(request_id, local_instance)
                 return RoutingDecision(
                     route_local=True,
                     instance_id=local_instance,
@@ -197,6 +206,9 @@ class InferenceRouter:
             if self._can_queue_locally():
                 least_loaded = self._get_least_loaded_instance()
                 if least_loaded:
+                    # CRITICAL: Atomically mark as busy (queued)
+                    if auto_start:
+                        self._mark_instance_busy_sync(request_id, least_loaded)
                     return RoutingDecision(
                         route_local=True,
                         instance_id=least_loaded,
@@ -213,6 +225,9 @@ class InferenceRouter:
             # Last resort: queue locally on least loaded
             least_loaded = self._get_least_loaded_instance()
             if least_loaded:
+                # CRITICAL: Atomically mark as busy
+                if auto_start:
+                    self._mark_instance_busy_sync(request_id, least_loaded)
                 return RoutingDecision(
                     route_local=True,
                     instance_id=least_loaded,
@@ -254,6 +269,25 @@ class InferenceRouter:
         else:  # RANDOM
             import random
             return random.choice(available)
+    
+    def _mark_instance_busy_sync(self, request_id: str, instance_id: str) -> None:
+        """
+        Synchronously mark an instance as busy (called within async lock).
+        
+        This MUST be called while holding _async_lock to prevent race conditions.
+        """
+        if instance_id not in self._instances:
+            return
+        
+        _, stats = self._instances[instance_id]
+        stats.active_requests += 1
+        stats.total_requests += 1
+        stats.last_used = time.time()
+        
+        self._active_requests[request_id] = instance_id
+        self._request_start_times[request_id] = time.time()
+        
+        self.logger.info(f"🔒 Atomically assigned request {request_id} to {instance_id} (active: {stats.active_requests})")
     
     def _get_least_loaded_instance(self) -> Optional[str]:
         """Get instance with lowest load (can have active requests)."""
@@ -320,6 +354,8 @@ class InferenceRouter:
         """
         Mark request as started on an instance.
         
+        Note: If auto_start=True was used in get_route(), this is a no-op.
+        
         Args:
             request_id: Unique request identifier
             instance_id: Instance handling the request
@@ -328,6 +364,11 @@ class InferenceRouter:
             bool: True if tracked successfully
         """
         async with self._async_lock:
+            # Check if already started (via auto_start in get_route)
+            if request_id in self._active_requests:
+                self.logger.debug(f"Request {request_id} already started (auto_start)")
+                return True
+            
             if instance_id not in self._instances:
                 return False
             
@@ -471,5 +512,10 @@ def get_inference_router(**kwargs) -> InferenceRouter:
     """Get global inference router instance."""
     global _router
     if _router is None:
-        _router = InferenceRouter.get_instance(**kwargs)
+        # Filter kwargs to valid __init__ params
+        valid_kwargs = {
+            k: v for k, v in kwargs.items() 
+            if k in ('max_local_instances', 'strategy', 'max_queue_per_instance')
+        }
+        _router = InferenceRouter(**valid_kwargs)
     return _router

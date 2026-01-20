@@ -86,8 +86,8 @@ async def register_server(request: ServerRegistrationRequest):
     themselves with the master for load balancing.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
-        from ..core.redis_client import ServerInfo
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.redis_client import ServerInfo
         
         coordinator = await get_cluster_coordinator()
         
@@ -145,7 +145,7 @@ async def unregister_server(server_id: str):
     Called when a slave is shutting down gracefully.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
         
         coordinator = await get_cluster_coordinator()
         
@@ -178,7 +178,7 @@ async def get_cluster_status():
     connectivity status, and basic metrics.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
         
         coordinator = await get_cluster_coordinator()
         status = coordinator.get_status()
@@ -210,7 +210,7 @@ async def get_cluster_overview():
     including their current load and health status.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
         
         coordinator = await get_cluster_coordinator()
         
@@ -236,8 +236,8 @@ async def list_servers():
     Returns a list of all servers with their current status and capabilities.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
-        from ..core.redis_client import get_redis_client
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.redis_client import get_redis_client
         
         coordinator = await get_cluster_coordinator()
         
@@ -273,7 +273,7 @@ async def get_routing_decision(request: RoutingDecisionRequest):
     Used by WebRTC/WebSocket endpoints to decide routing.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
         
         coordinator = await get_cluster_coordinator()
         decision = await coordinator.route_request(request.session_id)
@@ -301,7 +301,7 @@ async def cluster_health():
     Returns 200 if healthy, 503 if unhealthy or overloaded.
     """
     try:
-        from ..core.cluster_coordinator import get_cluster_coordinator
+        from beautyai_inference.core.cluster_coordinator import get_cluster_coordinator
         
         coordinator = await get_cluster_coordinator()
         
@@ -345,7 +345,7 @@ async def get_llm_pool_status():
     Returns detailed information about local LLM instances and their load.
     """
     try:
-        from ..core.persistent_model_manager import get_persistent_model_manager
+        from beautyai_inference.core.persistent_model_manager import get_persistent_model_manager
         
         manager = get_persistent_model_manager()
         pool_status = manager.get_llm_pool_status()

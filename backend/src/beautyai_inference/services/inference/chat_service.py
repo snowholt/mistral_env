@@ -180,8 +180,21 @@ class ChatService:
             else:
                 logger.info(f"🌍 Using provided language: {response_language}")
 
+            # Copy generation config and strip non-serializable/persistent hints
+            if generation_config is None:
+                generation_config = {}
+            persistent_model = generation_config.get('_persistent_model_instance')
+            use_persistent = generation_config.get('_use_persistent_model', False)
+            generation_config = deepcopy({
+                k: v for k, v in generation_config.items()
+                if k not in ('_persistent_model_instance', '_use_persistent_model')
+            })
+
             # Ensure model is loaded (after language detection so fallback uses detected language)
-            model = self._ensure_model_loaded(model_name, model_config)
+            if use_persistent and persistent_model is not None:
+                model = persistent_model
+            else:
+                model = self._ensure_model_loaded(model_name, model_config)
             if model is None:
                 logger.error("Failed to load model; returning language-specific fallback response")
                 return self._get_fallback_response(response_language), response_language or "ar", [], session_id or ""

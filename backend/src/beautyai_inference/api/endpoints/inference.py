@@ -7,9 +7,11 @@ Provides REST API endpoints for inference operations including:
 - Performance benchmarking  
 - Session management
 """
+import asyncio
 import logging
 import time
 import json
+from uuid import uuid4
 from typing import Dict, Any, Optional
 
 from fastapi import APIRouter, HTTPException, Depends, BackgroundTasks, File, UploadFile, Form
@@ -298,114 +300,160 @@ async def chat_completion(
             "content": processed_message
         })
         
-        # Generate response using the adapter
-        generation_start = time.time()
-        
-        # Prepare parameters, removing duplicates that might conflict
-        adapter_params = effective_config.copy()
-        adapter_params.update({
-            'model_name': request.model_name,
-            'messages': messages,
-            'stream': request.stream,
-            'disable_content_filter': content_filter_bypassed,
-        })
-        
-        # Use get() to avoid conflicts and set defaults
-        response_data = inference_adapter.chat_completion(**adapter_params)
-        generation_end = time.time()
-        
-        # Calculate performance metrics
-        generation_time_ms = (generation_end - generation_start) * 1000
-        
-        logger.info(f"Response data keys: {response_data.keys() if isinstance(response_data, dict) else 'Not a dict'}")
-        logger.info(f"Response data type: {type(response_data)}")
-        
-        # Extract response text from OpenAI-style format
-        if "choices" in response_data and len(response_data["choices"]) > 0:
-            response_text = response_data["choices"][0].get("message", {}).get("content", "")
-            logger.info(f"Extracted from choices: {len(response_text)} chars")
-        else:
-            response_text = response_data.get("response", "")
-            logger.info(f"Extracted from response field: {len(response_text)} chars")
-            
-        logger.info(f"Final response_text length: {len(response_text)}")
-        
-        tokens_generated = len(response_text.split()) if response_text else 0
-        tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
-        
-        # Parse thinking content if applicable
-        thinking_content = None
-        final_content = response_text
-        
-        # Always check for and handle thinking content, regardless of thinking_enabled setting
-        if "<think>" in response_text and "</think>" in response_text:
-            # Extract thinking and final content
-            import re
-            think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
-            if think_match:
-                thinking_content = think_match.group(1).strip()
-                final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
-                
-                # If thinking is disabled, we should not return the thinking content
-                if not thinking_enabled:
-                    thinking_content = None
-                    logger.info(f"🧠 Thinking content removed because thinking_enabled=False")
-            else:
-                # If we found thinking tags but couldn't extract properly, remove them
-                final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
-        
-        # Ensure we have some content
-        if not final_content.strip():
-            final_content = response_text
-        
-        # Build enhanced response
-        end_time = time.time()
-        total_time_ms = (end_time - start_time) * 1000
-        
-        logger.info(f"Building response - response_text length: {len(response_text)}")
-        
+        # Generate response using the adapter (prefer pooled LLM instances when available)
+        request_id = f"chat-{uuid4().hex}"
+        pooled_instance_id = None
+        tokens_generated = 0
+        error_flag = True
         try:
-            response_obj = ChatResponse(
-                success=True,
-                response=final_content,
-                session_id=request.session_id or "default",
-                model_name=request.model_name,
-                effective_config=effective_config,
-                preset_used=request.preset,
-                thinking_enabled=thinking_enabled,
-                content_filter_applied=not content_filter_bypassed,
-                content_filter_strictness=filter_config["strictness_level"],
-                content_filter_bypassed=content_filter_bypassed,
-                tokens_generated=tokens_generated,
-                generation_time_ms=generation_time_ms,
-                tokens_per_second=round(tokens_per_second, 2) if tokens_per_second else 0.0,
-                thinking_content=thinking_content,
-                final_content=final_content,
-                execution_time_ms=total_time_ms,
-                generation_stats={
-                    "model_info": response_data.get("model_info", {}),
-                    "generation_config_used": effective_config,
-                    "content_filter_config": filter_config,
-                    "performance": {
-                        "total_time_ms": total_time_ms,
-                        "generation_time_ms": generation_time_ms,
-                        "tokens_generated": tokens_generated,
-                        "tokens_per_second": tokens_per_second,
-                        "thinking_tokens": len(thinking_content.split()) if thinking_content else 0
+            if persistent_model_manager:
+                try:
+                    pooled = await persistent_model_manager.get_llm_for_request(request_id)
+                    if pooled:
+                        pooled_instance_id, pooled_model = pooled
+                        effective_config['_use_persistent_model'] = True
+                        effective_config['_persistent_model_instance'] = pooled_model
+                        logger.info(f"Using pooled LLM instance {pooled_instance_id} for {request_id}")
+                    elif use_persistent_llm and persistent_llm_model:
+                        effective_config['_use_persistent_model'] = True
+                        effective_config['_persistent_model_instance'] = persistent_llm_model
+                except Exception as e:
+                    logger.warning(f"Failed to acquire pooled LLM instance: {e}")
+            elif use_persistent_llm and persistent_llm_model:
+                effective_config['_use_persistent_model'] = True
+                effective_config['_persistent_model_instance'] = persistent_llm_model
+
+            generation_start = time.time()
+
+            # Prepare parameters, removing duplicates that might conflict
+            adapter_params = effective_config.copy()
+            adapter_params.update({
+                'model_name': request.model_name,
+                'messages': messages,
+                'stream': request.stream,
+                'disable_content_filter': content_filter_bypassed,
+            })
+
+            # Use get() to avoid conflicts and set defaults
+            if request.stream:
+                response_data = inference_adapter.chat_completion(**adapter_params)
+            else:
+                response_data = await asyncio.to_thread(
+                    inference_adapter.chat_completion,
+                    **adapter_params,
+                )
+            generation_end = time.time()
+
+            # Calculate performance metrics
+            generation_time_ms = (generation_end - generation_start) * 1000
+
+            logger.info(f"Response data keys: {response_data.keys() if isinstance(response_data, dict) else 'Not a dict'}")
+            logger.info(f"Response data type: {type(response_data)}")
+
+            # Extract response text from OpenAI-style format
+            if "choices" in response_data and len(response_data["choices"]) > 0:
+                response_text = response_data["choices"][0].get("message", {}).get("content", "")
+                logger.info(f"Extracted from choices: {len(response_text)} chars")
+            else:
+                response_text = response_data.get("response", "")
+                logger.info(f"Extracted from response field: {len(response_text)} chars")
+
+            logger.info(f"Final response_text length: {len(response_text)}")
+
+            tokens_generated = len(response_text.split()) if response_text else 0
+            tokens_per_second = tokens_generated / (generation_time_ms / 1000) if generation_time_ms > 0 else 0
+
+            # Parse thinking content if applicable
+            thinking_content = None
+            final_content = response_text
+
+            # Always check for and handle thinking content, regardless of thinking_enabled setting
+            if "<think>" in response_text and "</think>" in response_text:
+                # Extract thinking and final content
+                import re
+                think_match = re.search(r'<think>(.*?)</think>', response_text, re.DOTALL)
+                if think_match:
+                    thinking_content = think_match.group(1).strip()
+                    final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+
+                    # If thinking is disabled, we should not return the thinking content
+                    if not thinking_enabled:
+                        thinking_content = None
+                        logger.info(f"🧠 Thinking content removed because thinking_enabled=False")
+                else:
+                    # If we found thinking tags but couldn't extract properly, remove them
+                    final_content = re.sub(r'<think>.*?</think>', '', response_text, flags=re.DOTALL).strip()
+
+            # Ensure we have some content
+            if not final_content.strip():
+                final_content = response_text
+
+            # Build enhanced response
+            end_time = time.time()
+            total_time_ms = (end_time - start_time) * 1000
+
+            logger.info(f"Building response - response_text length: {len(response_text)}")
+
+            # Remove non-serializable objects from config for responses/logging
+            safe_effective_config = {
+                k: v for k, v in effective_config.items()
+                if k not in ("_persistent_model_instance", "_use_persistent_model")
+            }
+
+            try:
+                response_obj = ChatResponse(
+                    success=True,
+                    response=final_content,
+                    session_id=request.session_id or "default",
+                    model_name=request.model_name,
+                    effective_config=safe_effective_config,
+                    preset_used=request.preset,
+                    thinking_enabled=thinking_enabled,
+                    content_filter_applied=not content_filter_bypassed,
+                    content_filter_strictness=filter_config["strictness_level"],
+                    content_filter_bypassed=content_filter_bypassed,
+                    tokens_generated=tokens_generated,
+                    generation_time_ms=generation_time_ms,
+                    tokens_per_second=round(tokens_per_second, 2) if tokens_per_second else 0.0,
+                    thinking_content=thinking_content,
+                    final_content=final_content,
+                    execution_time_ms=total_time_ms,
+                    generation_stats={
+                        "model_info": response_data.get("model_info", {}),
+                        "generation_config_used": safe_effective_config,
+                        "content_filter_config": filter_config,
+                        "performance": {
+                            "total_time_ms": total_time_ms,
+                            "generation_time_ms": generation_time_ms,
+                            "tokens_generated": tokens_generated,
+                            "tokens_per_second": tokens_per_second,
+                            "thinking_tokens": len(thinking_content.split()) if thinking_content else 0
+                        }
                     }
-                }
-            )
-            logger.info("ChatResponse object created successfully")
-            return response_obj
-        except Exception as e:
-            logger.error(f"Error creating ChatResponse object: {e}")
-            # Return a simple response that should always work
-            return ChatResponse(
-                success=True,
-                response=final_content or "Response generated successfully",
-                model_name=request.model_name,
-                execution_time_ms=total_time_ms
-            )
+                )
+                logger.info("ChatResponse object created successfully")
+                error_flag = False
+                return response_obj
+            except Exception as e:
+                logger.error(f"Error creating ChatResponse object: {e}")
+                # Return a simple response that should always work
+                error_flag = True
+                return ChatResponse(
+                    success=True,
+                    response=final_content or "Response generated successfully",
+                    model_name=request.model_name,
+                    execution_time_ms=total_time_ms
+                )
+        finally:
+            if persistent_model_manager and pooled_instance_id:
+                try:
+                    await persistent_model_manager.release_llm_request(
+                        request_id,
+                        tokens_generated=tokens_generated,
+                        error=error_flag,
+                    )
+                except Exception as e:
+                    logger.warning(f"Failed to release pooled LLM instance: {e}")
         
     except Exception as e:
         logger.error(f"Chat completion error: {str(e)}")
