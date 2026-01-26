@@ -9,6 +9,7 @@ Handles:
 - Tool call concurrent listening (queue utterances)
 - LLM cancellation (cancel generation for new speech)
 - State machine transitions
+- Voice tools execution (appointment booking, customer management)
 
 Author: BeautyAI Framework
 Date: January 2026
@@ -40,6 +41,13 @@ from .streaming_tts import (
     StreamConfig,
     CancellationToken
 )
+from .tools import (
+    VoiceToolExecutor,
+    get_tools_for_openai,
+    get_tool,
+    tool_allows_interruption,
+    get_customer_service_system_prompt
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,6 +65,7 @@ class PipelineConfig:
     enable_llm_cancellation: bool = True     # Allow LLM generation cancellation
     enable_concurrent_listening: bool = True  # Listen during tool execution
     enable_sentence_streaming: bool = True   # Stream TTS sentence by sentence
+    enable_voice_tools: bool = True          # Enable voice tools (appointment, customer)
     
     # Queue
     max_queue_size: int = 5                  # Max queued utterances
@@ -64,6 +73,9 @@ class PipelineConfig:
     # TTS
     tts_chunk_size_ms: int = 40              # TTS chunk size
     tts_sample_rate: int = 16000             # TTS sample rate
+    
+    # Tool executor
+    api_base_url: str = "http://localhost:8000"  # API base URL for tools
 
 
 @dataclass
@@ -115,7 +127,8 @@ class VoicePipelineOrchestrator:
         llm_model: Any = None,
         tts_model: Any = None,
         config: Optional[PipelineConfig] = None,
-        loop: Optional[asyncio.AbstractEventLoop] = None
+        loop: Optional[asyncio.AbstractEventLoop] = None,
+        enable_customer_service_mode: bool = False
     ):
         """
         Initialize voice pipeline orchestrator.
@@ -127,6 +140,7 @@ class VoicePipelineOrchestrator:
             tts_model: Text-to-speech model
             config: Pipeline configuration
             loop: Event loop for sync operations
+            enable_customer_service_mode: Enable customer service tools (appointment booking)
         """
         self.session_id = session_id
         self.stt_model = stt_model
@@ -134,6 +148,7 @@ class VoicePipelineOrchestrator:
         self.tts_model = tts_model
         self.config = config or PipelineConfig()
         self.loop = loop or asyncio.get_event_loop()
+        self.enable_customer_service_mode = enable_customer_service_mode
         
         # State management
         self.state_manager = create_conversation_state_manager(
@@ -146,6 +161,13 @@ class VoicePipelineOrchestrator:
             session_id,
             max_size=self.config.max_queue_size
         )
+        
+        # Tool executor for voice tools
+        self._tool_executor: Optional[VoiceToolExecutor] = None
+        if self.config.enable_voice_tools:
+            self._tool_executor = VoiceToolExecutor(
+                base_url=self.config.api_base_url
+            )
         
         # Active operations
         self._llm_task: Optional[asyncio.Task] = None
@@ -164,13 +186,16 @@ class VoicePipelineOrchestrator:
         # Language
         self.language = "en"
         
+        # Customer context (for tool calls)
+        self._customer_context: Dict[str, Any] = {}
+        
         # Metrics
         self.metrics = PipelineMetrics()
         
         # Set up state manager callbacks
         self._setup_state_callbacks()
         
-        logger.info(f"[Pipeline] Initialized for session {session_id}")
+        logger.info(f"[Pipeline] Initialized for session {session_id}, customer_service={enable_customer_service_mode}")
 
     def _setup_state_callbacks(self):
         """Set up callbacks for state transitions."""
@@ -584,7 +609,7 @@ class VoicePipelineOrchestrator:
         self,
         tool_name: str,
         tool_args: Dict[str, Any],
-        tool_executor: Callable[[str, Dict[str, Any]], Awaitable[Any]]
+        tool_executor: Optional[Callable[[str, Dict[str, Any]], Awaitable[Any]]] = None
     ) -> Any:
         """
         Execute a tool call while continuing to listen for user speech.
@@ -592,20 +617,41 @@ class VoicePipelineOrchestrator:
         Args:
             tool_name: Name of the tool to execute
             tool_args: Arguments for the tool
-            tool_executor: Async function to execute the tool
+            tool_executor: Optional custom executor (uses built-in if not provided)
             
         Returns:
             Tool execution result
         """
+        # Check if tool allows interruption
+        allows_interrupt = tool_allows_interruption(tool_name)
+        
         await self.state_manager.transition_to(ConversationState.EXECUTING_TOOL)
         self._send_message({
             "type": "tool_call",
             "tool": tool_name,
-            "status": "executing"
+            "args": tool_args,
+            "status": "executing",
+            "allows_interruption": allows_interrupt
         })
         
         try:
-            result = await tool_executor(tool_name, tool_args)
+            # Use built-in executor if available and no custom one provided
+            if tool_executor:
+                result = await tool_executor(tool_name, tool_args)
+            elif self._tool_executor:
+                result = await self._tool_executor.execute(
+                    tool_name, 
+                    tool_args,
+                    session_id=self.session_id
+                )
+            else:
+                logger.warning(f"[Pipeline] No tool executor available for {tool_name}")
+                result = {"success": False, "error": "Tool executor not configured"}
+            
+            # Update customer context if we got customer info
+            if result.get("success") and result.get("customer"):
+                self._customer_context["customer"] = result["customer"]
+                logger.info(f"[Pipeline] Updated customer context: {result['customer'].get('id')}")
             
             # Process any queued utterances
             queued = await self.state_manager.on_tool_execution_complete()
@@ -613,7 +659,8 @@ class VoicePipelineOrchestrator:
             self._send_message({
                 "type": "tool_call",
                 "tool": tool_name,
-                "status": "complete"
+                "status": "complete",
+                "result": result
             })
             
             return result
@@ -629,6 +676,58 @@ class VoicePipelineOrchestrator:
             raise
         finally:
             await self.state_manager.transition_to(ConversationState.PROCESSING_LLM)
+    
+    async def execute_voice_tool(
+        self,
+        tool_name: str,
+        tool_args: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """
+        Execute a voice tool using the built-in tool executor.
+        
+        Convenience method for LLM function calling.
+        
+        Args:
+            tool_name: Name of the voice tool
+            tool_args: Tool arguments
+            
+        Returns:
+            Tool execution result
+        """
+        if not self._tool_executor:
+            return {"success": False, "error": "Tool executor not configured"}
+        
+        return await self.execute_tool(tool_name, tool_args)
+    
+    def get_tools_for_llm(self) -> List[Dict[str, Any]]:
+        """
+        Get voice tools in OpenAI function calling format.
+        
+        Use this to pass available tools to the LLM.
+        
+        Returns:
+            List of tool definitions
+        """
+        if not self.config.enable_voice_tools:
+            return []
+        return get_tools_for_openai()
+    
+    def get_customer_service_system_prompt(self) -> str:
+        """
+        Get the system prompt for customer service mode.
+        
+        Returns:
+            System prompt string
+        """
+        return get_customer_service_system_prompt()
+    
+    def get_customer_context(self) -> Dict[str, Any]:
+        """Get current customer context from tool calls."""
+        return self._customer_context.copy()
+    
+    def set_customer_context(self, context: Dict[str, Any]):
+        """Set customer context (e.g., from previous session)."""
+        self._customer_context.update(context)
 
     def _send_message(self, message: Dict[str, Any]):
         """Send message to client via callback."""
@@ -707,16 +806,32 @@ def create_voice_pipeline(
     llm_model: Any = None,
     tts_model: Any = None,
     language: str = "en",
+    enable_customer_service_mode: bool = False,
     **config_kwargs
 ) -> VoicePipelineOrchestrator:
-    """Create a voice pipeline with standard configuration."""
+    """
+    Create a voice pipeline with standard configuration.
+    
+    Args:
+        session_id: Session identifier
+        stt_model: Speech-to-text model
+        llm_model: Language model
+        tts_model: Text-to-speech model
+        language: Conversation language (en, ar)
+        enable_customer_service_mode: Enable appointment booking tools
+        **config_kwargs: Additional PipelineConfig options
+        
+    Returns:
+        Configured VoicePipelineOrchestrator
+    """
     config = PipelineConfig(**config_kwargs)
     pipeline = VoicePipelineOrchestrator(
         session_id=session_id,
         stt_model=stt_model,
         llm_model=llm_model,
         tts_model=tts_model,
-        config=config
+        config=config,
+        enable_customer_service_mode=enable_customer_service_mode
     )
     pipeline.set_language(language)
     return pipeline

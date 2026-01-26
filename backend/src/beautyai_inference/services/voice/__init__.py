@@ -10,6 +10,7 @@ Includes:
 - Utterance queue for concurrent speech handling
 - Interruptible streaming TTS
 - Voice pipeline orchestration
+- Voice tools for LLM (appointment booking, customer management)
 """
 
 # Import conversation services
@@ -52,6 +53,19 @@ from .pipeline_orchestrator import (
     create_voice_pipeline
 )
 
+# Voice tools for LLM
+from .tools import (
+    VoiceTool,
+    VoiceToolExecutor,
+    ToolCategory,
+    VOICE_TOOLS,
+    get_tools_for_openai,
+    get_tool,
+    tool_allows_interruption,
+    get_customer_service_system_prompt,
+    CUSTOMER_SERVICE_SYSTEM_PROMPT
+)
+
 __all__ = [
     # Simple voice service
     "SimpleVoiceService",
@@ -84,4 +98,15 @@ __all__ = [
     "PipelineConfig",
     "PipelineMetrics",
     "create_voice_pipeline",
+    
+    # Voice tools
+    "VoiceTool",
+    "VoiceToolExecutor",
+    "ToolCategory",
+    "VOICE_TOOLS",
+    "get_tools_for_openai",
+    "get_tool",
+    "tool_allows_interruption",
+    "get_customer_service_system_prompt",
+    "CUSTOMER_SERVICE_SYSTEM_PROMPT",
 ]
