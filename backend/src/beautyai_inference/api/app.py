@@ -266,6 +266,14 @@ try:
 except ImportError as e:
     logger.warning(f"Demo Request router not available: {e}")
 
+# Include Demo Appointments router (Voice Demo - Appointment Booking)
+try:
+    from .endpoints.demo_appointments import demo_appointments_router
+    app.include_router(demo_appointments_router, tags=["demo_appointments"])
+    logger.info("✅ Demo Appointments endpoints registered at /api/v1/demo/appointments/*")
+except ImportError as e:
+    logger.warning(f"Demo Appointments router not available: {e}")
+
 # Include Dashboard router
 try:
     from .endpoints.dashboard import dashboard_router
