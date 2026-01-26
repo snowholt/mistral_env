@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import { guestApi } from '@/lib/api';
+import { AppointmentPanel } from '@/components/demo/AppointmentPanel';
 
 // Helper to check if user has guest-level access
 // Supports both guest-login flow (isGuest + guestUser) and unified auth (user.role === 'guest')
@@ -368,6 +369,34 @@ export default function VoiceDemo() {
             } else {
               console.warn('⚠️ tts_audio received but no audio data found in payload:', Object.keys(data));
             }
+            break;
+
+          case 'tool_call':
+            // Forward tool call events to the AppointmentPanel
+            console.log('🔧 Tool call event:', data.tool, data.status);
+            if ((window as any).__appointmentPanelHandler) {
+              (window as any).__appointmentPanelHandler(data);
+            }
+            // Show tool activity in chat for important tools
+            if (data.status === 'complete' && data.result?.success) {
+              if (data.tool === 'book_appointment') {
+                const msg = data.result.message || 'Appointment booked successfully';
+                addMessage('system', `✅ ${msg}`);
+              } else if (data.tool === 'register_customer') {
+                const customer = data.result.customer as Record<string, unknown>;
+                addMessage('system', `✅ Customer registered: ${customer?.full_name || 'Unknown'}`);
+              }
+            } else if (data.status === 'error') {
+              addMessage('system', `❌ Tool error: ${data.error || 'Unknown error'}`);
+            }
+            break;
+
+          case 'queued_utterance':
+            // User speech was queued during tool execution
+            console.log('📎 Utterance queued:', data.text, 'Queue size:', data.queue_size);
+            addMessage('system', language === 'ar' 
+              ? `📎 تم حفظ رسالتك (${data.queue_size} في الانتظار)` 
+              : `📎 Your message was queued (${data.queue_size} pending)`);
             break;
 
           default:
@@ -801,81 +830,64 @@ export default function VoiceDemo() {
             </Card>
           </div>
 
-          {/* Metrics panel */}
-          <div className="lg:col-span-1">
+          {/* Right sidebar - Metrics & Appointments */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Metrics panel */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm">
                   {language === 'ar' ? 'مقاييس الأداء' : 'Performance Metrics'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'الكلمات في الثانية' : 'Tokens/Second'}
-                  </div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {metrics.tps?.toFixed(1) || '--'}
-                  </div>
-                  {metrics.total_tokens && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.total_tokens} tokens total
+              <CardContent className="space-y-3 py-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-gray-600">
+                      {language === 'ar' ? 'TPS' : 'Tokens/s'}
                     </div>
-                  )}
+                    <div className="text-lg font-bold text-blue-600">
+                      {metrics.tps?.toFixed(1) || '--'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-gray-600">
+                      {language === 'ar' ? 'LLM' : 'LLM'}
+                    </div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {metrics.llm_latency ? (metrics.llm_latency / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-gray-600">
+                      {language === 'ar' ? 'STT' : 'STT'}
+                    </div>
+                    <div className="text-lg font-bold text-green-600">
+                      {metrics.stt_time ? (metrics.stt_time / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-gray-600">
+                      {language === 'ar' ? 'TTS' : 'TTS'}
+                    </div>
+                    <div className="text-lg font-bold text-pink-600">
+                      {metrics.tts_time ? (metrics.tts_time / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'زمن LLM' : 'LLM Latency'}
-                  </div>
-                  <div className="text-2xl font-bold text-purple-600">
-                    {metrics.llm_latency ? (metrics.llm_latency / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.llm_latency && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.llm_latency.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت STT' : 'STT Time'}
-                  </div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {metrics.stt_time ? (metrics.stt_time / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.stt_time && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.stt_time.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت TTS' : 'TTS Time'}
-                  </div>
-                  <div className="text-2xl font-bold text-pink-600">
-                    {metrics.tts_time ? (metrics.tts_time / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.tts_time && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.tts_time.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-4 border-t">
+                <div className="pt-2 border-t">
                   <div className="text-xs text-gray-500">
-                    {language === 'ar' ? 'حالة الاتصال' : 'Connection State'}
-                  </div>
-                  <div className="text-sm font-medium mt-1">
-                    {connectionState}
+                    {language === 'ar' ? 'الحالة' : 'Status'}: <span className="font-medium">{connectionState}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Appointment Panel */}
+            <AppointmentPanel language={language} />
           </div>
         </div>
       </div>
