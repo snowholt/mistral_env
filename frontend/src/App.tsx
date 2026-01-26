@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { LanguageProvider } from "@/hooks/useLanguage";
+import { LanguageProvider as LandingLanguageProvider } from "@/contexts/LanguageContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute, PublicRoute } from "@/components/ProtectedRoute";
 import ChatWidget from "@/components/ChatWidget";
@@ -46,14 +48,14 @@ const queryClient = new QueryClient();
 function PublicChatWidget() {
   const location = useLocation();
   const isPublicPage = !location.pathname.startsWith('/app');
-  
+
   if (!isPublicPage) return null;
-  
+
   return (
     <ChatWidget
       widgetToken="wt_uf7GDPwuw4vBwGYed26_0-yepA32XwjUbjZas1GnRkI"
       apiUrl={import.meta.env.VITE_API_URL || 'https://api.gmai.sa'}
-      primaryColor="#0ea5e9"
+      primaryColor="#00b3a4"
       headerText="مساعد الذكاء الاصطناعي"
       placeholderText="اكتب رسالتك..."
       welcomeMessage="مرحباً! 👋 كيف يمكنني مساعدتك اليوم؟"
@@ -103,7 +105,7 @@ function AppContent() {
           <Route path="billing" element={<Billing />} />
           <Route path="settings" element={<Settings />} />
           <Route path="demo" element={<VoiceDemo />} />
-          
+
           {/* Admin Routes - Requires admin role */}
           <Route path="admin/customers" element={
             <ProtectedRoute requireAdmin>
@@ -137,18 +139,23 @@ function AppContent() {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <LanguageProvider>
-        <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppContent />
-          </BrowserRouter>
-        </AuthProvider>
-      </LanguageProvider>
-    </TooltipProvider>
+    <ThemeProvider>
+      <LandingLanguageProvider>
+        <TooltipProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AppContent />
+              </BrowserRouter>
+            </AuthProvider>
+          </LanguageProvider>
+        </TooltipProvider>
+      </LandingLanguageProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 
 export default App;
+

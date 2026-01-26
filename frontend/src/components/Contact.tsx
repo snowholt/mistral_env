@@ -1,255 +1,316 @@
-import React, { useState } from "react";
-import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useState } from "react";
+import { Mail, MapPin, Phone, Send, CheckCircle, MessageCircle } from "lucide-react";
+import { useLanguage } from "@/contexts/LanguageContext";
 import { useToast } from "@/hooks/use-toast";
-import { Mail, Phone, MapPin, Send, MessageCircle } from "lucide-react";
-import { useLanguage } from "@/hooks/useLanguage";
-import { getTranslation } from "@/utils/translations";
+
+const PHONE_NUMBER = "+966544669879";
+const WHATSAPP_LINK = "https://wa.me/966544669879";
+const GOOGLE_MAPS_LINK = "https://maps.app.goo.gl/NzTLx7qrRhmVCF2N9";
 
 const Contact = () => {
-  const { language } = useLanguage();
+  const { t } = useLanguage();
   const { toast } = useToast();
   const [formData, setFormData] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phonenumber: "",
-    company: "",
-    companySize: "",
-    message: ""
+    firstName: '',
+    lastName: '',
+    email: '',
+    phone: '',
+    company: '',
+    companySize: '',
+    message: ''
   });
-  
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isSubmitted, setIsSubmitted] = useState(false);
+
+  const companySizes = [
+    { value: '1-10', label: t('contact.form.size1') },
+    { value: '11-50', label: t('contact.form.size2') },
+    { value: '51-200', label: t('contact.form.size3') },
+    { value: '201-1000', label: t('contact.form.size4') },
+    { value: '1000+', label: t('contact.form.size5') },
+  ];
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setFormData(prev => ({
+      ...prev,
+      [e.target.name]: e.target.value
+    }));
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsSubmitting(true);
 
-    // IMPORTANT: Replace this with your actual Alibaba Cloud Function Compute endpoint URL.
-    const backendUrl = 'YOUR_ALIBABA_CLOUD_FUNCTION_URL';
+    const fullName = `${formData.firstName} ${formData.lastName}`.trim();
+    const subject = encodeURIComponent(`Contact from ${fullName} - ${formData.company}`);
+    const body = encodeURIComponent(
+      `Name: ${fullName}\nEmail: ${formData.email}\nPhone: ${formData.phone}\nCompany: ${formData.company}\nCompany Size: ${formData.companySize}\n\nMessage:\n${formData.message}`
+    );
 
-    try {
-      const response = await fetch(backendUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify(formData),
-      });
+    window.location.href = `mailto:info@gmai.sa?subject=${subject}&body=${body}`;
 
-      if (response.ok) {
-        toast({
-          title: language === 'ar' ? "تم ارسال طلبك" : "Message sent successfully!",
-          description: language === 'ar' ? "سيتم التواصل معكم خلال 24 ساعة" : "We'll get back to you within 24 hours.",
-        });
-        setFormData({
-          firstName: "",
-          lastName: "",
-          email: "",
-          phonenumber: "",
-          company: "",
-          companySize: "",
-          message: ""
-        });
-      } else {
-        const errorData = await response.json();
-        throw new Error(errorData.message || language === 'ar' ? "حدث خطأ 504" : 'Something went wrong.');
-      }
-    } catch (error: any) {
-      console.error( language === 'ar' ? "حدث حطأ 505" : 'Submission error:', error);
-      toast({
-        title: language === 'ar' ? "حدث حطأ" : 'Submission error:',
-        description: language === 'ar' ? "حدث خطأ عند ارسال الطب، الرجاء المحاولة في وقت لاحق" : `There was an error sending your message. Please try again.`,
-        variant: "destructive"
-      });
-    } finally {
+    setTimeout(() => {
       setIsSubmitting(false);
-    }
+      setIsSubmitted(true);
+      toast({
+        title: "Email Client Opened",
+        description: t('contact.form.success'),
+      });
+
+      setTimeout(() => {
+        setIsSubmitted(false);
+        setFormData({ firstName: '', lastName: '', email: '', phone: '', company: '', companySize: '', message: '' });
+      }, 3000);
+    }, 500);
   };
 
-  const handleInputChange = (field: string, value: string) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
-
-  const contactInfo = [
-    {
-      icon: Mail,
-      title: language ==='ar' ? "البريد الالكتروني" : "Email",
-      details: "info@gmai.sa",
-      description: language ==='ar' ? "تواصل بأي وقت" : "Send us an email anytime",
-      action: "mailto:info@gmai.sa"
-    },
-    {
-      icon: Phone,
-      title: language ==='ar' ? "الهاتف" :"Phone",
-      details: language ==='ar' ? "0544669879" : "+966 (54) 466 9879",
-      description: language ==='ar' ? "الأحد حتى الخميس 8:00 ص حتى 6:00 م" : "Sun-Thu from 8am to 6pm",
-      action: "tel:+966544669879"
-    },
-    {
-      icon: MessageCircle,
-      title: "Whatsapp",
-      details: language ==='ar' ? "0544669879" : "+966 (54) 466 9879",
-      description: language ==='ar' ? "الأحد حتى الخميس 8:00 ص حتى 6:00 م" : "Sun-Thu from 8am to 6pm",
-      action: "https://wa.me/966544669879"
-    },
-    {
-      icon: MapPin,
-      title: language ==='ar' ? "الموقع" : "Office",
-      details: language ==='ar' ? "الرياض، المملكة العربية السعودية" :"Riyadh, Saudi Arabia",
-      description: language ==='ar' ? "طريق الامير بندر بن عبدالعزيز، حي الاندلس" : "Bander Bin Abdulaziz, Al-Andalus Dist",
-      action: "https://maps.app.goo.gl/NzTLx7qrRhmVCF2N9"
-    }
-  ];
-  
   return (
-    <section id="contact" className="py-20">
-      <div className="container mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="text-center mb-16">
-          <h2 className="text-3xl sm:text-4xl font-bold text-foreground mb-4">
-            {getTranslation("contactTitle", language)}
-          </h2>
-          <p className="text-xl text-muted-foreground max-w-3xl mx-auto">
-            {getTranslation("contactFormDesc", language)}
-          </p>
-        </div>
+    <section id="contact" className="py-24 relative">
+      <div className="absolute top-0 left-1/2 -translate-x-1/2 w-full max-w-4xl h-px bg-gradient-to-r from-transparent via-primary/50 to-transparent" />
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
-          {/* Contact Information */}
-          <div className="space-y-8">
-            <div>
-              <h3 className="text-2xl font-bold text-foreground mb-6">
-                {getTranslation("contactFormTitle", language)}</h3>
-              <p className="text-muted-foreground mb-8">
-                {getTranslation("contactInfo", language)}
-              </p>
-            </div>
-
-            {contactInfo.map((info, index) => (
-              <a href={info.action} key={index}>
-                <Card className="group p-3 hover:shadow-elegant transition-all duration-300 hover:-translate-y-1 ">
-                  <div className="flex items-start space-x-4">
-                    <div className="w-12 h-12 bg-primary/10 rounded-lg flex items-center justify-center flex-shrink-0">
-                      <info.icon className="h-6 w-6 text-primary" />
-                    </div>
-                    <div>
-                      <h4 className="font-semibold text-foreground">{info.title}</h4>
-                      <p className="text-primary font-medium">{info.details}</p>
-                      <p className="text-sm text-muted-foreground">{info.description}</p>
-                    </div>
-                  </div>
-                </Card>
-              </a>
-            ))}
+      <div className="container mx-auto px-6">
+        <div className="max-w-6xl mx-auto">
+          <div className="text-center mb-16">
+            <h2 className="text-3xl md:text-5xl font-display font-bold mb-4">
+              {t('contact.title')} <span className="text-gradient">{t('contact.titleHighlight')}</span>
+            </h2>
+            <p className="text-muted-foreground text-lg max-w-xl mx-auto">
+              {t('contact.subtitle')}
+            </p>
           </div>
 
-          {/* Contact Form */}
-          <div className="lg:col-span-2">
-            <Card className="shadow-elegant">
-              <CardHeader>
-                <CardTitle className="text-2xl">
-                  {getTranslation("formTitle", language)}</CardTitle>
-                <CardDescription>
-                  {getTranslation("formDesc", language)}
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <form onSubmit={handleSubmit} className="space-y-6">
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="firstName">
-                        {getTranslation("firstName", language)} *</Label>
-                      <Input
-                        id="firstName"
-                        required
-                        value={formData.firstName}
-                        onChange={(e) => handleInputChange("firstName", e.target.value)}
-                        placeholder={language === 'ar' ? "ادخل اسمك الاول" : "Enter your first name"}
-                      />
+          <div className="grid lg:grid-cols-2 gap-12">
+            {/* Contact Info Cards */}
+            <div className="space-y-6">
+              <div className="grid gap-6">
+                {/* Email */}
+                <a
+                  href="mailto:info@gmai.sa"
+                  className="group bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-8 hover:border-primary/50 transition-all duration-300"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-300">
+                      <Mail className="w-6 h-6 text-primary" />
                     </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="lastName">{getTranslation("lastName", language)}</Label>
-                      <Input
-                        id="lastName"
-                        value={formData.lastName}
-                        onChange={(e) => handleInputChange("lastName", e.target.value)}
-                        placeholder={language === 'ar' ? "ادخل اسمك الاخير" : "Enter your last name"}
-                      />
+                    <div>
+                      <h3 className="font-display font-semibold mb-1">{t('contact.email')}</h3>
+                      <p className="text-primary">info@gmai.sa</p>
                     </div>
                   </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="email">{getTranslation("email", language)} *</Label>
-                      <Input
-                        id="email"
-                        type="email"
-                        required
-                        value={formData.email}
-                        onChange={(e) => handleInputChange("email", e.target.value)}
-                        placeholder= {language === 'ar' ? "ادخل بريدك الالكتروني" : "Enter your email address"}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="phonenumber">{getTranslation("phoneNum", language)}</Label>
-                      <Input
-                        id="phonenumber"
-                        type="tel"
-                        value={formData.phonenumber}
-                        onChange={(e) => handleInputChange("phonenumber", e.target.value)}
-                        placeholder={language === 'ar' ? "ادخل رقم الجوال" : "Enter your phone number"}
-                      />
-                    </div>
-                  </div>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    <div className="space-y-2">
-                      <Label htmlFor="company">{getTranslation("companyForm", language)} *</Label>
-                      <Input
-                        id="company"
-                        required
-                        value={formData.company}
-                        onChange={(e) => handleInputChange("company", e.target.value)}
-                        placeholder={language === 'ar' ? "ادخل اسم الشركة" : "Enter your company name"}
-                      />
-                    </div>
-                    <div className="space-y-2">
-                      <Label htmlFor="companySize">{getTranslation("companySize", language)}</Label>
-                      <Select value={formData.companySize} onValueChange={(value) => handleInputChange("companySize", value)}>
-                        <SelectTrigger>
-                          <SelectValue placeholder={language === 'ar' ? "اختر حجم الشركة" : "Select company size"} />
-                        </SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="1-10">{language === 'ar' ? "1-10 موظف" : "1-10 employees"}</SelectItem>
-                          <SelectItem value="11-50">{language === 'ar' ? "11-50 موظف" : "11-50 employees"}</SelectItem>
-                          <SelectItem value="51-200">{language === 'ar' ? "51-200 موظف" : "51-200 employees"}</SelectItem>
-                          <SelectItem value="201-1000">{language === 'ar' ? "201-1000 موظف" : "201-1000 employees"}</SelectItem>
-                          <SelectItem value="1000+">{language === 'ar' ? "1000+ موظف" : "1000+ employees"}</SelectItem>
-                        </SelectContent>
-                      </Select>
-                    </div>
-                  </div>
+                </a>
 
-                  <div className="space-y-2">
-                    <Label htmlFor="message">{getTranslation("message", language)}</Label>
-                    <Textarea
-                      id="message"
-                      value={formData.message}
-                      onChange={(e) => handleInputChange("message", e.target.value)}
-                      placeholder={language === 'ar' ? "أخبرنا عنك" : "Tell us about your customer service challenges and goals..."}
-                      rows={4}
+                {/* Call Us - Clickable */}
+                <a
+                  href={`tel:${PHONE_NUMBER}`}
+                  className="group bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-8 hover:border-primary/50 transition-all duration-300 cursor-pointer"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-300">
+                      <Phone className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-display font-semibold mb-1">{t('contact.call')}</h3>
+                      <p className="text-primary">0544669879</p>
+                      <p className="text-muted-foreground text-sm">{t('contact.hours')}</p>
+                    </div>
+                  </div>
+                </a>
+
+                {/* WhatsApp */}
+                <a
+                  href={WHATSAPP_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-8 hover:border-primary/50 transition-all duration-300 cursor-pointer"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-300">
+                      <MessageCircle className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-display font-semibold mb-1">{t('contact.whatsapp')}</h3>
+                      <p className="text-primary">0544669879</p>
+                      <p className="text-muted-foreground text-sm">{t('contact.hours')}</p>
+                    </div>
+                  </div>
+                </a>
+
+                {/* Visit Us - Opens Google Maps */}
+                <a
+                  href={GOOGLE_MAPS_LINK}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="group bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-8 hover:border-primary/50 transition-all duration-300 cursor-pointer"
+                >
+                  <div className="flex items-start gap-4">
+                    <div className="w-14 h-14 bg-primary/10 rounded-xl flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-300">
+                      <MapPin className="w-6 h-6 text-primary" />
+                    </div>
+                    <div>
+                      <h3 className="font-display font-semibold mb-1">{t('contact.visit')}</h3>
+                      <p className="text-muted-foreground">{t('contact.location')}</p>
+                    </div>
+                  </div>
+                </a>
+              </div>
+            </div>
+
+            {/* Contact Form */}
+            <div className="bg-card/50 backdrop-blur-sm border border-border/50 rounded-2xl p-8">
+              <h3 className="text-2xl font-display font-bold mb-6">{t('contact.form.title')}</h3>
+
+              <form onSubmit={handleSubmit} className="space-y-5">
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="firstName" className="block text-sm font-medium mb-2">
+                      {t('contact.form.firstName')} *
+                    </label>
+                    <input
+                      type="text"
+                      id="firstName"
+                      name="firstName"
+                      value={formData.firstName}
+                      onChange={handleChange}
+                      required
+                      className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                      placeholder={t('contact.form.firstName')}
                     />
                   </div>
+                  <div>
+                    <label htmlFor="lastName" className="block text-sm font-medium mb-2">
+                      {t('contact.form.lastName')}
+                    </label>
+                    <input
+                      type="text"
+                      id="lastName"
+                      name="lastName"
+                      value={formData.lastName}
+                      onChange={handleChange}
+                      className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                      placeholder={t('contact.form.lastName')}
+                    />
+                  </div>
+                </div>
 
-                  <Button type="submit" variant="cta" size="lg" className="w-full group" disabled={isSubmitting}>
-                    <Send className={`mr-2 h-5 w-5 ${isSubmitting ? 'animate-pulse' : ''}`} />
-                    {isSubmitting ? "Sending... | جار الارسال" : "Send Message | ارسل الطلب"}
-                  </Button>
-                </form>
-              </CardContent>
-            </Card>
+                <div>
+                  <label htmlFor="email" className="block text-sm font-medium mb-2">
+                    {t('contact.form.email')} *
+                  </label>
+                  <input
+                    type="email"
+                    id="email"
+                    name="email"
+                    value={formData.email}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                    placeholder={t('contact.form.email')}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="phone" className="block text-sm font-medium mb-2">
+                    {t('contact.form.phone')}
+                  </label>
+                  <input
+                    type="tel"
+                    id="phone"
+                    name="phone"
+                    value={formData.phone}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                    placeholder={t('contact.form.phone')}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="company" className="block text-sm font-medium mb-2">
+                    {t('contact.form.company')} *
+                  </label>
+                  <input
+                    type="text"
+                    id="company"
+                    name="company"
+                    value={formData.company}
+                    onChange={handleChange}
+                    required
+                    className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                    placeholder={t('contact.form.company')}
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="companySize" className="block text-sm font-medium mb-2">
+                    {t('contact.form.companySize')}
+                  </label>
+                  <select
+                    id="companySize"
+                    name="companySize"
+                    value={formData.companySize}
+                    onChange={handleChange}
+                    className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors"
+                  >
+                    <option value="">{t('contact.form.selectSize')}</option>
+                    {companySizes.map((size) => (
+                      <option key={size.value} value={size.value}>
+                        {size.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label htmlFor="message" className="block text-sm font-medium mb-2">
+                    {t('contact.form.message')}
+                  </label>
+                  <textarea
+                    id="message"
+                    name="message"
+                    value={formData.message}
+                    onChange={handleChange}
+                    rows={4}
+                    className="w-full px-4 py-3 bg-background border border-border/50 rounded-xl focus:border-primary focus:ring-1 focus:ring-primary outline-none transition-colors resize-none"
+                    placeholder={t('contact.form.message')}
+                  />
+                </div>
+
+                <button
+                  type="submit"
+                  disabled={isSubmitting || isSubmitted}
+                  className="w-full bg-gradient-primary text-primary-foreground px-6 py-4 rounded-xl font-semibold text-lg hover:opacity-90 transition-all duration-300 glow-primary hover:scale-[1.02] disabled:opacity-70 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                >
+                  {isSubmitted ? (
+                    <>
+                      <CheckCircle className="w-5 h-5" />
+                      {t('contact.form.success')}
+                    </>
+                  ) : isSubmitting ? (
+                    <span className="animate-pulse">Sending...</span>
+                  ) : (
+                    <>
+                      <Send className="w-5 h-5" />
+                      {t('contact.form.submit')}
+                    </>
+                  )}
+                </button>
+              </form>
+            </div>
+          </div>
+
+          {/* CTA */}
+          <div className="mt-16 bg-gradient-to-r from-primary/10 via-accent/10 to-primary/10 border border-primary/20 rounded-3xl p-10 text-center">
+            <h3 className="text-2xl font-display font-bold mb-4">
+              {t('contact.cta.title')}
+            </h3>
+            <p className="text-muted-foreground mb-6 max-w-lg mx-auto">
+              {t('contact.cta.text')}
+            </p>
+            <a
+              href="mailto:info@gmai.sa"
+              className="inline-flex bg-gradient-primary text-primary-foreground px-8 py-4 rounded-xl font-semibold text-lg hover:opacity-90 transition-all duration-300 glow-primary hover:scale-105"
+            >
+              {t('contact.cta.button')}
+            </a>
           </div>
         </div>
       </div>
