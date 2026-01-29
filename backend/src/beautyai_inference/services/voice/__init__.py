@@ -66,6 +66,27 @@ from .tools import (
     CUSTOMER_SERVICE_SYSTEM_PROMPT
 )
 
+# LangGraph workflow (optional - requires langgraph package)
+try:
+    from .graph import (
+        VoiceAgentState,
+        Intent,
+        ToolResult,
+        create_voice_workflow,
+        VoiceWorkflow,
+    )
+    from .langgraph_integration import (
+        LangGraphVoiceAdapter,
+        LangGraphPipelineIntegration,
+        process_with_langgraph,
+        detect_intent_with_patterns,
+        get_or_create_integration,
+        clear_integration,
+    )
+    LANGGRAPH_AVAILABLE = True
+except ImportError:
+    LANGGRAPH_AVAILABLE = False
+
 __all__ = [
     # Simple voice service
     "SimpleVoiceService",
@@ -109,4 +130,23 @@ __all__ = [
     "tool_allows_interruption",
     "get_customer_service_system_prompt",
     "CUSTOMER_SERVICE_SYSTEM_PROMPT",
+    
+    # LangGraph (conditionally available)
+    "LANGGRAPH_AVAILABLE",
 ]
+
+# Add LangGraph exports if available
+if LANGGRAPH_AVAILABLE:
+    __all__.extend([
+        "VoiceAgentState",
+        "Intent",
+        "ToolResult",
+        "create_voice_workflow",
+        "VoiceWorkflow",
+        "LangGraphVoiceAdapter",
+        "LangGraphPipelineIntegration",
+        "process_with_langgraph",
+        "detect_intent_with_patterns",
+        "get_or_create_integration",
+        "clear_integration",
+    ])

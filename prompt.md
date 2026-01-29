@@ -4,4 +4,4 @@
 - Auth: `logs/auth/sessions.jsonl`
 - Inference/LLM response: `logs/inference/llm.jsonl`
 - WebRTC:`logs/webrtc/connections.jsonl` 
-- Backend Journal Log,
+- Backend Journal Log: `reports/logs/journal_backend_service.log`

@@ -1,0 +1,19 @@
+                                           Table "public.demo_time_slots"
+      Column      |            Type             | Collation | Nullable |                   Default                   
+------------------+-----------------------------+-----------+----------+---------------------------------------------
+ id               | integer                     |           | not null | nextval('demo_time_slots_id_seq'::regclass)
+ date             | timestamp without time zone |           | not null | 
+ start_time       | character varying(10)       |           | not null | 
+ end_time         | character varying(10)       |           | not null | 
+ duration_minutes | integer                     |           | not null | 30
+ max_bookings     | integer                     |           | not null | 1
+ current_bookings | integer                     |           | not null | 0
+ is_available     | boolean                     |           | not null | true
+ created_at       | timestamp without time zone |           |          | now()
+Indexes:
+    "demo_time_slots_pkey" PRIMARY KEY, btree (id)
+    "ix_demo_slots_date_time" btree (date, start_time)
+    "ix_demo_time_slots_date" btree (date)
+Referenced by:
+    TABLE "demo_appointments" CONSTRAINT "demo_appointments_time_slot_id_fkey" FOREIGN KEY (time_slot_id) REFERENCES demo_time_slots(id) ON DELETE CASCADE
+

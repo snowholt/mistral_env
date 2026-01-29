@@ -399,6 +399,20 @@ export default function VoiceDemo() {
               : `📎 Your message was queued (${data.queue_size} pending)`);
             break;
 
+          case 'interrupt':
+            // User started speaking during TTS - stop playback
+            console.log('🛑 Interrupt received:', data.reason);
+            if (audioPlayerRef.current) {
+              audioPlayerRef.current.pause();
+              audioPlayerRef.current = null;
+              console.log('🔊 TTS playback stopped due to interruption');
+            }
+            isTTSPlayingRef.current = false;
+            pendingMicEnableRef.current = false;
+            setConnectionState('listening');
+            setVadStatus('🎤 Mic Active');
+            break;
+
           default:
             console.log('Unknown message type:', data.type);
         }
@@ -514,7 +528,8 @@ export default function VoiceDemo() {
         body: JSON.stringify({
           sdp: offer.sdp,
           type: offer.type,
-          language: language
+            language: language,
+            customer_service_mode: true
         })
       });
 
@@ -646,7 +661,7 @@ export default function VoiceDemo() {
       case 'speaking':
         return { text: '🔊 Speaking...', color: 'text-pink-500' };
       default:
-        return { text: 'Disconnected', color: 'text-gray-500' };
+        return { text: 'Disconnected', color: 'text-muted-foreground' };
     }
   };
 
@@ -660,7 +675,7 @@ export default function VoiceDemo() {
             <CardTitle className="text-red-600">{t.error}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-700 mb-4">{error}</p>
+              <p className="text-muted-foreground mb-4">{error}</p>
             <Button onClick={() => navigate('/app')} variant="outline">
               {t.backToDashboard}
             </Button>
@@ -674,10 +689,10 @@ export default function VoiceDemo() {
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
             {language === 'ar' ? 'تجربة المحادثة الصوتية' : 'Voice Conversation Demo'}
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             {language === 'ar' 
               ? 'تحدث بشكل طبيعي وسيتم الرد عليك في الوقت الفعلي'
               : 'Speak naturally and get real-time AI responses'}
@@ -695,32 +710,32 @@ export default function VoiceDemo() {
                     connectionState === 'processing' ? 'bg-purple-500 animate-pulse' :
                     connectionState === 'speaking' ? 'bg-pink-500 animate-pulse' :
                     connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                    'bg-gray-400'
+                    'bg-muted-foreground/40'
                   }`} />
                   <span className={`font-semibold ${status.color}`}>
                     {status.text}
                   </span>
                 </div>
-                <span className="text-sm text-gray-600">{vadStatus}</span>
+                <span className="text-sm text-muted-foreground">{vadStatus}</span>
               </CardHeader>
               
               <CardContent>
                 {/* Chat messages */}
                 <div 
                   ref={chatBoxRef}
-                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-gray-50 rounded-lg space-y-4"
+                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-muted/40 rounded-lg space-y-4 text-black"
                 >
                   {messages.map((msg, idx) => (
                     <div
                       key={idx}
                       className={`${
                         msg.role === 'system' 
-                          ? 'text-center text-sm text-gray-500 py-2'
+                          ? 'text-center text-sm text-black py-2'
                           : 'flex flex-col'
                       }`}
                     >
                       {msg.role === 'system' ? (
-                        <span className="bg-gray-200 px-3 py-1 rounded-full inline-block">
+                        <span className="bg-muted px-3 py-1 rounded-full inline-block text-black">
                           {msg.text}
                         </span>
                       ) : (
@@ -728,8 +743,8 @@ export default function VoiceDemo() {
                           {/* Role label */}
                           <span className={`text-xs font-semibold mb-1 ${
                             msg.role === 'user' 
-                              ? 'text-blue-600' 
-                              : 'text-emerald-600'
+                              ? 'text-black' 
+                              : 'text-black'
                           }`}>
                             {msg.role === 'user' 
                               ? (language === 'ar' ? '👤 أنت' : '👤 You') 
@@ -740,8 +755,8 @@ export default function VoiceDemo() {
                           <div
                             className={`p-3 rounded-lg ${
                               msg.role === 'user' 
-                                ? 'bg-blue-100 border-l-4 border-blue-500' 
-                                : 'bg-emerald-50 border-l-4 border-emerald-500'
+                                ? 'bg-blue-50 dark:bg-blue-950/40 border-l-4 border-blue-500 text-black' 
+                                : 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-500 text-black'
                             } ${msg.isRTL ? 'text-right' : 'text-left'}`}
                             dir={msg.isRTL ? 'rtl' : 'ltr'}
                           >
@@ -755,11 +770,11 @@ export default function VoiceDemo() {
                   {/* Current assistant message (streaming) */}
                   {currentAssistantMessage && (
                     <div className="flex flex-col">
-                      <span className="text-xs font-semibold mb-1 text-emerald-600">
+                      <span className="text-xs font-semibold mb-1 text-black">
                         {language === 'ar' ? '🤖 المساعد' : '🤖 AI Assistant'}
                       </span>
                       <div
-                        className={`p-3 rounded-lg bg-emerald-50 border-l-4 border-emerald-500 ${
+                        className={`p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-500 text-black ${
                           isArabicText(currentAssistantMessage) ? 'text-right' : 'text-left'
                         }`}
                         dir={isArabicText(currentAssistantMessage) ? 'rtl' : 'ltr'}
@@ -842,7 +857,7 @@ export default function VoiceDemo() {
               <CardContent className="space-y-3 py-2">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-muted-foreground">
                       {language === 'ar' ? 'TPS' : 'Tokens/s'}
                     </div>
                     <div className="text-lg font-bold text-blue-600">
@@ -851,7 +866,7 @@ export default function VoiceDemo() {
                   </div>
 
                   <div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-muted-foreground">
                       {language === 'ar' ? 'LLM' : 'LLM'}
                     </div>
                     <div className="text-lg font-bold text-purple-600">
@@ -860,7 +875,7 @@ export default function VoiceDemo() {
                   </div>
 
                   <div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-muted-foreground">
                       {language === 'ar' ? 'STT' : 'STT'}
                     </div>
                     <div className="text-lg font-bold text-green-600">
@@ -869,7 +884,7 @@ export default function VoiceDemo() {
                   </div>
 
                   <div>
-                    <div className="text-xs text-gray-600">
+                    <div className="text-xs text-muted-foreground">
                       {language === 'ar' ? 'TTS' : 'TTS'}
                     </div>
                     <div className="text-lg font-bold text-pink-600">
@@ -879,7 +894,7 @@ export default function VoiceDemo() {
                 </div>
 
                 <div className="pt-2 border-t">
-                  <div className="text-xs text-gray-500">
+                  <div className="text-xs text-muted-foreground">
                     {language === 'ar' ? 'الحالة' : 'Status'}: <span className="font-medium">{connectionState}</span>
                   </div>
                 </div>

@@ -108,11 +108,11 @@ const translations = {
 };
 
 const statusColors: Record<string, string> = {
-  pending: 'bg-yellow-100 text-yellow-800',
-  confirmed: 'bg-green-100 text-green-800',
-  cancelled: 'bg-red-100 text-red-800',
-  completed: 'bg-blue-100 text-blue-800',
-  no_show: 'bg-gray-100 text-gray-800',
+  pending: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-950/40 dark:text-yellow-300',
+  confirmed: 'bg-green-100 text-green-800 dark:bg-green-950/40 dark:text-green-300',
+  cancelled: 'bg-red-100 text-red-800 dark:bg-red-950/40 dark:text-red-300',
+  completed: 'bg-blue-100 text-blue-800 dark:bg-blue-950/40 dark:text-blue-300',
+  no_show: 'bg-gray-100 text-gray-800 dark:bg-gray-900/60 dark:text-gray-200',
 };
 
 export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps) {
@@ -239,18 +239,18 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
           {customer ? (
             <div className="space-y-2 text-sm">
               <div className="flex items-center gap-2">
-                <User className="h-3 w-3 text-gray-400" />
+                <User className="h-3 w-3 text-muted-foreground" />
                 <span className="font-medium">{customer.full_name}</span>
               </div>
               {customer.phone && (
                 <div className="flex items-center gap-2">
-                  <Phone className="h-3 w-3 text-gray-400" />
+                  <Phone className="h-3 w-3 text-muted-foreground" />
                   <span>{customer.phone}</span>
                 </div>
               )}
               {customer.email && (
                 <div className="flex items-center gap-2">
-                  <Mail className="h-3 w-3 text-gray-400" />
+                  <Mail className="h-3 w-3 text-muted-foreground" />
                   <span>{customer.email}</span>
                 </div>
               )}
@@ -261,7 +261,7 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
               </div>
             </div>
           ) : (
-            <p className="text-sm text-gray-500 italic">{t.noCustomer}</p>
+            <p className="text-sm text-muted-foreground italic">{t.noCustomer}</p>
           )}
         </CardContent>
       </Card>
@@ -281,25 +281,25 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
                 {appointments.map((appt) => (
                   <div
                     key={appt.id}
-                    className="p-2 rounded border bg-gray-50 text-xs space-y-1"
+                    className="p-2 rounded border bg-muted/50 text-xs space-y-1"
                   >
                     <div className="flex items-center justify-between">
                       <span className="font-medium">{appt.time_slot.date}</span>
-                      <Badge className={statusColors[appt.status] || 'bg-gray-100'}>
+                      <Badge className={statusColors[appt.status] || 'bg-muted text-muted-foreground'}>
                         {appt.status}
                       </Badge>
                     </div>
-                    <div className="flex items-center gap-2 text-gray-600">
+                    <div className="flex items-center gap-2 text-muted-foreground">
                       <Clock className="h-3 w-3" />
                       <span>{appt.time_slot.start_time} - {appt.time_slot.end_time}</span>
                     </div>
-                    <div className="text-gray-600">{appt.service_type}</div>
+                    <div className="text-muted-foreground">{appt.service_type}</div>
                   </div>
                 ))}
               </div>
             </ScrollArea>
           ) : (
-            <p className="text-sm text-gray-500 italic">{t.noAppointments}</p>
+            <p className="text-sm text-muted-foreground italic">{t.noAppointments}</p>
           )}
         </CardContent>
       </Card>
@@ -325,7 +325,7 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
         </CardHeader>
         <CardContent className="py-2">
           {isLoadingSlots ? (
-            <div className="flex items-center gap-2 text-sm text-gray-500">
+            <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="h-4 w-4 animate-spin" />
               {t.loading}
             </div>
@@ -335,22 +335,22 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
                 {availableSlots.slice(0, 12).map((slot) => (
                   <div
                     key={slot.id}
-                    className="p-1.5 rounded border text-xs bg-emerald-50 border-emerald-200"
+                    className="p-1.5 rounded border text-xs bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-900/60"
                   >
                     <div className="font-medium">{slot.date}</div>
-                    <div className="text-gray-600">{slot.start_time}</div>
+                    <div className="text-muted-foreground">{slot.start_time}</div>
                   </div>
                 ))}
               </div>
               {availableSlots.length > 12 && (
-                <p className="text-xs text-gray-500 mt-2">
+                <p className="text-xs text-muted-foreground mt-2">
                   +{availableSlots.length - 12} more slots
                 </p>
               )}
             </ScrollArea>
           ) : (
             <div className="space-y-2">
-              <p className="text-sm text-gray-500 italic">{t.noSlots}</p>
+              <p className="text-sm text-muted-foreground italic">{t.noSlots}</p>
               <Button
                 variant="outline"
                 size="sm"
@@ -387,17 +387,17 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
                   <div
                     key={idx}
                     className={`p-1.5 rounded text-xs flex items-center gap-2 ${
-                      event.status === 'executing' ? 'bg-blue-50' :
-                      event.status === 'complete' ? 'bg-green-50' :
-                      'bg-red-50'
+                      event.status === 'executing' ? 'bg-blue-50 dark:bg-blue-950/40' :
+                      event.status === 'complete' ? 'bg-green-50 dark:bg-green-950/40' :
+                      'bg-red-50 dark:bg-red-950/40'
                     }`}
                   >
                     {event.status === 'executing' ? (
-                      <Loader2 className="h-3 w-3 animate-spin text-blue-600" />
+                      <Loader2 className="h-3 w-3 animate-spin text-blue-600 dark:text-blue-400" />
                     ) : event.status === 'complete' ? (
-                      <CheckCircle className="h-3 w-3 text-green-600" />
+                      <CheckCircle className="h-3 w-3 text-green-600 dark:text-green-400" />
                     ) : (
-                      <XCircle className="h-3 w-3 text-red-600" />
+                      <XCircle className="h-3 w-3 text-red-600 dark:text-red-400" />
                     )}
                     <span className="font-mono">{event.tool}</span>
                     <Badge variant="outline" className="text-[10px] ml-auto">
@@ -409,7 +409,7 @@ export function AppointmentPanel({ language, onToolCall }: AppointmentPanelProps
               </div>
             </ScrollArea>
           ) : (
-            <p className="text-xs text-gray-500 italic">No tool activity yet</p>
+            <p className="text-xs text-muted-foreground italic">No tool activity yet</p>
           )}
         </CardContent>
       </Card>
