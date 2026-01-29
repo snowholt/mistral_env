@@ -78,11 +78,19 @@ aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
 # IMPORTS
 # ============================================================
 from ...core.persistent_model_manager import get_persistent_model_manager
+from ...core.voice_session_manager import get_voice_session_manager, VoiceSessionManager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.transient_suppressor import TransientSuppressor
 from ...utils.transcription_cleaner import filter_whisper_output, clean_llm_response_for_tts
+from ...services.voice.tools import (
+    VoiceToolExecutor,
+    get_tools_for_openai,
+    get_customer_service_system_prompt,
+    tool_allows_interruption
+)
 import base64
+import traceback as tb
 
 logger = logging.getLogger(__name__)
 
@@ -93,10 +101,25 @@ logger = logging.getLogger(__name__)
 ENABLE_TRANSIENT_SUPPRESSOR = os.getenv("VOICE_TRANSIENT_SUPPRESSOR", "0") == "1"
 ENABLE_DEBUG_CAPTURE = os.getenv("VOICE_DEBUG_CAPTURE", "0") == "1"
 DEBUG_CAPTURE_DIR = Path(os.getenv("VOICE_DEBUG_CAPTURE_DIR", "/home/lumi/beautyai/reports/debug/voice"))
+ENABLE_LANGGRAPH = os.getenv("VOICE_LANGGRAPH_ENABLED", "0") == "1"
 
 # Ensure debug directory exists
 if ENABLE_DEBUG_CAPTURE:
     DEBUG_CAPTURE_DIR.mkdir(parents=True, exist_ok=True)
+
+# LangGraph integration (optional)
+_langgraph_integration = None
+if ENABLE_LANGGRAPH:
+    try:
+        from ...services.voice.langgraph_integration import (
+            LangGraphPipelineIntegration,
+            get_or_create_integration,
+            clear_integration,
+        )
+        print("[VOICE] ✅ LangGraph integration loaded", flush=True)
+    except ImportError as e:
+        print(f"[VOICE] ⚠️ LangGraph not available: {e}", flush=True)
+        ENABLE_LANGGRAPH = False
 
 # ============================================================
 # TTS FALLBACK SINGLETON (prevents "cannot schedule new futures after shutdown")
@@ -139,6 +162,11 @@ class OfferRequest(BaseModel):
     sdp: str = Field(..., min_length=10)
     type: str = Field(default="offer")
     language: Optional[str] = Field(default=None, description="Language code (ar, en)")
+    customer_service_mode: Optional[bool] = Field(
+        default=False,
+        validation_alias=AliasChoices("customer_service_mode", "customerServiceMode", "demo_mode", "demoMode"),
+        description="Enable customer service appointment booking tools"
+    )
 
 
 class OfferResponse(BaseModel):
@@ -185,7 +213,12 @@ async def handle_offer(request: OfferRequest):
         session_id = str(uuid.uuid4())
         # Default to English if not specified (fixes language mixing issue)
         target_language = request.language or "en"
-        print(f"[VOICE] 🚀 Creating session {session_id} (language={target_language})", flush=True)
+        customer_service_mode = bool(request.customer_service_mode)
+        print(
+            f"[VOICE] 🚀 Creating session {session_id} (language={target_language}, "
+            f"customer_service={customer_service_mode})",
+            flush=True
+        )
 
         # RTC Configuration
         config = RTCConfiguration(
@@ -199,6 +232,16 @@ async def handle_offer(request: OfferRequest):
             ]
         )
         pc = RTCPeerConnection(configuration=config)
+
+        # Initialize Voice Session Manager for multi-turn context
+        voice_session_mgr = get_voice_session_manager(persist_sessions=False)
+        voice_session = await voice_session_mgr.create_session(
+            connection_id=session_id,
+            language=target_language,
+            voice_type="female",
+            session_id=session_id
+        )
+        print(f"[VOICE] 📋 Voice session created: {voice_session.session_id}", flush=True)
 
         # Session Context
         session_context = {
@@ -219,11 +262,35 @@ async def handle_offer(request: OfferRequest):
             "turn_timer_task": None,
             "is_speaking": False,  # Track if TTS is playing
             "loop": asyncio.get_event_loop(),
+            "customer_service_mode": customer_service_mode,
+            "tool_executor": None,
+            "customer_context": {},
+            # Voice session manager for multi-turn context
+            "voice_session_manager": voice_session_mgr,
+            "voice_session": voice_session,
             # Debug capture buffers
             "debug_capture_enabled": ENABLE_DEBUG_CAPTURE,
             "debug_16khz_buffer": [] if ENABLE_DEBUG_CAPTURE else None,
             "debug_rnnoise_buffer": [] if ENABLE_DEBUG_CAPTURE else None,
         }
+
+        # Tool executor for customer service mode
+        if customer_service_mode:
+            tool_base_url = os.getenv("VOICE_TOOL_API_BASE_URL", "http://localhost:8000")
+            session_context["tool_executor"] = VoiceToolExecutor(base_url=tool_base_url)
+
+        # LangGraph integration (if enabled)
+        if ENABLE_LANGGRAPH and customer_service_mode:
+            try:
+                session_context["langgraph_integration"] = get_or_create_integration(
+                    session_id=session_id,
+                    language=target_language,
+                    llm_model=None  # Will be set later after model load
+                )
+                print(f"[VOICE] ✅ LangGraph integration created for session {session_id}", flush=True)
+            except Exception as lg_err:
+                logger.warning(f"[VOICE] LangGraph init failed: {lg_err}")
+                session_context["langgraph_integration"] = None
 
         # Load Models (Persistent)
         try:
@@ -556,6 +623,14 @@ async def _process_audio_track(
                             flush=True,
                         )
 
+                    # Check for voice interruption during TTS playback
+                    if context.get("is_speaking") and state == VADState.VOICE_START:
+                        dc = context.get("dc")
+                        if dc and dc.readyState == "open":
+                            print("[VOICE] 🛑 INTERRUPT detected - user speaking during TTS", flush=True)
+                            dc.send(json.dumps({"type": "interrupt", "reason": "user_speaking"}))
+                            context["is_speaking"] = False  # Mark TTS as interrupted
+
                     # Accumulate Speech
                     if state in [
                         VADState.VOICE_START,
@@ -762,109 +837,739 @@ async def _trigger_llm_response(session_id: str, context: Dict):
 
     print(f"[VOICE] 🤖 Generating response for: {full_text}", flush=True)
 
-    # Notify client: Processing (also signals to mute mic)
+    # Notify client: Processing (keep mic enabled for interruption detection)
     if dc and dc.readyState == "open":
         dc.send(json.dumps({"type": "state", "state": "processing"}))
-        # Tell client to mute microphone capture
-        dc.send(json.dumps({"type": "mic_control", "action": "mute"}))
+        # Keep mic enabled so we can detect interruption during TTS
+        # dc.send(json.dumps({"type": "mic_control", "action": "mute"}))
     
     context["is_speaking"] = True
 
     try:
-        # Build prompt with instruction for natural speech (avoid numbered lists)
-        system_prompt = (
-            "You are a helpful AI assistant having a voice conversation. "
-            "Respond naturally and conversationally. "
-            "When listing items, use words like 'first', 'second', 'next', 'also', 'finally' instead of numbers. "
-            "Keep responses concise and suitable for spoken dialogue."
-        )
+        customer_service_mode = context.get("customer_service_mode", False)
+        tool_executor = context.get("tool_executor")
+        customer_context = context.get("customer_context", {})
+        last_intent = context.get("last_intent")
+        last_requested_date = context.get("last_requested_date")
         
-        # Add /no_think prefix to force fast responses without reasoning
-        user_message = f"/no_think {full_text}"
-        
-        prompt = (
-            f"<|im_start|>system\n{system_prompt}<|im_end|>\n"
-            f"<|im_start|>user\n{user_message}<|im_end|>\n"
-            f"<|im_start|>assistant\n"
-        )
-
-        start_time = time.time()
-        token_count = 0
-        queue = asyncio.Queue()
-
-        def generate_and_enqueue():
-            try:
-                if not llm.model:
-                    llm.load_model()
-
-                generator = llm.model.create_completion(
-                    prompt,
-                    max_tokens=512,
-                    stop=["<|im_end|>"],
-                    stream=True,
-                )
-                for chunk in generator:
-                    loop.call_soon_threadsafe(queue.put_nowait, chunk)
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-            except Exception as e:
-                print(f"[VOICE] ❌ Generation error: {e}", flush=True)
-                loop.call_soon_threadsafe(queue.put_nowait, None)
-
-        loop.run_in_executor(None, generate_and_enqueue)
-
+        # Initialize response variables
         full_response = ""
-        last_sent_length = 0  # Track what we've already sent to client
-
-        while True:
-            chunk = await queue.get()
-            if chunk is None:
-                break
-
-            delta = chunk["choices"][0]["text"]
-            full_response += delta
-            token_count += 1
-
-            # Clean the accumulated response and send only new visible content
-            # This handles <think>...</think> blocks that span multiple chunks
-            import re
-            clean_response = re.sub(r'<think>.*?</think>', '', full_response, flags=re.DOTALL)
-            # Also remove incomplete <think> blocks (still being generated)
-            clean_response = re.sub(r'<think>.*$', '', clean_response, flags=re.DOTALL)
-            clean_response = clean_response.replace("</think>", "")
-            
-            # Only send the new portion since last send
-            if len(clean_response) > last_sent_length:
-                new_content = clean_response[last_sent_length:]
-                last_sent_length = len(clean_response)
+        metrics_payload = None
+        
+        # ============================================================
+        # LANGGRAPH WORKFLOW (if enabled) - processes before manual code
+        # Set VOICE_LANGGRAPH_ENABLED=1 to use graph-based intent routing
+        # ============================================================
+        langgraph_integration = context.get("langgraph_integration")
+        if ENABLE_LANGGRAPH and langgraph_integration and customer_service_mode:
+            try:
+                print(f"[VOICE] 🔀 Using LangGraph workflow for: {full_text[:50]}...", flush=True)
                 
-                if new_content.strip() and dc and dc.readyState == "open":
+                lg_result = await langgraph_integration.handle_speech(
+                    transcript=full_text,
+                    language=language,
+                    interrupt_flag=context.get("is_interrupted", False),
+                    send_callback=lambda msg: dc.send(msg) if dc and dc.readyState == "open" else None
+                )
+                
+                lg_response = lg_result.get("response_text", "")
+                intent_str = str(lg_result.get("intent", "general"))
+                tool_results = lg_result.get("tool_results", [])
+                
+                print(f"[VOICE] 🔀 LangGraph: intent={intent_str}, tools={len(tool_results)}", flush=True)
+                
+                if lg_result.get("customer_info"):
+                    customer_context["customer"] = lg_result["customer_info"]
+                    context["customer_context"] = customer_context
+                
+                if lg_response and lg_response.strip():
+                    full_response = lg_response
+                    if dc and dc.readyState == "open":
+                        dc.send(json.dumps({
+                            "type": "response_chunk",
+                            "text": full_response,
+                            "role": "assistant",
+                            "via": "langgraph"
+                        }))
+                    print(f"[VOICE] 🔀 LangGraph response: {full_response[:60]}...", flush=True)
+                    
+            except Exception as lg_err:
+                logger.error(f"[VOICE] LangGraph error: {lg_err}")
+                print(f"[VOICE] ❌ LangGraph error: {lg_err}", flush=True)
+
+        def detect_intent(text: str) -> str:
+            """Detect user intent from text. Returns: 'greeting', 'slots', 'booking', 'name_intro', 'general'."""
+            lowered = text.lower()
+            
+            # Name introduction (HIGHEST PRIORITY - check BEFORE greeting)
+            # This ensures "Hello my name is X" is detected as name_intro, not greeting
+            if any(phrase in lowered for phrase in ["my name is", "i am ", "i'm ", "this is "]):
+                return "name_intro"
+            
+            # Greeting (only if no name introduction)
+            if any(word in lowered for word in ["hello", "hi", "hey", "good morning", "good afternoon", "مرحبا", "السلام"]):
+                if len(lowered.split()) <= 5 and not any(w in lowered for w in ["appointment", "book", "slot"]):
+                    return "greeting"
+            
+            # Asking for slots/availability
+            if any(word in lowered for word in ["available", "availability", "slots", "show me", "what times", "when can"]):
+                return "slots"
+            
+            # Booking intent
+            if any(word in lowered for word in [
+                "appointment", "book", "booking", "schedule", "set an appointment",
+                "موعد", "حجز", "مواعيد"
+            ]):
+                return "booking"
+            
+            # Follow-up on previous booking intent
+            if last_intent in ["booking", "slots"]:
+                # Short responses likely continue the booking flow
+                if len(lowered.split()) <= 5:
+                    return "booking"
+                if any(word in lowered for word in ["ok", "okay", "yes", "sure", "great", "fine", "that's", "28"]):
+                    return "booking"
+            
+            return "general"
+
+        def detect_appointment_intent(text: str) -> bool:
+            """Legacy function - returns True if intent is booking-related."""
+            intent = detect_intent(text)
+            return intent in ["booking", "slots", "name_intro"]
+
+        def extract_name(text: str) -> Optional[Dict[str, str]]:
+            """Extract name from text, filtering out common false positives.
+            Supports single names (first name only) or full names (first + last).
+            """
+            import re
+            # Common words that shouldn't be names
+            invalid_names = {
+                "looking", "checking", "booking", "asking", "calling", "wanting",
+                "trying", "going", "coming", "doing", "making", "taking",
+                "here", "there", "just", "also", "very", "really",
+                "a", "an", "the", "for", "and", "but", "not",
+                "good", "fine", "okay", "well", "yes", "no",
+                "it", "is", "be", "so", "as", "at", "to"  # Short filler words
+            }
+            match = re.search(r"\b(?:my name is|i am|i'm|this is)\s+([A-Za-z]+)(?:\s+([A-Za-z]+))?", text, re.IGNORECASE)
+            if not match:
+                print(f"[VOICE] 🔍 extract_name: no pattern match in '{text}'", flush=True)
+                return None
+            first_name = match.group(1)
+            last_name = match.group(2)
+            print(f"[VOICE] 🔍 extract_name: matched first='{first_name}', last='{last_name}'", flush=True)
+            
+            # Filter out invalid first names
+            if first_name.lower() in invalid_names:
+                print(f"[VOICE] 🔍 extract_name: '{first_name}' is invalid word", flush=True)
+                return None
+            
+            # Names should be at least 2 chars
+            if len(first_name) < 2:
+                print(f"[VOICE] 🔍 extract_name: '{first_name}' too short", flush=True)
+                return None
+            
+            # Build result - last_name is optional
+            result = {"first_name": first_name}
+            if last_name and last_name.lower() not in invalid_names and len(last_name) >= 2:
+                result["last_name"] = last_name
+            else:
+                # Use "Customer" as default last name for single-name registrations
+                result["last_name"] = "Customer"
+            
+            print(f"[VOICE] 🔍 extract_name: returning {result}", flush=True)
+            return result
+        
+        def extract_time_slot(text: str) -> Optional[str]:
+            """Extract time from text like '2pm', '9:00 AM', 'two o'clock'."""
+            import re
+            lowered = text.lower()
+            
+            # Pattern for times like "2pm", "2 pm", "14:00"
+            time_patterns = [
+                r'(\d{1,2})\s*(?::|\.)?(\d{2})?\s*(am|pm)',  # 2pm, 2:00pm, 2:00 pm
+                r'(\d{1,2}):(\d{2})',  # 14:00
+            ]
+            
+            for pattern in time_patterns:
+                match = re.search(pattern, lowered)
+                if match:
+                    groups = match.groups()
+                    hour = int(groups[0])
+                    minutes = groups[1] if len(groups) > 1 and groups[1] else "00"
+                    if len(groups) > 2 and groups[2]:  # am/pm present
+                        meridiem = groups[2]
+                        if meridiem == "pm" and hour < 12:
+                            hour += 12
+                        elif meridiem == "am" and hour == 12:
+                            hour = 0
+                    return f"{hour:02d}:{minutes}"
+            
+            return None
+        
+        def detect_booking_confirmation(text: str) -> bool:
+            """Detect if user is confirming a booking (e.g., 'yes 2pm', 'at 9am', '9am please')."""
+            lowered = text.lower()
+            # Check for confirmation words
+            has_confirmation = any(word in lowered for word in [
+                "yes", "yeah", "yep", "sure", "ok", "okay", "please", "book",
+                "confirm", "that one", "sounds good", "perfect", "great",
+                "at ", "for ", "i want", "i'll take", "let's do", "i choose"
+            ])
+            # Check for time reference
+            has_time = extract_time_slot(text) is not None
+            return has_confirmation and has_time
+
+        def get_next_workday(from_date) -> 'date':
+            """Get next workday (skipping Friday/Saturday - Saudi weekend)."""
+            from datetime import timedelta
+            check_date = from_date
+            for _ in range(7):  # Look up to 7 days ahead
+                if check_date.weekday() not in [4, 5]:  # Friday=4, Saturday=5
+                    return check_date
+                check_date = check_date + timedelta(days=1)
+            return from_date  # Fallback to original if no workday found
+
+        def extract_date(text: str, default_tomorrow: bool = True) -> Optional[str]:
+            """Extract date from text. Returns ISO date string.
+            Defaults to next workday (skipping Saudi weekend: Fri/Sat).
+            """
+            import re
+            from datetime import datetime, timedelta
+            
+            month_map = {
+                "january": 1, "february": 2, "march": 3, "april": 4, "may": 5, "june": 6,
+                "july": 7, "august": 8, "september": 9, "october": 10, "november": 11, "december": 12,
+                "jan": 1, "feb": 2, "mar": 3, "apr": 4, "jun": 6, "jul": 7, "aug": 8,
+                "sep": 9, "sept": 9, "oct": 10, "nov": 11, "dec": 12
+            }
+            lowered = text.lower()
+            today = datetime.utcnow().date()
+            
+            # Check for "today"
+            if "today" in lowered:
+                if today.weekday() in [4, 5]:  # Weekend
+                    return get_next_workday(today).isoformat()
+                return today.isoformat()
+            
+            # Check for "tomorrow"
+            if "tomorrow" in lowered:
+                tomorrow = today + timedelta(days=1)
+                if tomorrow.weekday() in [4, 5]:  # Weekend
+                    return get_next_workday(tomorrow).isoformat()
+                return tomorrow.isoformat()
+            
+            # Look for day number
+            day_match = re.search(r"\b(\d{1,2})(?:st|nd|rd|th)?\b", lowered)
+            if day_match:
+                day = int(day_match.group(1))
+                
+                # Find month
+                month = None
+                for name, value in month_map.items():
+                    if name in lowered:
+                        month = value
+                        break
+                
+                if month is None:
+                    if "next month" in lowered:
+                        month = today.month + 1 if today.month < 12 else 1
+                        year = today.year if today.month < 12 else today.year + 1
+                    else:
+                        month = today.month
+                        year = today.year
+                else:
+                    year = today.year
+                
+                try:
+                    target = datetime(year, month, day).date()
+                    # If date is in the past, assume next month/year
+                    if target < today:
+                        if month == 12:
+                            target = datetime(year + 1, 1, day).date()
+                        else:
+                            target = datetime(year, month + 1, day).date()
+                    return target.isoformat()
+                except ValueError:
+                    pass
+            
+            # Default to today (if workday) or next workday
+            if default_tomorrow:
+                # Use today if it's a workday, otherwise next workday
+                if today.weekday() not in [4, 5]:  # Not weekend
+                    return today.isoformat()
+                return get_next_workday(today).isoformat()
+            return None
+
+        async def execute_tool_call(tool_name: str, tool_args: Dict[str, Any]) -> Dict[str, Any]:
+            if not tool_executor:
+                return {"success": False, "error": "Tool executor not configured"}
+
+            if dc and dc.readyState == "open":
+                dc.send(
+                    json.dumps(
+                        {
+                            "type": "tool_call",
+                            "tool": tool_name,
+                            "args": tool_args,
+                            "status": "executing",
+                            "allows_interruption": tool_allows_interruption(tool_name),
+                        }
+                    )
+                )
+
+            try:
+                result = await tool_executor.execute(
+                    tool_name,
+                    tool_args,
+                    session_id=session_id,
+                )
+            except Exception as tool_err:
+                result = {"success": False, "error": str(tool_err)}
+
+            if result.get("success") and result.get("customer"):
+                customer_context["customer"] = result["customer"]
+                context["customer_context"] = customer_context
+
+            if dc and dc.readyState == "open":
+                dc.send(
+                    json.dumps(
+                        {
+                            "type": "tool_call",
+                            "tool": tool_name,
+                            "status": "complete",
+                            "result": result,
+                        }
+                    )
+                )
+
+            return result
+
+        def build_system_prompt() -> str:
+            """Build a concise system prompt that fits within context window."""
+            base_prompt = (
+                "You are a helpful voice assistant for Kesay Beauty Clinic. "
+                "Keep responses SHORT (1-2 sentences) and conversational. "
+                "Avoid numbers - use 'first', 'next', 'also' instead."
+            )
+            if not customer_service_mode:
+                return base_prompt
+
+            # Concise customer service instructions - NO tools JSON (too large!)
+            customer_name = customer_context.get("customer", {}).get("full_name", "")
+            context_hint = f" Current customer: {customer_name}." if customer_name else ""
+            
+            return (
+                f"{base_prompt}\n\n"
+                f"Help customers with: checking appointments, booking new ones, registration.{context_hint}\n"
+                "When a customer wants to book: First ask their name if unknown, then check available times, then confirm booking.\n"
+                "Be friendly, professional, and brief."
+            )
+        
+        def get_conversation_context() -> str:
+            """Get recent conversation context from VoiceSessionManager."""
+            voice_session = context.get("voice_session")
+            if voice_session and voice_session.conversation_history:
+                return voice_session.get_recent_context(max_turns=3)
+            return ""
+
+        def summarize_tool_result(tool_result: Dict[str, Any]) -> str:
+            """Create a concise summary of tool results to fit in context window."""
+            summary_parts = []
+            
+            # Customer info
+            customer = tool_result.get("customer")
+            if customer:
+                name = customer.get("full_name", "Unknown")
+                summary_parts.append(f"Customer found: {name}")
+            elif tool_result.get("success") == False and "not found" in str(tool_result.get("error", "")).lower():
+                summary_parts.append("Customer not found - needs registration")
+            
+            # Available slots (just the count and first few)
+            slots = tool_result.get("available_slots", [])
+            if slots:
+                count = len(slots)
+                first_slots = slots[:5]  # Show first 5 slots
+                slot_str = ", ".join(f"{s.get('date', '')} {s.get('time', s.get('start_time', ''))}" for s in first_slots)
+                summary_parts.append(f"{count} slots available: {slot_str}")
+            elif "available_slots" in tool_result:
+                # Explicitly checked slots but none found - prevent LLM hallucination
+                summary_parts.append("NO SLOTS AVAILABLE - tell customer there are no available slots")
+            elif tool_result.get("booking_failed"):
+                # Explicit booking failure - don't let LLM hallucinate
+                summary_parts.append("BOOKING FAILED - slot not available")
+            
+            # Booking result
+            if tool_result.get("appointment"):
+                appt = tool_result["appointment"]
+                summary_parts.append(f"Booking confirmed: {appt.get('date', '')} {appt.get('time', '')}")
+            
+            # Error (includes booking failure messages)
+            if tool_result.get("error"):
+                summary_parts.append(f"Error: {tool_result['error']}")
+            
+            return ". ".join(summary_parts) if summary_parts else "Tool executed successfully."
+
+        def build_prompt(user_text: str, tool_result: Optional[Dict[str, Any]] = None) -> str:
+            system_prompt = build_system_prompt()
+            
+            # Get multi-turn conversation context
+            conversation_context = get_conversation_context()
+            context_section = ""
+            if conversation_context:
+                context_section = f"\n\nPrevious conversation:\n{conversation_context}\n"
+            
+            if tool_result is None:
+                user_message = f"/no_think {user_text}"
+            else:
+                # Use concise summary instead of full JSON
+                result_summary = summarize_tool_result(tool_result)
+                user_message = (
+                    f"/no_think User: {user_text}\n"
+                    f"System info: {result_summary}\n"
+                    "Respond helpfully based on this information."
+                )
+            return (
+                f"<|im_start|>system\n{system_prompt}{context_section}<|im_end|>\n"
+                f"<|im_start|>user\n{user_message}<|im_end|>\n"
+                f"<|im_start|>assistant\n"
+            )
+
+        def extract_tool_call(text: str) -> Optional[Dict[str, Any]]:
+            import re
+            clean_text = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+            clean_text = re.sub(r"<think>.*$", "", clean_text, flags=re.DOTALL)
+            clean_text = clean_text.replace("</think>", "")
+            match = re.search(r"<tool_call>(.*?)</tool_call>", clean_text, flags=re.DOTALL)
+            payload = None
+            if match:
+                payload = match.group(1).strip()
+            else:
+                stripped = clean_text.strip()
+                if stripped.startswith("{") and "\"tool\"" in stripped:
+                    payload = stripped
+            if not payload:
+                return None
+            try:
+                parsed = json.loads(payload)
+                if isinstance(parsed, dict) and "tool" in parsed:
+                    return parsed
+            except Exception as parse_err:
+                logger.warning(f"[VOICE] Tool call parse failed: {parse_err}")
+            return None
+
+        async def generate_llm(prompt: str, allow_tool_detection: bool) -> Dict[str, Any]:
+            start_time = time.time()
+            token_count = 0
+            queue = asyncio.Queue()
+
+            def generate_and_enqueue():
+                nonlocal token_count
+                try:
+                    # === DIAGNOSTIC: Check model state ===
+                    print(f"[VOICE-LLM] 🔍 Model check: llm={llm}, llm.model={getattr(llm, 'model', 'N/A')}", flush=True)
+                    print(f"[VOICE-LLM] 📝 Prompt length: {len(prompt)} chars", flush=True)
+                    print(f"[VOICE-LLM] 📝 Prompt preview: {prompt[:500]}...", flush=True)
+                    
+                    if not llm.model:
+                        print("[VOICE-LLM] ⚠️ Model not loaded, attempting load...", flush=True)
+                        llm.load_model()
+                        print(f"[VOICE-LLM] ✅ Model loaded: {llm.model}", flush=True)
+
+                    first_token_time = None
+                    print("[VOICE-LLM] 🚀 Starting create_completion...", flush=True)
+                    
+                    generator = llm.model.create_completion(
+                        prompt,
+                        max_tokens=512,
+                        stop=["<|im_end|>"],
+                        stream=True,
+                    )
+                    
+                    for chunk in generator:
+                        if first_token_time is None:
+                            first_token_time = time.time()
+                            ttft = (first_token_time - start_time) * 1000
+                            print(f"[VOICE-LLM] ⚡ First token in {ttft:.0f}ms", flush=True)
+                        token_count += 1
+                        loop.call_soon_threadsafe(queue.put_nowait, chunk)
+                    
+                    print(f"[VOICE-LLM] ✅ Generation complete: {token_count} tokens", flush=True)
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+                    
+                except Exception as e:
+                    print(f"[VOICE-LLM] ❌ Generation error: {e}", flush=True)
+                    print(f"[VOICE-LLM] ❌ Traceback:\n{tb.format_exc()}", flush=True)
+                    loop.call_soon_threadsafe(queue.put_nowait, None)
+
+            loop.run_in_executor(None, generate_and_enqueue)
+
+            full_response = ""
+            last_sent_length = 0
+            stream_decision: Optional[bool] = None
+
+            while True:
+                chunk = await queue.get()
+                if chunk is None:
+                    break
+
+                delta = chunk["choices"][0]["text"]
+                full_response += delta
+                token_count += 1
+
+                import re
+                clean_response = re.sub(r"<think>.*?</think>", "", full_response, flags=re.DOTALL)
+                clean_response = re.sub(r"<think>.*$", "", clean_response, flags=re.DOTALL)
+                clean_response = clean_response.replace("</think>", "")
+
+                if allow_tool_detection and stream_decision is None:
+                    stripped = clean_response.lstrip()
+                    if stripped:
+                        if stripped.startswith("<tool_call>") or stripped.startswith("{"):
+                            stream_decision = False
+                        else:
+                            stream_decision = True
+
+                if stream_decision is False:
+                    continue
+
+                # Default to streaming if no tool detection
+                if stream_decision is None and not allow_tool_detection:
+                    stream_decision = True
+
+                if stream_decision:
+                    if len(clean_response) > last_sent_length:
+                        new_content = clean_response[last_sent_length:]
+                        last_sent_length = len(clean_response)
+
+                        if new_content.strip() and dc and dc.readyState == "open":
+                            dc.send(
+                                json.dumps(
+                                    {
+                                        "type": "response_chunk",
+                                        "text": new_content,
+                                        "role": "assistant",
+                                    }
+                                )
+                            )
+
+            llm_time = time.time() - start_time
+            tps = token_count / llm_time if llm_time > 0 else 0
+
+            return {
+                "response": full_response.strip(),
+                "tokens": token_count,
+                "tps": tps,
+                "llm_time_ms": llm_time * 1000,
+            }
+
+        # Detect intent and execute relevant tools (SKIP if LangGraph already produced response)
+        tool_call_data = None
+        
+        # Only run manual processing if LangGraph didn't produce a response
+        if not full_response:
+            intent = detect_intent(full_text) if customer_service_mode else "general"
+            print(f"[VOICE] 🎯 Manual intent detection: {intent}", flush=True)
+            
+            # Execute tools based on intent
+            forced_tool_results = []
+            if customer_service_mode and tool_executor and intent != "general" and intent != "greeting":
+                context["last_intent"] = intent
+                
+                # Name introduction -> check/register customer
+                if intent == "name_intro":
+                    extracted_name = extract_name(full_text)
+                    if extracted_name:
+                        print(f"[VOICE] 👤 Extracted name: {extracted_name}", flush=True)
+                        check_result = await execute_tool_call("check_customer", extracted_name)
+                        forced_tool_results.append({"tool": "check_customer", "result": check_result})
+                        
+                        # If customer found, save to context
+                        if check_result.get("success") and check_result.get("customer"):
+                            customer_context["customer"] = check_result["customer"]
+                            context["customer_context"] = customer_context
+                            print(f"[VOICE] ✅ Customer found and saved to context: {check_result['customer']}", flush=True)
+                        else:
+                            # Customer not found, register them automatically
+                            print(f"[VOICE] 📝 Customer not found, registering: {extracted_name}", flush=True)
+                            register_args = {
+                                **extracted_name,
+                                "preferred_language": language
+                            }
+                            register_result = await execute_tool_call("register_customer", register_args)
+                            forced_tool_results.append({"tool": "register_customer", "result": register_result})
+                            
+                            # Save newly registered customer to context
+                            if register_result.get("success") and register_result.get("customer"):
+                                customer_context["customer"] = register_result["customer"]
+                                context["customer_context"] = customer_context
+                                print(f"[VOICE] ✅ Customer registered and saved to context: {register_result['customer']}", flush=True)
+                
+                # Slots/booking intent -> get available slots
+                if intent in ["slots", "booking"]:
+                    lowered_text = full_text.lower()
+                    time_slot = extract_time_slot(full_text)
+                    has_confirm_words = any(word in lowered_text for word in [
+                        "yes", "yeah", "yep", "sure", "ok", "okay", "please", "book",
+                        "confirm", "that one", "sounds good", "perfect", "great",
+                        "at ", "for ", "i want", "i'll take", "let's do", "i choose"
+                    ])
+                    has_previous_selection = context.get("last_selected_slot") is not None
+                    is_confirmation = detect_booking_confirmation(full_text) or (has_confirm_words and not time_slot and has_previous_selection)
+                    print(f"[VOICE] 🔍 Booking check: is_confirmation={is_confirmation}, time_slot={time_slot}, text='{full_text}'", flush=True)
+                    
+                    if is_confirmation:
+                        requested_date = context.get("last_requested_date") or extract_date(full_text, default_tomorrow=True)
+                        customer = customer_context.get("customer")
+                        selected_slot = None
+
+                        # If user said "yes/confirm" without repeating the time, use last selected slot
+                        if not time_slot and has_previous_selection:
+                            selected_slot = context.get("last_selected_slot")
+                            if selected_slot:
+                                time_slot = selected_slot.get("start_time") or selected_slot.get("time")
+                                requested_date = selected_slot.get("date") or requested_date
+                                print(f"[VOICE] 🔍 Using last_selected_slot: {selected_slot}", flush=True)
+
+                        print(f"[VOICE] 🔍 Booking details: time_slot={time_slot}, date={requested_date}, customer={customer}", flush=True)
+                        
+                        if (time_slot or selected_slot) and customer:
+                            print(f"[VOICE] 🎯 Booking confirmation detected: {requested_date} {time_slot}", flush=True)
+                            # Find matching slot from available slots if not already selected
+                            if not selected_slot:
+                                available_slots = context.get("last_available_slots", [])
+                                matching_slot = None
+                                for slot in available_slots:
+                                    slot_time = slot.get("start_time", "")
+                                    if slot_time.startswith(time_slot) or time_slot in slot_time:
+                                        matching_slot = slot
+                                        break
+                                selected_slot = matching_slot
+                            
+                            if selected_slot:
+                                context["last_selected_slot"] = selected_slot
+                                book_args = {
+                                    "customer_id": customer.get("id"),
+                                    "time_slot_id": selected_slot.get("id"),
+                                    "service_type": "consultation"
+                                }
+                                print(f"[VOICE] 📅 Booking appointment: {book_args}", flush=True)
+                                book_result = await execute_tool_call("book_appointment", book_args)
+                                if not book_result.get("success"):
+                                    book_result["booking_failed"] = True
+                                    book_result.setdefault("error", "Booking failed. Please choose another time.")
+                                forced_tool_results.append({"tool": "book_appointment", "result": book_result})
+                            else:
+                                print(f"[VOICE] ⚠️ No matching slot found for {time_slot}", flush=True)
+                                # Add explicit failure to prevent LLM hallucination
+                                forced_tool_results.append({
+                                    "tool": "book_appointment",
+                                    "result": {
+                                        "success": False,
+                                        "error": f"No available slot found for {time_slot} on {requested_date}. Please ask customer to choose from the available times.",
+                                        "booking_failed": True
+                                    }
+                                })
+                        else:
+                            if not customer:
+                                print(f"[VOICE] ⚠️ Cannot book - no customer in context (customer_context={customer_context})", flush=True)
+                                forced_tool_results.append({
+                                    "tool": "book_appointment",
+                                    "result": {
+                                        "success": False,
+                                        "error": "Customer not registered. Please ask for the customer's name first.",
+                                        "booking_failed": True
+                                    }
+                                })
+                            if not time_slot and not selected_slot:
+                                print(f"[VOICE] ⚠️ Cannot book - no time slot extracted from '{full_text}'", flush=True)
+                    else:
+                        # Just fetch available slots
+                        requested_date = extract_date(full_text, default_tomorrow=True)
+                        if requested_date:
+                            context["last_requested_date"] = requested_date
+                            print(f"[VOICE] 📅 Getting slots for: {requested_date}", flush=True)
+                            slots_result = await execute_tool_call("list_available_slots", {"date": requested_date})
+                            
+                            # If no slots found for requested date, try next 7 days
+                            if not slots_result.get("available_slots"):
+                                from datetime import datetime, timedelta
+                                print(f"[VOICE] ⚠️ No slots for {requested_date}, trying next 7 days...", flush=True)
+                                slots_result = await execute_tool_call("list_available_slots", {"days_ahead": 7})
+                                if slots_result.get("available_slots"):
+                                    print(f"[VOICE] ✅ Found {len(slots_result['available_slots'])} slots in next 7 days", flush=True)
+                                else:
+                                    print(f"[VOICE] ⚠️ No slots available in next 7 days either", flush=True)
+                            
+                            forced_tool_results.append({"tool": "list_available_slots", "result": slots_result})
+                            # Cache available slots for later booking
+                            if slots_result.get("available_slots"):
+                                context["last_available_slots"] = slots_result["available_slots"]
+                                # Update last_requested_date to the first available slot's date
+                                first_slot = slots_result["available_slots"][0]
+                                context["last_requested_date"] = first_slot.get("date", requested_date)
+                
+                # Combine results
+                if forced_tool_results:
+                    tool_call_data = {
+                        "success": True,
+                        "customer": customer_context.get("customer"),
+                    }
+                    for entry in forced_tool_results:
+                        if entry.get("tool") == "list_available_slots":
+                            tool_call_data.update(entry.get("result", {}))
+                        if entry.get("tool") == "check_customer":
+                            tool_call_data.update(entry.get("result", {}))
+                        if entry.get("tool") == "register_customer":
+                            tool_call_data.update(entry.get("result", {}))
+                        if entry.get("tool") == "book_appointment":
+                            tool_call_data.update(entry.get("result", {}))
+
+                # Generate LLM response (single call, tools already executed)
+                prompt = build_prompt(full_text, tool_result=tool_call_data)
+                result = await generate_llm(prompt, allow_tool_detection=False)  # No tool detection needed
+                full_response = result["response"]
+                metrics_payload = result
+
+                if metrics_payload and dc and dc.readyState == "open":
                     dc.send(
                         json.dumps(
                             {
-                                "type": "response_chunk",
-                                "text": new_content,
-                                "role": "assistant",
+                                "type": "metrics",
+                                "llm_time_ms": metrics_payload["llm_time_ms"],
+                                "tokens_per_sec": metrics_payload["tps"],
+                                "total_tokens": metrics_payload["tokens"],
                             }
                         )
                     )
 
-        llm_time = time.time() - start_time
-        tps = token_count / llm_time if llm_time > 0 else 0
+                if metrics_payload:
+                    print(
+                        f"[VOICE] 🤖 AI ({metrics_payload['tps']:.1f} t/s): {full_response[:80]}...",
+                        flush=True,
+                    )
+        else:
+            print(f"[VOICE] 🔀 Skipping manual processing - LangGraph response available", flush=True)
+        # END of manual processing block
 
-        print(f"[VOICE] 🤖 AI ({tps:.1f} t/s): {full_response[:80]}...", flush=True)
-
-        # Send LLM Metrics
-        if dc and dc.readyState == "open":
-            dc.send(
-                json.dumps(
-                    {
-                        "type": "metrics",
-                        "llm_time_ms": llm_time * 1000,
-                        "tokens_per_sec": tps,
-                        "total_tokens": token_count,
-                    }
-                )
-            )
+        # ============================================================
+        # SAVE CONVERSATION TURN for multi-turn context
+        # ============================================================
+        if full_response.strip():
+            voice_session_mgr = context.get("voice_session_manager")
+            if voice_session_mgr:
+                processing_time = int((time.time() - context.get("start_time", time.time())) * 1000)
+                try:
+                    await voice_session_mgr.add_conversation_turn(
+                        session_id=session_id,
+                        user_input=full_text,
+                        ai_response=full_response,
+                        processing_time_ms=processing_time,
+                        transcription_quality="ok"
+                    )
+                    print(f"[VOICE] 💾 Saved conversation turn (user: {len(full_text)} chars, ai: {len(full_response)} chars)", flush=True)
+                except Exception as save_err:
+                    logger.warning(f"[VOICE] Failed to save conversation turn: {save_err}")
 
         # ============================================================
         # TTS SYNTHESIS (with fallback to Edge TTS if primary fails)
@@ -1005,5 +1710,10 @@ async def _cleanup_session(session_id: str):
                 ctx["turn_timer_task"].cancel()
             if ctx.get("rnnoise_processor"):
                 ctx["rnnoise_processor"].cleanup()
+            # Clean up voice session for multi-turn context
+            voice_session_mgr = ctx.get("voice_session_manager")
+            if voice_session_mgr:
+                await voice_session_mgr.close_session(session_id)
+                print(f"[VOICE] 💾 Voice session closed", flush=True)
         except Exception as e:
             logger.error(f"[VOICE] Cleanup error: {e}")
