@@ -53,6 +53,23 @@
       "voice_cloning": false,
       "target_latency_ms": 150,
       "description": "Microsoft Edge TTS - Cloud-based fallback for English and TTS failures"
+    },
+    "tts_chatterbox": {
+      "model_id": "chatterbox-multilingual",
+      "model_path": "/home/lumi/beautyai/config/models/chatterbox",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/chatterbox/reference.wav",
+      "device": "cuda",
+      "priority": 5,
+      "engine_type": "chatterbox_multilingual",
+      "sample_rate": 24000,
+      "streaming": true,
+      "voice_cloning": true,
+      "target_latency_ms": 300,
+      "exaggeration": 0.5,
+      "cfg_weight": 0.5,
+      "enabled": false,
+      "description": "ResembleAI Chatterbox Multilingual - 23 languages, zero-shot voice cloning (~4GB VRAM). Set enabled=true to load on startup.",
+      "note": "Alternative GPU TTS engine. Enable this and set language_routing to use for ar/en."
     }
   },
   "language_routing": {

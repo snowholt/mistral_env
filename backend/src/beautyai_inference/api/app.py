@@ -37,6 +37,14 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
+# Import TTS test router
+try:
+    from .endpoints.tts import router as tts_router
+    tts_router_available = True
+except ImportError as e:
+    tts_router_available = False
+    logger.warning(f"TTS test router not available: {e}")
+
 # Import WhatsApp Manager routers
 try:
     from .endpoints.whatsapp_auth import auth_router
@@ -233,6 +241,16 @@ if debug_capture_router_available:
     logger.info("WebRTC debug capture endpoints registered at /api/v1/webrtc/debug/voice-capture")
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
+
+# Include TTS test router if available
+if tts_router_available:
+    app.include_router(
+        tts_router,
+        tags=["tts"]
+    )
+    logger.info("TTS test endpoints registered at /api/v1/tts")
+else:
+    logger.warning("TTS test endpoints not registered - module not available")
 
 # Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:

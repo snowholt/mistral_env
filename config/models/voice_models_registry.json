@@ -296,6 +296,54 @@
       }
     },
 
+    "chatterbox-multilingual": {
+      "model_id": "ResembleAI/chatterbox",
+      "engine_type": "chatterbox_multilingual",
+      "type": "text_to_speech",
+      "description": "ResembleAI Chatterbox Multilingual TTS - 23 languages including Arabic, zero-shot voice cloning",
+      "supported_languages": ["ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh"],
+      "gpu_enabled": true,
+      "performance_profile": "multilingual_tts",
+      "model_path": "/home/lumi/beautyai/config/models/chatterbox",
+      "speaker_wav": "/home/lumi/beautyai/backend/speakers/chatterbox/reference.wav",
+      "documentation": {
+        "huggingface": "https://huggingface.co/ResembleAI/chatterbox",
+        "github": "https://github.com/resemble-ai/chatterbox",
+        "demo": "https://huggingface.co/spaces/ResembleAI/Chatterbox-Multilingual-TTS"
+      },
+      "model_info": {
+        "size": "500M parameters (~4GB VRAM)",
+        "latency": "200-500ms for generation",
+        "quality": "SoTA zero-shot voice cloning, supports 23 languages",
+        "streaming": true,
+        "voice_cloning": true,
+        "sample_rate": 24000,
+        "exaggeration_control": true,
+        "cfg_weight_control": true
+      },
+      "generation_params": {
+        "default_exaggeration": 0.5,
+        "default_cfg_weight": 0.5,
+        "tips": {
+          "expressive_speech": "Use exaggeration=0.7, cfg_weight=0.3 for dramatic output",
+          "fast_speaker": "Lower cfg_weight to 0.3 to improve pacing"
+        }
+      },
+      "hardware_requirements": {
+        "min_vram_gb": 4,
+        "recommended_vram_gb": 8,
+        "supports_streaming": true,
+        "supports_cpu": true,
+        "local_storage": true
+      },
+      "fallback": {
+        "enabled": true,
+        "fallback_model": "edge-tts",
+        "fallback_voice_ar": "ar-SA-ZariyahNeural",
+        "fallback_voice_en": "en-US-JennyNeural"
+      }
+    },
+
     "qwen3-chat": {
       "model_id": "unsloth/Qwen3-14B-GGUF",
       "model_path": "/home/lumi/.cache/huggingface/hub/models--unsloth--Qwen3-14B-GGUF/snapshots/a04a82c4739b3ef5fa6da7d10261db2c67dd1985/Qwen3-14B-Q4_K_S.gguf",
