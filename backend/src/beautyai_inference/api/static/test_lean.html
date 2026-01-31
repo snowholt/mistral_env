@@ -247,8 +247,8 @@
                     handleMicControl(msg.action);
                 }
                 else if (msg.type === 'tts_audio') {
-                    // Play TTS audio
-                    playTTSAudio(msg.audio, msg.format, msg.tts_time_ms);
+                    // Play TTS audio (server sends audio_base64)
+                    playTTSAudio(msg.audio_base64, msg.format, msg.tts_time_ms);
                 }
             };
         }

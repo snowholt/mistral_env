@@ -1548,6 +1548,35 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                         f"[VOICE] 🤖 AI ({metrics_payload['tps']:.1f} t/s): {full_response[:80]}...",
                         flush=True,
                     )
+            
+            # ============================================================
+            # FALLBACK: Generate LLM response for general/greeting intents
+            # This handles simple conversations without customer_service_mode
+            # ============================================================
+            if not full_response and llm:
+                print(f"[VOICE] 🤖 Generating general response for: {full_text}", flush=True)
+                prompt = build_prompt(full_text, tool_result=None)
+                result = await generate_llm(prompt, allow_tool_detection=False)
+                full_response = result["response"]
+                metrics_payload = result
+
+                if metrics_payload and dc and dc.readyState == "open":
+                    dc.send(
+                        json.dumps(
+                            {
+                                "type": "metrics",
+                                "llm_time_ms": metrics_payload["llm_time_ms"],
+                                "tokens_per_sec": metrics_payload["tps"],
+                                "total_tokens": metrics_payload["tokens"],
+                            }
+                        )
+                    )
+
+                if metrics_payload:
+                    print(
+                        f"[VOICE] 🤖 AI ({metrics_payload['tps']:.1f} t/s): {full_response[:80]}...",
+                        flush=True,
+                    )
         else:
             print(f"[VOICE] 🔀 Skipping manual processing - LangGraph response available", flush=True)
         # END of manual processing block

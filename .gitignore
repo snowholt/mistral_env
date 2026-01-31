@@ -112,6 +112,14 @@ dist/
 # =====================
 # Project-Specific Ignores
 # =====================
+# Cache directories
+cache/
+.cache/
+**/.cache/
+backend/cache/
+backend/src/cache/
+config/models/chatterbox/
+
 # RNNoise library (compiled locally)
 backend/rnnoise/
 .backup_deprecated
