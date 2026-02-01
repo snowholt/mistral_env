@@ -80,6 +80,8 @@ aiortc.rtcrtpreceiver.RTCRtpReceiver.__init__ = _patched_RTCRtpReceiver_init
 from ...core.persistent_model_manager import get_persistent_model_manager
 from ...core.voice_session_manager import get_voice_session_manager, VoiceSessionManager
 from ...services.voice.vad import WebRTCVADService, WebRTCVADConfig, VADState
+from ...services.voice.turn_detection import EndOfTurnPredictor, EndOfTurnConfig
+from ...services.voice.streaming.sentence_buffer import SentenceStreamBuffer, SentenceStreamConfig, StreamedSentence
 from ...utils.rnnoise_wrapper import RNNoiseProcessor
 from ...utils.transient_suppressor import TransientSuppressor
 from ...utils.transcription_cleaner import filter_whisper_output, clean_llm_response_for_tts
@@ -99,6 +101,8 @@ logger = logging.getLogger(__name__)
 # ============================================================
 # Environment variables for feature toggles
 ENABLE_TRANSIENT_SUPPRESSOR = os.getenv("VOICE_TRANSIENT_SUPPRESSOR", "0") == "1"
+ENABLE_SMART_TURN_DETECTION = os.getenv("VOICE_SMART_TURN_DETECTION", "1") == "1"
+ENABLE_STREAMING_TTS = os.getenv("VOICE_STREAMING_TTS", "1") == "1"  # Progressive sentence-by-sentence TTS
 ENABLE_DEBUG_CAPTURE = os.getenv("VOICE_DEBUG_CAPTURE", "0") == "1"
 DEBUG_CAPTURE_DIR = Path(os.getenv("VOICE_DEBUG_CAPTURE_DIR", "/home/lumi/beautyai/reports/debug/voice"))
 ENABLE_LANGGRAPH = os.getenv("VOICE_LANGGRAPH_ENABLED", "0") == "1"
@@ -144,6 +148,165 @@ async def _get_edge_tts_fallback():
             logger.info("[VOICE] ✅ Edge TTS fallback instance ready")
         
         return _edge_tts_fallback_instance
+
+
+async def _stream_tts_sentences(
+    sentences: list,
+    tts_engine,
+    language: str,
+    dc,
+    context: Dict,
+) -> float:
+    """Stream TTS audio for multiple sentences progressively.
+    
+    Instead of synthesizing all text at once, this function:
+    1. Synthesizes each sentence independently
+    2. Sends audio for each sentence as soon as it's ready
+    3. Allows interruption between sentences
+    
+    Args:
+        sentences: List of sentence strings to synthesize
+        tts_engine: TTS engine instance
+        language: Language code
+        dc: WebRTC data channel for sending audio
+        context: Session context (for interruption detection)
+    
+    Returns:
+        Total TTS time in milliseconds
+    """
+    import time
+    
+    total_tts_time = 0
+    tts_type = type(tts_engine).__name__ if tts_engine else "None"
+    
+    for i, sentence_text in enumerate(sentences):
+        # Check for interruption
+        if context.get("interrupted", False):
+            print(f"[VOICE] 🛑 TTS interrupted after sentence {i}", flush=True)
+            break
+        
+        if not sentence_text.strip():
+            continue
+        
+        try:
+            sentence_start = time.time()
+            
+            # Generate TTS for this sentence
+            tts_args = {"text": sentence_text, "language": language}
+            
+            if tts_type == "EdgeTTSEngine":
+                tts_args["gender"] = "female"
+            elif tts_type == "XTTSEngine":
+                if language == "ar":
+                    fallback_wav = Path("/home/lumi/beautyai/voice_tests/input_test_questions/q1.wav")
+                else:
+                    fallback_wav = Path("/home/lumi/beautyai/tests/webrtc/botox.wav")
+                if fallback_wav.exists():
+                    tts_args["speaker_wav"] = str(fallback_wav)
+            elif tts_type == "SaudiXTTSEngine":
+                if not getattr(tts_engine, "has_speaker_conditioning", lambda: False)():
+                    fallback_wav = Path("/home/lumi/beautyai/backend/speakers/saudi-female/reference.wav")
+                    if fallback_wav.exists():
+                        tts_args["speaker_wav"] = str(fallback_wav)
+            
+            # Run TTS in executor
+            loop = asyncio.get_event_loop()
+            audio_path = await loop.run_in_executor(
+                None,
+                lambda: tts_engine.text_to_speech(**tts_args)
+            )
+            
+            sentence_tts_time = (time.time() - sentence_start) * 1000
+            total_tts_time += sentence_tts_time
+            
+            # Send audio chunk
+            if audio_path and os.path.exists(audio_path):
+                with open(audio_path, 'rb') as f:
+                    audio_data = f.read()
+                
+                audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+                
+                if dc and dc.readyState == "open":
+                    dc.send(json.dumps({
+                        "type": "tts_audio",
+                        "audio_base64": audio_b64,
+                        "format": "wav",
+                        "chunk_index": i,
+                        "total_chunks": len(sentences),
+                        "is_final": (i == len(sentences) - 1),
+                        "tts_time_ms": sentence_tts_time,
+                    }))
+                    print(
+                        f"[VOICE] 📤 Sent TTS chunk {i+1}/{len(sentences)} "
+                        f"({len(audio_data)} bytes, {sentence_tts_time:.0f}ms)",
+                        flush=True,
+                    )
+                
+                # Clean up temp file
+                try:
+                    os.remove(audio_path)
+                except:
+                    pass
+            
+        except Exception as e:
+            logger.error(f"[VOICE] TTS error for sentence {i}: {e}")
+            print(f"[VOICE] ❌ TTS chunk {i} error: {e}", flush=True)
+    
+    return total_tts_time
+
+
+def _split_into_sentences(text: str, language: str = "en") -> list:
+    """Split text into sentences for progressive TTS.
+    
+    Uses language-appropriate sentence boundaries.
+    Merges short sentences to prevent TTS hallucination with tiny inputs.
+    """
+    import re
+    
+    if not text or not text.strip():
+        return []
+    
+    # Minimum sentence length for stable TTS (prevents hallucination on short inputs)
+    MIN_SENTENCE_LENGTH = 25  # Chars - "Hello!" alone causes TTS issues
+    
+    # Language-specific patterns
+    if language.startswith("ar"):
+        # Arabic: split on . ! ? ؟ and ، (Arabic comma sometimes ends sentences)
+        pattern = r'(?<=[.!?؟])\s+'
+    else:
+        # English: split on . ! ?
+        pattern = r'(?<=[.!?])\s+'
+    
+    raw_sentences = re.split(pattern, text.strip())
+    
+    # Filter empty sentences
+    raw_sentences = [s.strip() for s in raw_sentences if s.strip()]
+    
+    # If no sentences found (no punctuation), return whole text
+    if not raw_sentences:
+        return [text.strip()]
+    
+    # Merge short sentences with the next one to prevent TTS hallucination
+    merged_sentences = []
+    buffer = ""
+    
+    for i, sentence in enumerate(raw_sentences):
+        if buffer:
+            buffer = buffer + " " + sentence
+        else:
+            buffer = sentence
+        
+        # Keep accumulating if current buffer is too short, unless it's the last sentence
+        is_last = (i == len(raw_sentences) - 1)
+        if len(buffer) >= MIN_SENTENCE_LENGTH or is_last:
+            merged_sentences.append(buffer)
+            buffer = ""
+    
+    # If all sentences were merged into one, return as single item
+    if not merged_sentences and buffer:
+        merged_sentences.append(buffer)
+    
+    return merged_sentences
 
 
 webrtc_voice_router = APIRouter(
@@ -272,6 +435,8 @@ async def handle_offer(request: OfferRequest):
             "debug_capture_enabled": ENABLE_DEBUG_CAPTURE,
             "debug_16khz_buffer": [] if ENABLE_DEBUG_CAPTURE else None,
             "debug_rnnoise_buffer": [] if ENABLE_DEBUG_CAPTURE else None,
+            # Smart turn detection
+            "turn_predictor": None,
         }
 
         # Tool executor for customer service mode
@@ -393,6 +558,24 @@ async def handle_offer(request: OfferRequest):
         except Exception as e:
             logger.error(f"[VOICE] VAD error: {e}")
 
+        # Initialize Smart Turn Detection (if enabled)
+        if ENABLE_SMART_TURN_DETECTION:
+            try:
+                turn_config = EndOfTurnConfig.for_language(target_language)
+                turn_predictor = EndOfTurnPredictor(config=turn_config, language=target_language)
+                session_context["turn_predictor"] = turn_predictor
+                print(
+                    f"[VOICE] ✅ Smart Turn Detection ENABLED "
+                    f"(min={turn_config.min_silence_ms}ms, max={turn_config.max_silence_ms}ms, "
+                    f"threshold={turn_config.confidence_threshold})",
+                    flush=True,
+                )
+            except Exception as e:
+                logger.warning(f"[VOICE] Turn predictor init failed: {e}")
+                print(f"[VOICE] ⚠️ Smart Turn Detection unavailable: {e}", flush=True)
+        else:
+            print("[VOICE] ℹ️ Smart Turn Detection DISABLED (using 2s timeout)", flush=True)
+
         # Handle Tracks
         @pc.on("track")
         async def on_track(track: MediaStreamTrack):
@@ -485,6 +668,12 @@ async def _process_audio_track(
 
     frame_count = 0
     speech_buffer_16k = []
+    
+    # Pre-speech buffer (ring buffer) to capture audio BEFORE VAD triggers
+    # Keeps ~500ms of audio (at 16kHz, 320 samples per 20ms frame = 25 frames)
+    PRE_SPEECH_BUFFER_FRAMES = 25  # ~500ms at 20ms per frame
+    pre_speech_buffer = []
+    is_collecting_speech = False
 
     # Get processors
     rnnoise = context.get("rnnoise_processor")
@@ -630,13 +819,32 @@ async def _process_audio_track(
                             print("[VOICE] 🛑 INTERRUPT detected - user speaking during TTS", flush=True)
                             dc.send(json.dumps({"type": "interrupt", "reason": "user_speaking"}))
                             context["is_speaking"] = False  # Mark TTS as interrupted
+                            context["interrupted"] = True  # Signal to turn predictor
 
-                    # Accumulate Speech
-                    if state in [
-                        VADState.VOICE_START,
-                        VADState.VOICE_ACTIVE,
-                        VADState.VOICE_END_PENDING,
-                    ]:
+                    # Notify turn predictor of speech state changes
+                    turn_predictor = context.get("turn_predictor")
+                    if turn_predictor:
+                        if state == VADState.VOICE_START:
+                            turn_predictor.on_speech_detected()
+                        elif state == VADState.VOICE_END:
+                            turn_predictor.on_silence_detected()
+
+                    # Accumulate Speech (with pre-speech buffer for capturing word beginnings)
+                    if state == VADState.VOICE_START:
+                        # Cancel pending turn timer
+                        if context.get("turn_timer_task"):
+                            context["turn_timer_task"].cancel()
+                            context["turn_timer_task"] = None
+                        
+                        # CRITICAL: Prepend pre-speech buffer to capture word beginnings
+                        if pre_speech_buffer and not is_collecting_speech:
+                            speech_buffer_16k.extend(pre_speech_buffer)
+                            print(f"[VOICE] 🔊 Prepended {len(pre_speech_buffer)} pre-speech frames (~{len(pre_speech_buffer)*20}ms)", flush=True)
+                        
+                        is_collecting_speech = True
+                        speech_buffer_16k.append(audio_16k)
+                        
+                    elif state in [VADState.VOICE_ACTIVE, VADState.VOICE_END_PENDING]:
                         # Cancel pending turn timer
                         if context.get("turn_timer_task"):
                             context["turn_timer_task"].cancel()
@@ -646,6 +854,7 @@ async def _process_audio_track(
 
                     # End of Speech → Process
                     elif state == VADState.VOICE_END:
+                        is_collecting_speech = False
                         if speech_buffer_16k:
                             full_audio = np.concatenate(speech_buffer_16k)
                             asyncio.create_task(
@@ -654,6 +863,13 @@ async def _process_audio_track(
                                 )
                             )
                             speech_buffer_16k = []
+                    
+                    else:
+                        # Not speaking - maintain pre-speech ring buffer
+                        pre_speech_buffer.append(audio_16k)
+                        # Keep only last N frames (ring buffer behavior)
+                        if len(pre_speech_buffer) > PRE_SPEECH_BUFFER_FRAMES:
+                            pre_speech_buffer.pop(0)
 
             except asyncio.TimeoutError:
                 continue
@@ -809,14 +1025,50 @@ async def _process_speech_segment(
 
 
 async def _wait_for_silence_and_respond(session_id: str, context: Dict):
-    """Wait for 2 seconds of silence, then trigger LLM."""
+    """Wait for turn end using smart detection or fallback timeout."""
     try:
-        await asyncio.sleep(2.0)
-        await _trigger_llm_response(session_id, context)
+        turn_predictor = context.get("turn_predictor")
+        
+        if ENABLE_SMART_TURN_DETECTION and turn_predictor:
+            # Use smart turn detection with confidence scoring
+            turn_predictor.on_silence_detected()
+            
+            # Get current transcript for linguistic analysis
+            buffer = context.get("transcript_buffer", [])
+            if buffer:
+                turn_predictor.update_transcript(" ".join(buffer))
+            
+            # Wait for turn end with adaptive timeout
+            breakdown = await turn_predictor.wait_for_turn_end(
+                context=context,
+            )
+            
+            # Log turn detection metrics
+            print(
+                f"[VOICE] 🎯 Turn detected: reason={breakdown.trigger_reason} "
+                f"conf={breakdown.total_confidence:.2f} "
+                f"silence={breakdown.silence_duration_ms:.0f}ms",
+                flush=True,
+            )
+            
+            # Only proceed if turn was confirmed (not interrupted)
+            if breakdown.is_turn_complete and breakdown.trigger_reason != "interrupted":
+                await _trigger_llm_response(session_id, context)
+        else:
+            # Fallback: Fixed 2-second timeout (legacy behavior)
+            print("[VOICE] ⏱️ Using legacy 2s timeout", flush=True)
+            await asyncio.sleep(2.0)
+            await _trigger_llm_response(session_id, context)
+            
     except asyncio.CancelledError:
+        # Timer cancelled (user started speaking again)
+        turn_predictor = context.get("turn_predictor")
+        if turn_predictor:
+            turn_predictor.on_speech_detected()
         pass
     except Exception as e:
         logger.error(f"[VOICE] Timer error: {e}")
+        print(f"[VOICE] ❌ Turn timer error: {e}", flush=True)
 
 
 async def _trigger_llm_response(session_id: str, context: Dict):
@@ -1650,58 +1902,99 @@ async def _trigger_llm_response(session_id: str, context: Dict):
                         dc.send(json.dumps({"type": "state", "state": "speaking"}))
                     
                     tts_start = time.time()
-                    audio_path = None
+                    tts_time = 0
                     
-                    # Try primary TTS engine first
-                    if tts:
-                        try:
-                            audio_path = await _generate_tts(tts, tts_text, language, loop)
-                        except Exception as primary_err:
-                            logger.warning(f"[VOICE] Primary TTS ({tts_type_name}) failed, trying Edge TTS fallback: {primary_err}")
-                            print(f"[VOICE] ⚠️ Primary TTS failed: {primary_err}, trying Edge TTS...", flush=True)
-                    
-                    # Fallback to Edge TTS if primary failed or not available
-                    if not audio_path or not os.path.exists(str(audio_path) if audio_path else ""):
-                        try:
-                            print("[VOICE] 🔄 Using Edge TTS fallback (singleton)...", flush=True)
-                            edge_tts_fallback = await _get_edge_tts_fallback()
-                            audio_path = await _generate_tts(edge_tts_fallback, tts_text, language, loop)
-                        except Exception as fallback_err:
-                            logger.error(f"[VOICE] Edge TTS fallback also failed: {fallback_err}")
-                            print(f"[VOICE] ❌ Edge TTS fallback failed: {fallback_err}", flush=True)
-                    
-                    tts_time = (time.time() - tts_start) * 1000
-                    print(f"[VOICE] 🔊 TTS generated in {tts_time:.0f}ms: {audio_path}", flush=True)
-                    
-                    # Read the audio file and send as base64
-                    if audio_path and os.path.exists(audio_path):
-                        with open(audio_path, 'rb') as f:
-                            audio_data = f.read()
+                    # ============================================================
+                    # STREAMING TTS: Progressive sentence-by-sentence synthesis
+                    # Sends audio for each sentence as soon as it's ready
+                    # ============================================================
+                    if ENABLE_STREAMING_TTS:
+                        sentences = _split_into_sentences(tts_text, language)
                         
-                        audio_b64 = base64.b64encode(audio_data).decode('utf-8')
-                        
-                        # Send audio to client
-                        if dc and dc.readyState == "open":
-                            dc.send(
-                                json.dumps(
-                                    {
-                                        "type": "tts_audio",
-                                        "audio_base64": audio_b64,
-                                        "format": "wav",
-                                        "language": language,
-                                        "tts_time_ms": tts_time,
-                                    }
-                                )
+                        if len(sentences) > 1:
+                            print(
+                                f"[VOICE] 🔊 Streaming TTS: {len(sentences)} sentences, "
+                                f"lang={language}, engine={tts_type_name}",
+                                flush=True,
                             )
-                            print(f"[VOICE] 📤 Sent TTS audio ({len(audio_data)} bytes)", flush=True)
-                        
-                        # Clean up temp file
-                        try:
-                            os.remove(audio_path)
-                        except:
-                            pass
+                            
+                            # Get TTS engine (primary or fallback)
+                            tts_engine_to_use = tts
+                            if not tts_engine_to_use:
+                                tts_engine_to_use = await _get_edge_tts_fallback()
+                            
+                            # Stream TTS for each sentence
+                            tts_time = await _stream_tts_sentences(
+                                sentences=sentences,
+                                tts_engine=tts_engine_to_use,
+                                language=language,
+                                dc=dc,
+                                context=context,
+                            )
+                            
+                            print(f"[VOICE] 🔊 Streaming TTS complete in {tts_time:.0f}ms total", flush=True)
+                        else:
+                            # Single sentence - fall through to batch mode
+                            ENABLE_STREAMING_TTS_LOCAL = False
                     else:
-                        print(f"[VOICE] ⚠️ TTS audio file not found: {audio_path}", flush=True)
+                        ENABLE_STREAMING_TTS_LOCAL = False
+                    
+                    # ============================================================
+                    # BATCH TTS: Traditional full-response synthesis (fallback)
+                    # ============================================================
+                    if not ENABLE_STREAMING_TTS or (ENABLE_STREAMING_TTS and len(_split_into_sentences(tts_text, language)) <= 1):
+                        audio_path = None
+                        
+                        # Try primary TTS engine first
+                        if tts:
+                            try:
+                                audio_path = await _generate_tts(tts, tts_text, language, loop)
+                            except Exception as primary_err:
+                                logger.warning(f"[VOICE] Primary TTS ({tts_type_name}) failed, trying Edge TTS fallback: {primary_err}")
+                                print(f"[VOICE] ⚠️ Primary TTS failed: {primary_err}, trying Edge TTS...", flush=True)
+                        
+                        # Fallback to Edge TTS if primary failed or not available
+                        if not audio_path or not os.path.exists(str(audio_path) if audio_path else ""):
+                            try:
+                                print("[VOICE] 🔄 Using Edge TTS fallback (singleton)...", flush=True)
+                                edge_tts_fallback = await _get_edge_tts_fallback()
+                                audio_path = await _generate_tts(edge_tts_fallback, tts_text, language, loop)
+                            except Exception as fallback_err:
+                                logger.error(f"[VOICE] Edge TTS fallback also failed: {fallback_err}")
+                                print(f"[VOICE] ❌ Edge TTS fallback failed: {fallback_err}", flush=True)
+                        
+                        tts_time = (time.time() - tts_start) * 1000
+                        print(f"[VOICE] 🔊 TTS generated in {tts_time:.0f}ms: {audio_path}", flush=True)
+                        
+                        # Read the audio file and send as base64
+                        if audio_path and os.path.exists(audio_path):
+                            with open(audio_path, 'rb') as f:
+                                audio_data = f.read()
+                            
+                            audio_b64 = base64.b64encode(audio_data).decode('utf-8')
+                            
+                            # Send audio to client
+                            if dc and dc.readyState == "open":
+                                dc.send(
+                                    json.dumps(
+                                        {
+                                            "type": "tts_audio",
+                                            "audio_base64": audio_b64,
+                                            "format": "wav",
+                                            "language": language,
+                                            "tts_time_ms": tts_time,
+                                        }
+                                    )
+                                )
+                                print(f"[VOICE] 📤 Sent TTS audio ({len(audio_data)} bytes)", flush=True)
+                            
+                            # Clean up temp file
+                            try:
+                                os.remove(audio_path)
+                            except:
+                                pass
+                        else:
+                            print(f"[VOICE] ⚠️ TTS audio file not found: {audio_path}", flush=True)
                         
             except Exception as e:
                 import traceback
