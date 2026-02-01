@@ -95,6 +95,10 @@
         let sessionId = null;
         let iceCandidateQueue = [];
         let audioPlayer = null;  // For TTS playback
+        let ttsQueue = [];
+        let isTTSPlaying = false;
+        let ttsPlaybackTimeout = null;
+        const TTS_CHUNK_GAP_MS = 120;
         let isMicMuted = false;  // Track mic state
 
         const startBtn = document.getElementById('startBtn');
@@ -192,7 +196,7 @@
                 // Note: Status update moved to onconnectionstatechange
                 startBtn.style.display = 'none';
                 stopBtn.style.display = 'inline-block';
-                addMessage("system", `Connected! Language: ${selectedLanguage.toUpperCase()}. Speak naturally. I will wait 2s after you stop talking.`);
+                addMessage("system", `Connected! Language: ${selectedLanguage.toUpperCase()}. Speak naturally - I'll respond when you pause.`);
 
             } catch (e) {
                 console.error(e);
@@ -271,55 +275,116 @@
         }
 
         function playTTSAudio(base64Audio, format, ttsTimeMs) {
+            ttsQueue.push({ base64Audio, format, ttsTimeMs });
+            console.log(`🔊 Audio chunk queued (queue size: ${ttsQueue.length})`);
+            if (!isTTSPlaying) {
+                playNextTTSAudio();
+            }
+        }
+
+        function playNextTTSAudio() {
+            if (audioPlayer && !audioPlayer.ended) {
+                return;
+            }
+            if (ttsQueue.length === 0) {
+                isTTSPlaying = false;
+                if (ttsPlaybackTimeout) {
+                    clearTimeout(ttsPlaybackTimeout);
+                    ttsPlaybackTimeout = null;
+                }
+                return;
+            }
+
+            isTTSPlaying = true;
+            const { base64Audio, format, ttsTimeMs } = ttsQueue.shift();
+
             try {
                 console.log("🔊 Playing TTS audio...");
-                
+
                 // Update TTS metric
-                document.getElementById('ttsMetric').innerText = Math.round(ttsTimeMs);
-                
+                if (Number.isFinite(ttsTimeMs)) {
+                    document.getElementById('ttsMetric').innerText = Math.round(ttsTimeMs);
+                }
+
                 // Decode base64 to binary
                 const binaryString = atob(base64Audio);
                 const bytes = new Uint8Array(binaryString.length);
                 for (let i = 0; i < binaryString.length; i++) {
                     bytes[i] = binaryString.charCodeAt(i);
                 }
-                
-                // Create blob and audio URL
-                const blob = new Blob([bytes], { type: 'audio/wav' });
+
+                const mimeType = format === 'mp3' ? 'audio/mpeg' : 'audio/wav';
+                const blob = new Blob([bytes], { type: mimeType });
                 const audioUrl = URL.createObjectURL(blob);
-                
-                // Stop any previous audio
-                if (audioPlayer) {
-                    audioPlayer.pause();
-                    audioPlayer = null;
-                }
-                
-                // Create and play audio
-                audioPlayer = new Audio(audioUrl);
-                
-                audioPlayer.onended = () => {
-                    console.log("🔊 TTS playback finished");
-                    URL.revokeObjectURL(audioUrl);
-                    audioPlayer = null;
+
+                const audio = new Audio(audioUrl);
+                audioPlayer = audio;
+                audio.preload = 'auto';
+
+                let advanced = false;
+                const clearPlaybackTimeout = () => {
+                    if (ttsPlaybackTimeout) {
+                        clearTimeout(ttsPlaybackTimeout);
+                        ttsPlaybackTimeout = null;
+                    }
                 };
-                
-                audioPlayer.onerror = (e) => {
+
+                const advanceQueue = (reason) => {
+                    if (advanced) return;
+                    advanced = true;
+                    clearPlaybackTimeout();
+                    URL.revokeObjectURL(audioUrl);
+                    if (audioPlayer === audio) {
+                        audioPlayer = null;
+                    }
+                    console.log(`🔊 Chunk completed via ${reason} (${ttsQueue.length} remaining)`);
+                    playNextTTSAudio();
+                };
+
+                audio.onloadedmetadata = () => {
+                    const durationSeconds = audio.duration;
+                    if (durationSeconds === undefined || !Number.isFinite(durationSeconds)) return;
+                    const delayMs = Math.max(0, Math.ceil(durationSeconds * 1000)) + TTS_CHUNK_GAP_MS;
+                    clearPlaybackTimeout();
+                    ttsPlaybackTimeout = setTimeout(() => {
+                        advanceQueue('timeout');
+                    }, delayMs);
+                };
+
+                audio.onended = () => {
+                    advanceQueue('ended');
+                };
+
+                audio.onerror = (e) => {
                     console.error("❌ TTS playback error:", e);
-                    URL.revokeObjectURL(audioUrl);
-                    audioPlayer = null;
+                    advanceQueue('error');
                 };
-                
-                audioPlayer.play().then(() => {
+
+                audio.play().then(() => {
                     console.log("🔊 TTS playback started");
                 }).catch(e => {
                     console.error("❌ TTS play failed:", e);
-                    // Try to show a notification if autoplay blocked
                     addMessage("system", "⚠️ Click anywhere to enable audio playback");
+                    advanceQueue('play-failed');
                 });
-                
+
             } catch (e) {
                 console.error("❌ TTS audio error:", e);
+                playNextTTSAudio();
             }
+        }
+
+        function stopTTSPlayback() {
+            ttsQueue.length = 0;
+            if (ttsPlaybackTimeout) {
+                clearTimeout(ttsPlaybackTimeout);
+                ttsPlaybackTimeout = null;
+            }
+            if (audioPlayer) {
+                audioPlayer.pause();
+                audioPlayer = null;
+            }
+            isTTSPlaying = false;
         }
 
         function handleStateChange(state) {
@@ -378,6 +443,7 @@
         function stopSession() {
             if (pc) pc.close();
             if (localStream) localStream.getTracks().forEach(t => t.stop());
+            stopTTSPlayback();
             
             statusDot.className = "status-indicator";
             statusText.innerText = "Disconnected";

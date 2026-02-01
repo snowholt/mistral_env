@@ -43,6 +43,7 @@ const STUN_SERVERS = [
 ];
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.gmai.sa';
+const TTS_CHUNK_GAP_MS = 120;
 
 const translations = {
   en: {
@@ -69,6 +70,9 @@ export default function VoiceDemo() {
   const dcRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioQueueRef = useRef<string[]>([]);  // Queue for TTS audio chunks
+  const isPlayingAudioRef = useRef<boolean>(false);  // Track if actively playing
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidate[]>([]);
   const remoteDescriptionSetRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
@@ -180,75 +184,130 @@ export default function VoiceDemo() {
     }
   };
 
-  // Play TTS audio
+  // Play TTS audio with queueing support for streaming chunks
   const playTTSAudio = (base64Audio: string) => {
+    // Add to queue
+    audioQueueRef.current.push(base64Audio);
+    console.log(`🔊 Audio chunk queued (queue size: ${audioQueueRef.current.length})`);
+    
+    // If not currently playing, start playing
+    if (!isPlayingAudioRef.current) {
+      playNextInQueue();
+    }
+  };
+
+  // Decode base64 audio to blob URL (for pre-buffering)
+  const decodeAudioToUrl = (base64Audio: string): string => {
+    const binaryString = atob(base64Audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'audio/wav' });
+    return URL.createObjectURL(blob);
+  };
+
+  // Play next audio chunk from queue with pre-buffering
+  const playNextInQueue = () => {
+    if (audioPlayerRef.current && !audioPlayerRef.current.ended) {
+      return;
+    }
+    if (audioQueueRef.current.length === 0) {
+      // Queue empty, TTS playback complete
+      console.log('🔊 Audio queue empty, TTS playback complete');
+      isPlayingAudioRef.current = false;
+      isTTSPlayingRef.current = false;
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+      
+      // Enable mic if it was queued during TTS playback
+      if (pendingMicEnableRef.current) {
+        console.log('🎤 Enabling mic after TTS finished');
+        handleMicControl(true);
+        pendingMicEnableRef.current = false;
+      }
+      return;
+    }
+
+    const base64Audio = audioQueueRef.current.shift()!;
+    isPlayingAudioRef.current = true;
+    isTTSPlayingRef.current = true;
+
     try {
-      // Stop any currently playing audio
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      }
-
-      // Mark TTS as playing
-      isTTSPlayingRef.current = true;
-
-      // Decode base64 to binary
-      const binaryString = atob(base64Audio);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      // Create audio blob and play
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
-      const audioUrl = URL.createObjectURL(blob);
+      const audioUrl = decodeAudioToUrl(base64Audio);
       const audioPlayer = new Audio(audioUrl);
       audioPlayerRef.current = audioPlayer;
+      let advanced = false;
 
-      audioPlayer.onended = () => {
-        console.log('🔊 TTS playback finished');
+      const clearPlaybackTimeout = () => {
+        if (playbackTimeoutRef.current) {
+          clearTimeout(playbackTimeoutRef.current);
+          playbackTimeoutRef.current = null;
+        }
+      };
+
+      const advanceQueue = (reason: string) => {
+        if (advanced) return;
+        advanced = true;
+        clearPlaybackTimeout();
         URL.revokeObjectURL(audioUrl);
         audioPlayerRef.current = null;
-        isTTSPlayingRef.current = false;
-        
-        // Enable mic if it was queued during TTS playback
-        if (pendingMicEnableRef.current) {
-          console.log('🎤 Enabling mic after TTS finished');
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        console.log(`🔊 Chunk completed via ${reason} (${audioQueueRef.current.length} remaining)`);
+        playNextInQueue();
+      };
+      
+      // Pre-load for faster start
+      audioPlayer.preload = 'auto';
+
+      audioPlayer.onloadedmetadata = () => {
+        const durationSeconds = audioPlayer.duration;
+        if (durationSeconds === undefined || !Number.isFinite(durationSeconds)) return;
+        const delayMs = Math.max(0, Math.ceil(durationSeconds * 1000)) + TTS_CHUNK_GAP_MS;
+        clearPlaybackTimeout();
+        playbackTimeoutRef.current = setTimeout(() => {
+          advanceQueue('timeout');
+        }, delayMs);
+      };
+
+      audioPlayer.onended = () => {
+        advanceQueue('ended');
       };
 
       audioPlayer.onerror = (e) => {
         console.error('❌ TTS playback error:', e);
-        URL.revokeObjectURL(audioUrl);
-        audioPlayerRef.current = null;
-        isTTSPlayingRef.current = false;
-        
-        // Enable mic if it was queued
-        if (pendingMicEnableRef.current) {
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        advanceQueue('error');
       };
 
       audioPlayer.play().then(() => {
-        console.log('🔊 TTS playback started');
+        console.log(`🔊 Playing chunk (${audioQueueRef.current.length} queued)`);
       }).catch(e => {
         console.error('❌ TTS play failed:', e);
-        isTTSPlayingRef.current = false;
         addMessage('system', '⚠️ Click anywhere to enable audio playback');
-        
-        // Enable mic if it was queued
-        if (pendingMicEnableRef.current) {
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        advanceQueue('play-failed');
       });
     } catch (e) {
       console.error('❌ TTS audio error:', e);
-      isTTSPlayingRef.current = false;
+      // Try next chunk
+      playNextInQueue();
     }
+  };
+
+  // Stop all TTS playback and clear queue (for interruption)
+  const stopTTSPlayback = () => {
+    audioQueueRef.current = [];  // Clear queue
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+    if (playbackTimeoutRef.current) {
+      clearTimeout(playbackTimeoutRef.current);
+      playbackTimeoutRef.current = null;
+    }
+    isPlayingAudioRef.current = false;
+    isTTSPlayingRef.current = false;
+    console.log('🛑 TTS playback stopped and queue cleared');
   };
 
   // Handle state changes
@@ -400,14 +459,9 @@ export default function VoiceDemo() {
             break;
 
           case 'interrupt':
-            // User started speaking during TTS - stop playback
+            // User started speaking during TTS - stop playback and clear queue
             console.log('🛑 Interrupt received:', data.reason);
-            if (audioPlayerRef.current) {
-              audioPlayerRef.current.pause();
-              audioPlayerRef.current = null;
-              console.log('🔊 TTS playback stopped due to interruption');
-            }
-            isTTSPlayingRef.current = false;
+            stopTTSPlayback();
             pendingMicEnableRef.current = false;
             setConnectionState('listening');
             setVadStatus('🎤 Mic Active');
@@ -627,11 +681,8 @@ export default function VoiceDemo() {
       localStreamRef.current = null;
     }
 
-    // Stop audio player
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
-    }
+    // Stop audio player and clear queue
+    stopTTSPlayback();
 
     // Reset state
     dcRef.current = null;
