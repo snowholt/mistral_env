@@ -9,8 +9,6 @@ interface LanguageContextType {
   dir: 'ltr' | 'rtl';
 }
 
-const LANGUAGE_STORAGE_KEY = 'userLanguagePreference';
-
 const translations: Record<Language, Record<string, string>> = {
   en: {
     // Navbar
@@ -258,18 +256,13 @@ const LanguageContext = createContext<LanguageContextType | undefined>(undefined
 
 export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [language, setLanguageState] = useState<Language>(() => {
-    if (typeof window !== 'undefined') {
-      const saved = localStorage.getItem(LANGUAGE_STORAGE_KEY);
-      return (saved as Language) || 'ar';
-    }
-    return 'ar';
+    const saved = localStorage.getItem('language');
+    return (saved as Language) || 'en';
   });
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
-    if (typeof window !== 'undefined') {
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, lang);
-    }
+    localStorage.setItem('language', lang);
   };
 
   const t = (key: string): string => {
@@ -279,18 +272,13 @@ export const LanguageProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const dir = language === 'ar' ? 'rtl' : 'ltr';
 
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      document.documentElement.dir = dir;
-      document.documentElement.lang = language;
-      localStorage.setItem(LANGUAGE_STORAGE_KEY, language);
-    }
+    document.documentElement.dir = dir;
+    document.documentElement.lang = language;
   }, [language, dir]);
 
   return (
     <LanguageContext.Provider value={{ language, setLanguage, t, dir }}>
-      <div dir={dir} className={dir === 'rtl' ? 'font-arabic' : ''}>
-        {children}
-      </div>
+      {children}
     </LanguageContext.Provider>
   );
 };

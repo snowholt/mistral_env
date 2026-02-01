@@ -1080,21 +1080,26 @@ class ModelManager:
             from ..config.voice_config_loader import get_voice_config
             voice_config = get_voice_config()
             
-            # Language-based TTS routing: Arabic -> Saudi XTTS, English/other -> Edge TTS
+            # Language-based TTS routing: Chatterbox Multilingual for all languages
+            # Chatterbox supports 23 languages with voice cloning
             if model_name is None:
-                if language and language.lower() in ("ar", "arabic"):
-                    # Try Saudi XTTS for Arabic
-                    if "saudi-tts" in voice_config._config.get("models", {}):
+                models = voice_config._config.get("models", {})
+                # Prefer Chatterbox for all languages (best quality, voice cloning)
+                if "chatterbox-multilingual" in models:
+                    model_name = "chatterbox-multilingual"
+                    logger.info(f"🌍 Language routing: {language or 'default'} -> Chatterbox Multilingual")
+                elif language and language.lower() in ("ar", "arabic"):
+                    # Fallback to Saudi XTTS for Arabic
+                    if "saudi-tts" in models:
                         model_name = "saudi-tts"
-                        logger.info(f"🌍 Language routing: Arabic -> Saudi XTTS")
+                        logger.info(f"🌍 Language routing: Arabic -> Saudi XTTS (fallback)")
                     else:
-                        model_name = voice_config._config["default_models"]["tts"]
-                elif language and language.lower() in ("en", "english"):
-                    # Use Edge TTS for English
-                    model_name = "edge-tts"
-                    logger.info(f"🌍 Language routing: English -> Edge TTS")
+                        model_name = "edge-tts"
+                        logger.info(f"🌍 Language routing: Arabic -> Edge TTS (fallback)")
                 else:
-                    model_name = voice_config._config["default_models"]["tts"]
+                    # Fallback to Edge TTS for other languages
+                    model_name = "edge-tts"
+                    logger.info(f"🌍 Language routing: {language} -> Edge TTS (fallback)")
             
             internal_name = f"tts:{model_name}"
             with self._lock:
@@ -1161,6 +1166,30 @@ class ModelManager:
                         use_deepspeed=use_deepspeed,
                     )
                     logger.info(f"Creating Saudi XTTS engine (DeepSpeed: {use_deepspeed})")
+                elif engine_type == "chatterbox_multilingual":
+                    from ..inference_engines.voice.tts import ChatterboxMultilingualEngine
+                    from ..config.config_manager import ModelConfig
+                    from pathlib import Path
+
+                    model_path_str = model_entry.get("model_path", "")
+                    speaker_wav_str = model_entry.get("speaker_wav", None)
+
+                    config = ModelConfig(
+                        name=model_name,
+                        model_id=model_entry.get("model_id", "ResembleAI/chatterbox"),
+                        engine_type=engine_type
+                    )
+
+                    engine = ChatterboxMultilingualEngine(
+                        model_config=config,
+                        cache_dir=model_path_str if model_path_str else None,
+                    )
+                    
+                    # Set speaker reference if available
+                    if speaker_wav_str and os.path.exists(speaker_wav_str):
+                        engine.set_speaker_reference(speaker_wav_str)
+                    
+                    logger.info(f"Creating Chatterbox Multilingual engine")
                 else:
                     logger.warning(f"Unknown TTS engine_type '{engine_type}', attempting Edge TTS fallback")
                     from ..inference_engines.voice.tts import EdgeTTSEngine

@@ -21,6 +21,13 @@ try:
 except ImportError:
     EDGE_TTS_AVAILABLE = False
 
+# Chatterbox TTS engine
+try:
+    from ..inference_engines.voice.tts.chatterbox_engine import ChatterboxMultilingualEngine
+    CHATTERBOX_AVAILABLE = True
+except ImportError:
+    CHATTERBOX_AVAILABLE = False
+
 # Whisper engines
 try:
     from ..services.voice.transcription.whisper_large_v3_turbo_engine import WhisperLargeV3TurboEngine
@@ -115,6 +122,26 @@ class ModelFactory:
             except Exception as e:
                 logger.error(f"Failed to create EdgeTTSEngine: {e}")
                 raise RuntimeError(f"Failed to create EdgeTTSEngine: {e}")
+        
+        elif engine_type == "chatterbox_multilingual":
+            logger.info(f"Creating ChatterboxMultilingualEngine for model: {model_config.model_id}")
+            
+            if not CHATTERBOX_AVAILABLE:
+                logger.error("Chatterbox TTS library not available. Install with: pip install chatterbox-tts")
+                raise ImportError("Chatterbox TTS library is required but not installed")
+            
+            try:
+                # Get cache_dir from model_config if available
+                cache_dir = getattr(model_config, 'model_path', None)
+                device = getattr(model_config, 'device', 'cuda')
+                return ChatterboxMultilingualEngine(
+                    model_config=model_config,
+                    device=device,
+                    cache_dir=cache_dir,
+                )
+            except Exception as e:
+                logger.error(f"Failed to create ChatterboxMultilingualEngine: {e}")
+                raise RuntimeError(f"Failed to create ChatterboxMultilingualEngine: {e}")
         
         else:
             logger.warning(f"Unknown engine type: {engine_type}, using TransformersEngine")

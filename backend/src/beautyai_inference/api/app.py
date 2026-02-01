@@ -37,6 +37,14 @@ except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
 
+# Import TTS test router
+try:
+    from .endpoints.tts import router as tts_router
+    tts_router_available = True
+except ImportError as e:
+    tts_router_available = False
+    logger.warning(f"TTS test router not available: {e}")
+
 # Import WhatsApp Manager routers
 try:
     from .endpoints.whatsapp_auth import auth_router
@@ -160,41 +168,36 @@ app = FastAPI(
 
 from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelationMiddleware
 
-# Add CORS middleware for WebRTC and cross-origin requests
-default_cors_origins = [
-    "https://web.lumidev.ca",
-    "https://api.lumidev.ca",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://portal.gmai.sa",
-    "https://dev.gmai.sa",
-]
+# ===========================================
+# CORS Configuration (loaded from .env)
+# ===========================================
+# Default origins for local development
+_DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080"
 
-allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
-if allowed_origins_env:
-    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
-else:
-    allowed_origins = default_cors_origins
-
-# Deduplicate while preserving order
-seen_origins = set()
-filtered_origins = []
-for origin in allowed_origins:
-    if origin not in seen_origins:
-        filtered_origins.append(origin)
-        seen_origins.add(origin)
-
+# Load CORS settings from environment
+cors_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", _DEFAULT_CORS_ORIGINS)
+cors_allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() in ("1", "true", "yes")
+cors_allow_methods_str = os.getenv("CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+cors_allow_headers_str = os.getenv("CORS_ALLOW_HEADERS", "*")
 proxy_handles_cors = os.getenv("PROXY_HANDLES_CORS", "0") == "1"
+
+# Parse comma-separated origins, deduplicate while preserving order
+filtered_origins = list(dict.fromkeys(
+    origin.strip() for origin in cors_origins_str.split(",") if origin.strip()
+))
+cors_allow_methods = [m.strip() for m in cors_allow_methods_str.split(",") if m.strip()]
+cors_allow_headers = [h.strip() for h in cors_allow_headers_str.split(",") if h.strip()]
+
 if proxy_handles_cors:
     logger.info("Skipping FastAPI CORS middleware (proxy handles CORS headers)")
 else:
+    logger.info(f"CORS enabled for origins: {filtered_origins}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=filtered_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_credentials=cors_allow_credentials,
+        allow_methods=cors_allow_methods,
+        allow_headers=cors_allow_headers,
     )
 
 # Correlation / request ID injection
@@ -247,6 +250,16 @@ if debug_capture_router_available:
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
 
+# Include TTS test router if available
+if tts_router_available:
+    app.include_router(
+        tts_router,
+        tags=["tts"]
+    )
+    logger.info("TTS test endpoints registered at /api/v1/tts")
+else:
+    logger.warning("TTS test endpoints not registered - module not available")
+
 # Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:
     app.include_router(auth_router, tags=["auth"])
@@ -278,6 +291,14 @@ try:
     logger.info("✅ Guest Auth endpoints registered at /api/v1/auth/guest/*")
 except ImportError as e:
     logger.warning(f"Demo Request router not available: {e}")
+
+# Include Demo Appointments router (Voice Demo - Appointment Booking)
+try:
+    from .endpoints.demo_appointments import demo_appointments_router
+    app.include_router(demo_appointments_router, tags=["demo_appointments"])
+    logger.info("✅ Demo Appointments endpoints registered at /api/v1/demo/appointments/*")
+except ImportError as e:
+    logger.warning(f"Demo Appointments router not available: {e}")
 
 # Include Dashboard router
 try:

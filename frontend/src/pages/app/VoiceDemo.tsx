@@ -7,6 +7,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import { guestApi } from '@/lib/api';
+import { AppointmentPanel } from '@/components/demo/AppointmentPanel';
 
 // Helper to check if user has guest-level access
 // Supports both guest-login flow (isGuest + guestUser) and unified auth (user.role === 'guest')
@@ -42,6 +43,7 @@ const STUN_SERVERS = [
 ];
 
 const API_BASE = import.meta.env.VITE_API_URL || 'https://api.gmai.sa';
+const TTS_CHUNK_GAP_MS = 120;
 
 const translations = {
   en: {
@@ -68,6 +70,9 @@ export default function VoiceDemo() {
   const dcRef = useRef<RTCDataChannel | null>(null);
   const localStreamRef = useRef<MediaStream | null>(null);
   const audioPlayerRef = useRef<HTMLAudioElement | null>(null);
+  const audioQueueRef = useRef<string[]>([]);  // Queue for TTS audio chunks
+  const isPlayingAudioRef = useRef<boolean>(false);  // Track if actively playing
+  const playbackTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const iceCandidateQueueRef = useRef<RTCIceCandidate[]>([]);
   const remoteDescriptionSetRef = useRef(false);
   const sessionIdRef = useRef<string | null>(null);
@@ -179,75 +184,130 @@ export default function VoiceDemo() {
     }
   };
 
-  // Play TTS audio
+  // Play TTS audio with queueing support for streaming chunks
   const playTTSAudio = (base64Audio: string) => {
+    // Add to queue
+    audioQueueRef.current.push(base64Audio);
+    console.log(`🔊 Audio chunk queued (queue size: ${audioQueueRef.current.length})`);
+    
+    // If not currently playing, start playing
+    if (!isPlayingAudioRef.current) {
+      playNextInQueue();
+    }
+  };
+
+  // Decode base64 audio to blob URL (for pre-buffering)
+  const decodeAudioToUrl = (base64Audio: string): string => {
+    const binaryString = atob(base64Audio);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+      bytes[i] = binaryString.charCodeAt(i);
+    }
+    const blob = new Blob([bytes], { type: 'audio/wav' });
+    return URL.createObjectURL(blob);
+  };
+
+  // Play next audio chunk from queue with pre-buffering
+  const playNextInQueue = () => {
+    if (audioPlayerRef.current && !audioPlayerRef.current.ended) {
+      return;
+    }
+    if (audioQueueRef.current.length === 0) {
+      // Queue empty, TTS playback complete
+      console.log('🔊 Audio queue empty, TTS playback complete');
+      isPlayingAudioRef.current = false;
+      isTTSPlayingRef.current = false;
+      if (playbackTimeoutRef.current) {
+        clearTimeout(playbackTimeoutRef.current);
+        playbackTimeoutRef.current = null;
+      }
+      
+      // Enable mic if it was queued during TTS playback
+      if (pendingMicEnableRef.current) {
+        console.log('🎤 Enabling mic after TTS finished');
+        handleMicControl(true);
+        pendingMicEnableRef.current = false;
+      }
+      return;
+    }
+
+    const base64Audio = audioQueueRef.current.shift()!;
+    isPlayingAudioRef.current = true;
+    isTTSPlayingRef.current = true;
+
     try {
-      // Stop any currently playing audio
-      if (audioPlayerRef.current) {
-        audioPlayerRef.current.pause();
-        audioPlayerRef.current = null;
-      }
-
-      // Mark TTS as playing
-      isTTSPlayingRef.current = true;
-
-      // Decode base64 to binary
-      const binaryString = atob(base64Audio);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) {
-        bytes[i] = binaryString.charCodeAt(i);
-      }
-
-      // Create audio blob and play
-      const blob = new Blob([bytes], { type: 'audio/mpeg' });
-      const audioUrl = URL.createObjectURL(blob);
+      const audioUrl = decodeAudioToUrl(base64Audio);
       const audioPlayer = new Audio(audioUrl);
       audioPlayerRef.current = audioPlayer;
+      let advanced = false;
 
-      audioPlayer.onended = () => {
-        console.log('🔊 TTS playback finished');
+      const clearPlaybackTimeout = () => {
+        if (playbackTimeoutRef.current) {
+          clearTimeout(playbackTimeoutRef.current);
+          playbackTimeoutRef.current = null;
+        }
+      };
+
+      const advanceQueue = (reason: string) => {
+        if (advanced) return;
+        advanced = true;
+        clearPlaybackTimeout();
         URL.revokeObjectURL(audioUrl);
         audioPlayerRef.current = null;
-        isTTSPlayingRef.current = false;
-        
-        // Enable mic if it was queued during TTS playback
-        if (pendingMicEnableRef.current) {
-          console.log('🎤 Enabling mic after TTS finished');
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        console.log(`🔊 Chunk completed via ${reason} (${audioQueueRef.current.length} remaining)`);
+        playNextInQueue();
+      };
+      
+      // Pre-load for faster start
+      audioPlayer.preload = 'auto';
+
+      audioPlayer.onloadedmetadata = () => {
+        const durationSeconds = audioPlayer.duration;
+        if (durationSeconds === undefined || !Number.isFinite(durationSeconds)) return;
+        const delayMs = Math.max(0, Math.ceil(durationSeconds * 1000)) + TTS_CHUNK_GAP_MS;
+        clearPlaybackTimeout();
+        playbackTimeoutRef.current = setTimeout(() => {
+          advanceQueue('timeout');
+        }, delayMs);
+      };
+
+      audioPlayer.onended = () => {
+        advanceQueue('ended');
       };
 
       audioPlayer.onerror = (e) => {
         console.error('❌ TTS playback error:', e);
-        URL.revokeObjectURL(audioUrl);
-        audioPlayerRef.current = null;
-        isTTSPlayingRef.current = false;
-        
-        // Enable mic if it was queued
-        if (pendingMicEnableRef.current) {
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        advanceQueue('error');
       };
 
       audioPlayer.play().then(() => {
-        console.log('🔊 TTS playback started');
+        console.log(`🔊 Playing chunk (${audioQueueRef.current.length} queued)`);
       }).catch(e => {
         console.error('❌ TTS play failed:', e);
-        isTTSPlayingRef.current = false;
         addMessage('system', '⚠️ Click anywhere to enable audio playback');
-        
-        // Enable mic if it was queued
-        if (pendingMicEnableRef.current) {
-          handleMicControl(true);
-          pendingMicEnableRef.current = false;
-        }
+        advanceQueue('play-failed');
       });
     } catch (e) {
       console.error('❌ TTS audio error:', e);
-      isTTSPlayingRef.current = false;
+      // Try next chunk
+      playNextInQueue();
     }
+  };
+
+  // Stop all TTS playback and clear queue (for interruption)
+  const stopTTSPlayback = () => {
+    audioQueueRef.current = [];  // Clear queue
+    if (audioPlayerRef.current) {
+      audioPlayerRef.current.pause();
+      audioPlayerRef.current = null;
+    }
+    if (playbackTimeoutRef.current) {
+      clearTimeout(playbackTimeoutRef.current);
+      playbackTimeoutRef.current = null;
+    }
+    isPlayingAudioRef.current = false;
+    isTTSPlayingRef.current = false;
+    console.log('🛑 TTS playback stopped and queue cleared');
   };
 
   // Handle state changes
@@ -370,6 +430,43 @@ export default function VoiceDemo() {
             }
             break;
 
+          case 'tool_call':
+            // Forward tool call events to the AppointmentPanel
+            console.log('🔧 Tool call event:', data.tool, data.status);
+            if ((window as any).__appointmentPanelHandler) {
+              (window as any).__appointmentPanelHandler(data);
+            }
+            // Show tool activity in chat for important tools
+            if (data.status === 'complete' && data.result?.success) {
+              if (data.tool === 'book_appointment') {
+                const msg = data.result.message || 'Appointment booked successfully';
+                addMessage('system', `✅ ${msg}`);
+              } else if (data.tool === 'register_customer') {
+                const customer = data.result.customer as Record<string, unknown>;
+                addMessage('system', `✅ Customer registered: ${customer?.full_name || 'Unknown'}`);
+              }
+            } else if (data.status === 'error') {
+              addMessage('system', `❌ Tool error: ${data.error || 'Unknown error'}`);
+            }
+            break;
+
+          case 'queued_utterance':
+            // User speech was queued during tool execution
+            console.log('📎 Utterance queued:', data.text, 'Queue size:', data.queue_size);
+            addMessage('system', language === 'ar' 
+              ? `📎 تم حفظ رسالتك (${data.queue_size} في الانتظار)` 
+              : `📎 Your message was queued (${data.queue_size} pending)`);
+            break;
+
+          case 'interrupt':
+            // User started speaking during TTS - stop playback and clear queue
+            console.log('🛑 Interrupt received:', data.reason);
+            stopTTSPlayback();
+            pendingMicEnableRef.current = false;
+            setConnectionState('listening');
+            setVadStatus('🎤 Mic Active');
+            break;
+
           default:
             console.log('Unknown message type:', data.type);
         }
@@ -485,7 +582,8 @@ export default function VoiceDemo() {
         body: JSON.stringify({
           sdp: offer.sdp,
           type: offer.type,
-          language: language
+            language: language,
+            customer_service_mode: true
         })
       });
 
@@ -583,11 +681,8 @@ export default function VoiceDemo() {
       localStreamRef.current = null;
     }
 
-    // Stop audio player
-    if (audioPlayerRef.current) {
-      audioPlayerRef.current.pause();
-      audioPlayerRef.current = null;
-    }
+    // Stop audio player and clear queue
+    stopTTSPlayback();
 
     // Reset state
     dcRef.current = null;
@@ -617,7 +712,7 @@ export default function VoiceDemo() {
       case 'speaking':
         return { text: '🔊 Speaking...', color: 'text-pink-500' };
       default:
-        return { text: 'Disconnected', color: 'text-gray-500' };
+        return { text: 'Disconnected', color: 'text-muted-foreground' };
     }
   };
 
@@ -631,7 +726,7 @@ export default function VoiceDemo() {
             <CardTitle className="text-red-600">{t.error}</CardTitle>
           </CardHeader>
           <CardContent>
-            <p className="text-gray-700 mb-4">{error}</p>
+              <p className="text-muted-foreground mb-4">{error}</p>
             <Button onClick={() => navigate('/app')} variant="outline">
               {t.backToDashboard}
             </Button>
@@ -645,10 +740,10 @@ export default function VoiceDemo() {
     <div className="container mx-auto px-4 py-8">
       <div className="max-w-6xl mx-auto">
         <div className="mb-6">
-          <h1 className="text-3xl font-bold text-gray-900 mb-2">
+          <h1 className="text-3xl font-bold text-foreground mb-2">
             {language === 'ar' ? 'تجربة المحادثة الصوتية' : 'Voice Conversation Demo'}
           </h1>
-          <p className="text-gray-600">
+          <p className="text-muted-foreground">
             {language === 'ar' 
               ? 'تحدث بشكل طبيعي وسيتم الرد عليك في الوقت الفعلي'
               : 'Speak naturally and get real-time AI responses'}
@@ -666,32 +761,32 @@ export default function VoiceDemo() {
                     connectionState === 'processing' ? 'bg-purple-500 animate-pulse' :
                     connectionState === 'speaking' ? 'bg-pink-500 animate-pulse' :
                     connectionState === 'connecting' ? 'bg-yellow-500 animate-pulse' :
-                    'bg-gray-400'
+                    'bg-muted-foreground/40'
                   }`} />
                   <span className={`font-semibold ${status.color}`}>
                     {status.text}
                   </span>
                 </div>
-                <span className="text-sm text-gray-600">{vadStatus}</span>
+                <span className="text-sm text-muted-foreground">{vadStatus}</span>
               </CardHeader>
               
               <CardContent>
                 {/* Chat messages */}
                 <div 
                   ref={chatBoxRef}
-                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-gray-50 rounded-lg space-y-4"
+                  className="h-[400px] overflow-y-auto mb-4 p-4 bg-muted/40 rounded-lg space-y-4 text-black"
                 >
                   {messages.map((msg, idx) => (
                     <div
                       key={idx}
                       className={`${
                         msg.role === 'system' 
-                          ? 'text-center text-sm text-gray-500 py-2'
+                          ? 'text-center text-sm text-black py-2'
                           : 'flex flex-col'
                       }`}
                     >
                       {msg.role === 'system' ? (
-                        <span className="bg-gray-200 px-3 py-1 rounded-full inline-block">
+                        <span className="bg-muted px-3 py-1 rounded-full inline-block text-black">
                           {msg.text}
                         </span>
                       ) : (
@@ -699,8 +794,8 @@ export default function VoiceDemo() {
                           {/* Role label */}
                           <span className={`text-xs font-semibold mb-1 ${
                             msg.role === 'user' 
-                              ? 'text-blue-600' 
-                              : 'text-emerald-600'
+                              ? 'text-black' 
+                              : 'text-black'
                           }`}>
                             {msg.role === 'user' 
                               ? (language === 'ar' ? '👤 أنت' : '👤 You') 
@@ -711,8 +806,8 @@ export default function VoiceDemo() {
                           <div
                             className={`p-3 rounded-lg ${
                               msg.role === 'user' 
-                                ? 'bg-blue-100 border-l-4 border-blue-500' 
-                                : 'bg-emerald-50 border-l-4 border-emerald-500'
+                                ? 'bg-blue-50 dark:bg-blue-950/40 border-l-4 border-blue-500 text-black' 
+                                : 'bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-500 text-black'
                             } ${msg.isRTL ? 'text-right' : 'text-left'}`}
                             dir={msg.isRTL ? 'rtl' : 'ltr'}
                           >
@@ -726,11 +821,11 @@ export default function VoiceDemo() {
                   {/* Current assistant message (streaming) */}
                   {currentAssistantMessage && (
                     <div className="flex flex-col">
-                      <span className="text-xs font-semibold mb-1 text-emerald-600">
+                      <span className="text-xs font-semibold mb-1 text-black">
                         {language === 'ar' ? '🤖 المساعد' : '🤖 AI Assistant'}
                       </span>
                       <div
-                        className={`p-3 rounded-lg bg-emerald-50 border-l-4 border-emerald-500 ${
+                        className={`p-3 rounded-lg bg-emerald-50 dark:bg-emerald-950/40 border-l-4 border-emerald-500 text-black ${
                           isArabicText(currentAssistantMessage) ? 'text-right' : 'text-left'
                         }`}
                         dir={isArabicText(currentAssistantMessage) ? 'rtl' : 'ltr'}
@@ -801,81 +896,64 @@ export default function VoiceDemo() {
             </Card>
           </div>
 
-          {/* Metrics panel */}
-          <div className="lg:col-span-1">
+          {/* Right sidebar - Metrics & Appointments */}
+          <div className="lg:col-span-1 space-y-4">
+            {/* Metrics panel */}
             <Card>
-              <CardHeader>
-                <CardTitle className="text-lg">
+              <CardHeader className="py-3">
+                <CardTitle className="text-sm">
                   {language === 'ar' ? 'مقاييس الأداء' : 'Performance Metrics'}
                 </CardTitle>
               </CardHeader>
-              <CardContent className="space-y-4">
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'الكلمات في الثانية' : 'Tokens/Second'}
-                  </div>
-                  <div className="text-2xl font-bold text-blue-600">
-                    {metrics.tps?.toFixed(1) || '--'}
-                  </div>
-                  {metrics.total_tokens && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.total_tokens} tokens total
+              <CardContent className="space-y-3 py-2">
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {language === 'ar' ? 'TPS' : 'Tokens/s'}
                     </div>
-                  )}
+                    <div className="text-lg font-bold text-blue-600">
+                      {metrics.tps?.toFixed(1) || '--'}
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {language === 'ar' ? 'LLM' : 'LLM'}
+                    </div>
+                    <div className="text-lg font-bold text-purple-600">
+                      {metrics.llm_latency ? (metrics.llm_latency / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {language === 'ar' ? 'STT' : 'STT'}
+                    </div>
+                    <div className="text-lg font-bold text-green-600">
+                      {metrics.stt_time ? (metrics.stt_time / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
+
+                  <div>
+                    <div className="text-xs text-muted-foreground">
+                      {language === 'ar' ? 'TTS' : 'TTS'}
+                    </div>
+                    <div className="text-lg font-bold text-pink-600">
+                      {metrics.tts_time ? (metrics.tts_time / 1000).toFixed(2) : '--'}s
+                    </div>
+                  </div>
                 </div>
 
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'زمن LLM' : 'LLM Latency'}
-                  </div>
-                  <div className="text-2xl font-bold text-purple-600">
-                    {metrics.llm_latency ? (metrics.llm_latency / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.llm_latency && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.llm_latency.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت STT' : 'STT Time'}
-                  </div>
-                  <div className="text-2xl font-bold text-green-600">
-                    {metrics.stt_time ? (metrics.stt_time / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.stt_time && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.stt_time.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div>
-                  <div className="text-sm text-gray-600">
-                    {language === 'ar' ? 'وقت TTS' : 'TTS Time'}
-                  </div>
-                  <div className="text-2xl font-bold text-pink-600">
-                    {metrics.tts_time ? (metrics.tts_time / 1000).toFixed(2) : '--'}s
-                  </div>
-                  {metrics.tts_time && (
-                    <div className="text-xs text-gray-400">
-                      {metrics.tts_time.toFixed(0)}ms
-                    </div>
-                  )}
-                </div>
-
-                <div className="pt-4 border-t">
-                  <div className="text-xs text-gray-500">
-                    {language === 'ar' ? 'حالة الاتصال' : 'Connection State'}
-                  </div>
-                  <div className="text-sm font-medium mt-1">
-                    {connectionState}
+                <div className="pt-2 border-t">
+                  <div className="text-xs text-muted-foreground">
+                    {language === 'ar' ? 'الحالة' : 'Status'}: <span className="font-medium">{connectionState}</span>
                   </div>
                 </div>
               </CardContent>
             </Card>
+
+            {/* Appointment Panel */}
+            <AppointmentPanel language={language} />
           </div>
         </div>
       </div>
