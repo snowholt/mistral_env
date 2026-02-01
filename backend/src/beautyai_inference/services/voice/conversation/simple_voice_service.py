@@ -238,16 +238,36 @@ class SimpleVoiceService:
 
         setattr(self.chat_service, "_voice_persona_applied", self.chat_persona)
 
-    def _prepare_generation_config(self) -> Dict[str, Any]:
-        """Construct per-request generation settings for the voice chat flow."""
+    def _prepare_generation_config(self, target_language: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Construct per-request generation settings for the voice chat flow.
+        
+        Language-aware token limiting:
+        - Arabic: max 60 tokens (~150 chars) to fit Saudi XTTS 166 char limit
+        - English: max 150 tokens for Edge TTS (no char limit)
+        
+        Args:
+            target_language: Target response language (ar, en, auto)
+        """
         base = dict(self.chat_default_generation_config or {})
 
-        # Ensure essential parameters are set for fast voice replies
-        base.setdefault("max_new_tokens", 192)
+        # Language-aware max_tokens for TTS compatibility
+        # Arabic XTTS has 166 char limit per inference, ~2.5 chars/token average
+        # English Edge TTS has no practical limit
+        if target_language == "ar":
+            # Arabic: 60 tokens * ~2.5 chars = ~150 chars (safe under 166 limit)
+            voice_max_tokens = 60
+            logger.debug(f"Arabic TTS limit applied: max_new_tokens={voice_max_tokens}")
+        else:
+            # English or auto: 150 tokens for natural responses
+            voice_max_tokens = 150
+
+        base.setdefault("max_new_tokens", voice_max_tokens)
         try:
-            base["max_new_tokens"] = min(int(base["max_new_tokens"]), 256)
+            base["max_new_tokens"] = min(int(base["max_new_tokens"]), voice_max_tokens)
         except (TypeError, ValueError):
-            base["max_new_tokens"] = 192
+            base["max_new_tokens"] = voice_max_tokens
+            
         base.setdefault("temperature", 0.3)
         base.setdefault("top_p", 0.95)
         base.setdefault("do_sample", True)
@@ -1579,7 +1599,7 @@ class SimpleVoiceService:
                     
             logger.info(f"Optimized message with context: {optimized_message[:100]}... (target_language: {target_language})")
             
-            generation_config = self._prepare_generation_config()
+            generation_config = self._prepare_generation_config(target_language=target_language)
 
             if target_language not in (None, "auto"):
                 response_language_hint = target_language
