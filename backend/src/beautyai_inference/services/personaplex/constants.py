@@ -129,7 +129,7 @@ class PersonaPlexConfig:
     python_executable: str = "python"
     
     # Process management
-    startup_timeout: int = 120  # seconds
+    startup_timeout: int = 300  # seconds (5 min for model loading with cpu-offload)
     health_check_interval: int = 5  # seconds
     
     # Resource limits
@@ -146,6 +146,7 @@ class PersonaPlexConfig:
             "port": self.port,
             "cpu_offload": self.cpu_offload,
             "ssl_enabled": self.ssl_enabled,
+            "ssl_dir": self.ssl_dir,
             "default_voice": self.default_voice.value,
             "default_prompt": self.default_prompt,
             "personaplex_path": self.personaplex_path,

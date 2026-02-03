@@ -22,6 +22,7 @@ from typing import Optional, Dict, Any, List
 from enum import Enum
 
 import aiohttp
+from dotenv import load_dotenv
 
 from .constants import (
     PersonaPlexConfig,
@@ -29,6 +30,12 @@ from .constants import (
     VOICE_PROMPTS,
     DEFAULT_TEXT_PROMPTS,
 )
+
+# Load .env file from backend directory
+_backend_dir = Path(__file__).parent.parent.parent.parent.parent
+_env_file = _backend_dir / ".env"
+if _env_file.exists():
+    load_dotenv(_env_file)
 
 logger = logging.getLogger(__name__)
 
@@ -91,6 +98,7 @@ class PersonaPlexManager:
         self._process: Optional[subprocess.Popen] = None
         self._status = ServerStatus.STOPPED
         self._ssl_dir: Optional[str] = None
+        self._ssl_dir_is_temp = True
         self._startup_time: Optional[float] = None
         self._error_message: Optional[str] = None
         self._health_check_task: Optional[asyncio.Task] = None
@@ -99,6 +107,10 @@ class PersonaPlexManager:
         # Load HF token from environment if not set
         if not self.config.hf_token:
             self.config.hf_token = os.getenv("HF_TOKEN")
+
+        # Allow specifying a persistent SSL directory via environment
+        if not self.config.ssl_dir:
+            self.config.ssl_dir = os.getenv("PERSONAPLEX_SSL_DIR")
         
         self._initialized = True
         logger.info("PersonaPlexManager initialized")
@@ -115,14 +127,24 @@ class PersonaPlexManager:
     
     @property
     def server_url(self) -> str:
-        """Get the server URL."""
+        """Get the server URL (localhost for internal checks)."""
         protocol = "https" if self.config.ssl_enabled else "http"
         return f"{protocol}://localhost:{self.config.port}"
     
     @property
     def webui_url(self) -> str:
-        """Get the WebUI URL (PersonaPlex's built-in React UI)."""
-        return self.server_url
+        """Get the WebUI URL (external URL for browser access)."""
+        # Use PUBLIC_URL hostname if available, otherwise fallback to dev.gmai.sa
+        public_url = os.getenv("PUBLIC_URL", "https://api.gmai.sa")
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(public_url)
+            hostname = parsed.hostname or "dev.gmai.sa"
+        except Exception:
+            hostname = "dev.gmai.sa"
+        
+        # PersonaPlex always uses HTTPS for WebRTC
+        return f"https://{hostname}:{self.config.port}"
     
     def _check_prerequisites(self) -> tuple[bool, str]:
         """Check if PersonaPlex is installed and ready."""
@@ -147,8 +169,17 @@ class PersonaPlexManager:
         """Create temporary directory for SSL certificates."""
         if self._ssl_dir and Path(self._ssl_dir).exists():
             return self._ssl_dir
+
+        if self.config.ssl_dir:
+            ssl_dir = Path(self.config.ssl_dir)
+            ssl_dir.mkdir(parents=True, exist_ok=True)
+            self._ssl_dir = str(ssl_dir)
+            self._ssl_dir_is_temp = False
+            logger.info(f"Using configured SSL directory: {self._ssl_dir}")
+            return self._ssl_dir
         
         self._ssl_dir = tempfile.mkdtemp(prefix="personaplex_ssl_")
+        self._ssl_dir_is_temp = True
         logger.info(f"Created SSL directory: {self._ssl_dir}")
         return self._ssl_dir
     
@@ -213,6 +244,19 @@ class PersonaPlexManager:
                 "status": self._status.value,
             }
         
+        # Unload BeautyAI models to free GPU memory for PersonaPlex
+        try:
+            from ...core.persistent_model_manager import get_persistent_model_manager
+            pmm = get_persistent_model_manager()
+            logger.info("Unloading BeautyAI models to free GPU memory for PersonaPlex...")
+            unload_ok = await pmm.cleanup_models()
+            if unload_ok:
+                logger.info("Models unloaded to free GPU memory")
+            else:
+                logger.warning("Model unload reported failure; continuing anyway")
+        except Exception as e:
+            logger.warning(f"Failed to unload models: {e} - continuing anyway")
+        
         self._status = ServerStatus.STARTING
         self._error_message = None
         
@@ -224,6 +268,12 @@ class PersonaPlexManager:
             # Set environment
             env = os.environ.copy()
             env["HF_TOKEN"] = self.config.hf_token
+            local_bin = str(Path.home() / ".local" / "bin")
+            if local_bin not in env.get("PATH", ""):
+                env["PATH"] = f"{local_bin}{os.pathsep}{env.get('PATH', '')}"
+            torch_logs = env.get("TORCH_LOGS")
+            if torch_logs is not None and torch_logs.strip() == "":
+                env.pop("TORCH_LOGS", None)
             
             # Change to PersonaPlex directory
             cwd = self.config.personaplex_path
@@ -383,8 +433,8 @@ class PersonaPlexManager:
                 
                 self._process = None
             
-            # Cleanup SSL dir
-            if self._ssl_dir and Path(self._ssl_dir).exists():
+            # Cleanup SSL dir only if it is a temporary directory
+            if self._ssl_dir and self._ssl_dir_is_temp and Path(self._ssl_dir).exists():
                 import shutil
                 shutil.rmtree(self._ssl_dir, ignore_errors=True)
                 self._ssl_dir = None

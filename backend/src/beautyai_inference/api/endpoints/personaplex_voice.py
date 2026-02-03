@@ -16,6 +16,8 @@ import logging
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, status
+from fastapi.responses import FileResponse
+from pathlib import Path
 from pydantic import BaseModel, Field
 
 from ...services.personaplex import (
@@ -292,6 +294,49 @@ async def get_personaplex_info():
         },
         "license": "NVIDIA Open Model License",
     }
+
+
+def _get_personaplex_assets_dir() -> Path:
+    base_dir = Path.home() / ".cache" / "huggingface" / "hub" / "models--nvidia--personaplex-7b-v1"
+    refs_main = base_dir / "refs" / "main"
+    if refs_main.exists():
+        snapshot_id = refs_main.read_text().strip()
+        candidate = base_dir / "snapshots" / snapshot_id / "dist" / "assets"
+        if candidate.exists():
+            return candidate
+
+    snapshots_dir = base_dir / "snapshots"
+    if snapshots_dir.exists():
+        for child in snapshots_dir.iterdir():
+            candidate = child / "dist" / "assets"
+            if candidate.exists():
+                return candidate
+
+    raise FileNotFoundError("PersonaPlex assets directory not found")
+
+
+@personaplex_router.get("/assets/{asset_name}")
+async def get_personaplex_asset(asset_name: str):
+    """
+    Serve PersonaPlex client assets from the local HF cache for same-origin access.
+    """
+    try:
+        assets_dir = _get_personaplex_assets_dir()
+    except FileNotFoundError as e:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(e))
+
+    asset_path = (assets_dir / asset_name).resolve()
+    try:
+        if not asset_path.is_relative_to(assets_dir.resolve()):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid asset path")
+    except AttributeError:
+        if str(assets_dir.resolve()) not in str(asset_path):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid asset path")
+
+    if not asset_path.exists() or not asset_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Asset not found")
+
+    return FileResponse(asset_path)
 
 
 # ============================================

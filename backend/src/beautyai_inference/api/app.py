@@ -479,6 +479,28 @@ async def serve_personaplex_test_page():
         logger.error(f"Error serving PersonaPlex test page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@app.get("/personaplex_voice.html", response_class=HTMLResponse)
+@app.get("/api/personaplex_voice.html", response_class=HTMLResponse)
+async def serve_personaplex_voice_page():
+    """Serve the PersonaPlex integrated voice chat page."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        voice_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "personaplex_voice.html"
+        
+        if not voice_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"PersonaPlex voice page not found at {voice_page_path}")
+        
+        with open(voice_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="PersonaPlex voice page not found")
+    except Exception as e:
+        logger.error(f"Error serving PersonaPlex voice page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
 async def preload_voice_models():
     """Pre-load essential models for WebSocket voice services to improve performance."""
