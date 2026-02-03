@@ -1088,6 +1088,108 @@ async def run_gpu_benchmark(
     }
 
 
+# ============================================
+# Model Management Endpoints
+# ============================================
+
+@admin_router.post("/unload-all-models")
+async def unload_all_models(
+    admin: User = Depends(require_admin),
+):
+    """
+    Unload all persistent models to free GPU VRAM.
+    
+    This is useful before loading large models like PersonaPlex that require
+    most of the GPU memory. Unloads: Whisper, LLM, TTS models.
+    
+    Returns memory stats before and after cleanup.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager, cleanup_persistent_models
+    from ...utils.memory_utils import get_gpu_memory_stats, clear_gpu_memory
+    import gc
+    
+    # Get memory before cleanup
+    gpu_before = get_gpu_memory_stats()
+    memory_before = gpu_before[0] if gpu_before else {}
+    
+    # Get current model status
+    manager = get_persistent_model_manager()
+    models_status_before = manager.check_models_ready()
+    
+    logger.info(f"🧹 Admin {admin.email} requested unload of all models")
+    logger.info(f"   Models before: {list(manager._preloaded_models.keys())}")
+    
+    # Perform cleanup
+    success = await cleanup_persistent_models()
+    
+    # Force additional cleanup
+    gc.collect()
+    clear_gpu_memory()
+    
+    # Get memory after cleanup
+    gpu_after = get_gpu_memory_stats()
+    memory_after = gpu_after[0] if gpu_after else {}
+    
+    # Calculate freed memory
+    freed_mb = (memory_before.get('memory_used_mb', 0) - 
+                memory_after.get('memory_used_mb', 0))
+    
+    logger.info(f"✅ Model cleanup complete. Freed {freed_mb:.0f}MB VRAM")
+    
+    return {
+        "success": success,
+        "message": f"All models unloaded. Freed {freed_mb:.0f}MB GPU memory.",
+        "models_unloaded": list(models_status_before.keys()),
+        "memory_before": {
+            "used_mb": memory_before.get('memory_used_mb', 0),
+            "free_mb": memory_before.get('memory_free_mb', 0),
+            "total_mb": memory_before.get('memory_total_mb', 0),
+        },
+        "memory_after": {
+            "used_mb": memory_after.get('memory_used_mb', 0),
+            "free_mb": memory_after.get('memory_free_mb', 0),
+            "total_mb": memory_after.get('memory_total_mb', 0),
+        },
+        "freed_mb": freed_mb,
+        "admin": admin.email,
+    }
+
+
+@admin_router.get("/models/status")
+async def get_models_status(
+    admin: User = Depends(require_admin),
+):
+    """
+    Get status of all loaded models and GPU memory usage.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager
+    from ...utils.memory_utils import get_gpu_memory_stats
+    
+    manager = get_persistent_model_manager()
+    
+    # Get model status
+    models_ready = manager.check_models_ready()
+    init_stats = manager.get_initialization_stats()
+    
+    # Get GPU memory
+    gpu_stats = get_gpu_memory_stats()
+    gpu_info = gpu_stats[0] if gpu_stats else {}
+    
+    return {
+        "initialized": manager.is_initialized(),
+        "models": models_ready,
+        "preloaded_models": init_stats.get("preloaded_models", []),
+        "startup_time_seconds": init_stats.get("startup_time_seconds"),
+        "llm_pool": init_stats.get("llm_pool", {}),
+        "gpu_memory": {
+            "used_mb": gpu_info.get("memory_used_mb", 0),
+            "free_mb": gpu_info.get("memory_free_mb", 0),
+            "total_mb": gpu_info.get("memory_total_mb", 0),
+            "utilization_percent": gpu_info.get("gpu_utilization", 0),
+        }
+    }
+
+
 @admin_router.get("/benchmark/gpu/quick")
 async def quick_gpu_benchmark(
     admin: User = Depends(require_admin),
