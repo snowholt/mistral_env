@@ -464,6 +464,31 @@ class EmailService:
             tag="demo_request_admin_notification",
         )
     
+    async def send_otp_email(
+        self,
+        to_address: str,
+        full_name: str,
+        otp_code: str,
+        purpose: str = "WhatsApp Connect",
+        expires_minutes: int = 5,
+    ) -> dict:
+        """Send OTP verification email for 2FA."""
+        from .templates import EmailTemplates
+        
+        html_body = EmailTemplates.otp_verification_email(
+            full_name=full_name,
+            otp_code=otp_code,
+            purpose=purpose,
+            expires_minutes=expires_minutes,
+        )
+        
+        return await self.send_email(
+            to_address=to_address,
+            subject=f"🔐 رمز التحقق - Verification Code | GMAI.sa",
+            html_body=html_body,
+            tag="otp_verification",
+        )
+    
     async def send_demo_access_granted(
         self,
         to_address: str,

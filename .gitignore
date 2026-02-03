@@ -48,6 +48,7 @@ bun.lockb
 .env.*.local
 backend/.env
 tests/openai_validation/.env
+certs/personaplex/
 
 # =====================
 # IDE & Editor

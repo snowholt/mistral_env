@@ -35,6 +35,7 @@ import KnowledgeBase from "./pages/app/KnowledgeBase";
 import Billing from "./pages/app/Billing";
 import Settings from "./pages/app/Settings";
 import VoiceDemo from "./pages/app/VoiceDemo";
+import WhatsAppConnect from "./pages/app/WhatsAppConnect";
 
 // Admin pages
 import AdminCustomers from "./pages/app/admin/Customers";
@@ -99,6 +100,7 @@ function AppContent() {
           <Route index element={<DashboardHome />} />
           <Route path="businesses" element={<Businesses />} />
           <Route path="inbox" element={<Inbox />} />
+          <Route path="whatsapp" element={<WhatsAppConnect />} />
           <Route path="agent" element={<AgentSetup />} />
           <Route path="agent-wizard" element={<AgentSetupWizard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />

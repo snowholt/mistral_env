@@ -21,6 +21,7 @@ import {
   CreditCard,
   BookOpen,
   ClipboardList,
+  MessageSquare,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -48,6 +49,7 @@ const translations = {
     demo: 'Voice Demo',
     businesses: 'Businesses',
     inbox: 'Inbox',
+    whatsapp: 'WhatsApp',
     agentSetup: 'AI Agent',
     knowledgeBase: 'Knowledge Base',
     billing: 'Billing',
@@ -67,6 +69,7 @@ const translations = {
     demo: 'تجربة صوتية',
     businesses: 'الأعمال',
     inbox: 'صندوق الوارد',
+    whatsapp: 'واتساب',
     agentSetup: 'وكيل الذكاء الاصطناعي',
     knowledgeBase: 'قاعدة المعرفة',
     billing: 'الفواتير',
@@ -103,6 +106,7 @@ export default function DashboardLayout() {
     { title: t.home, href: '/app', icon: Home },
     { title: t.demo, href: '/app/demo', icon: Bot, guestDisabled: false },
     { title: t.businesses, href: '/app/businesses', icon: Building2, guestDisabled: true },
+    { title: t.whatsapp, href: '/app/whatsapp', icon: MessageSquare, guestDisabled: true },
     { title: t.inbox, href: '/app/inbox', icon: Inbox, guestDisabled: true },
     { title: t.agentSetup, href: '/app/agent', icon: Bot, guestDisabled: true },
     { title: t.knowledgeBase, href: '/app/knowledge-base', icon: BookOpen, guestDisabled: true },

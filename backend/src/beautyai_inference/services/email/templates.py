@@ -499,4 +499,42 @@ class EmailTemplates:
             title="تفعيل حسابك - Activate Your Account",
             content=content,
         )
+    
+    @classmethod
+    def otp_verification_email(cls, full_name: str, otp_code: str, purpose: str = "WhatsApp Connect", expires_minutes: int = 5) -> str:
+        """Generate OTP verification email template."""
+        content = f"""
+<div class="content-ar">
+    <p class="greeting">مرحباً {full_name} 👋</p>
+    <p>رمز التحقق الخاص بك لـ <strong>{purpose}</strong>:</p>
+    
+    <div style="background-color: #f0fdf4; border: 2px solid #10B981; padding: 25px; border-radius: 12px; margin: 25px 0; text-align: center;">
+        <p style="margin: 0; font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #059669; font-family: monospace;">{otp_code}</p>
+    </div>
+    
+    <div class="note">
+        ⏰ هذا الرمز صالح لمدة {expires_minutes} دقائق فقط.<br>
+        🔒 لا تشارك هذا الرمز مع أي شخص.
+    </div>
+</div>
 
+<div class="divider"></div>
+
+<div class="content-en">
+    <p>Hello {full_name},</p>
+    <p>Your verification code for <strong>{purpose}</strong>:</p>
+    
+    <div style="background-color: #f0fdf4; border: 2px solid #10B981; padding: 25px; border-radius: 12px; margin: 25px 0; text-align: center;">
+        <p style="margin: 0; font-size: 36px; font-weight: bold; letter-spacing: 8px; color: #059669; font-family: monospace;">{otp_code}</p>
+    </div>
+    
+    <p><small>
+        ⏰ This code expires in {expires_minutes} minutes.<br>
+        🔒 Never share this code with anyone.
+    </small></p>
+</div>
+"""
+        return cls.BASE_TEMPLATE.format(
+            title="رمز التحقق - Verification Code",
+            content=content,
+        )

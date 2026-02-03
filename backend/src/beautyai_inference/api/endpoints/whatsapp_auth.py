@@ -23,6 +23,7 @@ from ...auth.jwt_handler import create_access_token, create_refresh_token, verif
 from ...auth.dependencies import get_current_user, get_current_active_user
 from ...services.email import EmailService, get_email_service
 from ...services.cache import RateLimiter, get_redis, rate_limit_auth
+from ...auth.otp import OTPService, get_otp_service
 
 logger = logging.getLogger(__name__)
 
@@ -137,6 +138,24 @@ class AdminInviteRequest(BaseModel):
     """Create admin invite request."""
     target_email: Optional[EmailStr] = Field(None, description="Restrict invite to specific email")
     max_uses: int = Field(1, ge=1, le=10)
+
+
+class OTPRequestModel(BaseModel):
+    """Request OTP for 2FA verification."""
+    purpose: str = Field("whatsapp_connect", description="Purpose of OTP (whatsapp_connect, sensitive_action)")
+
+
+class OTPVerifyModel(BaseModel):
+    """Verify OTP code."""
+    code: str = Field(..., min_length=6, max_length=6, description="6-digit OTP code")
+    purpose: str = Field("whatsapp_connect", description="Purpose must match request")
+
+
+class OTPResponse(BaseModel):
+    """OTP operation response."""
+    success: bool
+    message: str
+    expires_in: Optional[int] = None  # seconds until OTP expires
 
 
 # ============================================
@@ -729,3 +748,103 @@ async def list_admin_invites(
             for inv in invites
         ]
     }
+
+
+# ============================================
+# OTP Verification Endpoints (2FA for WhatsApp Connect)
+# ============================================
+
+@auth_router.post("/otp/request", response_model=OTPResponse)
+async def request_otp(
+    request: OTPRequestModel,
+    current_user: User = Depends(get_current_active_user),
+    otp_service: OTPService = Depends(get_otp_service),
+    email_service: EmailService = Depends(get_email_service),
+):
+    """
+    Request OTP code for 2FA verification.
+    
+    Sends a 6-digit code to the user's verified email.
+    Used before sensitive actions like WhatsApp account connection.
+    Rate limited to prevent abuse.
+    """
+    # Verify email is confirmed first
+    if not current_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Please verify your email before requesting OTP"
+        )
+    
+    # Check rate limiting (max 3 OTP requests per 5 minutes)
+    rate_key = f"otp_rate:{current_user.id}"
+    redis = await get_redis()
+    request_count = await redis.incr(rate_key)
+    if request_count == 1:
+        await redis.expire(rate_key, 300)  # 5 minute window
+    if request_count > 3:
+        raise HTTPException(
+            status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+            detail="Too many OTP requests. Please wait 5 minutes."
+        )
+    
+    # Generate OTP with purpose
+    otp_code = await otp_service.generate_otp(
+        user_id=str(current_user.id),
+        purpose=request.purpose
+    )
+    
+    # Send OTP via email
+    try:
+        await email_service.send_otp_email(
+            to_address=current_user.email,
+            full_name=current_user.full_name,
+            otp_code=otp_code
+        )
+    except Exception as e:
+        logger.error(f"Failed to send OTP email to {current_user.email}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to send OTP email. Please try again."
+        )
+    
+    logger.info(f"OTP requested by user {current_user.email} for {request.purpose}")
+    
+    return OTPResponse(
+        success=True,
+        message="OTP sent to your email",
+        expires_in=300  # 5 minutes
+    )
+
+
+@auth_router.post("/otp/verify", response_model=OTPResponse)
+async def verify_otp(
+    request: OTPVerifyModel,
+    current_user: User = Depends(get_current_active_user),
+    otp_service: OTPService = Depends(get_otp_service),
+):
+    """
+    Verify OTP code for 2FA.
+    
+    Returns success if code is valid and matches purpose.
+    Code is invalidated after successful verification.
+    """
+    is_valid = await otp_service.verify_otp(
+        user_id=str(current_user.id),
+        code=request.code,
+        purpose=request.purpose
+    )
+    
+    if not is_valid:
+        # Track failed attempts for security logging
+        logger.warning(f"Failed OTP verification for user {current_user.email}")
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid or expired OTP code"
+        )
+    
+    logger.info(f"OTP verified for user {current_user.email}, purpose: {request.purpose}")
+    
+    return OTPResponse(
+        success=True,
+        message="OTP verified successfully"
+    )
