@@ -38,8 +38,9 @@ npm run dev
 # Step 5: start buidling the files for the server
 npm run build
 
-# Step 6: upload the files to the server
-scp -r dist/* root@8.213.48.89:/var/www/gmai.sa/dist/
+# Step 6: upload the files to the frontend server
+# NOTE: the frontend server may be different from the API server (api.gmai.sa)
+scp -r dist/* root@<FRONTEND_SERVER>:/var/www/gmai.sa/dist/
 ```
 
 **Edit a file directly in GitHub**

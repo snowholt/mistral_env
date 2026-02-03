@@ -9,7 +9,7 @@ import logging
 from typing import Optional
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Depends, status, Query
+from fastapi import APIRouter, HTTPException, Depends, status, Query, Request
 from fastapi.security import OAuth2PasswordRequestForm
 from pydantic import BaseModel, EmailStr, Field
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -17,7 +17,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 
 from ...database.connection import get_db
-from ...database.models import User, Customer, UserRole, AdminInvite
+from ...database.models import User, Customer, UserRole, AdminInvite, OTPVerificationLog
 from ...auth.password import hash_password, verify_password
 from ...auth.jwt_handler import create_access_token, create_refresh_token, verify_token, TokenType
 from ...auth.dependencies import get_current_user, get_current_active_user
@@ -30,6 +30,45 @@ logger = logging.getLogger(__name__)
 # Main auth router - handles user registration, login, profile, etc.
 # Note: This was previously at /api/v1/whatsapp/auth but moved to /api/v1/auth for clarity
 auth_router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
+
+
+def get_request_ip(http_request: Request) -> Optional[str]:
+    """Extract client IP address from request headers (proxy-aware)."""
+    forwarded_for = http_request.headers.get("x-forwarded-for")
+    if forwarded_for:
+        return forwarded_for.split(",")[0].strip()
+    if http_request.client:
+        return http_request.client.host
+    return None
+
+
+async def record_otp_log(
+    db: AsyncSession,
+    user: User,
+    action: str,
+    purpose: str,
+    success: bool,
+    http_request: Request,
+    failure_reason: Optional[str] = None,
+) -> None:
+    """Persist OTP audit log without breaking the main flow."""
+    try:
+        db.add(
+            OTPVerificationLog(
+                user_id=user.id,
+                email=user.email,
+                purpose=purpose,
+                action=action,
+                success=success,
+                failure_reason=failure_reason,
+                ip_address=get_request_ip(http_request),
+                user_agent=http_request.headers.get("user-agent"),
+            )
+        )
+        await db.commit()
+    except Exception as exc:
+        await db.rollback()
+        logger.error(f"Failed to record OTP log for user {user.email}: {exc}")
 
 
 # ============================================
@@ -756,8 +795,10 @@ async def list_admin_invites(
 
 @auth_router.post("/otp/request", response_model=OTPResponse)
 async def request_otp(
-    request: OTPRequestModel,
+    payload: OTPRequestModel,
+    http_request: Request,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
     otp_service: OTPService = Depends(get_otp_service),
     email_service: EmailService = Depends(get_email_service),
 ):
@@ -790,7 +831,7 @@ async def request_otp(
     # Generate OTP with purpose
     otp_code = await otp_service.generate_otp(
         user_id=str(current_user.id),
-        purpose=request.purpose
+        purpose=payload.purpose
     )
     
     # Send OTP via email
@@ -801,13 +842,31 @@ async def request_otp(
             otp_code=otp_code
         )
     except Exception as e:
+        await record_otp_log(
+            db=db,
+            user=current_user,
+            action="request",
+            purpose=payload.purpose,
+            success=False,
+            http_request=http_request,
+            failure_reason="email_send_failed",
+        )
         logger.error(f"Failed to send OTP email to {current_user.email}: {e}")
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="Failed to send OTP email. Please try again."
         )
+
+    await record_otp_log(
+        db=db,
+        user=current_user,
+        action="request",
+        purpose=payload.purpose,
+        success=True,
+        http_request=http_request,
+    )
     
-    logger.info(f"OTP requested by user {current_user.email} for {request.purpose}")
+    logger.info(f"OTP requested by user {current_user.email} for {payload.purpose}")
     
     return OTPResponse(
         success=True,
@@ -818,8 +877,10 @@ async def request_otp(
 
 @auth_router.post("/otp/verify", response_model=OTPResponse)
 async def verify_otp(
-    request: OTPVerifyModel,
+    payload: OTPVerifyModel,
+    http_request: Request,
     current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
     otp_service: OTPService = Depends(get_otp_service),
 ):
     """
@@ -830,19 +891,37 @@ async def verify_otp(
     """
     is_valid = await otp_service.verify_otp(
         user_id=str(current_user.id),
-        code=request.code,
-        purpose=request.purpose
+        code=payload.code,
+        purpose=payload.purpose
     )
     
     if not is_valid:
         # Track failed attempts for security logging
         logger.warning(f"Failed OTP verification for user {current_user.email}")
+        await record_otp_log(
+            db=db,
+            user=current_user,
+            action="verify",
+            purpose=payload.purpose,
+            success=False,
+            http_request=http_request,
+            failure_reason="invalid_or_expired",
+        )
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid or expired OTP code"
         )
-    
-    logger.info(f"OTP verified for user {current_user.email}, purpose: {request.purpose}")
+
+    await record_otp_log(
+        db=db,
+        user=current_user,
+        action="verify",
+        purpose=payload.purpose,
+        success=True,
+        http_request=http_request,
+    )
+
+    logger.info(f"OTP verified for user {current_user.email}, purpose: {payload.purpose}")
     
     return OTPResponse(
         success=True,

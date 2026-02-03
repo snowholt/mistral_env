@@ -1392,6 +1392,39 @@ class AdminInvite(Base):
 
 
 # ============================================================================
+# Security / Auth Logs
+# ============================================================================
+
+
+class OTPVerificationLog(Base):
+    """
+    Audit log for OTP requests and verifications.
+    """
+    __tablename__ = "otp_verification_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, default="whatsapp_connect")
+    action: Mapped[str] = mapped_column(String(20), nullable=False)  # request | verify
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    __table_args__ = (
+        Index('ix_otp_logs_user_created', 'user_id', 'created_at'),
+    )
+
+    def __repr__(self) -> str:
+        return f"<OTPVerificationLog(id={self.id}, user_id={self.user_id}, action='{self.action}', success={self.success})>"
+
+
+# ============================================================================
 # Demo Request System
 # ============================================================================
 
