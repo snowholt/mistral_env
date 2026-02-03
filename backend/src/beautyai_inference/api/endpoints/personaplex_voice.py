@@ -30,7 +30,7 @@ from ...services.personaplex import (
 logger = logging.getLogger(__name__)
 
 personaplex_router = APIRouter(
-    prefix="/api/v1/personaplex",
+    prefix="/v1/personaplex",
     tags=["personaplex", "voice", "s2s"]
 )
 
