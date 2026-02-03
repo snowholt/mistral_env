@@ -385,7 +385,7 @@ export default function WhatsAppConnect() {
                   </div>
                   <div className="flex items-center gap-2">
                     <Button variant="outline" size="sm" asChild>
-                      <a href={`/app/agent?whatsapp=${account.id}`}>
+                      <a href={`/app/whatsapp/settings?account=${account.id}`}>
                         <Settings className="h-4 w-4 mr-1" />
                         {t.configure}
                       </a>
