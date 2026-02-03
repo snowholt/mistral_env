@@ -260,6 +260,14 @@ if tts_router_available:
 else:
     logger.warning("TTS test endpoints not registered - module not available")
 
+# Include PersonaPlex full-duplex S2S router
+try:
+    from .endpoints.personaplex_voice import personaplex_router
+    app.include_router(personaplex_router, tags=["personaplex"])
+    logger.info("✅ PersonaPlex endpoints registered at /api/v1/personaplex/*")
+except ImportError as e:
+    logger.warning(f"PersonaPlex router not available: {e}")
+
 # Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:
     app.include_router(auth_router, tags=["auth"])
