@@ -758,6 +758,214 @@ class PersistentModelManager:
             'memory_thresholds': self._memory_thresholds,
             'configuration_loaded': self._preload_config is not None
         }
+    
+    def is_model_loaded(self, model_id: str) -> bool:
+        """
+        Check if a specific model is currently loaded.
+        
+        Args:
+            model_id: Model identifier (e.g., 'stt', 'llm', 'tts', 'whisper')
+            
+        Returns:
+            bool: True if model is loaded
+        """
+        # Normalize common aliases
+        normalized_id = model_id.lower()
+        alias_map = {
+            'stt': 'whisper',
+            'speech-to-text': 'whisper',
+            'transcription': 'whisper',
+        }
+        normalized_id = alias_map.get(normalized_id, normalized_id)
+        
+        # Check direct match
+        if normalized_id in self._preloaded_models:
+            return True
+        
+        # Check LLM instances
+        if normalized_id.startswith('llm'):
+            if normalized_id == 'llm':
+                return len(self._llm_instances) > 0
+            # Check specific instance like 'llm:0'
+            if ':' in normalized_id:
+                try:
+                    instance_num = int(normalized_id.split(':')[1])
+                    return instance_num in self._llm_instances
+                except (ValueError, IndexError):
+                    pass
+        
+        return False
+    
+    async def unload_model(self, model_id: str) -> bool:
+        """
+        Unload a specific model by ID.
+        
+        Args:
+            model_id: Model identifier (e.g., 'stt', 'llm', 'tts', 'whisper')
+            
+        Returns:
+            bool: True if model was unloaded successfully
+        """
+        try:
+            # Normalize common aliases
+            normalized_id = model_id.lower()
+            alias_map = {
+                'stt': 'whisper',
+                'speech-to-text': 'whisper',
+                'transcription': 'whisper',
+            }
+            actual_id = alias_map.get(normalized_id, normalized_id)
+            
+            self.logger.info(f"Unloading model: {model_id} (normalized: {actual_id})")
+            
+            # Handle LLM unloading (all instances)
+            if actual_id == 'llm':
+                for instance_id, model_instance in list(self._llm_instances.items()):
+                    try:
+                        if hasattr(model_instance, 'cleanup'):
+                            model_instance.cleanup()
+                        elif hasattr(model_instance, 'unload_model'):
+                            model_instance.unload_model()
+                        self.logger.info(f"  Unloaded LLM instance {instance_id}")
+                    except Exception as e:
+                        self.logger.error(f"  Error unloading LLM instance {instance_id}: {e}")
+                
+                # Clear LLM tracking
+                self._llm_instances.clear()
+                self._llm_pool_size = 0
+                self._llm_instance_counter = 0
+                
+                # Remove from preloaded_models
+                for key in list(self._preloaded_models.keys()):
+                    if key == 'llm' or key.startswith('llm:'):
+                        del self._preloaded_models[key]
+                
+                gc.collect()
+                clear_gpu_memory()
+                self.logger.info(f"✅ All LLM instances unloaded")
+                return True
+            
+            # Handle specific LLM instance
+            if actual_id.startswith('llm:'):
+                try:
+                    instance_num = int(actual_id.split(':')[1])
+                    if instance_num in self._llm_instances:
+                        model_instance = self._llm_instances[instance_num]
+                        if hasattr(model_instance, 'cleanup'):
+                            model_instance.cleanup()
+                        elif hasattr(model_instance, 'unload_model'):
+                            model_instance.unload_model()
+                        
+                        del self._llm_instances[instance_num]
+                        if actual_id in self._preloaded_models:
+                            del self._preloaded_models[actual_id]
+                        
+                        self._llm_pool_size = len(self._llm_instances)
+                        gc.collect()
+                        clear_gpu_memory()
+                        self.logger.info(f"✅ LLM instance {instance_num} unloaded")
+                        return True
+                except (ValueError, IndexError):
+                    pass
+                return False
+            
+            # Handle other models (whisper, tts)
+            if actual_id in self._preloaded_models:
+                model_instance = self._preloaded_models[actual_id]
+                
+                try:
+                    if hasattr(model_instance, 'cleanup'):
+                        model_instance.cleanup()
+                    elif hasattr(model_instance, 'unload_model'):
+                        model_instance.unload_model()
+                    elif hasattr(model_instance, 'model') and hasattr(model_instance.model, 'unload'):
+                        model_instance.model.unload()
+                except Exception as e:
+                    self.logger.warning(f"Cleanup method failed for {actual_id}: {e}")
+                
+                del self._preloaded_models[actual_id]
+                
+                # Also remove aliases
+                if actual_id == 'whisper':
+                    self._preloaded_models.pop('stt', None)
+                elif actual_id == 'stt':
+                    self._preloaded_models.pop('whisper', None)
+                
+                gc.collect()
+                clear_gpu_memory()
+                self.logger.info(f"✅ Model {actual_id} unloaded")
+                return True
+            
+            self.logger.warning(f"Model {model_id} not found in preloaded models")
+            return False
+            
+        except Exception as e:
+            self.logger.error(f"Error unloading model {model_id}: {e}")
+            import traceback
+            self.logger.error(traceback.format_exc())
+            return False
+    
+    def get_loaded_models_info(self) -> List[Dict[str, Any]]:
+        """
+        Get detailed information about all loaded models.
+        
+        Returns:
+            List of dictionaries with model info (id, type, device, memory_mb estimate)
+        """
+        models_info = []
+        
+        # Check Whisper/STT
+        if 'whisper' in self._preloaded_models:
+            model = self._preloaded_models['whisper']
+            models_info.append({
+                'id': 'stt',
+                'name': 'Whisper STT',
+                'type': 'speech-to-text',
+                'device': getattr(model, 'device', 'cuda'),
+                'model_id': getattr(model, 'model_id', 'whisper-byne-arabic'),
+                'estimated_vram_mb': 3000,  # ~3GB for Whisper large
+                'can_unload': True
+            })
+        
+        # Check LLM instances
+        for instance_id, model in self._llm_instances.items():
+            config = getattr(model, 'config', None)
+            models_info.append({
+                'id': f'llm:{instance_id}' if instance_id > 0 else 'llm',
+                'name': f'LLM Instance {instance_id}',
+                'type': 'large-language-model',
+                'device': 'cuda',
+                'model_id': getattr(config, 'model_id', 'qwen3-unsloth') if config else 'unknown',
+                'estimated_vram_mb': 8000,  # ~8GB for Q4 14B
+                'can_unload': True
+            })
+        
+        # Check TTS
+        if 'tts' in self._preloaded_models:
+            model = self._preloaded_models['tts']
+            engine_type = 'edge_tts'
+            device = 'cpu'
+            vram = 0
+            
+            if hasattr(model, 'config'):
+                engine_type = getattr(model.config, 'engine_type', 'edge_tts')
+            
+            # Check if GPU TTS
+            if 'saudi' in str(type(model)).lower() or 'xtts' in str(type(model)).lower():
+                device = 'cuda'
+                vram = 4000
+            
+            models_info.append({
+                'id': 'tts',
+                'name': 'Text-to-Speech',
+                'type': 'text-to-speech',
+                'device': device,
+                'model_id': getattr(model, 'model_id', engine_type),
+                'estimated_vram_mb': vram,
+                'can_unload': True
+            })
+        
+        return models_info
 
 
 # Global instance for singleton access

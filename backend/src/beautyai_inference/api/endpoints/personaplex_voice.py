@@ -292,3 +292,184 @@ async def get_personaplex_info():
         },
         "license": "NVIDIA Open Model License",
     }
+
+
+# ============================================
+# Model Management Endpoints (No Auth Required for Dev)
+# ============================================
+
+@personaplex_router.get("/models")
+async def get_loaded_models():
+    """
+    Get list of currently loaded models with memory info.
+    
+    This endpoint is useful for checking which models are consuming
+    VRAM before starting PersonaPlex.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager
+    from ...utils.memory_utils import get_gpu_memory_stats
+    import gc
+    
+    manager = get_persistent_model_manager()
+    
+    # Get model info
+    models = manager.get_loaded_models_info()
+    
+    # Get GPU memory stats
+    gpu_stats = get_gpu_memory_stats()
+    gpu_info = gpu_stats[0] if gpu_stats else {}
+    
+    return {
+        "models": models,
+        "total_models": len(models),
+        "gpu_memory": {
+            "used_mb": gpu_info.get("memory_used_mb", 0),
+            "free_mb": gpu_info.get("memory_free_mb", 0),
+            "total_mb": gpu_info.get("memory_total_mb", 0),
+            "utilization_percent": gpu_info.get("gpu_utilization", 0),
+        },
+        "personaplex_requirements": {
+            "min_free_vram_mb": 9000,
+            "recommended_free_vram_mb": 14000,
+        }
+    }
+
+
+@personaplex_router.post("/models/unload/{model_id}")
+async def unload_model(model_id: str):
+    """
+    Unload a specific model to free GPU VRAM.
+    
+    Model IDs:
+    - `stt` or `whisper` - Speech-to-Text model (~3GB VRAM)
+    - `llm` - All LLM instances (~8GB VRAM each)
+    - `llm:0`, `llm:1` - Specific LLM instance
+    - `tts` - Text-to-Speech model (varies)
+    
+    Use this to free VRAM before starting PersonaPlex.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager
+    from ...utils.memory_utils import get_gpu_memory_stats, clear_gpu_memory
+    import gc
+    
+    manager = get_persistent_model_manager()
+    
+    # Get memory before
+    gpu_before = get_gpu_memory_stats()
+    memory_before = gpu_before[0] if gpu_before else {}
+    
+    # Check if model exists
+    if not manager.is_model_loaded(model_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model '{model_id}' is not currently loaded"
+        )
+    
+    logger.info(f"🧹 Unloading model: {model_id}")
+    
+    # Unload the model
+    try:
+        success = await manager.unload_model(model_id)
+    except Exception as e:
+        logger.error(f"Failed to unload model {model_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unload model: {str(e)}"
+        )
+    
+    # Force cleanup
+    gc.collect()
+    clear_gpu_memory()
+    
+    # Get memory after
+    gpu_after = get_gpu_memory_stats()
+    memory_after = gpu_after[0] if gpu_after else {}
+    
+    freed_mb = max(0, memory_before.get('memory_used_mb', 0) - 
+                memory_after.get('memory_used_mb', 0))
+    
+    logger.info(f"✅ Model {model_id} unloaded. Freed ~{freed_mb:.0f}MB VRAM")
+    
+    return {
+        "success": success,
+        "message": f"Model '{model_id}' unloaded. Freed ~{freed_mb:.0f}MB GPU memory.",
+        "model_id": model_id,
+        "memory_before": {
+            "used_mb": memory_before.get('memory_used_mb', 0),
+            "free_mb": memory_before.get('memory_free_mb', 0),
+            "total_mb": memory_before.get('memory_total_mb', 0),
+        },
+        "memory_after": {
+            "used_mb": memory_after.get('memory_used_mb', 0),
+            "free_mb": memory_after.get('memory_free_mb', 0),
+            "total_mb": memory_after.get('memory_total_mb', 0),
+        },
+        "freed_mb": freed_mb,
+    }
+
+
+@personaplex_router.post("/models/unload-all")
+async def unload_all_models():
+    """
+    Unload all models to free GPU VRAM for PersonaPlex.
+    
+    This is the recommended way to prepare for PersonaPlex:
+    1. Call this endpoint to free VRAM
+    2. Wait a moment for cleanup
+    3. Start PersonaPlex server
+    
+    Returns memory stats before and after cleanup.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager, cleanup_persistent_models
+    from ...utils.memory_utils import get_gpu_memory_stats, clear_gpu_memory
+    import gc
+    
+    # Get memory before cleanup
+    gpu_before = get_gpu_memory_stats()
+    memory_before = gpu_before[0] if gpu_before else {}
+    
+    # Get manager and check what's loaded
+    manager = get_persistent_model_manager()
+    models_status_before = manager.check_models_ready()
+    
+    logger.info(f"🧹 Unloading all models for PersonaPlex...")
+    logger.info(f"   Models before: {list(manager._preloaded_models.keys())}")
+    
+    # Perform cleanup
+    success = await cleanup_persistent_models()
+    
+    # Force additional cleanup
+    gc.collect()
+    clear_gpu_memory()
+    
+    # Small delay for GPU memory to be released
+    import asyncio
+    await asyncio.sleep(0.5)
+    
+    # Get memory after cleanup
+    gpu_after = get_gpu_memory_stats()
+    memory_after = gpu_after[0] if gpu_after else {}
+    
+    # Calculate freed memory
+    freed_mb = max(0, memory_before.get('memory_used_mb', 0) - 
+                memory_after.get('memory_used_mb', 0))
+    
+    logger.info(f"✅ All models unloaded. Freed ~{freed_mb:.0f}MB VRAM")
+    
+    return {
+        "success": success,
+        "message": f"All models unloaded. Freed ~{freed_mb:.0f}MB GPU memory.",
+        "models_unloaded": list(models_status_before.keys()),
+        "memory_before": {
+            "used_mb": memory_before.get('memory_used_mb', 0),
+            "free_mb": memory_before.get('memory_free_mb', 0),
+            "total_mb": memory_before.get('memory_total_mb', 0),
+        },
+        "memory_after": {
+            "used_mb": memory_after.get('memory_used_mb', 0),
+            "free_mb": memory_after.get('memory_free_mb', 0),
+            "total_mb": memory_after.get('memory_total_mb', 0),
+        },
+        "freed_mb": freed_mb,
+        "ready_for_personaplex": memory_after.get('memory_free_mb', 0) >= 9000,
+    }

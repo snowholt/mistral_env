@@ -1190,6 +1190,76 @@ async def get_models_status(
     }
 
 
+@admin_router.post("/models/unload/{model_id}")
+async def unload_specific_model(
+    model_id: str,
+    admin: User = Depends(require_admin),
+):
+    """
+    Unload a specific model by ID to free GPU VRAM.
+    
+    Model IDs are typically: stt, llm, tts, tts_fallback, etc.
+    """
+    from ...core.persistent_model_manager import get_persistent_model_manager
+    from ...utils.memory_utils import get_gpu_memory_stats, clear_gpu_memory
+    import gc
+    
+    # Get memory before
+    gpu_before = get_gpu_memory_stats()
+    memory_before = gpu_before[0] if gpu_before else {}
+    
+    manager = get_persistent_model_manager()
+    
+    # Check if model exists
+    if not manager.is_model_loaded(model_id):
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Model '{model_id}' is not currently loaded"
+        )
+    
+    logger.info(f"🧹 Admin {admin.email} requested unload of model: {model_id}")
+    
+    # Unload the specific model
+    try:
+        success = await manager.unload_model(model_id)
+    except Exception as e:
+        logger.error(f"Failed to unload model {model_id}: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to unload model: {str(e)}"
+        )
+    
+    # Force cleanup
+    gc.collect()
+    clear_gpu_memory()
+    
+    # Get memory after
+    gpu_after = get_gpu_memory_stats()
+    memory_after = gpu_after[0] if gpu_after else {}
+    
+    freed_mb = (memory_before.get('memory_used_mb', 0) - 
+                memory_after.get('memory_used_mb', 0))
+    
+    logger.info(f"✅ Model {model_id} unloaded. Freed {freed_mb:.0f}MB VRAM")
+    
+    return {
+        "success": success,
+        "message": f"Model '{model_id}' unloaded. Freed {freed_mb:.0f}MB GPU memory.",
+        "model_id": model_id,
+        "memory_before": {
+            "used_mb": memory_before.get('memory_used_mb', 0),
+            "free_mb": memory_before.get('memory_free_mb', 0),
+            "total_mb": memory_before.get('memory_total_mb', 0),
+        },
+        "memory_after": {
+            "used_mb": memory_after.get('memory_used_mb', 0),
+            "free_mb": memory_after.get('memory_free_mb', 0),
+            "total_mb": memory_after.get('memory_total_mb', 0),
+        },
+        "freed_mb": freed_mb,
+    }
+
+
 @admin_router.get("/benchmark/gpu/quick")
 async def quick_gpu_benchmark(
     admin: User = Depends(require_admin),

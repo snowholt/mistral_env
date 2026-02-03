@@ -342,6 +342,148 @@
             background: rgba(255,255,255,0.3);
         }
         
+        /* Model Management Panel */
+        .model-panel {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .model-panel h3 {
+            color: var(--nvidia-green);
+            margin: 0 0 15px 0;
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+        }
+        
+        .gpu-bar {
+            background: rgba(0,0,0,0.4);
+            height: 24px;
+            border-radius: 12px;
+            overflow: hidden;
+            margin-bottom: 15px;
+            position: relative;
+        }
+        
+        .gpu-bar-fill {
+            height: 100%;
+            background: linear-gradient(90deg, var(--nvidia-green), #8cd000);
+            transition: width 0.5s ease;
+            border-radius: 12px;
+        }
+        
+        .gpu-bar-fill.warning {
+            background: linear-gradient(90deg, #fbbc04, #f5a623);
+        }
+        
+        .gpu-bar-fill.critical {
+            background: linear-gradient(90deg, #ea4335, #ff5a4d);
+        }
+        
+        .gpu-bar-text {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            font-size: 0.75em;
+            font-weight: 600;
+            color: #fff;
+            text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+        }
+        
+        .model-list {
+            display: flex;
+            flex-direction: column;
+            gap: 8px;
+        }
+        
+        .model-item {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 12px 15px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .model-item:hover {
+            background: rgba(255,255,255,0.08);
+        }
+        
+        .model-info {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .model-icon {
+            width: 36px;
+            height: 36px;
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2em;
+        }
+        
+        .model-icon.stt {
+            background: rgba(156, 39, 176, 0.2);
+        }
+        
+        .model-icon.llm {
+            background: rgba(118, 185, 0, 0.2);
+        }
+        
+        .model-icon.tts {
+            background: rgba(33, 150, 243, 0.2);
+        }
+        
+        .model-details h4 {
+            margin: 0 0 2px 0;
+            font-size: 0.95em;
+            color: #fff;
+        }
+        
+        .model-details span {
+            font-size: 0.8em;
+            color: #888;
+        }
+        
+        .model-vram {
+            font-size: 0.85em;
+            color: var(--nvidia-green);
+            margin-right: 15px;
+        }
+        
+        .btn-unload {
+            padding: 6px 14px;
+            font-size: 0.8em;
+            background: rgba(234, 67, 53, 0.2);
+            color: #ea4335;
+            border: 1px solid rgba(234, 67, 53, 0.3);
+        }
+        
+        .btn-unload:hover {
+            background: rgba(234, 67, 53, 0.3);
+        }
+        
+        .empty-models {
+            text-align: center;
+            padding: 30px;
+            color: #666;
+        }
+        
+        .empty-models .icon {
+            font-size: 2em;
+            margin-bottom: 10px;
+        }
+        
         .hidden { display: none !important; }
     </style>
 </head>
@@ -434,12 +576,33 @@
             <button id="stopServerBtn" class="btn-danger hidden" onclick="stopServer()">
                 🛑 Stop Server
             </button>
-            <button id="unloadModelsBtn" class="btn-secondary" onclick="unloadModels()">
-                🧹 Unload All Models (Free VRAM)
+            <button id="refreshStatusBtn" class="btn-secondary" onclick="refreshAll()">
+                🔄 Refresh
             </button>
-            <button id="refreshStatusBtn" class="btn-secondary" onclick="refreshStatus()">
-                🔄 Refresh Status
-            </button>
+        </div>
+
+        <!-- Model Management Panel -->
+        <div class="model-panel" id="modelPanel">
+            <h3>
+                🧠 Loaded Models
+                <button class="btn-secondary" style="padding: 6px 12px; font-size: 0.8em;" onclick="unloadAllModels()">
+                    🧹 Unload All
+                </button>
+            </h3>
+            
+            <!-- GPU Memory Bar -->
+            <div class="gpu-bar">
+                <div class="gpu-bar-fill" id="gpuBarFill" style="width: 0%"></div>
+                <span class="gpu-bar-text" id="gpuBarText">Loading...</span>
+            </div>
+            
+            <!-- Model List -->
+            <div class="model-list" id="modelList">
+                <div class="empty-models">
+                    <div class="icon">⏳</div>
+                    <div>Loading model information...</div>
+                </div>
+            </div>
         </div>
 
         <!-- Full-Duplex Visualization -->
@@ -495,15 +658,31 @@
             astronaut: "You enjoy having a good conversation. Have a technical discussion about fixing a reactor core on a spaceship to Mars. You are an astronaut on a Mars mission. Your name is Alex. You are already dealing with a reactor core meltdown on a Mars mission. Several ship systems are failing, and continued instability will lead to catastrophic failure. You explain what is happening and you urgently ask for help thinking through how to stabilize the reactor.",
         };
 
+        // Model icons
+        const MODEL_ICONS = {
+            'stt': '🎤',
+            'llm': '🧠',
+            'tts': '🔊',
+            'whisper': '🎤',
+        };
+
         // State
         let statusCheckInterval = null;
+        let modelsData = null;
 
         // Initialize
         document.addEventListener('DOMContentLoaded', () => {
-            refreshStatus();
-            // Auto-refresh status every 5 seconds
-            statusCheckInterval = setInterval(refreshStatus, 5000);
+            refreshAll();
+            // Auto-refresh every 5 seconds
+            statusCheckInterval = setInterval(refreshAll, 5000);
         });
+
+        async function refreshAll() {
+            await Promise.all([
+                refreshStatus(),
+                refreshModels()
+            ]);
+        }
 
         function updatePromptText() {
             const select = document.getElementById('promptSelect');
@@ -522,12 +701,81 @@
             try {
                 const response = await fetch('/api/v1/personaplex/status');
                 const data = await response.json();
-                
                 updateUI(data);
             } catch (e) {
                 console.error('Status check failed:', e);
                 updateUI({ status: 'error', error: e.message });
             }
+        }
+
+        async function refreshModels() {
+            try {
+                const response = await fetch('/api/v1/personaplex/models');
+                const data = await response.json();
+                modelsData = data;
+                updateModelPanel(data);
+            } catch (e) {
+                console.error('Models check failed:', e);
+                updateModelPanel({ models: [], gpu_memory: {} });
+            }
+        }
+
+        function updateModelPanel(data) {
+            const modelList = document.getElementById('modelList');
+            const gpuBarFill = document.getElementById('gpuBarFill');
+            const gpuBarText = document.getElementById('gpuBarText');
+            
+            // Update GPU bar
+            const gpu = data.gpu_memory || {};
+            const usedMb = gpu.used_mb || 0;
+            const totalMb = gpu.total_mb || 24000;
+            const freeMb = gpu.free_mb || 0;
+            const percent = Math.min(100, (usedMb / totalMb) * 100);
+            
+            gpuBarFill.style.width = percent + '%';
+            gpuBarText.innerText = `${(usedMb/1024).toFixed(1)}GB / ${(totalMb/1024).toFixed(1)}GB (${freeMb >= 9000 ? '✓ Ready for PersonaPlex' : freeMb + 'MB free'})`;
+            
+            // Color based on usage
+            gpuBarFill.classList.remove('warning', 'critical');
+            if (percent > 80) {
+                gpuBarFill.classList.add('critical');
+            } else if (percent > 60) {
+                gpuBarFill.classList.add('warning');
+            }
+            
+            // Update model list
+            const models = data.models || [];
+            
+            if (models.length === 0) {
+                modelList.innerHTML = `
+                    <div class="empty-models">
+                        <div class="icon">✨</div>
+                        <div>No models loaded - GPU is ready for PersonaPlex!</div>
+                    </div>
+                `;
+                return;
+            }
+            
+            modelList.innerHTML = models.map(model => {
+                const icon = MODEL_ICONS[model.type] || MODEL_ICONS[model.id] || '📦';
+                const typeClass = model.id.includes('llm') ? 'llm' : (model.id.includes('stt') || model.id.includes('whisper') ? 'stt' : 'tts');
+                
+                return `
+                    <div class="model-item">
+                        <div class="model-info">
+                            <div class="model-icon ${typeClass}">${icon}</div>
+                            <div class="model-details">
+                                <h4>${model.name}</h4>
+                                <span>${model.model_id} • ${model.device}</span>
+                            </div>
+                        </div>
+                        <span class="model-vram">~${(model.estimated_vram_mb/1024).toFixed(1)}GB</span>
+                        <button class="btn-unload" onclick="unloadModel('${model.id}')">
+                            🗑️ Unload
+                        </button>
+                    </div>
+                `;
+            }).join('');
         }
 
         function updateUI(data) {
@@ -541,6 +789,7 @@
             const startBtn = document.getElementById('startServerBtn');
             const stopBtn = document.getElementById('stopServerBtn');
             const duplexViz = document.getElementById('duplexViz');
+            const modelPanel = document.getElementById('modelPanel');
             
             // Update status indicator
             statusDot.className = 'status-indicator ' + data.status;
@@ -579,13 +828,15 @@
                 duplexViz.classList.add('hidden');
             }
             
-            // Update buttons
+            // Update buttons and model panel visibility
             if (data.is_running) {
                 startBtn.classList.add('hidden');
                 stopBtn.classList.remove('hidden');
+                modelPanel.classList.add('hidden'); // Hide model panel when PersonaPlex is running
             } else {
                 startBtn.classList.remove('hidden');
                 stopBtn.classList.add('hidden');
+                modelPanel.classList.remove('hidden');
             }
             
             // Disable config during run
@@ -622,7 +873,7 @@
                     addMessage('system', `❌ Failed to start: ${data.message}`);
                 }
                 
-                refreshStatus();
+                refreshAll();
                 
             } catch (e) {
                 console.error('Start failed:', e);
@@ -653,7 +904,7 @@
                     addMessage('system', `⚠️ ${data.message}`);
                 }
                 
-                refreshStatus();
+                refreshAll();
                 
             } catch (e) {
                 console.error('Stop failed:', e);
@@ -664,33 +915,55 @@
             }
         }
 
-        async function unloadModels() {
-            const btn = document.getElementById('unloadModelsBtn');
-            btn.disabled = true;
-            btn.innerText = '⏳ Unloading...';
-            
-            addMessage('system', 'Unloading all models to free GPU VRAM...');
+        async function unloadModel(modelId) {
+            addMessage('system', `Unloading ${modelId}...`);
             
             try {
-                const response = await fetch('/api/v1/admin/unload-all-models', {
+                const response = await fetch(`/api/v1/personaplex/models/unload/${modelId}`, {
                     method: 'POST'
                 });
                 
                 const data = await response.json();
                 
                 if (data.success) {
-                    addMessage('system', `✅ Models unloaded! Freed ${data.freed_mb?.toFixed(0) || '?'}MB VRAM.`);
-                    addMessage('system', `VRAM now: ${data.memory_after?.used_mb?.toFixed(0) || '?'}MB used / ${data.memory_after?.total_mb?.toFixed(0) || '?'}MB total`);
+                    addMessage('system', `✅ ${modelId} unloaded! Freed ~${data.freed_mb?.toFixed(0) || '?'}MB VRAM.`);
+                } else {
+                    addMessage('system', `⚠️ Failed to unload: ${data.message || 'Unknown error'}`);
+                }
+                
+                await refreshModels();
+                
+            } catch (e) {
+                console.error('Unload failed:', e);
+                addMessage('system', `❌ Error: ${e.message}`);
+            }
+        }
+
+        async function unloadAllModels() {
+            addMessage('system', 'Unloading all models to free GPU VRAM...');
+            
+            try {
+                const response = await fetch('/api/v1/personaplex/models/unload-all', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage('system', `✅ All models unloaded! Freed ~${data.freed_mb?.toFixed(0) || '?'}MB VRAM.`);
+                    addMessage('system', `VRAM: ${(data.memory_after?.used_mb/1024)?.toFixed(1) || '?'}GB used / ${(data.memory_after?.total_mb/1024)?.toFixed(1) || '?'}GB total`);
+                    if (data.ready_for_personaplex) {
+                        addMessage('system', `✨ GPU is ready for PersonaPlex!`);
+                    }
                 } else {
                     addMessage('system', `⚠️ ${data.message || 'Unload may have partially failed'}`);
                 }
                 
+                await refreshModels();
+                
             } catch (e) {
-                // Admin endpoint may require auth - try without auth for local dev
-                addMessage('system', `⚠️ Unload request sent (may require admin auth in production)`);
-            } finally {
-                btn.disabled = false;
-                btn.innerText = '🧹 Unload All Models (Free VRAM)';
+                console.error('Unload all failed:', e);
+                addMessage('system', `❌ Error: ${e.message}`);
             }
         }
 
