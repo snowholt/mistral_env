@@ -1,0 +1,708 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PersonaPlex - Full Duplex Voice Test</title>
+    <style>
+        :root {
+            --nvidia-green: #76b900;
+            --nvidia-dark: #1a1a1a;
+            --nvidia-gray: #666;
+            --accent: #76b900;
+        }
+        
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            max-width: 900px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        
+        .container { 
+            background: rgba(255,255,255,0.05); 
+            padding: 25px; 
+            border-radius: 16px; 
+            box-shadow: 0 8px 32px rgba(0,0,0,0.3);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        h1 { 
+            color: var(--nvidia-green); 
+            margin-bottom: 10px;
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+        
+        .subtitle {
+            color: #999;
+            margin-bottom: 25px;
+            font-size: 0.9em;
+        }
+        
+        .status-bar { 
+            display: flex; 
+            gap: 15px; 
+            margin-bottom: 20px; 
+            padding: 12px 16px; 
+            background: rgba(118, 185, 0, 0.1); 
+            border-radius: 10px; 
+            align-items: center;
+            border: 1px solid rgba(118, 185, 0, 0.2);
+        }
+        
+        .status-indicator { 
+            width: 14px; 
+            height: 14px; 
+            border-radius: 50%; 
+            background: #555;
+            transition: all 0.3s;
+        }
+        .status-indicator.stopped { background: #666; }
+        .status-indicator.starting { background: #fbbc04; animation: pulse 1s infinite; }
+        .status-indicator.running { background: var(--nvidia-green); box-shadow: 0 0 10px var(--nvidia-green); }
+        .status-indicator.speaking { background: #9c27b0; animation: pulse 0.5s infinite; }
+        .status-indicator.listening { background: var(--nvidia-green); animation: pulse 1.5s infinite; }
+        .status-indicator.error { background: #ea4335; }
+        
+        @keyframes pulse { 
+            0% { opacity: 1; transform: scale(1); } 
+            50% { opacity: 0.6; transform: scale(0.95); } 
+            100% { opacity: 1; transform: scale(1); } 
+        }
+
+        .config-section {
+            background: rgba(0,0,0,0.3);
+            padding: 20px;
+            border-radius: 12px;
+            margin-bottom: 20px;
+        }
+        
+        .config-section h3 {
+            color: var(--nvidia-green);
+            margin: 0 0 15px 0;
+            font-size: 1em;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .config-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin-bottom: 15px;
+        }
+        
+        .config-item label {
+            display: block;
+            color: #aaa;
+            font-size: 0.85em;
+            margin-bottom: 6px;
+        }
+        
+        select, input[type="text"], textarea {
+            width: 100%;
+            padding: 10px 14px;
+            border-radius: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.4);
+            color: #fff;
+            font-size: 14px;
+            box-sizing: border-box;
+        }
+        
+        select:focus, input:focus, textarea:focus {
+            outline: none;
+            border-color: var(--nvidia-green);
+        }
+        
+        textarea {
+            resize: vertical;
+            min-height: 80px;
+            font-family: inherit;
+        }
+
+        .controls { 
+            display: flex;
+            gap: 12px;
+            margin-bottom: 20px; 
+            flex-wrap: wrap;
+        }
+        
+        button { 
+            padding: 12px 24px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            transition: all 0.2s;
+            font-size: 14px;
+        }
+        
+        .btn-primary { 
+            background: var(--nvidia-green); 
+            color: #000; 
+        }
+        .btn-primary:hover { 
+            background: #8cd000;
+            transform: translateY(-1px);
+        }
+        .btn-primary:disabled { 
+            background: #444; 
+            color: #888;
+            cursor: not-allowed; 
+            transform: none;
+        }
+        
+        .btn-danger { 
+            background: #ea4335; 
+            color: white; 
+        }
+        .btn-danger:hover { 
+            background: #ff5a4d; 
+        }
+        
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+
+        .chat-box { 
+            height: 350px; 
+            overflow-y: auto; 
+            border: 1px solid rgba(255,255,255,0.1); 
+            border-radius: 12px; 
+            padding: 15px; 
+            background: rgba(0,0,0,0.4); 
+            margin-bottom: 20px; 
+            display: flex; 
+            flex-direction: column; 
+            gap: 10px; 
+        }
+        
+        .message { 
+            max-width: 85%; 
+            padding: 12px 16px; 
+            border-radius: 16px; 
+            line-height: 1.5; 
+            position: relative;
+            font-size: 0.95em;
+        }
+        .message.user { 
+            align-self: flex-end; 
+            background: var(--nvidia-green); 
+            color: #000; 
+            border-bottom-right-radius: 4px; 
+        }
+        .message.assistant { 
+            align-self: flex-start; 
+            background: rgba(255,255,255,0.1); 
+            color: #fff;
+            border-bottom-left-radius: 4px; 
+        }
+        .message.system { 
+            align-self: center; 
+            background: rgba(255,255,255,0.05); 
+            color: #999; 
+            font-size: 0.85em; 
+            padding: 8px 16px;
+            border-radius: 20px;
+        }
+        
+        .info-panel {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 12px;
+            font-size: 0.9em;
+        }
+        
+        .info-card {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        .info-value {
+            font-size: 1.3em;
+            font-weight: bold;
+            color: var(--nvidia-green);
+            display: block;
+            margin-bottom: 4px;
+        }
+        
+        .info-label {
+            color: #888;
+            font-size: 0.85em;
+        }
+        
+        .server-url {
+            margin-top: 15px;
+            padding: 12px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 8px;
+            font-family: monospace;
+            font-size: 0.9em;
+            word-break: break-all;
+        }
+        
+        .server-url a {
+            color: var(--nvidia-green);
+            text-decoration: none;
+        }
+        
+        .server-url a:hover {
+            text-decoration: underline;
+        }
+        
+        .badge {
+            display: inline-block;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 0.75em;
+            font-weight: 600;
+            text-transform: uppercase;
+        }
+        
+        .badge-nvidia {
+            background: var(--nvidia-green);
+            color: #000;
+        }
+        
+        .badge-s2s {
+            background: #9c27b0;
+            color: #fff;
+        }
+        
+        /* Full-duplex visualization */
+        .duplex-viz {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .channel {
+            flex: 1;
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .channel-label {
+            font-size: 0.85em;
+            color: #888;
+            margin-bottom: 8px;
+        }
+        
+        .channel-indicator {
+            height: 40px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            color: #555;
+            font-size: 0.9em;
+        }
+        
+        .channel-indicator.active {
+            background: rgba(118, 185, 0, 0.2);
+            color: var(--nvidia-green);
+            animation: pulse 1s infinite;
+        }
+        
+        .channel-indicator.speaking {
+            background: rgba(156, 39, 176, 0.2);
+            color: #ce93d8;
+        }
+
+        /* Scrollbar styling */
+        .chat-box::-webkit-scrollbar {
+            width: 8px;
+        }
+        .chat-box::-webkit-scrollbar-track {
+            background: rgba(0,0,0,0.2);
+            border-radius: 4px;
+        }
+        .chat-box::-webkit-scrollbar-thumb {
+            background: rgba(255,255,255,0.2);
+            border-radius: 4px;
+        }
+        .chat-box::-webkit-scrollbar-thumb:hover {
+            background: rgba(255,255,255,0.3);
+        }
+        
+        .hidden { display: none !important; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>
+            <span class="badge badge-nvidia">NVIDIA</span>
+            PersonaPlex
+            <span class="badge badge-s2s">Full-Duplex S2S</span>
+        </h1>
+        <p class="subtitle">Real-time conversational AI with natural interruption support, backchanneling, and smooth turn-taking.</p>
+        
+        <div class="status-bar">
+            <div id="statusDot" class="status-indicator stopped"></div>
+            <span id="statusText">Server not running</span>
+            <span id="uptimeText" style="margin-left: auto; font-size: 0.85em; color: #888;"></span>
+        </div>
+
+        <!-- Server Configuration -->
+        <div class="config-section">
+            <h3>🎛️ Server Configuration</h3>
+            
+            <div class="config-row">
+                <div class="config-item">
+                    <label for="voiceSelect">Voice Prompt</label>
+                    <select id="voiceSelect">
+                        <optgroup label="Natural Female (Recommended)">
+                            <option value="NATF2" selected>NATF2 - Natural Female (Best)</option>
+                            <option value="NATF0">NATF0 - Natural Female</option>
+                            <option value="NATF1">NATF1 - Natural Female</option>
+                            <option value="NATF3">NATF3 - Natural Female</option>
+                        </optgroup>
+                        <optgroup label="Natural Male (Recommended)">
+                            <option value="NATM1">NATM1 - Natural Male (Best)</option>
+                            <option value="NATM0">NATM0 - Natural Male</option>
+                            <option value="NATM2">NATM2 - Natural Male</option>
+                            <option value="NATM3">NATM3 - Natural Male</option>
+                        </optgroup>
+                        <optgroup label="Variety Female">
+                            <option value="VARF0">VARF0 - Variety Female</option>
+                            <option value="VARF1">VARF1 - Variety Female</option>
+                            <option value="VARF2">VARF2 - Variety Female</option>
+                            <option value="VARF3">VARF3 - Variety Female</option>
+                            <option value="VARF4">VARF4 - Variety Female</option>
+                        </optgroup>
+                        <optgroup label="Variety Male">
+                            <option value="VARM0">VARM0 - Variety Male</option>
+                            <option value="VARM1">VARM1 - Variety Male</option>
+                            <option value="VARM2">VARM2 - Variety Male</option>
+                            <option value="VARM3">VARM3 - Variety Male</option>
+                            <option value="VARM4">VARM4 - Variety Male</option>
+                        </optgroup>
+                    </select>
+                </div>
+                
+                <div class="config-item">
+                    <label for="promptSelect">Persona Preset</label>
+                    <select id="promptSelect" onchange="updatePromptText()">
+                        <option value="assistant">🧑‍🏫 Wise Teacher (Default)</option>
+                        <option value="casual">💬 Casual Conversation</option>
+                        <option value="beauty_consultant">💄 Beauty Consultant</option>
+                        <option value="customer_service_bank">🏦 Bank Agent</option>
+                        <option value="customer_service_medical">🏥 Medical Receptionist</option>
+                        <option value="customer_service_restaurant">🍽️ Restaurant Staff</option>
+                        <option value="customer_service_rental">🚁 Drone Rental</option>
+                        <option value="astronaut">🚀 Astronaut (Emergency)</option>
+                        <option value="custom">✏️ Custom Prompt</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div class="config-item">
+                <label for="textPrompt">Text Prompt (Persona Description)</label>
+                <textarea id="textPrompt" placeholder="Describe the AI's persona, role, and context...">You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.</textarea>
+            </div>
+            
+            <div class="config-item" style="margin-top: 10px;">
+                <label>
+                    <input type="checkbox" id="cpuOffload" checked style="width: auto; margin-right: 8px;">
+                    Enable CPU Offload (Required for GPUs with &lt;14GB VRAM)
+                </label>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button id="startServerBtn" class="btn-primary" onclick="startServer()">
+                🚀 Start PersonaPlex Server
+            </button>
+            <button id="stopServerBtn" class="btn-danger hidden" onclick="stopServer()">
+                🛑 Stop Server
+            </button>
+            <button id="unloadModelsBtn" class="btn-secondary" onclick="unloadModels()">
+                🧹 Unload All Models (Free VRAM)
+            </button>
+            <button id="refreshStatusBtn" class="btn-secondary" onclick="refreshStatus()">
+                🔄 Refresh Status
+            </button>
+        </div>
+
+        <!-- Full-Duplex Visualization -->
+        <div class="duplex-viz hidden" id="duplexViz">
+            <div class="channel">
+                <div class="channel-label">👤 User (Left Channel)</div>
+                <div class="channel-indicator" id="userChannel">Waiting...</div>
+            </div>
+            <div class="channel">
+                <div class="channel-label">🤖 AI (Right Channel)</div>
+                <div class="channel-indicator" id="aiChannel">Waiting...</div>
+            </div>
+        </div>
+
+        <!-- Chat Box -->
+        <div class="chat-box" id="chatBox">
+            <div class="message system">PersonaPlex test page ready. Start the server to begin.</div>
+        </div>
+
+        <!-- Info Panel -->
+        <div class="info-panel">
+            <div class="info-card">
+                <span class="info-value" id="serverStatus">Stopped</span>
+                <span class="info-label">Server Status</span>
+            </div>
+            <div class="info-card">
+                <span class="info-value" id="latencyInfo">-</span>
+                <span class="info-label">Response Latency</span>
+            </div>
+            <div class="info-card">
+                <span class="info-value" id="sessionsInfo">0</span>
+                <span class="info-label">Active Sessions</span>
+            </div>
+        </div>
+        
+        <!-- Server URL -->
+        <div class="server-url hidden" id="serverUrlBox">
+            <strong>WebUI Access:</strong> <a id="serverUrl" href="#" target="_blank">-</a>
+            <br><small style="color: #888;">Click to open PersonaPlex's native WebUI in a new tab</small>
+        </div>
+    </div>
+
+    <script>
+        // Persona prompts
+        const PROMPTS = {
+            assistant: "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
+            casual: "You enjoy having a good conversation.",
+            beauty_consultant: "You are Layla, a friendly and knowledgeable beauty consultant at a high-end skincare clinic in Riyadh. You speak warmly and professionally. Help customers with skincare advice, product recommendations, and appointment scheduling. You're fluent in Arabic and English.",
+            customer_service_bank: "You work for First Neuron Bank which is a bank and your name is Sanni Virtanen. Information: The customer's transaction for $1,200 at Home Depot was declined. Verify customer identity. The transaction was flagged due to an unusual location (transaction attempted in Miami, FL; customer normally transacts in Seattle, WA).",
+            customer_service_medical: "You work for Dr. Jones's medical office, and you are receiving calls to record information for new patients. Information: Record full name, date of birth, any medication allergies, tobacco smoking history, alcohol consumption history, and any prior medical conditions. Assure the patient that this information will be confidential, if they ask.",
+            customer_service_restaurant: "You work for Jerusalem Shakshuka which is a restaurant and your name is Owen Foster. Information: There are two shakshuka options: Classic (poached eggs, $9.50) and Spicy (scrambled eggs with jalapenos, $10.25). Sides include warm pita ($2.50) and Israeli salad ($3). No combo offers. Available for drive-through until 9 PM.",
+            customer_service_rental: "You work for AeroRentals Pro which is a drone rental company and your name is Tomaz Novak. Information: AeroRentals Pro has the following availability: PhoenixDrone X ($65/4 hours, $110/8 hours), and the premium SpectraDrone 9 ($95/4 hours, $160/8 hours). Deposit required: $150 for standard models, $300 for premium.",
+            astronaut: "You enjoy having a good conversation. Have a technical discussion about fixing a reactor core on a spaceship to Mars. You are an astronaut on a Mars mission. Your name is Alex. You are already dealing with a reactor core meltdown on a Mars mission. Several ship systems are failing, and continued instability will lead to catastrophic failure. You explain what is happening and you urgently ask for help thinking through how to stabilize the reactor.",
+        };
+
+        // State
+        let statusCheckInterval = null;
+
+        // Initialize
+        document.addEventListener('DOMContentLoaded', () => {
+            refreshStatus();
+            // Auto-refresh status every 5 seconds
+            statusCheckInterval = setInterval(refreshStatus, 5000);
+        });
+
+        function updatePromptText() {
+            const select = document.getElementById('promptSelect');
+            const textarea = document.getElementById('textPrompt');
+            
+            if (select.value === 'custom') {
+                textarea.placeholder = 'Enter your custom persona prompt here...';
+                textarea.value = '';
+                textarea.focus();
+            } else {
+                textarea.value = PROMPTS[select.value] || PROMPTS.assistant;
+            }
+        }
+
+        async function refreshStatus() {
+            try {
+                const response = await fetch('/api/v1/personaplex/status');
+                const data = await response.json();
+                
+                updateUI(data);
+            } catch (e) {
+                console.error('Status check failed:', e);
+                updateUI({ status: 'error', error: e.message });
+            }
+        }
+
+        function updateUI(data) {
+            const statusDot = document.getElementById('statusDot');
+            const statusText = document.getElementById('statusText');
+            const serverStatus = document.getElementById('serverStatus');
+            const uptimeText = document.getElementById('uptimeText');
+            const sessionsInfo = document.getElementById('sessionsInfo');
+            const serverUrlBox = document.getElementById('serverUrlBox');
+            const serverUrl = document.getElementById('serverUrl');
+            const startBtn = document.getElementById('startServerBtn');
+            const stopBtn = document.getElementById('stopServerBtn');
+            const duplexViz = document.getElementById('duplexViz');
+            
+            // Update status indicator
+            statusDot.className = 'status-indicator ' + data.status;
+            
+            // Update text
+            const statusMap = {
+                'stopped': 'Server not running',
+                'starting': 'Starting server...',
+                'running': 'Server running',
+                'stopping': 'Stopping server...',
+                'error': 'Error: ' + (data.error || 'Unknown')
+            };
+            statusText.innerText = statusMap[data.status] || data.status;
+            serverStatus.innerText = data.status.charAt(0).toUpperCase() + data.status.slice(1);
+            
+            // Update uptime
+            if (data.uptime_seconds) {
+                const mins = Math.floor(data.uptime_seconds / 60);
+                const secs = Math.floor(data.uptime_seconds % 60);
+                uptimeText.innerText = `Uptime: ${mins}m ${secs}s`;
+            } else {
+                uptimeText.innerText = '';
+            }
+            
+            // Update sessions
+            sessionsInfo.innerText = data.active_sessions || 0;
+            
+            // Update server URL
+            if (data.is_running && data.webui_url) {
+                serverUrlBox.classList.remove('hidden');
+                serverUrl.href = data.webui_url;
+                serverUrl.innerText = data.webui_url;
+                duplexViz.classList.remove('hidden');
+            } else {
+                serverUrlBox.classList.add('hidden');
+                duplexViz.classList.add('hidden');
+            }
+            
+            // Update buttons
+            if (data.is_running) {
+                startBtn.classList.add('hidden');
+                stopBtn.classList.remove('hidden');
+            } else {
+                startBtn.classList.remove('hidden');
+                stopBtn.classList.add('hidden');
+            }
+            
+            // Disable config during run
+            const configInputs = document.querySelectorAll('.config-section select, .config-section textarea, .config-section input');
+            configInputs.forEach(input => {
+                input.disabled = data.is_running;
+            });
+        }
+
+        async function startServer() {
+            const startBtn = document.getElementById('startServerBtn');
+            startBtn.disabled = true;
+            startBtn.innerText = '⏳ Starting...';
+            
+            addMessage('system', 'Starting PersonaPlex server... This may take 1-2 minutes for model loading.');
+            
+            try {
+                const response = await fetch('/api/v1/personaplex/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        voice_prompt: document.getElementById('voiceSelect').value,
+                        text_prompt: document.getElementById('promptSelect').value,
+                        cpu_offload: document.getElementById('cpuOffload').checked
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage('system', `✅ Server started! WebUI: ${data.webui_url}`);
+                    addMessage('system', `Open the WebUI link above to start a full-duplex voice conversation.`);
+                } else {
+                    addMessage('system', `❌ Failed to start: ${data.message}`);
+                }
+                
+                refreshStatus();
+                
+            } catch (e) {
+                console.error('Start failed:', e);
+                addMessage('system', `❌ Error: ${e.message}`);
+            } finally {
+                startBtn.disabled = false;
+                startBtn.innerText = '🚀 Start PersonaPlex Server';
+            }
+        }
+
+        async function stopServer() {
+            const stopBtn = document.getElementById('stopServerBtn');
+            stopBtn.disabled = true;
+            stopBtn.innerText = '⏳ Stopping...';
+            
+            addMessage('system', 'Stopping PersonaPlex server...');
+            
+            try {
+                const response = await fetch('/api/v1/personaplex/stop', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage('system', '✅ Server stopped successfully.');
+                } else {
+                    addMessage('system', `⚠️ ${data.message}`);
+                }
+                
+                refreshStatus();
+                
+            } catch (e) {
+                console.error('Stop failed:', e);
+                addMessage('system', `❌ Error: ${e.message}`);
+            } finally {
+                stopBtn.disabled = false;
+                stopBtn.innerText = '🛑 Stop Server';
+            }
+        }
+
+        async function unloadModels() {
+            const btn = document.getElementById('unloadModelsBtn');
+            btn.disabled = true;
+            btn.innerText = '⏳ Unloading...';
+            
+            addMessage('system', 'Unloading all models to free GPU VRAM...');
+            
+            try {
+                const response = await fetch('/api/v1/admin/unload-all-models', {
+                    method: 'POST'
+                });
+                
+                const data = await response.json();
+                
+                if (data.success) {
+                    addMessage('system', `✅ Models unloaded! Freed ${data.freed_mb?.toFixed(0) || '?'}MB VRAM.`);
+                    addMessage('system', `VRAM now: ${data.memory_after?.used_mb?.toFixed(0) || '?'}MB used / ${data.memory_after?.total_mb?.toFixed(0) || '?'}MB total`);
+                } else {
+                    addMessage('system', `⚠️ ${data.message || 'Unload may have partially failed'}`);
+                }
+                
+            } catch (e) {
+                // Admin endpoint may require auth - try without auth for local dev
+                addMessage('system', `⚠️ Unload request sent (may require admin auth in production)`);
+            } finally {
+                btn.disabled = false;
+                btn.innerText = '🧹 Unload All Models (Free VRAM)';
+            }
+        }
+
+        function addMessage(role, text) {
+            const chatBox = document.getElementById('chatBox');
+            const div = document.createElement('div');
+            div.className = `message ${role}`;
+            div.innerText = text;
+            chatBox.appendChild(div);
+            chatBox.scrollTop = chatBox.scrollHeight;
+            return div;
+        }
+    </script>
+</body>
+</html>
