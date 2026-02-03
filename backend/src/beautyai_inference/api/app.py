@@ -437,6 +437,7 @@ async def serve_lean_capture_test_page():
 
 
 @app.get("/test_lean.html", response_class=HTMLResponse)
+@app.get("/api/test_lean.html", response_class=HTMLResponse)
 async def serve_lean_test_page():
     """Serve the lean WebRTC test page."""
     try:
@@ -458,6 +459,7 @@ async def serve_lean_test_page():
 
 
 @app.get("/test_personaplex.html", response_class=HTMLResponse)
+@app.get("/api/test_personaplex.html", response_class=HTMLResponse)
 async def serve_personaplex_test_page():
     """Serve the PersonaPlex full-duplex S2S test page."""
     try:
