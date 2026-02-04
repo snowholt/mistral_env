@@ -218,7 +218,9 @@ class ApiClient {
         // Retry the request with new token
         return this.request<T>(endpoint, options, includeAuth, false);
       }
-      // Refresh failed, throw error
+      // Refresh failed, clear tokens and throw error
+      tokenManager.clearTokens();
+      // Optional: Dispatch a custom event or let the UI handle the redirect based on cleared tokens
       throw { detail: 'Session expired. Please log in again.', status: 401 };
     }
 

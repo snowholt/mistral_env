@@ -63,6 +63,11 @@ const translations = {
     lastSync: 'Last synced',
     messages: 'Messages',
     today: 'today',
+    emailNotVerified: 'Email Not Verified',
+    emailNotVerifiedDesc: 'Please verify your email address before connecting WhatsApp. Check your inbox for the verification link.',
+    resendVerification: 'Resend Verification Email',
+    verificationSent: 'Verification email sent! Check your inbox.',
+    verificationSentError: 'Failed to send verification email. Please try again.',
   },
   ar: {
     title: 'ربط واتساب',
@@ -95,6 +100,11 @@ const translations = {
     lastSync: 'آخر مزامنة',
     messages: 'الرسائل',
     today: 'اليوم',
+    emailNotVerified: 'البريد الإلكتروني غير مُوثّق',
+    emailNotVerifiedDesc: 'يرجى تأكيد بريدك الإلكتروني قبل ربط واتساب. تحقق من بريدك الوارد لرابط التحقق.',
+    resendVerification: 'إعادة إرسال رسالة التحقق',
+    verificationSent: 'تم إرسال رسالة التحقق! تحقق من بريدك الوارد.',
+    verificationSentError: 'فشل في إرسال رسالة التحقق. حاول مرة أخرى.',
   },
 };
 
@@ -124,6 +134,8 @@ export default function WhatsAppConnect() {
   const [sdkError, setSdkError] = useState<string | null>(null);
   const [showOTPModal, setShowOTPModal] = useState(false);
   const [otpVerified, setOtpVerified] = useState(false);
+  const [showVerifyAlert, setShowVerifyAlert] = useState(false);
+  const [isResendingVerification, setIsResendingVerification] = useState(false);
 
   // Load accounts on mount
   useEffect(() => {
@@ -156,8 +168,35 @@ export default function WhatsAppConnect() {
   };
 
   const handleConnectClick = () => {
-    // Show OTP verification modal first
+    // Check if email is verified first
+    if (!user?.is_verified) {
+      setShowVerifyAlert(true);
+      return;
+    }
+    // Show OTP verification modal
     setShowOTPModal(true);
+  };
+
+  const handleResendVerification = async () => {
+    if (!user?.email) return;
+    setIsResendingVerification(true);
+    try {
+      await api.post('/api/v1/auth/resend-verification', { email: user.email });
+      toast({
+        title: 'Success',
+        description: t.verificationSent,
+      });
+      setShowVerifyAlert(false);
+    } catch (error) {
+      console.error('Failed to resend verification:', error);
+      toast({
+        title: 'Error',
+        description: t.verificationSentError,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsResendingVerification(false);
+    }
   };
 
   const handleOTPSuccess = () => {
@@ -285,6 +324,36 @@ export default function WhatsAppConnect() {
           <AlertCircle className="h-4 w-4" />
           <AlertTitle>Error</AlertTitle>
           <AlertDescription>{sdkError}</AlertDescription>
+        </Alert>
+      )}
+
+      {/* Email Not Verified Alert */}
+      {showVerifyAlert && (
+        <Alert variant="destructive">
+          <AlertCircle className="h-4 w-4" />
+          <AlertTitle>{t.emailNotVerified}</AlertTitle>
+          <AlertDescription className="flex flex-col gap-3">
+            <span>{t.emailNotVerifiedDesc}</span>
+            <Button
+              variant="outline"
+              size="sm"
+              className="w-fit"
+              onClick={handleResendVerification}
+              disabled={isResendingVerification}
+            >
+              {isResendingVerification ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Sending...
+                </>
+              ) : (
+                <>
+                  <RefreshCw className="mr-2 h-4 w-4" />
+                  {t.resendVerification}
+                </>
+              )}
+            </Button>
+          </AlertDescription>
         </Alert>
       )}
 
