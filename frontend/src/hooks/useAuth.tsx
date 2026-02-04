@@ -204,8 +204,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         user,
         isAdmin: user.role === 'admin',
       }));
+      return user;  // Return refreshed user for immediate use
     } catch {
       // Silently fail, token might be expired
+      return null;
     }
   }, []);
 

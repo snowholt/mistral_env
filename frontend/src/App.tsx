@@ -23,6 +23,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import GuestLogin from "./pages/auth/GuestLogin";
+import VerifyEmail from "./pages/auth/VerifyEmail";
 
 // Dashboard pages
 import DashboardLayout from "@/components/layouts/DashboardLayout";
@@ -91,6 +92,7 @@ function AppContent() {
         <Route path="/demo/login" element={<GuestLogin />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/verify-email" element={<VerifyEmail />} />
 
         {/* Protected Dashboard Routes */}
         <Route path="/app" element={

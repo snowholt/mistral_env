@@ -118,6 +118,33 @@ async def get_current_active_user(
     return current_user
 
 
+async def get_current_verified_user(
+    current_user: User = Depends(get_current_active_user)
+) -> User:
+    """
+    Dependency to get a verified and active user.
+    
+    Use this for sensitive endpoints that require email verification,
+    such as WhatsApp Connect, account management, etc.
+    
+    Args:
+        current_user: Active user from get_current_active_user dependency
+        
+    Returns:
+        Verified User object
+        
+    Raises:
+        HTTPException 403: If user email is not verified
+    """
+    if not current_user.is_verified:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Email verification required. Please verify your email before accessing this feature."
+        )
+    
+    return current_user
+
+
 async def get_optional_user(
     token: Optional[str] = Depends(oauth2_scheme_optional),
     db: AsyncSession = Depends(get_db)

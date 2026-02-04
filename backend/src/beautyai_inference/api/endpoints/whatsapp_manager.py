@@ -23,7 +23,7 @@ from ...database.models import (
     User, Customer, WhatsAppAccount, AgentConfig, 
     Conversation, Message, MessageSource, MessageStatus
 )
-from ...auth.dependencies import get_current_active_user
+from ...auth.dependencies import get_current_active_user, get_current_verified_user
 from ...services.cache import get_redis, RedisClient
 
 logger = logging.getLogger(__name__)
@@ -163,7 +163,7 @@ class AIControlRequest(BaseModel):
 
 @whatsapp_manager_router.get("/customers", response_model=List[CustomerResponse])
 async def list_customers(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List all customers (businesses) for the current user."""
@@ -191,7 +191,7 @@ async def list_customers(
 @whatsapp_manager_router.post("/customers", response_model=CustomerResponse)
 async def create_customer(
     request: CustomerCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new customer (business)."""
@@ -244,7 +244,7 @@ async def _get_or_create_default_customer(
 
 @whatsapp_manager_router.get("/signup/init", response_model=SignupInitResponse)
 async def init_signup(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
     redis: RedisClient = Depends(get_redis),
 ):
@@ -274,7 +274,7 @@ async def init_signup(
 @whatsapp_manager_router.post("/signup/complete", response_model=WhatsAppAccountResponse)
 async def complete_signup(
     request: SignupCompleteRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
     redis: RedisClient = Depends(get_redis),
 ):
@@ -306,7 +306,7 @@ async def complete_signup(
 @whatsapp_manager_router.post("/meta/init-signup")
 async def init_meta_signup(
     request: MetaSignupInitRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -347,7 +347,7 @@ async def init_meta_signup(
 @whatsapp_manager_router.post("/meta/complete-signup", response_model=WhatsAppAccountResponse)
 async def complete_meta_signup(
     request: MetaSignupCompleteRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -446,7 +446,7 @@ async def complete_meta_signup(
 @whatsapp_manager_router.get("/accounts", response_model=List[WhatsAppAccountResponse])
 async def list_whatsapp_accounts(
     customer_id: Optional[int] = None,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List WhatsApp accounts for user's customers."""
@@ -484,7 +484,7 @@ async def list_whatsapp_accounts(
 @whatsapp_manager_router.post("/agents/configure", response_model=AgentConfigResponse)
 async def configure_agent(
     request: AgentConfigRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -569,7 +569,7 @@ async def configure_agent(
 @whatsapp_manager_router.get("/agents/config/{customer_id}", response_model=AgentConfigResponse)
 async def get_agent_config(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get agent configuration for a customer."""
@@ -609,7 +609,7 @@ async def get_agent_config(
 async def control_ai(
     customer_id: int,
     request: AIControlRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Control AI (pause/resume) for a customer's agent."""
@@ -660,7 +660,7 @@ async def list_conversations(
     status_filter: Optional[str] = Query(None, pattern="^(active|archived|blocked)$"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List conversations for user's customers."""
@@ -712,7 +712,7 @@ async def get_conversation_messages(
     conversation_id: int,
     limit: int = Query(50, ge=1, le=200),
     before_id: Optional[int] = None,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get messages for a conversation (paginated)."""
@@ -770,7 +770,7 @@ async def get_conversation_messages(
 async def send_manual_message(
     conversation_id: int,
     request: SendMessageRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1024,7 +1024,7 @@ class WizardConfigResponse(BaseModel):
 @whatsapp_manager_router.post("/agents/wizard", response_model=WizardConfigResponse)
 async def configure_agent_wizard(
     request: WizardConfigRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1240,7 +1240,7 @@ async def configure_agent_wizard(
 @whatsapp_manager_router.get("/agents/wizard/{customer_id}", response_model=WizardConfigResponse)
 async def get_agent_wizard_config(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1314,7 +1314,7 @@ async def get_agent_wizard_config(
 @whatsapp_manager_router.get("/agents/wizard/{customer_id}/details")
 async def get_agent_wizard_details(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """

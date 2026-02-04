@@ -20,7 +20,7 @@ from ...database.connection import get_db
 from ...database.models import User, Customer, UserRole, AdminInvite, OTPVerificationLog
 from ...auth.password import hash_password, verify_password
 from ...auth.jwt_handler import create_access_token, create_refresh_token, verify_token, TokenType
-from ...auth.dependencies import get_current_user, get_current_active_user
+from ...auth.dependencies import get_current_user, get_current_active_user, get_current_verified_user
 from ...services.email import EmailService, get_email_service
 from ...services.cache import RateLimiter, get_redis, rate_limit_auth
 from ...auth.otp import OTPService, get_otp_service
@@ -696,7 +696,7 @@ async def reset_password(
 @auth_router.post("/admin/invite")
 async def create_admin_invite(
     request: AdminInviteRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
     email_service: EmailService = Depends(get_email_service),
 ):
@@ -753,7 +753,7 @@ async def create_admin_invite(
 
 @auth_router.get("/admin/invites")
 async def list_admin_invites(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
     """
@@ -797,7 +797,7 @@ async def list_admin_invites(
 async def request_otp(
     payload: OTPRequestModel,
     http_request: Request,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
     otp_service: OTPService = Depends(get_otp_service),
     email_service: EmailService = Depends(get_email_service),
@@ -808,14 +808,9 @@ async def request_otp(
     Sends a 6-digit code to the user's verified email.
     Used before sensitive actions like WhatsApp account connection.
     Rate limited to prevent abuse.
-    """
-    # Verify email is confirmed first
-    if not current_user.is_verified:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Please verify your email before requesting OTP"
-        )
     
+    Requires verified email (enforced by get_current_verified_user dependency).
+    """
     # Check rate limiting (max 3 OTP requests per 5 minutes)
     rate_key = f"otp_rate:{current_user.id}"
     redis = await get_redis()
@@ -879,7 +874,7 @@ async def request_otp(
 async def verify_otp(
     payload: OTPVerifyModel,
     http_request: Request,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
     otp_service: OTPService = Depends(get_otp_service),
 ):

@@ -68,6 +68,10 @@ const translations = {
     resendVerification: 'Resend Verification Email',
     verificationSent: 'Verification email sent! Check your inbox.',
     verificationSentError: 'Failed to send verification email. Please try again.',
+    alreadyVerified: "I've already verified",
+    checkingVerification: 'Checking...',
+    nowVerified: 'Email verified! You can now connect WhatsApp.',
+    stillNotVerified: 'Email not yet verified. Please click the link in your email.',
   },
   ar: {
     title: 'ربط واتساب',
@@ -105,6 +109,10 @@ const translations = {
     resendVerification: 'إعادة إرسال رسالة التحقق',
     verificationSent: 'تم إرسال رسالة التحقق! تحقق من بريدك الوارد.',
     verificationSentError: 'فشل في إرسال رسالة التحقق. حاول مرة أخرى.',
+    alreadyVerified: 'لقد أكدت بريدي',
+    checkingVerification: 'جاري التحقق...',
+    nowVerified: 'تم تأكيد بريدك! يمكنك الآن ربط واتساب.',
+    stillNotVerified: 'لم يتم تأكيد البريد بعد. يرجى النقر على الرابط في بريدك.',
   },
 };
 
@@ -122,7 +130,7 @@ interface WhatsAppAccount {
 }
 
 export default function WhatsAppConnect() {
-  const { user } = useAuth();
+  const { user, refreshUser } = useAuth();
   const { language, isRTL } = useLanguage();
   const { toast } = useToast();
   const t = translations[language as keyof typeof translations] || translations.en;
@@ -136,6 +144,7 @@ export default function WhatsAppConnect() {
   const [otpVerified, setOtpVerified] = useState(false);
   const [showVerifyAlert, setShowVerifyAlert] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
+  const [isCheckingVerification, setIsCheckingVerification] = useState(false);
 
   // Load accounts on mount
   useEffect(() => {
@@ -196,6 +205,33 @@ export default function WhatsAppConnect() {
       });
     } finally {
       setIsResendingVerification(false);
+    }
+  };
+
+  const handleCheckVerification = async () => {
+    setIsCheckingVerification(true);
+    try {
+      const refreshedUser = await refreshUser();
+      // Check the freshly returned user data directly
+      if (refreshedUser?.is_verified) {
+        toast({
+          title: 'Success',
+          description: t.nowVerified,
+        });
+        setShowVerifyAlert(false);
+        // Auto-open OTP modal since they're now verified
+        setShowOTPModal(true);
+      } else {
+        toast({
+          title: 'Info',
+          description: t.stillNotVerified,
+          variant: 'destructive',
+        });
+      }
+    } catch (error) {
+      console.error('Failed to check verification:', error);
+    } finally {
+      setIsCheckingVerification(false);
     }
   };
 
@@ -334,25 +370,46 @@ export default function WhatsAppConnect() {
           <AlertTitle>{t.emailNotVerified}</AlertTitle>
           <AlertDescription className="flex flex-col gap-3">
             <span>{t.emailNotVerifiedDesc}</span>
-            <Button
-              variant="outline"
-              size="sm"
-              className="w-fit"
-              onClick={handleResendVerification}
-              disabled={isResendingVerification}
-            >
-              {isResendingVerification ? (
-                <>
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  Sending...
-                </>
-              ) : (
-                <>
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t.resendVerification}
-                </>
-              )}
-            </Button>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                className="w-fit"
+                onClick={handleResendVerification}
+                disabled={isResendingVerification || isCheckingVerification}
+              >
+                {isResendingVerification ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    Sending...
+                  </>
+                ) : (
+                  <>
+                    <RefreshCw className="mr-2 h-4 w-4" />
+                    {t.resendVerification}
+                  </>
+                )}
+              </Button>
+              <Button
+                variant="default"
+                size="sm"
+                className="w-fit"
+                onClick={handleCheckVerification}
+                disabled={isResendingVerification || isCheckingVerification}
+              >
+                {isCheckingVerification ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {t.checkingVerification}
+                  </>
+                ) : (
+                  <>
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                    {t.alreadyVerified}
+                  </>
+                )}
+              </Button>
+            </div>
           </AlertDescription>
         </Alert>
       )}

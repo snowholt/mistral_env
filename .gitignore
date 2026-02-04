@@ -146,3 +146,11 @@ test_temp_venv.py
 
 # Old/deprecated folders (cleaned up)
 _website_snapshot/
+
+# Terminal/shell artifacts (junk files from command history)
+ql\ *
+:
+e()
+ycopg2
+yncio
+tomers:*
