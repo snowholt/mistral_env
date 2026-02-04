@@ -16,6 +16,26 @@ depends_on = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    table_exists = bind.execute(
+        sa.text("SELECT to_regclass('public.otp_verification_logs')")
+    ).scalar()
+
+    if table_exists:
+        bind.execute(sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_otp_verification_logs_email "
+            "ON otp_verification_logs (email)"
+        ))
+        bind.execute(sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_otp_verification_logs_user_id "
+            "ON otp_verification_logs (user_id)"
+        ))
+        bind.execute(sa.text(
+            "CREATE INDEX IF NOT EXISTS ix_otp_logs_user_created "
+            "ON otp_verification_logs (user_id, created_at)"
+        ))
+        return
+
     op.create_table(
         'otp_verification_logs',
         sa.Column('id', sa.Integer(), autoincrement=True, nullable=False),

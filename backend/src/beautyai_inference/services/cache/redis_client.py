@@ -7,6 +7,7 @@ Configured for production deployment with Alibaba Cloud Redis.
 import os
 import json
 import logging
+from urllib.parse import urlparse
 from typing import Optional, Any, Union
 from datetime import timedelta
 from contextlib import asynccontextmanager
@@ -30,11 +31,20 @@ class RedisClient:
     
     def __init__(self):
         """Initialize Redis connection settings from environment."""
-        self.host = os.getenv("REDIS_HOST", "localhost")
-        self.port = int(os.getenv("REDIS_PORT", "6379"))
-        self.password = os.getenv("REDIS_PASSWORD", None)
-        self.db = int(os.getenv("REDIS_DB", "0"))
-        self.ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
+        self.url = os.getenv("REDIS_URL")
+        if self.url:
+            parsed = urlparse(self.url)
+            self.ssl = parsed.scheme == "rediss"
+            self.host = parsed.hostname or "localhost"
+            self.port = parsed.port or 6379
+            self.password = parsed.password
+            self.db = int(parsed.path.lstrip("/") or 0)
+        else:
+            self.host = os.getenv("REDIS_HOST", "localhost")
+            self.port = int(os.getenv("REDIS_PORT", "6379"))
+            self.password = os.getenv("REDIS_PASSWORD", None)
+            self.db = int(os.getenv("REDIS_DB", "0"))
+            self.ssl = os.getenv("REDIS_SSL", "false").lower() == "true"
         
         # Connection pool settings
         self.max_connections = int(os.getenv("REDIS_MAX_CONNECTIONS", "50"))
@@ -59,9 +69,12 @@ class RedisClient:
         
         try:
             # Build connection URL
-            protocol = "rediss" if self.ssl else "redis"
-            auth = f":{self.password}@" if self.password else ""
-            url = f"{protocol}://{auth}{self.host}:{self.port}/{self.db}"
+            if self.url:
+                url = self.url
+            else:
+                protocol = "rediss" if self.ssl else "redis"
+                auth = f":{self.password}@" if self.password else ""
+                url = f"{protocol}://{auth}{self.host}:{self.port}/{self.db}"
             
             # Create connection pool
             self._pool = ConnectionPool.from_url(

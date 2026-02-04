@@ -14,6 +14,15 @@ import time
 import os
 from pathlib import Path
 
+# Ensure .env is loaded when app is started directly via uvicorn/systemd.
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parents[3] / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except Exception:
+    pass
+
 # Logging configured centrally in run_server via configure_logging.
 logger = logging.getLogger(__name__)
 
@@ -172,7 +181,11 @@ from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelatio
 # CORS Configuration (loaded from .env)
 # ===========================================
 # Default origins for local development
-_DEFAULT_CORS_ORIGINS = "http://localhost:3000,http://localhost:5173,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080"
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000,http://localhost:5173,http://localhost:8080,"
+    "http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080,"
+    "https://portal.gmai.sa,https://gmai.sa,https://api.gmai.sa,https://dev.gmai.sa"
+)
 
 # Load CORS settings from environment
 cors_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", _DEFAULT_CORS_ORIGINS)
