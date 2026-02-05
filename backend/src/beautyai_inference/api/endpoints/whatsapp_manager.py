@@ -860,7 +860,7 @@ async def send_manual_message(
     credential_service = get_meta_credential_service()
     access_token = await credential_service.get_token_for_whatsapp_account(
         db=db,
-        whatsapp_account=conversation.whatsapp_account
+        whatsapp_account_id=conversation.whatsapp_account.id
     )
     
     if not access_token:
