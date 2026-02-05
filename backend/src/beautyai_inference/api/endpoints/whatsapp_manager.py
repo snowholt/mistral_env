@@ -21,10 +21,13 @@ import httpx
 from ...database.connection import get_db
 from ...database.models import (
     User, Customer, WhatsAppAccount, AgentConfig, 
-    Conversation, Message, MessageSource, MessageStatus
+    Conversation, Message, MessageSource, MessageStatus,
+    CredentialType
 )
 from ...auth.dependencies import get_current_active_user, get_current_verified_user
 from ...services.cache import get_redis, RedisClient
+from ...services.meta_credential import get_meta_credential_service
+from ...services.audit import get_audit_service, AuditAction
 
 logger = logging.getLogger(__name__)
 
@@ -415,12 +418,24 @@ async def complete_meta_signup(
                 detail="Failed to connect to Meta API"
             )
     
-    # Create WhatsApp account record
+    # Store token in encrypted vault
+    credential_service = get_meta_credential_service(audit_service=get_audit_service())
+    credential = await credential_service.store_token(
+        db=db,
+        customer_id=customer.id,
+        token=access_token,
+        credential_type=CredentialType.USER_TOKEN,
+        scopes=["whatsapp_business_management", "whatsapp_business_messaging"],
+        user_id=current_user.id,
+    )
+    
+    # Create WhatsApp account record with credential link
     whatsapp_account = WhatsAppAccount(
         customer_id=customer.id,
         phone_number_id=phone_number_id,
         waba_id=None,  # Would be fetched from Meta API
-        access_token=access_token,
+        credential_id=credential.id,  # Link to encrypted credential
+        access_token=access_token,  # Keep for backward compatibility (will be deprecated)
         display_name=customer.name,
         is_active=True,
         verified_at=datetime.utcnow()
@@ -428,6 +443,22 @@ async def complete_meta_signup(
     db.add(whatsapp_account)
     await db.commit()
     await db.refresh(whatsapp_account)
+    
+    # Audit log the connection
+    audit_service = get_audit_service()
+    await audit_service.log(
+        db=db,
+        action=AuditAction.WHATSAPP_ACCOUNT_CONNECTED,
+        resource_type="whatsapp_account",
+        resource_id=str(whatsapp_account.id),
+        customer_id=customer.id,
+        user_id=current_user.id,
+        metadata={
+            "phone_number_id": phone_number_id,
+            "credential_id": credential.id,
+        },
+    )
+    await db.commit()
     
     logger.info(f"WhatsApp account created: {whatsapp_account.id} for customer {customer.id}")
     
@@ -825,11 +856,27 @@ async def send_manual_message(
     
     await db.flush()
     
+    # Get decrypted access token from credential vault
+    credential_service = get_meta_credential_service()
+    access_token = await credential_service.get_token_for_whatsapp_account(
+        db=db,
+        whatsapp_account=conversation.whatsapp_account
+    )
+    
+    if not access_token:
+        logger.error(f"No access token found for WhatsApp account {conversation.whatsapp_account.id}")
+        message.status = MessageStatus.FAILED
+        await db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="WhatsApp access token not configured"
+        )
+    
     # Send via WhatsApp API
     try:
         whatsapp_message_id = await send_whatsapp_message(
             phone_number_id=conversation.whatsapp_account.phone_number_id,
-            access_token=conversation.whatsapp_account.access_token,
+            access_token=access_token,
             recipient=conversation.contact_phone,
             message=request.content
         )

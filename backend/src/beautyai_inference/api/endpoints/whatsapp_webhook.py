@@ -22,6 +22,8 @@ from ...database.models import (
     WhatsAppAccount, Customer, AgentConfig,
     Conversation, Message, MessageSource, MessageStatus
 )
+from ...services.meta_credential import get_meta_credential_service
+from ...services.audit import get_audit_service
 
 logger = logging.getLogger(__name__)
 
@@ -332,10 +334,21 @@ async def generate_and_send_ai_response(
             logger.error("Empty response from LLM")
             return
         
+        # Get access token from encrypted vault
+        credential_service = get_meta_credential_service(audit_service=get_audit_service())
+        access_token = await credential_service.get_token_for_whatsapp_account(
+            db=db,
+            whatsapp_account_id=whatsapp_account.id,
+        )
+        
+        if not access_token:
+            logger.error(f"No valid access token for WhatsApp account {whatsapp_account.id}")
+            return
+        
         # Send via WhatsApp
         whatsapp_message_id = await send_whatsapp_message(
             phone_number_id=whatsapp_account.phone_number_id,
-            access_token=whatsapp_account.access_token,
+            access_token=access_token,
             recipient=conversation.contact_phone,
             message=ai_response
         )
