@@ -154,3 +154,4 @@ e()
 ycopg2
 yncio
 tomers:*
+backend/.encryption_key

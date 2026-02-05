@@ -1538,7 +1538,7 @@ class AuditLog(Base):
     resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True) # e.g., "123"
     
     # Additional context
-    metadata: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)          # Extra event data
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)          # Extra event data (renamed from 'metadata' - reserved in SQLAlchemy)
     
     # Request context
     ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)   # IPv6 compatible

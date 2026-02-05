@@ -94,7 +94,7 @@ def upgrade() -> None:
             sa.Column('action', sa.String(length=100), nullable=False),
             sa.Column('resource_type', sa.String(length=100), nullable=False),
             sa.Column('resource_id', sa.String(length=100), nullable=True),
-            sa.Column('metadata', postgresql.JSON(astext_type=sa.Text()), nullable=True),
+            sa.Column('details', postgresql.JSON(astext_type=sa.Text()), nullable=True),
             sa.Column('ip_address', sa.String(length=45), nullable=True),
             sa.Column('user_agent', sa.Text(), nullable=True),
             sa.Column('request_id', sa.String(length=100), nullable=True),

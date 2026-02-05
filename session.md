@@ -1,851 +1,719 @@
-User: I want to improve the Voice to voice conversation structure and decrease the latency. 
+You are acting as a senior backend architect and platform engineer.
 
-Check this structure: `https://dev.gmai.sa/api/test_lean.html`
+Please analyze the entire codebase and project structure, with a focus on how WhatsApp, Meta APIs, and business entities are currently modeled and integrated.
+
+Context:
+- This is a multi-tenant B2B SaaS platform.
+- We provide WhatsApp AI bots for businesses.
+- Each business connects its own WhatsApp Business Account (WABA) via Meta Embedded Signup.
+- The platform includes:
+  - Admin dashboard (platform owner)
+  - Business dashboard (our customers)
+  - WhatsApp inbox, AI agents, automation, billing
+- The backend is responsible for WhatsApp Cloud API integration, webhooks, AI routing, and account management.
+
+Goals of this review:
+1. Identify how “business”, “customer”, “WhatsApp account”, and “user” are currently represented in the codebase.
+2. Detect architectural gaps or coupling issues related to:
+   - Meta Business Manager
+   - WhatsApp Business Accounts (WABA)
+   - Roles, ownership, and permissions
+3. Evaluate whether the current structure can support a real Meta Business Management integration (not just a test API call).
+4. Propose a clean, scalable architecture to:
+   - Introduce a first-class Business domain object
+   - Map Meta Business Manager → Internal Business → WABA → AI Agents
+   - Support future features like role-based access, lifecycle management, billing, and audits
+5. Recommend concrete changes:
+   - New modules or services (if needed)
+   - Data models / schemas
+   - API boundaries
+   - Sync or verification flows with Meta Graph API
+6. Highlight what can remain as-is vs what should be refactored.
+7. Suggest a minimal MVP implementation plan followed by an ideal long-term architecture.
+
+Please be specific, reference actual folders/files when relevant, and think in terms of production-grade SaaS systems.
 
 
-- How it works? (show me visually on block diagram/markdown format)
-- Propsoe your suggestions for makign it better and decreaing the latency. 
-- Can we improve this part? `I will wait 2s after you stop talking.`, how can we undrestand that it is enough and we should send it to the model and get the response? is there better approaches? modern and professional one? that supports the interuption too? - like we send the first part after 0.5 sec, get the responses, and still if the user talks we send the other chuncks as well, maybe we have even better approaches, in modern apps! 
-- Can we send the chunks/sentences to TTS model? to provide faster response, imagine this scenario: 
-1. We ask the LLM model to proivde response but add specesific code to let us know this is the end of the sentence. by `.` or something else.
-2. We convert the whole text into smaller logical chunks/sentences.
-3. We send them one by oen in a queue, and the tts can provide the response for each of them faster than the time we send the whole text at once. right? 
 
 
-GitHub Copilot: I'll help you analyze and improve the voice-to-voice conversation latency! Let me first fetch the current implementation and research your codebase.   
+I'll conduct a comprehensive architecture review. Let me start by gathering deep context about the current data models, services, and API structure. 
 
-Research voice pipeline architecture
+Architecture codebase review
 
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/database/models.py)
 
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/whatsapp_manager.py)
 
-Fetched https://dev.gmai.sa/api/test_lean.html
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/whatsapp_webhook.py)
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/whatsapp_auth.py)
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/inference_engines/edge_tts_engine.py)
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/admin.py)
 
-Searched for regex `silero|VAD|voice.*activity|speech.*end|end.*speech|timeout.*speech`, 20 results
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/billing.py)
 
-Searched for regex `chunk|stream|sentence|partial|incremental`, 20 results
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/dashboard.py)
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/vad/webrtc_vad_service.py)
+Read [](file:///home/lumi/beautyai/backend/alembic/versions)
 
-Searched for regex `post_speech_silence|silence_ms|speech_end|end_pending|timeout.*2.*second|wait.*silence`, 20 results
+Searched for regex `Business|BusinessManager|business_id` (`**/*.py`), 20 results
 
-Searched for files matching `**/streaming/**/*.py`, 10 matches
+Read [](file:///home/lumi/beautyai/backend/alembic/versions/20241219_001_initial_saas_platform_schema.py)
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/audio_chunking_config.py)
+Searched for files matching `**/billing*.py`, 1 match
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/endpointing.py)
+Searched for regex `graph\.facebook|META_API|meta_api|whatsapp.*api`, 20 results
 
-Let me get more details on the client-side implementation and the streaming voice endpoint:  
+Searched for regex `class StripeService|def get_stripe_service|handle_stripe_webhook`, 8 results
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#800-800), lines 800 to 950
+Searched for regex `include_router|APIRouter\(prefix` (`**/app.py`), 20 results
 
-Searched for regex `2\s*second|2000|turn.*silence|wait.*silence|TURN_READY` (`**/*.py`), 20 results
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/billing/stripe_service.py)
 
-Let me check the TTS streaming capability and the existing sentence chunking:  
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/app.py#200-200), lines 200 to 400
 
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/inference_engines/edge_tts_engine.py#240-240), lines 240 to 360
+Read [](file:///home/lumi/.vscode-server-insiders/data/User/workspaceStorage/59a2628ff9c71e163531132839d5e844/GitHub.copilot-chat/chat-session-resources/4cc5ad44-8111-48c3-94b2-b99d7ef134d3/toolu_01E1sHmUmoRZdxQb26DNK5Qw__vscode-1770210529646/content.txt)
 
-Searched for regex `sentence|split.*text|chunk.*text|segmentation` (`**/*.py`), 20 results
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/database/models.py#1-1), lines 1 to 201
 
-Now I have enough context. Let me create a comprehensive plan for you! 💕
+Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/database/models.py#300-300), lines 300 to 600
 
----
-
-## Current Architecture Analysis
-
-Based on my research, here's your current voice-to-voice flow:
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                         CURRENT VOICE PIPELINE                               │
-├─────────────────────────────────────────────────────────────────────────────┤
-│                                                                             │
-│  🎤 User Speaks                                                              │
-│       │                                                                     │
-│       ▼                                                                     │
-│  ┌─────────────────┐                                                        │
-│  │ 48kHz Browser   │                                                        │
-│  │ Audio Capture   │                                                        │
-│  └────────┬────────┘                                                        │
-│           │                                                                 │
-│           ▼                                                                 │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    AUDIO PREPROCESSING                             │    │
-│  │  Jitter Buffer → Butterworth 8kHz → Resample 16kHz → RNNoise      │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                      VAD (Silero)                                  │    │
-│  │            threshold: 0.1 | post_speech_silence: 700ms            │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    🚨 TURN TIMER (2 SECONDS)                       │    │
-│  │                    await asyncio.sleep(2.0)                        │    │
-│  │              ← THE MAJOR LATENCY BOTTLENECK! →                     │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    STT (Faster-Whisper)                            │    │
-│  │                    ~100-500ms depending on audio length            │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    LLM (Qwen/Llama.cpp)                            │    │
-│  │                    ⚠️ FULL RESPONSE GENERATED BEFORE TTS           │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│  ┌─────────────────────────────────────────────────────────────────────┐    │
-│  │                    TTS (Edge TTS) - BATCH MODE                     │    │
-│  │                    ⚠️ FULL TEXT → FULL AUDIO → SEND                │    │
-│  └────────────────────────────────────┬────────────────────────────────┘    │
-│                                       │                                     │
-│                                       ▼                                     │
-│                                  🔊 Response                                │
-│                                                                             │
-├─────────────────────────────────────────────────────────────────────────────┤
-│  TOTAL LATENCY: ~2.7s (VAD) + ~300ms (STT) + ~1-2s (LLM) + ~500ms (TTS)     │
-│               = ~4.5-5.5 seconds minimum!                                    │
-└─────────────────────────────────────────────────────────────────────────────┘
-```
+Now I have a complete picture. Let me compile the comprehensive architecture review.
 
 ---
 
-## Plan: Low-Latency Voice Pipeline Overhaul
+# Architecture Review: BeautyAI WhatsApp SaaS Platform
 
-**TL;DR**: Reduce end-to-end latency from ~5s to **<1.5s** by implementing: (1) Predictive End-of-Turn using VAD+ASR+LLM confidence scoring instead of fixed 2s timeout, (2) Progressive TTS streaming sentence-by-sentence as LLM generates tokens, (3) Speculative execution that starts processing while user may still be speaking. Key files: webrtc_voice.py for turn detection, edge_tts_engine.py for streaming TTS.
+## Executive Summary
 
----
+The current architecture is a **functional MVP** designed for single-user-per-business WhatsApp automation. However, it has significant gaps that prevent it from scaling to a production-grade multi-tenant B2B SaaS with proper Meta Business Manager integration.
 
-### **Steps**
-
-#### Phase 1: Smart End-of-Turn Detection (Replaces 2s Fixed Timeout)
-
-1. **Create `EndOfTurnPredictor` service** in `backend/src/beautyai_inference/services/voice/turn_detection/`
-   - Multi-signal confidence scoring combining:
-     - **VAD silence duration** (dynamically weighted)
-     - **ASR partial stability** (tokens unchanged for N frames)
-     - **Linguistic completeness** (ends with `.?!`, contains complete sentence structure)
-     - **Prosodic cues** (pitch drop, energy decay - optional future enhancement)
-   - Implement adaptive threshold: short utterances (<3 words) → lower silence threshold (~300ms), long utterances → higher threshold (~600ms)
-
-2. **Modify** `_wait_for_silence_and_respond()` in webrtc_voice.py:
-   - Replace `await asyncio.sleep(2.0)` with `await self.turn_predictor.wait_for_turn_end(context)`
-   - Add early-exit when confidence score exceeds threshold (e.g., 0.85)
-
-3. **Add streaming ASR partials** to inform turn detection:
-   - Use Whisper with `--partial_results` or implement incremental transcription
-   - Track token stability: if last 3 tokens unchanged for 400ms + silence, likely turn-complete
-
-#### Phase 2: Progressive TTS Streaming (Sentence-by-Sentence)
-
-4. **Extend** `stream_tts_chunks()` in edge_tts_engine.py:
-   - Add `async yield` for each sentence audio as it's synthesized
-   - Implement sentence boundary detection from LLM token stream using:
-     - Punctuation markers: `. ! ? ،` (Arabic comma), `؟` (Arabic question mark)
-     - Configurable min/max sentence length (prevent 1-word sentences, cap at ~100 chars)
-
-5. **Create `LLMSentenceBuffer`** in inference:
-   - Accumulate LLM tokens until sentence boundary detected
-   - Yield complete sentences to TTS queue immediately
-   - Configure LLM prompt to use explicit markers: `[SEP]` or `<|sentence_end|>`
-
-6. **Implement TTS Playback Queue** with pre-buffering:
-   - Start TTS synthesis for sentence 1 while LLM generates sentence 2
-   - Maintain 1-sentence lookahead buffer
-   - Handle interruption by clearing queue
-
-#### Phase 3: Interruption Support (Barge-In)
-
-7. **Add real-time interruption detection** in VAD callback:
-   - If `is_speaking=True` and VAD detects speech → set `context["interrupted"]=True`
-   - Cancel current TTS playback, clear audio queue
-   - Trigger immediate turn timer (reduced threshold ~200ms)
-
-8. **Preserve conversation context on interruption**:
-   - Save partial LLM response to context
-   - Mark conversation turn as "interrupted" for context-aware follow-up
-   - Send `{"type": "interrupted"}` message to client
-
-#### Phase 4: Speculative Execution (Advanced)
-
-9. **Implement speculative STT/LLM processing**:
-   - After 500ms silence, start STT transcription in parallel
-   - Begin LLM inference with current partial transcript
-   - If user continues speaking → discard speculative results
-   - If confirmed turn-end → use pre-computed results (saves ~500ms)
-
-10. **Add confidence-gated early response**:
-    - If LLM first sentence ready + 95% confidence turn is complete → start TTS
-    - Continue listening in background for potential additional input
+**Key findings:**
+- ✅ Solid foundation: FastAPI + SQLAlchemy + PostgreSQL + pgvector
+- ✅ Good separation: API endpoints, services, database models
+- ⚠️ Naming confusion: "Customer" means "Business/Tenant", not CRM contact
+- 🔴 Security risk: Meta access tokens stored in plaintext
+- 🔴 Missing: Team collaboration, RBAC, audit logging
+- 🔴 Missing: First-class Business domain entity aligned with Meta Business Manager
 
 ---
 
-### **Verification**
+## 1. Current Entity Model
 
-```bash
-# Measure baseline latency
-python tests/streaming/ws_replay_pcm.py --file voice_tests/input_test_questions/pcm/q1.pcm --language ar --fast --measure-latency
+### Text-Based ERD
 
-# Test turn detection with various silence durations
-pytest -v tests/streaming/test_turn_detection.py
-
-# Verify interruption handling
-pytest -v tests/streaming/test_interruption.py
-
-# End-to-end latency benchmark (target: <1.5s)
-python tools/latency_benchmark.py --iterations 10 --report
 ```
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                                CURRENT STATE                                     │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+    User (Platform Account)
+    ├── role: user | admin | guest
+    ├── stripe_customer_id
+    │
+    └──1:N──► Customer (ACTUALLY = Business/Tenant)
+              ├── name, email, timezone
+              ├── widget_* settings
+              │
+              ├──1:1──► AgentConfig
+              │         ├── business_name, tone, system_prompt
+              │         ├── services[], products[], locations[], promotions[]
+              │         └── wizard_completed, ai_enabled
+              │
+              ├──1:1──► Subscription
+              │         ├── plan_id, stripe_subscription_id
+              │         └── messages_used, tokens_used
+              │
+              ├──1:N──► WhatsAppAccount
+              │         ├── phone_number_id, waba_id
+              │         ├── access_token (PLAINTEXT!)
+              │         │
+              │         └──1:N──► Conversation
+              │                   ├── contact_phone, contact_name
+              │                   └──1:N──► Message
+              │
+              ├──1:N──► KnowledgeBase ──► Document ──► Chunk (pgvector)
+              │
+              └──1:N──► WidgetToken ──► WebChatSession ──► WebChatMessage
+```
+
+### Current Schema Locations
+
+| Entity | File | Line |
+|--------|------|------|
+| User | models.py | 163 |
+| Customer | models.py | 300 |
+| WhatsAppAccount | models.py | 342 |
+| AgentConfig | models.py | 390 |
+| Conversation | models.py | ~500 |
+| Message | models.py | ~550 |
+| Subscription | models.py | ~650 |
+| Plan | models.py | ~620 |
 
 ---
 
-### **Decisions Required**
+## 2. Identified Architectural Gaps
 
-Before proceeding, I need to clarify a few approaches: 
+### 🔴 Critical Issues
 
-Asked 4 questions (Turn Detect, TTS Stream, LLM Markers, Priority)
+| # | Issue | Current State | Risk |
+|---|-------|---------------|------|
+| 1 | **Plaintext access_token** | `WhatsAppAccount.access_token` is `Text` | Token theft = full WABA compromise |
+| 2 | **No token refresh** | No mechanism to refresh expired Meta tokens | Silent failures after token expiry |
+| 3 | **No audit logging** | Only OTP verification logs | Compliance failure, no forensics |
+| 4 | **Single-user per business** | `Customer.user_id` is N:1 | No team collaboration |
 
-Excellent choices! Based on your decisions, here's the refined implementation plan:
+### 🟠 Multi-Tenancy Design Issues
 
----
+| # | Gap | Current State | Impact |
+|---|-----|---------------|--------|
+| 5 | **No Team/Org model** | User→Customer is 1:N, but Customer→User is N:1 | Can't have multiple team members |
+| 6 | **No granular RBAC** | Only `user/admin/guest` roles | No business-level roles (owner/manager/agent) |
+| 7 | **"Customer" naming** | "Customer" = Business/Tenant | Confusing; conflicts with CRM "customer" concept |
+| 8 | **Billing architecture** | Subscription 1:1 Customer | What if user has multiple businesses? |
 
-## Plan: Smart Turn Detection (Phase 1 - Priority)
+### 🟡 Meta Integration Gaps
 
-**TL;DR**: Replace the fixed 2-second silence timeout with an ML-based confidence scoring system that combines VAD silence duration, ASR token stability, and linguistic completeness. This should reduce turn detection latency from 2.7s to ~400-600ms while maintaining accuracy. Implementation focuses on webrtc_voice.py turn timer and a new `EndOfTurnPredictor` service.
-
----
-
-### **Steps**
-
-#### Step 1: Create EndOfTurnPredictor Service
-
-1. **Create directory and files**:
-   - `backend/src/beautyai_inference/services/voice/turn_detection/__init__.py`
-   - `backend/src/beautyai_inference/services/voice/turn_detection/predictor.py`
-   - `backend/src/beautyai_inference/services/voice/turn_detection/config.py`
-
-2. **Implement `EndOfTurnConfig`** dataclass in [config.py]:
-   ```
-   - min_silence_ms: 300 (absolute minimum)
-   - max_silence_ms: 800 (safety cap)
-   - confidence_threshold: 0.85
-   - asr_stability_frames: 3 (tokens unchanged for N frames)
-   - linguistic_weight: 0.4
-   - silence_weight: 0.35
-   - asr_stability_weight: 0.25
-   ```
-
-3. **Implement `EndOfTurnPredictor`** class in [predictor.py]:
-   - `compute_confidence(vad_silence_ms, asr_partial, last_stable_tokens)` → float (0-1)
-   - `is_turn_complete(context)` → bool
-   - `async wait_for_turn_end(context, callback)` → with early-exit when confidence ≥ threshold
-
-#### Step 2: Implement Confidence Scoring Algorithm
-
-4. **Linguistic completeness detector**:
-   - Check if transcript ends with sentence-terminal punctuation `.?!؟،`
-   - Check for complete sentence structure (has verb/noun for Arabic/English)
-   - Short utterance bonus: phrases like "yes", "no", "okay" get +0.2 confidence
-
-5. **Silence duration scorer** (dynamic, not fixed):
-   - 0-200ms → 0.0 confidence
-   - 200-400ms → 0.3 confidence
-   - 400-600ms → 0.6 confidence
-   - 600-800ms → 0.9 confidence
-   - Scale based on utterance length (longer = more patience)
-
-6. **ASR stability scorer**:
-   - Track last 3 ASR partial results
-   - If identical → +0.3 confidence
-   - If tokens growing but stable suffix → +0.1 confidence
-
-#### Step 3: Integrate into WebRTC Voice Endpoint
-
-7. **Modify** `_schedule_turn_timer()` in webrtc_voice.py:
-   - Replace simple `asyncio.sleep(2.0)` with predictor polling loop
-   - Check confidence every 50ms
-   - Early-exit when confidence ≥ 0.85
-
-8. **Add ASR partial tracking** to voice context:
-   - Store `context["asr_partials"]` as list of recent transcripts
-   - Update on each STT partial result
-   - Feed to predictor for stability scoring
-
-9. **Add configurable fallback timeout**:
-   - Environment variable: `VOICE_TURN_MAX_SILENCE_MS=800`
-   - Hard cap to prevent indefinite waiting
-
-#### Step 4: Testing & Tuning
-
-10. **Create unit tests** in `tests/unit/test_turn_detection.py`:
-    - Test confidence scoring for various scenarios
-    - Test Arabic vs English linguistic patterns
-    - Test edge cases (single word, long pauses, etc.)
-
-11. **Create integration test** in `tests/streaming/`:
-    - Replay PCM with various pause patterns
-    - Measure turn detection latency vs baseline
-    - Verify no false positives (premature turn detection)
-
-12. **Add metrics logging**:
-    - Log turn detection confidence, silence duration, and decision time
-    - Track to `logs/voice/turn_detection.jsonl`
+| # | Gap | Current State | Needed |
+|---|-----|---------------|--------|
+| 9 | **No Business entity** | `waba_id` is a field on WhatsAppAccount | First-class entity for Meta Business Manager |
+| 10 | **No template management** | Not tracked | Message templates for campaigns |
+| 11 | **No quality tracking** | Not stored | Meta quality ratings for account health |
+| 12 | **No `business_management` scope** | Only `whatsapp_business_management` + `whatsapp_business_messaging` | Can't read Business Manager assets |
 
 ---
 
-### **Diagram: Confidence Scoring Flow**
+## 3. Proposed Architecture
+
+### 3.1 New Domain Model
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                    SMART TURN DETECTION                                  │
-├─────────────────────────────────────────────────────────────────────────┤
-│                                                                         │
-│   User stops speaking                                                   │
-│          │                                                              │
-│          ▼                                                              │
-│   ┌──────────────────────────────────────────────────────────────┐      │
-│   │              CONFIDENCE POLLING LOOP (50ms interval)         │      │
-│   │                                                              │      │
-│   │   ┌─────────────┐  ┌─────────────┐  ┌─────────────────────┐ │      │
-│   │   │  SILENCE    │  │    ASR      │  │    LINGUISTIC       │ │      │
-│   │   │  DURATION   │  │  STABILITY  │  │   COMPLETENESS      │ │      │
-│   │   │  (35%)      │  │   (25%)     │  │      (40%)          │ │      │
-│   │   │             │  │             │  │                     │ │      │
-│   │   │ 0-200ms: 0  │  │ Stable:0.3  │  │ Ends .?!: +0.3      │ │      │
-│   │   │ 200-400:0.3 │  │ Growing:0.1 │  │ Complete: +0.4      │ │      │
-│   │   │ 400-600:0.6 │  │ Changing: 0 │  │ Short cmd: +0.2     │ │      │
-│   │   │ 600-800:0.9 │  │             │  │                     │ │      │
-│   │   └──────┬──────┘  └──────┬──────┘  └──────────┬──────────┘ │      │
-│   │          │                │                    │            │      │
-│   │          └────────────────┼────────────────────┘            │      │
-│   │                           ▼                                 │      │
-│   │               ┌───────────────────────┐                     │      │
-│   │               │  WEIGHTED SUM         │                     │      │
-│   │               │  confidence = Σ(w*s)  │                     │      │
-│   │               └───────────┬───────────┘                     │      │
-│   │                           │                                 │      │
-│   │                           ▼                                 │      │
-│   │           ┌───────────────────────────────┐                 │      │
-│   │           │ confidence >= 0.85?           │                 │      │
-│   │           │                               │                 │      │
-│   │           │    YES ──────────▶ TRIGGER    │                 │      │
-│   │           │                    LLM ────────────────────▶ ✓  │      │
-│   │           │                               │                 │      │
-│   │           │    NO + timeout?──▶ TRIGGER   │                 │      │
-│   │           │         (800ms)    LLM ────────────────────▶ ✓  │      │
-│   │           │                               │                 │      │
-│   │           │    NO ──────────▶ CONTINUE    │                 │      │
-│   │           │                   POLLING ────┼──▶ loop         │      │
-│   │           └───────────────────────────────┘                 │      │
-│   └──────────────────────────────────────────────────────────────┘      │
-│                                                                         │
-├─────────────────────────────────────────────────────────────────────────┤
-│  EXPECTED LATENCY: 300-800ms (down from 2700ms = ~75% improvement!)    │
-└─────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────────┐
+│                              PROPOSED ARCHITECTURE                               │
+└─────────────────────────────────────────────────────────────────────────────────┘
+
+    User (Platform Account)
+    ├── email, password_hash, is_platform_admin
+    │
+    └──M:N──► OrganizationMember (pivot table)
+              ├── role: owner | admin | member | viewer
+              │
+              └──► Organization (replaces Customer)
+                   ├── name, slug (unique), billing_email
+                   ├── meta_business_id (from Business Manager)
+                   │
+                   ├──1:1──► Subscription
+                   │
+                   ├──1:1──► AgentConfig
+                   │
+                   ├──1:N──► MetaCredential (encrypted vault)
+                   │         ├── credential_type: user_token | system_user_token
+                   │         ├── encrypted_value, key_version
+                   │         └── expires_at, scopes[]
+                   │
+                   ├──1:N──► WhatsAppBusinessAccount (WABA)
+                   │         ├── waba_id, name, quality_rating
+                   │         ├── credential_id (FK to MetaCredential)
+                   │         │
+                   │         └──1:N──► WhatsAppPhoneNumber
+                   │                   ├── phone_number_id, display_phone_number
+                   │                   ├── verified_name, quality_rating
+                   │                   │
+                   │                   └──1:N──► Conversation
+                   │                             └──1:N──► Message
+                   │
+                   ├──1:N──► Contact (CRM)
+                   │         ├── phone, name, email
+                   │         ├── tags[], custom_fields{}
+                   │         └──1:N──► Conversation
+                   │
+                   ├──1:N──► MessageTemplate
+                   │         ├── meta_template_id, name, status
+                   │         └── components[]
+                   │
+                   └──1:N──► AuditLog
+                             ├── user_id, action, resource_type
+                             └── resource_id, metadata, ip_address
 ```
 
----
+### 3.2 New Entities
 
-### **Verification**
+#### Organization (replaces Customer)
 
-```bash
-# Run unit tests for turn detection
-pytest -v tests/unit/test_turn_detection.py
-
-# Integration test with latency measurement
-python tests/streaming/ws_replay_pcm.py --file voice_tests/input_test_questions/pcm/q1.pcm --language ar --fast --measure-latency
-
-# Compare baseline vs new turn detection
-python tools/latency_benchmark.py --baseline --iterations 5
-VOICE_SMART_TURN_DETECTION=1 python tools/latency_benchmark.py --iterations 5
-
-# Target: Turn detection latency < 600ms (vs current 2700ms)
+```python
+class Organization(Base):
+    """
+    Top-level business entity (tenant).
+    Maps to Meta Business Manager when connected.
+    """
+    __tablename__ = "organizations"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    slug: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    billing_email: Mapped[str] = mapped_column(String(255), nullable=False)
+    
+    # Meta Business Manager integration
+    meta_business_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    meta_business_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    
+    # Relationships
+    members: Mapped[List["OrganizationMember"]] = relationship(...)
+    wabas: Mapped[List["WhatsAppBusinessAccount"]] = relationship(...)
+    credentials: Mapped[List["MetaCredential"]] = relationship(...)
 ```
 
----
+#### OrganizationMember (team management)
 
-### **Decisions Made**
-- **Turn detection**: Confidence scoring with multi-signal fusion (VAD 35% + ASR 25% + Linguistics 40%)
-- **TTS streaming**: Immediate sentence streaming (for Phase 2)
-- **Sentence detection**: Natural punctuation markers `.?!؟،`
-- **Implementation order**: Phase 1 (turn detection) first for maximum latency impact
+```python
+class OrgRole(enum.Enum):
+    OWNER = "owner"      # Full control, billing
+    ADMIN = "admin"      # Manage team, settings
+    MEMBER = "member"    # Use inbox, respond
+    VIEWER = "viewer"    # Read-only
 
----
-
-### **Phase 2 Preview (TTS Streaming)**
-
-After Phase 1 is validated, Phase 2 will:
-1. Add `SentenceStreamBuffer` to accumulate LLM tokens until `.?!` detected
-2. Yield sentences immediately to `stream_tts_chunks()` 
-3. Implement audio playback queue with interruption support
-4. Expected additional latency reduction: ~500ms
-
----
-
-Would you like me to proceed with creating the detailed implementation for the `EndOfTurnPredictor` service, or do you have any questions about this plan first? 💕
-
-User: Start implementation
-
-GitHub Copilot: Created 7 todos
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/__init__.py)
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/config.py)
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/linguistic.py)
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/predictor.py)
-
-Starting: *Implement EndOfTurnPredictor class* (3/7)
-
-Now let me integrate this into the WebRTC voice endpoint. First, let me read the relevant sections:    
-
-Starting: *Integrate into webrtc_voice.py* (5/7)
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1-1), lines 1 to 101
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#360-360), lines 360 to 460
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#780-780), lines 780 to 880
-
-Now I understand the structure. Let me implement the integration: 
-
-Replacing 15 lines with 53 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
+class OrganizationMember(Base):
+    """Team membership with role-based access."""
+    __tablename__ = "organization_members"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
+    role: Mapped[OrgRole] = mapped_column(StringEnumType(OrgRole))
+    invited_by_user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    joined_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 ```
 
-```
-Now I need to add the turn predictor to the session context. Let me find where session_context is initialized: 
+#### MetaCredential (encrypted vault)
 
-Searched for regex `session_context\s*=\s*\{` (`**/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py`), 1 result
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#245-245), lines 245 to 325
-
-Replacing 5 lines with 7 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
-```
-
-```
-
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#380-380), lines 380 to 430
-
-Replacing 11 lines with 29 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
-```
-
-```
-Now let me also update the VAD callback to inform the turn predictor when speech starts/stops: 
-
-Searched for regex `VOICE_START|VOICE_END|on_vad_state` (`**/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py`), 6 results
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#635-635), lines 635 to 715
-
-Replacing 9 lines with 18 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
+```python
+class MetaCredential(Base):
+    """
+    Encrypted storage for Meta API tokens.
+    Supports token rotation and multiple credential types.
+    """
+    __tablename__ = "meta_credentials"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    
+    credential_type: Mapped[str] = mapped_column(String(50))  # user_token, system_user_token
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encryption_key_version: Mapped[int] = mapped_column(Integer, default=1)
+    
+    scopes: Mapped[List[str]] = mapped_column(ARRAY(String), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 ```
 
+#### WhatsAppBusinessAccount (WABA)
+
+```python
+class WhatsAppBusinessAccount(Base):
+    """
+    WhatsApp Business Account from Meta.
+    One WABA can have multiple phone numbers.
+    """
+    __tablename__ = "whatsapp_business_accounts"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    credential_id: Mapped[int] = mapped_column(ForeignKey("meta_credentials.id"))
+    
+    waba_id: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    name: Mapped[str] = mapped_column(String(255), nullable=True)
+    
+    # Meta quality/health metrics
+    quality_rating: Mapped[Optional[str]] = mapped_column(String(20))  # GREEN, YELLOW, RED
+    messaging_limit_tier: Mapped[Optional[str]] = mapped_column(String(50))
+    
+    # Webhook configuration
+    webhook_verify_token: Mapped[str] = mapped_column(String(255))
+    
+    # Relationships
+    phone_numbers: Mapped[List["WhatsAppPhoneNumber"]] = relationship(...)
+    templates: Mapped[List["MessageTemplate"]] = relationship(...)
 ```
 
+#### WhatsAppPhoneNumber (replaces WhatsAppAccount)
 
-Checked [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py), [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/predictor.py), [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/config.py), [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/turn_detection/linguistic.py), no problems found
-
-Created [](file:///home/lumi/beautyai/tests/unit/test_turn_detection.py)
-
-Starting: *Add unit tests* (6/7)
-
-Ran terminal command:  source backend/venv/bin/activate && python -c "from beautyai_inference.services.voice.turn_detection import EndOfTurnPredictor, EndOfTurnConfig, LinguisticAnalyzer; print('✅ Imports successful')"
-
-Ran terminal command:  source backend/venv/bin/activate && cd backend && pytest -v ../tests/unit/test_turn_detection.py -x --tb=short 2>&1 | head -100
-
-Replacing 8 lines with 8 lines in [](file:///home/lumi/beautyai/tests/unit/test_turn_detection.py)
-
-
+```python
+class WhatsAppPhoneNumber(Base):
+    """Individual phone number within a WABA."""
+    __tablename__ = "whatsapp_phone_numbers"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    waba_id: Mapped[int] = mapped_column(ForeignKey("whatsapp_business_accounts.id"))
+    
+    phone_number_id: Mapped[str] = mapped_column(String(100), unique=True)
+    display_phone_number: Mapped[str] = mapped_column(String(50))
+    verified_name: Mapped[Optional[str]] = mapped_column(String(255))
+    quality_rating: Mapped[Optional[str]] = mapped_column(String(20))
+    
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
 ```
 
+#### Contact (CRM foundation)
+
+```python
+class Contact(Base):
+    """
+    WhatsApp contact / end-user.
+    Separates contact identity from conversation threads.
+    """
+    __tablename__ = "contacts"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[int] = mapped_column(ForeignKey("organizations.id"))
+    
+    phone: Mapped[str] = mapped_column(String(50), nullable=False)
+    name: Mapped[Optional[str]] = mapped_column(String(255))
+    email: Mapped[Optional[str]] = mapped_column(String(255))
+    
+    tags: Mapped[List[str]] = mapped_column(ARRAY(String), default=[])
+    custom_fields: Mapped[dict] = mapped_column(JSON, default={})
+    
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    
+    # Unique per org
+    __table_args__ = (UniqueConstraint('organization_id', 'phone'),)
 ```
 
+#### AuditLog (compliance)
 
-Ran terminal command:  source backend/venv/bin/activate && cd backend && pytest -v ../tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -30
-Completed with input:  source backend/venv/bin/activate && cd backend && pytest -v ../tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -30
-
-Ran terminal command:  source backend/venv/bin/activate && cd backend && pytest -v ../tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -30
-Completed with input:  source backend/venv/bin/activate && cd backend && pytest -v ../tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -30
-
-Ran terminal command:  source backend/venv/bin/activate && pytest -v tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -40
-Completed with input:  source backend/venv/bin/activate && pytest -v tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -40
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && cd /home/lumi/beautyai && pytest -v tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -40
-
-All 50 tests pass! ✅ 
-
-Starting: *Test with PCM replay* (7/7)
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && cd /home/lumi/beautyai && python -c "from beautyai_inference.api.endpoints.webrtc_voice import webrtc_voice_router; print('✅ WebRTC voice endpoint imports successfully')" 2>&1
-
-Completed: *Test with PCM replay* (7/7)
-
----
-
-## ✅ Implementation Complete!
-
-### Summary
-
-I've implemented **Phase 1: Smart Turn Detection** which replaces the fixed 2-second timeout with multi-signal confidence scoring. Here's what was created:
-
-### New Files Created
-
-| File | Description |
-|------|-------------|
-| turn_detection/__init__.py | Module exports |
-| turn_detection/config.py | `EndOfTurnConfig` with env var support |
-| turn_detection/linguistic.py | `LinguisticAnalyzer` for Arabic/English |
-| turn_detection/predictor.py | `EndOfTurnPredictor` with confidence scoring |
-| test_turn_detection.py | 50 unit tests (all passing) |
-
-### Modified Files
-
-| File | Changes |
-|------|---------|
-| webrtc_voice.py | Integrated turn predictor, replaced 2s timeout |
-
-### How It Works
-
-```
-User stops speaking
-        │
-        ▼
-┌───────────────────────────────────────────────────┐
-│         CONFIDENCE POLLING (every 50ms)           │
-│                                                   │
-│   Silence Score ─────────────┬───► Weighted Sum   │
-│       (35%)                  │         │          │
-│                              │         ▼          │
-│   ASR Stability ─────────────┤   confidence ≥ 0.85│
-│       (25%)                  │         │          │
-│                              │    YES: TRIGGER    │
-│   Linguistic ────────────────┘    NO: CONTINUE    │
-│       (40%)                                       │
-│                                                   │
-│   Safety: Force trigger at 800ms max              │
-└───────────────────────────────────────────────────┘
-```
-
-### Configuration (Environment Variables)
-
-```bash
-# Enable/disable smart turn detection (default: enabled)
-VOICE_SMART_TURN_DETECTION=1
-
-# Timing thresholds
-VOICE_TURN_MIN_SILENCE_MS=300   # Minimum silence before considering turn end
-VOICE_TURN_MAX_SILENCE_MS=800   # Maximum wait (safety cap)
-VOICE_TURN_CONFIDENCE_THRESHOLD=0.85  # Confidence to trigger early
-```
-
-### Expected Latency Improvement
-
-| Scenario | Before | After |
-|----------|--------|-------|
-| "Yes" / "No" | 2700ms | ~350ms |
-| "Hello, how are you?" | 2700ms | ~500ms |
-| Complete sentence with `.?!` | 2700ms | ~400ms |
-| Incomplete/uncertain | 2700ms | ~800ms |
-
-### Test It
-
-```bash
-# Run unit tests
-cd /home/lumi/beautyai && source backend/venv/bin/activate
-pytest -v tests/unit/test_turn_detection.py
-
-# Start the API server (smart turn detection is ON by default)
-python backend/run_server.py
-
-# To disable smart detection and use legacy 2s timeout:
-VOICE_SMART_TURN_DETECTION=0 python backend/run_server.py
+```python
+class AuditLog(Base):
+    """Security and compliance audit trail."""
+    __tablename__ = "audit_logs"
+    
+    id: Mapped[int] = mapped_column(primary_key=True)
+    organization_id: Mapped[Optional[int]] = mapped_column(ForeignKey("organizations.id"))
+    user_id: Mapped[Optional[int]] = mapped_column(ForeignKey("users.id"))
+    
+    action: Mapped[str] = mapped_column(String(100))  # e.g., "whatsapp.account.connected"
+    resource_type: Mapped[str] = mapped_column(String(100))
+    resource_id: Mapped[Optional[str]] = mapped_column(String(100))
+    
+    metadata: Mapped[dict] = mapped_column(JSON, default={})
+    ip_address: Mapped[Optional[str]] = mapped_column(String(50))
+    user_agent: Mapped[Optional[str]] = mapped_column(Text)
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 ```
 
 ---
 
-**Phase 2 (Progressive TTS Streaming)** is ready for implementation when you'd like to proceed! 💕
+## 4. What Can Remain As-Is vs. Refactor
 
-Made changes.
+### ✅ Keep As-Is
 
-User: What about the TTS section? 
+| Component | Reason |
+|-----------|--------|
+| User model | Good foundation, just needs `is_platform_admin` flag |
+| AgentConfig + wizard entities | Well-designed, fully functional |
+| Conversation + Message | Solid structure |
+| Knowledge Base (RAG) | pgvector integration is good |
+| Web Chat widget system | Clean separation |
+| Billing models (Plan, Subscription, UsageEvent) | Adequate for MVP |
+| API endpoint structure | FastAPI patterns are clean |
 
-GitHub Copilot: Good question! Let me implement **Phase 2: Progressive TTS Streaming** now. This will stream TTS audio sentence-by-sentence as the LLM generates tokens, rather than waiting for the full response.   
+### 🔄 Refactor
 
-Created 6 todos
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1050-1050), lines 1050 to 1200
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/inference_engines/edge_tts_engine.py#340-340), lines 340 to 440
-
-Let me check how TTS is currently used and find the LLM streaming section: 
-
-Searched for regex `generate_speech|synthesize|tts_model|audio.*base64|TTS` (`**/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py`), 20 results
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1250-1250), lines 1250 to 1400
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1400-1400), lines 1400 to 1550
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1550-1550), lines 1550 to 1700
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1700-1700), lines 1700 to 1816
-
-Now I understand the current flow. Let me implement **Phase 2: Progressive TTS Streaming**! 
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/sentence_buffer.py)
-
-Starting: *Add streaming TTS to webrtc_voice* (3/6)
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming)
-
-Created [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/__init__.py)
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#95-95), lines 95 to 145
-
-Replacing 6 lines with 8 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
-```
-
-```
-Now let me add the streaming TTS helper function. I'll add it near the other helper functions (after the edge TTS fallback):  
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#145-145), lines 145 to 175
-
-Replacing 6 lines with 140 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
-```
-
-```
-
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1780-1780), lines 1780 to 1880
-
-Read [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py#1850-1850), lines 1850 to 1930
-
-Replacing 60 lines with 101 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py)
-
-
-```
-
-```
-
-
-Checked [](file:///home/lumi/beautyai/backend/src/beautyai_inference/api/endpoints/webrtc_voice.py), [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/sentence_buffer.py), no problems found
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && python -c "
-from beautyai_inference.services.voice.streaming.sentence_buffer import SentenceStreamBuffer, SentenceStreamConfig
-
-# Test sentence splitting
-config = SentenceStreamConfig(language='en')
-buffer = SentenceStreamBuffer(config)
-
-# Feed some text
-sentences = buffer.feed('Hello there. How are you today? I am doing great!')
-print(f'Found {len(sentences)} sentences: {[s.text for s in sentences]}')
-
-# Test Arabic
-config_ar = SentenceStreamConfig(language='ar')
-buffer_ar = SentenceStreamBuffer(config_ar)
-sentences_ar = buffer_ar.feed('مرحبا. كيف حالك؟ أنا بخير.')
-sentences_ar.extend(buffer_ar.flush())
-print(f'Arabic sentences: {len(sentences_ar)}')
-
-print('✅ SentenceStreamBuffer works!')
-"
-Completed with input:  . /home/lumi/beautyai/backend/venv/bin/activate && python -c "
-from beautyai_inference.services.voice.streaming.sentence_buffer import SentenceStreamBuffer, SentenceStreamConfig
-
-# Test sentence splitting
-config = SentenceStreamConfig(language='en')
-buffer = SentenceStreamBuffer(config)
-
-# Feed some text
-sentences = buffer.feed('Hello there. How are you today? I am doing great!')
-print(f'Found {len(sentences)} sentences: {[s.text for s in sentences]}')
-
-# Test Arabic
-config_ar = SentenceStreamConfig(language='ar')
-buffer_ar = SentenceStreamBuffer(config_ar)
-sentences_ar = buffer_ar.feed('مرحبا. كيف حالك؟ أنا بخير.')
-sentences_ar.extend(buffer_ar.flush())
-print(f'Arabic sentences: {len(sentences_ar)}')
-
-print('✅ SentenceStreamBuffer works!')
-"
-
-Searched for regex `^class|^def` (`**/backend/src/beautyai_inference/services/voice/streaming/ring_buffer.py`), 2 results
-
-Replacing 32 lines with 46 lines in [](file:///home/lumi/beautyai/backend/src/beautyai_inference/services/voice/streaming/__init__.py)
-
-
-```
-
-```
-
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && python -c "
-from beautyai_inference.services.voice.streaming.sentence_buffer import SentenceStreamBuffer, SentenceStreamConfig
-
-# Test sentence splitting
-config = SentenceStreamConfig(language='en')
-buffer = SentenceStreamBuffer(config)
-
-# Feed some text
-text = 'Hello there. How are you today? I am doing great!'
-sentences = buffer.feed(text)
-sentences.extend(buffer.flush())
-print(f'Found {len(sentences)} sentences: {[s.text for s in sentences]}')
-
-# Test Arabic
-config_ar = SentenceStreamConfig(language='ar')
-buffer_ar = SentenceStreamBuffer(config_ar)
-sentences_ar = buffer_ar.feed('مرحبا. كيف حالك؟ أنا بخير.')
-sentences_ar.extend(buffer_ar.flush())
-print(f'Arabic sentences: {len(sentences_ar)}')
-
-print('✅ SentenceStreamBuffer works!')
-"
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && python -c "
-from beautyai_inference.api.endpoints.webrtc_voice import webrtc_voice_router, _split_into_sentences
-
-# Test sentence splitting function
-en_text = 'Hello! How are you? I am doing great.'
-en_sentences = _split_into_sentences(en_text, 'en')
-print(f'English: {en_sentences}')
-
-ar_text = 'مرحبا! كيف حالك؟ أنا بخير.'
-ar_sentences = _split_into_sentences(ar_text, 'ar')
-print(f'Arabic: {ar_sentences}')
-
-print('✅ WebRTC voice imports successfully!')
-" 2>&1
-
-Completed: *Add streaming TTS to webrtc_voice* (3/6)
-
-Ran terminal command:  . /home/lumi/beautyai/backend/venv/bin/activate && cd /home/lumi/beautyai && pytest -v tests/unit/test_turn_detection.py --tb=short 2>&1 | tail -20
+| Component | Change | Priority |
+|-----------|--------|----------|
+| `Customer` → `Organization` | Rename + add team relationships | High |
+| `WhatsAppAccount` → `WhatsAppPhoneNumber` | Add WABA parent entity | High |
+| `access_token` storage | Move to encrypted `MetaCredential` vault | Critical |
+| Add `OrganizationMember` | Team collaboration | High |
+| Add `Contact` entity | CRM foundation | Medium |
+| Add `AuditLog` | Compliance | High |
+| Add `MessageTemplate` | WhatsApp campaigns | Medium |
 
 ---
 
-## ✅ Phase 2 Complete: Progressive TTS Streaming
+## 5. API Boundary Changes
 
-### Summary
+### Current Endpoints (keep)
 
-I've implemented **Progressive TTS Streaming** which synthesizes and sends audio sentence-by-sentence instead of waiting for the complete response.
+| Endpoint Group | Status |
+|----------------|--------|
+| `/api/v1/auth/*` | Keep, extend for org context |
+| `/api/v1/whatsapp/webhook` | Keep (public webhook) |
+| `/api/v1/billing/*` | Keep, add org context |
+| `/api/v1/kb/*` | Keep, add org context |
+| `/api/v1/webchat/*` | Keep |
 
-### New Files Created
-
-| File | Description |
-|------|-------------|
-| streaming/sentence_buffer.py | `SentenceStreamBuffer` + `TTSStreamQueue` |
-| streaming/__init__.py | Module exports |
-
-### Modified Files
-
-| File | Changes |
-|------|---------|
-| webrtc_voice.py | Added `_stream_tts_sentences()`, `_split_into_sentences()`, streaming TTS logic |
-
-### How It Works
+### New Endpoints (add)
 
 ```
-LLM generates: "Hello! How are you? I'm here to help."
-                    │
-                    ▼
-           ┌───────────────────┐
-           │ Split into        │
-           │ sentences         │
-           └─────────┬─────────┘
-                     │
-        ┌────────────┼────────────┐
-        ▼            ▼            ▼
-   "Hello!"    "How are    "I'm here
-                you?"      to help."
-        │            │            │
-        ▼            ▼            ▼
-   ┌─────────┐ ┌─────────┐ ┌─────────┐
-   │ TTS #1  │ │ TTS #2  │ │ TTS #3  │
-   │ ~150ms  │ │ ~200ms  │ │ ~180ms  │
-   └────┬────┘ └────┬────┘ └────┬────┘
-        │            │            │
-        ▼            ▼            ▼
-   📤 Send      📤 Send      📤 Send
-   chunk 1      chunk 2      chunk 3
-   
-   User hears first sentence ~150ms after LLM starts!
-   (vs ~530ms+ waiting for full TTS)
+/api/v1/organizations/
+├── GET    /                      # List user's orgs
+├── POST   /                      # Create org
+├── GET    /{org_id}              # Org details
+├── PATCH  /{org_id}              # Update org
+├── DELETE /{org_id}              # Delete org (owner only)
+│
+├── GET    /{org_id}/members      # List team members
+├── POST   /{org_id}/members      # Invite member
+├── DELETE /{org_id}/members/{id} # Remove member
+├── PATCH  /{org_id}/members/{id} # Change role
+│
+├── GET    /{org_id}/wabas        # List WABAs
+├── POST   /{org_id}/wabas        # Connect WABA (Embedded Signup)
+├── GET    /{org_id}/wabas/{id}   # WABA details
+├── GET    /{org_id}/wabas/{id}/phones  # Phone numbers
+│
+├── GET    /{org_id}/contacts     # List contacts
+├── GET    /{org_id}/contacts/{id}
+├── PATCH  /{org_id}/contacts/{id}
+│
+└── GET    /{org_id}/audit-logs   # Audit trail (admin)
 ```
 
-### Client-Side Message Types
+### Refactored Endpoints
 
-```javascript
-// Streaming mode sends chunks:
-{
-  "type": "tts_audio_chunk",
-  "audio_base64": "...",
-  "format": "wav",
-  "chunk_index": 0,       // Sentence number (0, 1, 2...)
-  "is_final": false,      // True for last chunk
-  "tts_time_ms": 150
-}
+```
+# BEFORE (implicit org context via user)
+GET /api/v1/whatsapp/accounts
 
-// Batch mode (fallback) sends full audio:
-{
-  "type": "tts_audio",
-  "audio_base64": "...",
-  "format": "wav",
-  "language": "en",
-  "tts_time_ms": 530
-}
+# AFTER (explicit org context)
+GET /api/v1/organizations/{org_id}/wabas/{waba_id}/phones
 ```
 
-### Configuration
+---
 
-```bash
-# Enable/disable streaming TTS (default: enabled)
-VOICE_STREAMING_TTS=1
+## 6. New Services Needed
 
-# To use batch mode (full response before TTS):
-VOICE_STREAMING_TTS=0
+### MetaCredentialService
+
+```python
+# backend/src/beautyai_inference/services/meta_credential.py
+
+class MetaCredentialService:
+    """Encrypted credential vault for Meta API tokens."""
+    
+    async def store_token(self, org_id: int, token: str, scopes: list[str], expires_at: datetime) -> MetaCredential:
+        """Encrypt and store a new Meta token."""
+        
+    async def get_token(self, credential_id: int) -> str:
+        """Decrypt and return token (with audit logging)."""
+        
+    async def refresh_token(self, credential_id: int) -> str:
+        """Exchange refresh token for new access token."""
+        
+    async def revoke_token(self, credential_id: int) -> None:
+        """Revoke and delete token."""
 ```
 
-### Expected Latency Improvement
+### MetaGraphService
 
-| Response Length | Before (Batch) | After (Streaming) | Speedup |
-|-----------------|----------------|-------------------|---------|
-| 1 sentence | ~300ms | ~300ms | Same |
-| 3 sentences | ~900ms | ~300ms (first) | 3x |
-| 5 sentences | ~1500ms | ~300ms (first) | 5x |
+```python
+# backend/src/beautyai_inference/services/meta_graph.py
 
-**Key insight**: User hears first sentence almost immediately while remaining sentences are synthesized in parallel.
+class MetaGraphService:
+    """Meta Graph API client with proper error handling."""
+    
+    async def get_businesses(self, token: str) -> list[dict]:
+        """GET /me/businesses - for business_management test."""
+        
+    async def get_waba_info(self, waba_id: str, token: str) -> dict:
+        """GET /{waba_id}?fields=id,name,phone_numbers"""
+        
+    async def get_phone_numbers(self, waba_id: str, token: str) -> list[dict]:
+        """GET /{waba_id}/phone_numbers"""
+        
+    async def get_message_templates(self, waba_id: str, token: str) -> list[dict]:
+        """GET /{waba_id}/message_templates"""
+```
 
-### Combined Latency Reduction (Phase 1 + Phase 2)
+### AuditService
 
-| Component | Before | After |
-|-----------|--------|-------|
-| Turn Detection | 2.7s | 0.3-0.8s |
-| First TTS Audio | +500ms | +300ms |
-| **Total to First Audio** | **~3.2s** | **~0.6-1.1s** |
+```python
+# backend/src/beautyai_inference/services/audit.py
 
-That's a **~65-80% reduction** in perceived latency! 💕
+class AuditService:
+    """Audit logging for compliance."""
+    
+    async def log(
+        self,
+        action: str,
+        resource_type: str,
+        resource_id: str,
+        user_id: int | None = None,
+        org_id: int | None = None,
+        metadata: dict = {},
+        request: Request | None = None
+    ) -> AuditLog:
+        """Record an audit event."""
+```
 
-Made changes.
+---
+
+## 7. Implementation Plan
+
+### Phase 1: Security Hardening (MVP - Week 1-2)
+
+**Goal**: Fix critical security issues without breaking existing functionality.
+
+| Task | Effort | Files |
+|------|--------|-------|
+| Add `MetaCredential` model | 4h | models.py, migration |
+| Create `MetaCredentialService` with encryption | 8h | New service |
+| Migrate existing `access_token` to vault | 4h | Migration script |
+| Add `AuditLog` model + service | 4h | models.py, new service |
+| Audit logging middleware | 4h | `api/middleware/` |
+
+### Phase 2: Multi-Tenancy Foundation (Week 3-4)
+
+**Goal**: Enable team collaboration while maintaining backward compatibility.
+
+| Task | Effort | Files |
+|------|--------|-------|
+| Rename `Customer` → `Organization` | 8h | All files, migration |
+| Add `OrganizationMember` model | 4h | models.py |
+| Create org membership CRUD endpoints | 8h | New `organizations.py` endpoint |
+| Update auth dependencies for org context | 8h | dependencies.py |
+| Add `Contact` model | 4h | models.py |
+
+### Phase 3: Meta Integration (Week 5-6)
+
+**Goal**: Proper Meta Business Manager integration.
+
+| Task | Effort | Files |
+|------|--------|-------|
+| Add `WhatsAppBusinessAccount` model | 4h | models.py |
+| Rename `WhatsAppAccount` → `WhatsAppPhoneNumber` | 4h | All files |
+| Create `MetaGraphService` | 8h | New service |
+| Add `business_management` scope to Embedded Signup | 2h | whatsapp_manager.py |
+| Implement token refresh flow | 8h | `MetaCredentialService` |
+| Add `MessageTemplate` model | 4h | models.py |
+
+### Phase 4: Long-Term Enhancements (Week 7+)
+
+| Feature | Description |
+|---------|-------------|
+| Org invites via email | Email-based team invitations |
+| RBAC permissions check | Middleware for permission validation |
+| Contact tagging/segments | CRM foundation |
+| Template sync with Meta | Auto-sync approved templates |
+| Webhook subscription management | Outbound webhooks for integrations |
+| Quality rating alerts | Notify when Meta quality drops |
+
+---
+
+## 8. Migration Strategy
+
+### Database Migration Order
+
+1. **Add new tables** (non-breaking)
+   - `meta_credentials`
+   - `audit_logs`
+   - `organization_members`
+   - `whatsapp_business_accounts`
+   - `contacts`
+
+2. **Add columns to existing tables** (non-breaking)
+   - `users.is_platform_admin`
+   - `customers.meta_business_id`
+   - `customers.slug`
+
+3. **Data migration** (offline)
+   - Encrypt existing `access_token` values
+   - Copy to `meta_credentials`
+   - Generate slugs for existing customers
+
+4. **Rename tables** (breaking - requires downtime)
+   - `customers` → `organizations`
+   - `whatsapp_accounts` → `whatsapp_phone_numbers`
+
+5. **Drop old columns** (cleanup)
+   - Remove `whatsapp_accounts.access_token`
+
+---
+
+## Summary
+
+The current architecture works for MVP but needs significant refactoring for production-grade multi-tenant B2B SaaS:
+
+| Area | Status | Priority |
+|------|--------|----------|
+| Token security | 🔴 Critical | Immediate |
+| Audit logging | 🔴 Missing | Week 1 |
+| Team collaboration | 🟠 Not possible | Week 2-3 |
+| Meta Business Manager | 🟠 Partial | Week 3-4 |
+| RBAC | 🟡 Basic only | Week 4+ |
+| CRM contacts | 🟡 Not separate | Week 5+ |
+
+**Recommended next step**: Start with Phase 1 (security hardening) to address the critical token storage issue, then proceed with multi-tenancy.
+
+
+
+
+
+- Remeber what we need to do, and the plan,
+- Create new branch on git, regardign to this plan and provide commit message and commit for each step you doing, 
+- I confirm your plan, 
+- If you agree I can copy the plan and original prompt and start the new session, is it good practice? 
+
+
+Yes, that's an excellent practice! Starting a fresh session with the plan copied over will give you full context quality.
+
+## Summary to Copy
+
+### Git Branch
+```
+feature/multi-tenant-architecture-phase1
+```
+
+### Plan Summary (copy this to new session)
+
+**Project**: BeautyAI WhatsApp SaaS Platform - Multi-tenant Architecture Refactor
+
+**Phase 1: Security Hardening (MVP - Current Focus)**
+
+| Step | Task | Commit Message |
+|------|------|----------------|
+| 1 | Add `MetaCredential` model for encrypted token storage | `feat(db): add MetaCredential model for encrypted token vault` |
+| 2 | Create `MetaCredentialService` with Fernet encryption | `feat(services): add MetaCredentialService with encryption` |
+| 3 | Add `AuditLog` model | `feat(db): add AuditLog model for compliance` |
+| 4 | Create `AuditService` | `feat(services): add AuditService for audit logging` |
+| 5 | Migration to encrypt existing `access_token` values | `chore(migration): encrypt existing WhatsApp access tokens` |
+
+**Key Files to Create/Modify**:
+- models.py - Add `MetaCredential`, `AuditLog`
+- `backend/src/beautyai_inference/services/meta_credential.py` - New service
+- `backend/src/beautyai_inference/services/audit.py` - New service
+- versions - New migration
+
+**Critical Issue Being Fixed**: `WhatsAppAccount.access_token` stored in plaintext → moving to encrypted vault.
+
+---
+
+### Original Prompt (copy this too)
+
+```
+You are acting as a senior backend architect.
+
+Context: This is a multi-tenant B2B SaaS platform providing WhatsApp AI bots. 
+Each business connects its own WABA via Meta Embedded Signup.
+
+Current task: Implement Phase 1 - Security Hardening
+- Add MetaCredential model (encrypted token storage)
+- Add AuditLog model
+- Create MetaCredentialService with Fernet encryption
+- Create AuditService
+- Migrate existing plaintext access_tokens
+
+Follow the git workflow: create branch, commit each step separately.
+```
+
+---
+
+**Yes, copy the plan + prompt to a new session.** This is the best practice for long tasks - you'll get:
+- Fresh 128K token budget
+- Full quality responses
+- Clean context without noise
 

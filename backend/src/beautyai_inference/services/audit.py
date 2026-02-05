@@ -124,7 +124,7 @@ class AuditService:
             resource_id=resource_id,
             customer_id=customer_id,
             user_id=user_id,
-            metadata=metadata,
+            details=metadata,  # Column renamed from 'metadata' (reserved in SQLAlchemy)
             ip_address=ip_address,
             user_agent=user_agent,
             request_id=request_id,
@@ -205,7 +205,7 @@ class AuditService:
                 resource_id=entry.get("resource_id"),
                 customer_id=entry.get("customer_id"),
                 user_id=entry.get("user_id"),
-                metadata=entry.get("metadata"),
+                details=entry.get("metadata"),  # Column renamed from 'metadata'
                 ip_address=entry.get("ip_address"),
                 user_agent=entry.get("user_agent"),
                 request_id=entry.get("request_id"),
