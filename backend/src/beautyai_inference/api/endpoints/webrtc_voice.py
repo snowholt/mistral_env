@@ -704,6 +704,11 @@ async def _process_audio_track(
                 # 2. Convert to numpy array
                 audio_array = frame.to_ndarray()
 
+                # DIAGNOSTIC: Check amplitude
+                if frame_count % 50 == 0:
+                   max_amp = np.max(np.abs(audio_array))
+                   print(f"[VOICE-DIAG] Frame #{frame_count} max_amp={max_amp}", flush=True)
+
                 # 3. Stereo → Mono (int16)
                 if audio_array.ndim > 1:
                     audio_array = audio_array.flatten()
@@ -876,6 +881,15 @@ async def _process_audio_track(
             except Exception as e:
                 if "MediaStreamError" in str(type(e).__name__) or "End of file" in str(e):
                     print("[VOICE] ⏹️ Track ended", flush=True)
+                    # Flush any remaining speech buffer if the track ends while speaking
+                    if speech_buffer_16k and is_collecting_speech:
+                        print(f"[VOICE] ⚠️ Track ended while speaking - flushing {len(speech_buffer_16k)} frames", flush=True)
+                        full_audio = np.concatenate(speech_buffer_16k)
+                        asyncio.create_task(
+                            _process_speech_segment(
+                                session_id, full_audio, context
+                            )
+                        )
                     break
 
                 import traceback

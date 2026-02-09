@@ -17,7 +17,7 @@ declare global {
     FB: {
       init: (params: { appId: string; autoLogAppEvents: boolean; xfbml: boolean; version: string }) => void;
       login: (
-        callback: (response: { authResponse?: { accessToken: string; userID: string }; status: string }) => void,
+        callback: (response: { authResponse?: { accessToken: string; userID: string; code?: string }; status: string }) => void,
         params: { config_id: string; response_type: string; override_default_response_type: boolean; extras: Record<string, any> }
       ) => void;
       getLoginStatus: (callback: (response: { status: string; authResponse?: { accessToken: string } }) => void) => void;
@@ -116,7 +116,25 @@ export async function startWhatsAppSignup(
     window.FB.login(
       (response) => {
         if (response.authResponse) {
-          const code = response.authResponse.accessToken;
+          // When response_type is 'code', the code is in the authResponse
+          const code = response.authResponse.code || response.authResponse.accessToken;
+          
+          // Debug: log full authResponse structure
+          console.log('[MetaSDK] authResponse structure:', {
+            hasCode: !!response.authResponse.code,
+            hasAccessToken: !!response.authResponse.accessToken,
+            codeType: typeof response.authResponse.code,
+            accessTokenType: typeof response.authResponse.accessToken,
+            code: code,
+            codeLength: typeof code === 'string' ? code.length : 'N/A',
+          });
+
+          if (!code) {
+             console.error('[MetaSDK] Login response missing code');
+             onError('Authentication successful but failed to retrieve signup code');
+             return;
+          }
+
           console.log('[MetaSDK] Login successful, received code');
           
           // The WABA ID and Phone Number ID will come from the extras

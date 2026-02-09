@@ -132,16 +132,21 @@ class ApiClient {
     }
 
     // Handle errors
-    let errorDetail = 'An error occurred';
+    let errorDetail: string | object = 'An error occurred';
     try {
       const errorData = await response.json();
+      // Preserve full detail array for 422 validation errors
       errorDetail = errorData.detail || errorData.message || errorDetail;
+      // Debug: log full error response for 422
+      if (response.status === 422) {
+        console.error('[API] 422 Validation Error:', JSON.stringify(errorData, null, 2));
+      }
     } catch {
       errorDetail = response.statusText;
     }
 
     const error: ApiError = {
-      detail: errorDetail,
+      detail: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
       status: response.status,
     };
 

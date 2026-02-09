@@ -206,10 +206,13 @@ export default function WhatsAppSettings() {
     try {
       const [accountRes, configRes] = await Promise.all([
         api.get<WhatsAppAccount>(`/api/v1/whatsapp/accounts/${accountId}`),
-        api.get<AgentConfig>(`/api/v1/whatsapp/accounts/${accountId}/config`),
+        api.get<AgentConfig | null>(`/api/v1/whatsapp/accounts/${accountId}/config`),
       ]);
       setAccount(accountRes);
-      setConfig(configRes);
+      // Only update config if backend returned one, otherwise keep defaults
+      if (configRes) {
+        setConfig(prev => ({ ...prev, ...configRes }));
+      }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       toast({

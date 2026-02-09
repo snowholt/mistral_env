@@ -1080,26 +1080,10 @@ class ModelManager:
             from ..config.voice_config_loader import get_voice_config
             voice_config = get_voice_config()
             
-            # Language-based TTS routing: Chatterbox Multilingual for all languages
-            # Chatterbox supports 23 languages with voice cloning
+            # Use configuration defaults if model_name is not specified
             if model_name is None:
-                models = voice_config._config.get("models", {})
-                # Prefer Chatterbox for all languages (best quality, voice cloning)
-                if "chatterbox-multilingual" in models:
-                    model_name = "chatterbox-multilingual"
-                    logger.info(f"🌍 Language routing: {language or 'default'} -> Chatterbox Multilingual")
-                elif language and language.lower() in ("ar", "arabic"):
-                    # Fallback to Saudi XTTS for Arabic
-                    if "saudi-tts" in models:
-                        model_name = "saudi-tts"
-                        logger.info(f"🌍 Language routing: Arabic -> Saudi XTTS (fallback)")
-                    else:
-                        model_name = "edge-tts"
-                        logger.info(f"🌍 Language routing: Arabic -> Edge TTS (fallback)")
-                else:
-                    # Fallback to Edge TTS for other languages
-                    model_name = "edge-tts"
-                    logger.info(f"🌍 Language routing: {language} -> Edge TTS (fallback)")
+                model_name = voice_config._config["default_models"]["tts"]
+                logger.info(f"Using configured default TTS model: {model_name}")
             
             internal_name = f"tts:{model_name}"
             with self._lock:

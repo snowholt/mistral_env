@@ -42,6 +42,100 @@ _SIGNUP_SESSION_TTL_SECONDS = 10 * 60
 
 
 # ============================================
+# Helper Functions for Meta API
+# ============================================
+
+async def fetch_waba_and_phone_numbers(access_token: str) -> dict:
+    """
+    Fetch WhatsApp Business Account (WABA) ID and phone numbers from Meta API.
+    
+    After Embedded Signup, the user token has access to their WABAs.
+    We query: /me/businesses -> /{business_id}/owned_whatsapp_business_accounts -> /{waba_id}/phone_numbers
+    
+    Returns:
+        dict with keys: waba_id, phone_number_id, phone_number (display), business_name
+    """
+    result = {
+        "waba_id": None,
+        "phone_number_id": None,
+        "phone_number": None,
+        "business_name": None,
+    }
+    
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # Step 1: Get the user's businesses
+            biz_resp = await client.get(
+                f"{META_API_BASE}/me/businesses",
+                params={"access_token": access_token, "fields": "id,name"}
+            )
+            if biz_resp.status_code != 200:
+                logger.warning(f"Failed to fetch businesses: {biz_resp.text}")
+                return result
+            
+            businesses = biz_resp.json().get("data", [])
+            logger.info(f"Found {len(businesses)} businesses for user")
+            
+            if not businesses:
+                # Try alternate endpoint - sometimes WABAs are directly accessible
+                waba_resp = await client.get(
+                    f"{META_API_BASE}/me/whatsapp_business_accounts",
+                    params={"access_token": access_token}
+                )
+                if waba_resp.status_code == 200:
+                    wabas = waba_resp.json().get("data", [])
+                    if wabas:
+                        result["waba_id"] = wabas[0].get("id")
+                        logger.info(f"Found WABA directly: {result['waba_id']}")
+                return result
+            
+            # Step 2: For each business, get owned WABAs
+            for business in businesses:
+                biz_id = business.get("id")
+                result["business_name"] = business.get("name")
+                
+                waba_resp = await client.get(
+                    f"{META_API_BASE}/{biz_id}/owned_whatsapp_business_accounts",
+                    params={"access_token": access_token}
+                )
+                if waba_resp.status_code != 200:
+                    logger.warning(f"Failed to fetch WABAs for business {biz_id}: {waba_resp.text}")
+                    continue
+                
+                wabas = waba_resp.json().get("data", [])
+                logger.info(f"Business {biz_id} has {len(wabas)} WABAs")
+                
+                if not wabas:
+                    continue
+                
+                # Step 3: Get phone numbers from the first WABA
+                waba_id = wabas[0].get("id")
+                result["waba_id"] = waba_id
+                
+                phone_resp = await client.get(
+                    f"{META_API_BASE}/{waba_id}/phone_numbers",
+                    params={"access_token": access_token, "fields": "id,display_phone_number,verified_name,quality_rating"}
+                )
+                if phone_resp.status_code != 200:
+                    logger.warning(f"Failed to fetch phone numbers for WABA {waba_id}: {phone_resp.text}")
+                    continue
+                
+                phones = phone_resp.json().get("data", [])
+                logger.info(f"WABA {waba_id} has {len(phones)} phone numbers")
+                
+                if phones:
+                    result["phone_number_id"] = phones[0].get("id")
+                    result["phone_number"] = phones[0].get("display_phone_number")
+                    logger.info(f"Using phone: {result['phone_number']} (id: {result['phone_number_id']})")
+                    break  # Found what we need
+                    
+    except Exception as e:
+        logger.error(f"Error fetching WABA info: {e}")
+    
+    return result
+
+
+# ============================================
 # Request/Response Models
 # ============================================
 
@@ -340,7 +434,7 @@ async def init_meta_signup(
             "app_id": META_APP_ID,
             "config_id": os.getenv("META_CONFIG_ID", ""),
             "redirect_uri": os.getenv("OAUTH_REDIRECT_URI", ""),
-            "scope": "whatsapp_business_management,whatsapp_business_messaging",
+            "scope": "whatsapp_business_management,whatsapp_business_messaging,business_management",
             "response_type": "code",
             "customer_id": customer.id
         }
@@ -375,15 +469,27 @@ async def complete_meta_signup(
     
     try:
         # Exchange code for access token
+        # For WhatsApp Embedded Signup via FB SDK popup, no redirect_uri is used
+        # Only include redirect_uri if explicitly configured AND not empty
+        token_params = {
+            "client_id": META_APP_ID,
+            "client_secret": META_APP_SECRET,
+            "code": request.code,
+        }
+        
+        redirect_uri = os.getenv("OAUTH_REDIRECT_URI", "").strip()
+        if redirect_uri:
+            # Only add redirect_uri if it was used in the initial OAuth flow
+            # For Embedded Signup popup flow, this should typically be empty
+            token_params["redirect_uri"] = redirect_uri
+            logger.info(f"Token exchange using redirect_uri: {redirect_uri}")
+        else:
+            logger.info("Token exchange without redirect_uri (Embedded Signup popup flow)")
+        
         async with httpx.AsyncClient() as client:
             token_response = await client.get(
                 f"{META_API_BASE}/oauth/access_token",
-                params={
-                    "client_id": META_APP_ID,
-                    "client_secret": META_APP_SECRET,
-                    "code": request.code,
-                    "redirect_uri": os.getenv("OAUTH_REDIRECT_URI", "")
-                }
+                params=token_params,
             )
             
             if token_response.status_code != 200:
@@ -396,27 +502,26 @@ async def complete_meta_signup(
             token_data = token_response.json()
             access_token = token_data.get("access_token")
             
-            # Get WhatsApp Business Account info
-            # In production, you'd fetch the actual WABA_ID and phone numbers
-            # For now, we'll use the phone_number_id from the request or generate one
-            phone_number_id = request.phone_number_id or f"temp_{customer.id}"
+            # Fetch WABA and phone number info from Meta API
+            logger.info("Fetching WABA and phone number info from Meta API...")
+            waba_info = await fetch_waba_and_phone_numbers(access_token)
             
-            # Debug exchange for development
-            if os.getenv("NODE_ENV") == "development":
-                access_token = access_token or f"dev_token_{customer.id}"
-                phone_number_id = request.phone_number_id or f"dev_phone_{customer.id}"
+            phone_number_id = waba_info.get("phone_number_id") or request.phone_number_id or f"pending_{customer.id}"
+            waba_id = waba_info.get("waba_id")
+            phone_number_display = waba_info.get("phone_number")
+            business_name = waba_info.get("business_name")
+            
+            if not waba_info.get("phone_number_id"):
+                logger.warning(f"Could not fetch phone_number_id from Meta. User may need to complete setup in Meta Business Suite.")
+            else:
+                logger.info(f"Fetched WABA: {waba_id}, Phone: {phone_number_id} ({phone_number_display})")
     
     except httpx.RequestError as e:
         logger.error(f"Meta API request failed: {e}")
-        # For development, create with placeholder values
-        if os.getenv("NODE_ENV") == "development":
-            access_token = f"dev_token_{customer.id}"
-            phone_number_id = request.phone_number_id or f"dev_phone_{customer.id}"
-        else:
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Failed to connect to Meta API"
-            )
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Failed to connect to Meta API"
+        )
     
     # Store token in encrypted vault
     credential_service = get_meta_credential_service(audit_service=get_audit_service())
@@ -425,7 +530,7 @@ async def complete_meta_signup(
         customer_id=customer.id,
         token=access_token,
         credential_type=CredentialType.USER_TOKEN,
-        scopes=["whatsapp_business_management", "whatsapp_business_messaging"],
+        scopes=["whatsapp_business_management", "whatsapp_business_messaging", "business_management"],
         user_id=current_user.id,
     )
     
@@ -433,10 +538,11 @@ async def complete_meta_signup(
     whatsapp_account = WhatsAppAccount(
         customer_id=customer.id,
         phone_number_id=phone_number_id,
-        waba_id=None,  # Would be fetched from Meta API
+        waba_id=waba_id,
+        phone_number=phone_number_display,
         credential_id=credential.id,  # Link to encrypted credential
         access_token=access_token,  # Keep for backward compatibility (will be deprecated)
-        display_name=customer.name,
+        display_name=business_name or customer.name,
         is_active=True,
         verified_at=datetime.utcnow()
     )
@@ -474,6 +580,74 @@ async def complete_meta_signup(
     )
 
 
+@whatsapp_manager_router.get("/meta/businesses")
+async def list_meta_businesses(
+    customer_id: int,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    List Meta Business Manager businesses for the customer.
+
+    Requires a user token with business_management scope.
+    """
+    result = await db.execute(
+        select(Customer).where(
+            Customer.id == customer_id,
+            Customer.user_id == current_user.id,
+        )
+    )
+    customer = result.scalar_one_or_none()
+
+    if not customer:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Customer not found",
+        )
+
+    credential_service = get_meta_credential_service(audit_service=get_audit_service())
+    credentials = await credential_service.get_active_credentials_for_customer(
+        db=db,
+        customer_id=customer.id,
+        credential_type=CredentialType.USER_TOKEN,
+    )
+
+    if not credentials:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="No Meta user token found. Re-run Embedded Signup.",
+        )
+
+    credential = max(credentials, key=lambda item: item.created_at)
+    access_token = await credential_service.get_token(
+        db=db,
+        credential_id=credential.id,
+        user_id=current_user.id,
+    )
+
+    if not access_token:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Failed to decrypt Meta access token",
+        )
+
+    async with httpx.AsyncClient() as client:
+        response = await client.get(
+            f"{META_API_BASE}/me/businesses",
+            params={"fields": "id,name"},
+            headers={"Authorization": f"Bearer {access_token}"},
+        )
+
+    if response.status_code != 200:
+        logger.error(f"Meta /me/businesses failed: {response.text}")
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Meta API request failed",
+        )
+
+    return response.json()
+
+
 @whatsapp_manager_router.get("/accounts", response_model=List[WhatsAppAccountResponse])
 async def list_whatsapp_accounts(
     customer_id: Optional[int] = None,
@@ -506,6 +680,247 @@ async def list_whatsapp_accounts(
         )
         for a in accounts
     ]
+
+
+@whatsapp_manager_router.post("/accounts/{account_id}/sync", response_model=WhatsAppAccountResponse)
+async def sync_whatsapp_account(
+    account_id: int,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Sync/refresh WhatsApp account info from Meta API.
+    
+    Use this to fetch the latest WABA ID and phone number info
+    after completing setup in Meta Business Suite.
+    """
+    # Get the account with ownership check
+    result = await db.execute(
+        select(WhatsAppAccount)
+        .join(Customer)
+        .where(
+            WhatsAppAccount.id == account_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    account = result.scalar_one_or_none()
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="WhatsApp account not found"
+        )
+    
+    # Get the access token
+    if not account.access_token:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Account has no access token"
+        )
+    
+    # Fetch updated WABA info from Meta
+    logger.info(f"Syncing WABA info for account {account_id}...")
+    waba_info = await fetch_waba_and_phone_numbers(account.access_token)
+    
+    # Update account with fetched info
+    updated = False
+    if waba_info.get("waba_id") and not account.waba_id:
+        account.waba_id = waba_info["waba_id"]
+        updated = True
+    
+    if waba_info.get("phone_number_id") and (not account.phone_number_id or account.phone_number_id.startswith("pending_") or account.phone_number_id.startswith("temp_")):
+        account.phone_number_id = waba_info["phone_number_id"]
+        updated = True
+    
+    if waba_info.get("phone_number"):
+        account.phone_number = waba_info["phone_number"]
+        updated = True
+        
+    if waba_info.get("business_name") and not account.display_name:
+        account.display_name = waba_info["business_name"]
+        updated = True
+    
+    if updated:
+        await db.commit()
+        await db.refresh(account)
+        logger.info(f"Account {account_id} synced: WABA={account.waba_id}, Phone={account.phone_number_id}")
+    else:
+        logger.info(f"Account {account_id} already up to date or no new info from Meta")
+    
+    return WhatsAppAccountResponse(
+        id=account.id,
+        phone_number_id=account.phone_number_id,
+        waba_id=account.waba_id,
+        display_name=account.display_name,
+        phone_number=account.phone_number,
+        is_active=account.is_active,
+        verified_at=account.verified_at,
+        created_at=account.created_at
+    )
+
+
+@whatsapp_manager_router.get("/accounts/{account_id}", response_model=WhatsAppAccountResponse)
+async def get_whatsapp_account(
+    account_id: int,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get a single WhatsApp account by ID."""
+    result = await db.execute(
+        select(WhatsAppAccount)
+        .join(Customer)
+        .where(
+            WhatsAppAccount.id == account_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    account = result.scalar_one_or_none()
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="WhatsApp account not found"
+        )
+    
+    return WhatsAppAccountResponse(
+        id=account.id,
+        phone_number_id=account.phone_number_id,
+        waba_id=account.waba_id,
+        display_name=account.display_name,
+        phone_number=account.phone_number,
+        is_active=account.is_active,
+        verified_at=account.verified_at,
+        created_at=account.created_at
+    )
+
+
+@whatsapp_manager_router.get("/accounts/{account_id}/config", response_model=Optional[AgentConfigResponse])
+async def get_account_config(
+    account_id: int,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Get agent configuration for a WhatsApp account."""
+    # First verify account ownership
+    result = await db.execute(
+        select(WhatsAppAccount)
+        .join(Customer)
+        .where(
+            WhatsAppAccount.id == account_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    account = result.scalar_one_or_none()
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="WhatsApp account not found"
+        )
+    
+    # Get agent config for this customer
+    result = await db.execute(
+        select(AgentConfig).where(AgentConfig.customer_id == account.customer_id)
+    )
+    config = result.scalar_one_or_none()
+    
+    if not config:
+        # Return empty/default config instead of 404
+        return None
+    
+    return AgentConfigResponse(
+        id=config.id,
+        customer_id=config.customer_id,
+        business_name=config.business_name,
+        tone=config.tone,
+        behavior_rules=config.behavior_rules,
+        custom_instructions=config.custom_instructions,
+        system_prompt=config.system_prompt,
+        ai_enabled=config.ai_enabled,
+        ai_pause_until=config.ai_pause_until,
+        ai_pause_duration_minutes=config.ai_pause_duration_minutes,
+        created_at=config.created_at,
+        updated_at=config.updated_at
+    )
+
+
+@whatsapp_manager_router.put("/accounts/{account_id}/config", response_model=AgentConfigResponse)
+async def update_account_config(
+    account_id: int,
+    request: AgentConfigRequest,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update or create agent configuration for a WhatsApp account."""
+    # Verify account ownership
+    result = await db.execute(
+        select(WhatsAppAccount)
+        .join(Customer)
+        .where(
+            WhatsAppAccount.id == account_id,
+            Customer.user_id == current_user.id
+        )
+    )
+    account = result.scalar_one_or_none()
+    
+    if not account:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="WhatsApp account not found"
+        )
+    
+    # Compile system prompt
+    system_prompt = AgentConfig.compile_system_prompt(
+        business_name=request.business_name,
+        tone=request.tone,
+        behavior_rules=request.behavior_rules,
+        custom_instructions=request.custom_instructions
+    )
+    
+    # Check for existing config
+    result = await db.execute(
+        select(AgentConfig).where(AgentConfig.customer_id == account.customer_id)
+    )
+    existing_config = result.scalar_one_or_none()
+    
+    if existing_config:
+        existing_config.business_name = request.business_name
+        existing_config.tone = request.tone
+        existing_config.behavior_rules = request.behavior_rules
+        existing_config.custom_instructions = request.custom_instructions
+        existing_config.system_prompt = system_prompt
+        existing_config.ai_pause_duration_minutes = request.ai_pause_duration_minutes
+        agent_config = existing_config
+    else:
+        agent_config = AgentConfig(
+            customer_id=account.customer_id,
+            business_name=request.business_name,
+            tone=request.tone,
+            behavior_rules=request.behavior_rules,
+            custom_instructions=request.custom_instructions,
+            system_prompt=system_prompt,
+            ai_pause_duration_minutes=request.ai_pause_duration_minutes,
+            ai_enabled=True
+        )
+        db.add(agent_config)
+    
+    await db.commit()
+    await db.refresh(agent_config)
+    
+    return AgentConfigResponse(
+        id=agent_config.id,
+        customer_id=agent_config.customer_id,
+        business_name=agent_config.business_name,
+        tone=agent_config.tone,
+        behavior_rules=agent_config.behavior_rules,
+        custom_instructions=agent_config.custom_instructions,
+        system_prompt=agent_config.system_prompt,
+        ai_enabled=agent_config.ai_enabled,
+        ai_pause_until=agent_config.ai_pause_until,
+        ai_pause_duration_minutes=agent_config.ai_pause_duration_minutes,
+        created_at=agent_config.created_at,
+        updated_at=agent_config.updated_at
+    )
 
 
 # ============================================

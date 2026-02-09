@@ -48,6 +48,11 @@ const translations = {
     disconnect: 'Disconnect',
     configure: 'Configure AI',
     refresh: 'Refresh Status',
+    sync: 'Sync',
+    syncing: 'Syncing...',
+    syncSuccess: 'Account synced successfully!',
+    syncError: 'Failed to sync account.',
+    needsSetup: 'Complete setup in Meta Business Suite',
     verifyFirst: 'Verify Identity',
     verifyDescription: 'For security, we need to verify your identity via email before connecting WhatsApp.',
     prerequisites: 'Before you connect',
@@ -89,6 +94,11 @@ const translations = {
     disconnect: 'قطع الاتصال',
     configure: 'تهيئة الذكاء الاصطناعي',
     refresh: 'تحديث الحالة',
+    sync: 'مزامنة',
+    syncing: 'جاري المزامنة...',
+    syncSuccess: 'تمت مزامنة الحساب بنجاح!',
+    syncError: 'فشل في مزامنة الحساب.',
+    needsSetup: 'أكمل الإعداد في Meta Business Suite',
     verifyFirst: 'تحقق من الهوية',
     verifyDescription: 'لأمانك، نحتاج للتحقق من هويتك عبر البريد الإلكتروني قبل ربط واتساب.',
     prerequisites: 'قبل الربط',
@@ -118,15 +128,13 @@ const translations = {
 
 interface WhatsAppAccount {
   id: number;
-  phone_number: string;
-  display_phone_number: string;
-  verified_name: string;
-  quality_rating: string;
-  status: 'active' | 'inactive' | 'pending';
-  waba_id: string;
+  phone_number: string | null;
+  phone_number_id: string;
+  display_name: string | null;
+  waba_id: string | null;
+  is_active: boolean;
+  verified_at: string | null;
   created_at: string;
-  last_synced_at: string;
-  messages_today: number;
 }
 
 export default function WhatsAppConnect() {
@@ -145,6 +153,7 @@ export default function WhatsAppConnect() {
   const [showVerifyAlert, setShowVerifyAlert] = useState(false);
   const [isResendingVerification, setIsResendingVerification] = useState(false);
   const [isCheckingVerification, setIsCheckingVerification] = useState(false);
+  const [syncingAccountId, setSyncingAccountId] = useState<number | null>(null);
 
   // Load accounts on mount
   useEffect(() => {
@@ -165,10 +174,11 @@ export default function WhatsAppConnect() {
   const fetchAccounts = async () => {
     setIsLoading(true);
     try {
-      const response = await api.get<{ accounts: WhatsAppAccount[] }>(
+      // Backend returns array directly, not { accounts: [...] }
+      const response = await api.get<WhatsAppAccount[]>(
         '/api/v1/whatsapp/accounts'
       );
-      setAccounts(response.accounts || []);
+      setAccounts(response || []);
     } catch (error) {
       console.error('Failed to fetch WhatsApp accounts:', error);
     } finally {
@@ -266,6 +276,25 @@ export default function WhatsAppConnect() {
         async (code, waba_id, phone_number_id) => {
           // Complete signup on backend
           try {
+            // Debug: log what we're sending to the API
+            console.log('[WhatsAppConnect] Complete signup payload:', {
+              code: code,
+              codeType: typeof code,
+              codeLength: code?.length,
+              session_id: config.session_id,
+              sessionIdType: typeof config.session_id,
+            });
+
+            // Validate values before sending
+            if (!code || typeof code !== 'string') {
+              console.error('[WhatsAppConnect] Invalid code:', code);
+              throw { detail: 'Invalid code received from Meta. Please try again.', status: 400 };
+            }
+            if (!config.session_id || typeof config.session_id !== 'string') {
+              console.error('[WhatsAppConnect] Invalid session_id:', config.session_id);
+              throw { detail: 'Session expired. Please try again.', status: 400 };
+            }
+
             await api.post('/api/v1/whatsapp/signup/complete', {
               code,
               session_id: config.session_id,
@@ -278,11 +307,15 @@ export default function WhatsAppConnect() {
             
             // Refresh accounts list
             fetchAccounts();
-          } catch (error) {
+          } catch (error: any) {
             console.error('Failed to complete signup:', error);
+            // Log full validation error details for 422 responses
+            if (error?.detail) {
+              console.error('[WhatsAppConnect] API Error detail:', JSON.stringify(error.detail, null, 2));
+            }
             toast({
               title: 'Error',
-              description: t.connectError,
+              description: typeof error?.detail === 'string' ? error.detail : t.connectError,
               variant: 'destructive',
             });
           } finally {
@@ -313,6 +346,27 @@ export default function WhatsAppConnect() {
     }
   };
 
+  const handleSync = async (accountId: number) => {
+    setSyncingAccountId(accountId);
+    try {
+      await api.post(`/api/v1/whatsapp/accounts/${accountId}/sync`);
+      toast({
+        title: 'Success',
+        description: t.syncSuccess,
+      });
+      fetchAccounts();
+    } catch (error) {
+      console.error('Failed to sync account:', error);
+      toast({
+        title: 'Error',
+        description: t.syncError,
+        variant: 'destructive',
+      });
+    } finally {
+      setSyncingAccountId(null);
+    }
+  };
+
   const handleDisconnect = async (accountId: number) => {
     if (!confirm(t.disconnectConfirm)) return;
 
@@ -333,16 +387,13 @@ export default function WhatsAppConnect() {
     }
   };
 
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case 'active':
-        return <Badge className="bg-green-500">{t.active}</Badge>;
-      case 'inactive':
-        return <Badge variant="secondary">{t.inactive}</Badge>;
-      case 'pending':
-        return <Badge variant="outline">{t.pending}</Badge>;
-      default:
-        return <Badge variant="secondary">{status}</Badge>;
+  const getStatusBadge = (isActive: boolean | undefined) => {
+    if (isActive === true) {
+      return <Badge className="bg-green-500">{t.active}</Badge>;
+    } else if (isActive === false) {
+      return <Badge variant="secondary">{t.inactive}</Badge>;
+    } else {
+      return <Badge variant="outline">{t.pending}</Badge>;
     }
   };
 
@@ -497,19 +548,36 @@ export default function WhatsAppConnect() {
                     </div>
                     <div>
                       <div className="font-medium">
-                        {account.verified_name || account.display_phone_number}
+                        {account.display_name || account.phone_number || account.phone_number_id}
                       </div>
                       <div className="text-sm text-muted-foreground flex items-center gap-2">
-                        <span>{account.display_phone_number}</span>
+                        <span>{account.phone_number || account.phone_number_id}</span>
                         <span>•</span>
-                        {getStatusBadge(account.status)}
+                        {getStatusBadge(account.is_active)}
                       </div>
-                      <div className="text-xs text-muted-foreground mt-1">
-                        {t.messages}: {account.messages_today} {t.today}
-                      </div>
+                      {account.waba_id && (
+                        <div className="text-xs text-muted-foreground mt-1">
+                          WABA: {account.waba_id}
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
+                    {/* Show sync button if phone_number_id is pending */}
+                    {(account.phone_number_id?.startsWith('pending_') || account.phone_number_id?.startsWith('temp_') || !account.waba_id) && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleSync(account.id)}
+                        disabled={syncingAccountId === account.id}
+                      >
+                        {syncingAccountId === account.id ? (
+                          <><Loader2 className="h-4 w-4 mr-1 animate-spin" />{t.syncing}</>
+                        ) : (
+                          <><RefreshCw className="h-4 w-4 mr-1" />{t.sync}</>
+                        )}
+                      </Button>
+                    )}
                     <Button variant="outline" size="sm" asChild>
                       <a href={`/app/whatsapp/settings?account=${account.id}`}>
                         <Settings className="h-4 w-4 mr-1" />
