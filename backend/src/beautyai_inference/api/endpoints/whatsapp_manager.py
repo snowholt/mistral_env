@@ -214,8 +214,39 @@ class AgentConfigResponse(BaseModel):
     ai_enabled: bool
     ai_pause_until: Optional[datetime]
     ai_pause_duration_minutes: int
+    # Response settings
+    supported_language: str = "both"  # english, arabic, both
+    max_response_length: int = 500
+    response_delay_seconds: int = 2
+    # Notification settings
+    email_notifications: bool = True
+    notify_on_new_conversation: bool = True
+    notify_on_inactivity: bool = False
+    inactivity_threshold_minutes: int = 30
+    # Business hours settings
+    business_hours_enabled: bool = False
+    outside_hours_message: Optional[str] = None
+    # Timestamps
     created_at: datetime
     updated_at: datetime
+
+
+class AccountConfigUpdateRequest(BaseModel):
+    """Request model for updating account config from settings page."""
+    # AI Settings
+    ai_enabled: bool = True
+    system_prompt: Optional[str] = None
+    response_language: str = Field(default="auto", pattern="^(ar|en|auto|english|arabic|both)$")
+    max_response_length: int = Field(default=500, ge=100, le=2000)
+    response_delay_seconds: int = Field(default=2, ge=0, le=10)
+    # Notification settings
+    email_notifications: bool = True
+    notify_on_new_conversation: bool = True
+    notify_on_inactivity: bool = False
+    inactivity_threshold_minutes: int = Field(default=30, ge=5, le=180)
+    # Business hours settings
+    business_hours_enabled: bool = False
+    outside_hours_message: Optional[str] = Field(None, max_length=1000)
 
 
 class ConversationResponse(BaseModel):
@@ -839,6 +870,15 @@ async def get_account_config(
         ai_enabled=config.ai_enabled,
         ai_pause_until=config.ai_pause_until,
         ai_pause_duration_minutes=config.ai_pause_duration_minutes,
+        supported_language=config.supported_language,
+        max_response_length=config.max_response_length,
+        response_delay_seconds=config.response_delay_seconds,
+        email_notifications=config.email_notifications,
+        notify_on_new_conversation=config.notify_on_new_conversation,
+        notify_on_inactivity=config.notify_on_inactivity,
+        inactivity_threshold_minutes=config.inactivity_threshold_minutes,
+        business_hours_enabled=config.business_hours_enabled,
+        outside_hours_message=config.outside_hours_message,
         created_at=config.created_at,
         updated_at=config.updated_at
     )
@@ -847,7 +887,7 @@ async def get_account_config(
 @whatsapp_manager_router.put("/accounts/{account_id}/config", response_model=AgentConfigResponse)
 async def update_account_config(
     account_id: int,
-    request: AgentConfigRequest,
+    request: AccountConfigUpdateRequest,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
@@ -869,13 +909,16 @@ async def update_account_config(
             detail="WhatsApp account not found"
         )
     
-    # Compile system prompt
-    system_prompt = AgentConfig.compile_system_prompt(
-        business_name=request.business_name,
-        tone=request.tone,
-        behavior_rules=request.behavior_rules,
-        custom_instructions=request.custom_instructions
-    )
+    # Map frontend language values to backend supported_language
+    language_map = {
+        "ar": "arabic",
+        "en": "english", 
+        "auto": "both",
+        "arabic": "arabic",
+        "english": "english",
+        "both": "both"
+    }
+    supported_language = language_map.get(request.response_language, "both")
     
     # Check for existing config
     result = await db.execute(
@@ -884,23 +927,50 @@ async def update_account_config(
     existing_config = result.scalar_one_or_none()
     
     if existing_config:
-        existing_config.business_name = request.business_name
-        existing_config.tone = request.tone
-        existing_config.behavior_rules = request.behavior_rules
-        existing_config.custom_instructions = request.custom_instructions
-        existing_config.system_prompt = system_prompt
-        existing_config.ai_pause_duration_minutes = request.ai_pause_duration_minutes
+        # Update existing config with new values
+        existing_config.ai_enabled = request.ai_enabled
+        if request.system_prompt:
+            existing_config.system_prompt = request.system_prompt
+            existing_config.custom_instructions = request.system_prompt
+        existing_config.supported_language = supported_language
+        existing_config.max_response_length = request.max_response_length
+        existing_config.response_delay_seconds = request.response_delay_seconds
+        existing_config.email_notifications = request.email_notifications
+        existing_config.notify_on_new_conversation = request.notify_on_new_conversation
+        existing_config.notify_on_inactivity = request.notify_on_inactivity
+        existing_config.inactivity_threshold_minutes = request.inactivity_threshold_minutes
+        existing_config.business_hours_enabled = request.business_hours_enabled
+        existing_config.outside_hours_message = request.outside_hours_message
         agent_config = existing_config
     else:
+        # Get customer info to create new config
+        customer_result = await db.execute(
+            select(Customer).where(Customer.id == account.customer_id)
+        )
+        customer = customer_result.scalar_one()
+        
+        # Create new config with defaults
+        system_prompt = request.system_prompt or AgentConfig.compile_system_prompt(
+            business_name=customer.name,
+            tone="professional",
+            supported_language=supported_language
+        )
         agent_config = AgentConfig(
             customer_id=account.customer_id,
-            business_name=request.business_name,
-            tone=request.tone,
-            behavior_rules=request.behavior_rules,
-            custom_instructions=request.custom_instructions,
+            business_name=customer.name,
+            tone="professional",
             system_prompt=system_prompt,
-            ai_pause_duration_minutes=request.ai_pause_duration_minutes,
-            ai_enabled=True
+            custom_instructions=request.system_prompt,
+            ai_enabled=request.ai_enabled,
+            supported_language=supported_language,
+            max_response_length=request.max_response_length,
+            response_delay_seconds=request.response_delay_seconds,
+            email_notifications=request.email_notifications,
+            notify_on_new_conversation=request.notify_on_new_conversation,
+            notify_on_inactivity=request.notify_on_inactivity,
+            inactivity_threshold_minutes=request.inactivity_threshold_minutes,
+            business_hours_enabled=request.business_hours_enabled,
+            outside_hours_message=request.outside_hours_message
         )
         db.add(agent_config)
     
@@ -918,6 +988,15 @@ async def update_account_config(
         ai_enabled=agent_config.ai_enabled,
         ai_pause_until=agent_config.ai_pause_until,
         ai_pause_duration_minutes=agent_config.ai_pause_duration_minutes,
+        supported_language=agent_config.supported_language,
+        max_response_length=agent_config.max_response_length,
+        response_delay_seconds=agent_config.response_delay_seconds,
+        email_notifications=agent_config.email_notifications,
+        notify_on_new_conversation=agent_config.notify_on_new_conversation,
+        notify_on_inactivity=agent_config.notify_on_inactivity,
+        inactivity_threshold_minutes=agent_config.inactivity_threshold_minutes,
+        business_hours_enabled=agent_config.business_hours_enabled,
+        outside_hours_message=agent_config.outside_hours_message,
         created_at=agent_config.created_at,
         updated_at=agent_config.updated_at
     )

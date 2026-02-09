@@ -512,6 +512,20 @@ class AgentConfig(Base):
     wizard_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     wizard_current_step: Mapped[int] = mapped_column(Integer, default=1)
     
+    # WhatsApp settings page fields (AI response behavior)
+    max_response_length: Mapped[int] = mapped_column(Integer, default=500)
+    response_delay_seconds: Mapped[int] = mapped_column(Integer, default=2)
+    
+    # Notification settings
+    email_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_new_conversation: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_inactivity: Mapped[bool] = mapped_column(Boolean, default=False)
+    inactivity_threshold_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    
+    # Business hours settings
+    business_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    outside_hours_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
     

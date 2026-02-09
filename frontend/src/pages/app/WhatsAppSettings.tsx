@@ -51,12 +51,10 @@ const translations = {
     accountInfo: 'Account Information',
     phoneNumber: 'Phone Number',
     verifiedName: 'Verified Name',
-    qualityRating: 'Quality Rating',
+    verifiedAt: 'Verified At',
     status: 'Status',
     active: 'Active',
     inactive: 'Inactive',
-    messagesThisMonth: 'Messages this month',
-    conversationsActive: 'Active conversations',
     // AI Settings
     aiEnabled: 'AI Auto-Response',
     aiEnabledDescription: 'Allow AI to automatically respond to customer messages',
@@ -101,12 +99,10 @@ const translations = {
     accountInfo: 'معلومات الحساب',
     phoneNumber: 'رقم الهاتف',
     verifiedName: 'الاسم المُوثّق',
-    qualityRating: 'تقييم الجودة',
+    verifiedAt: 'تاريخ التوثيق',
     status: 'الحالة',
     active: 'نشط',
     inactive: 'غير نشط',
-    messagesThisMonth: 'الرسائل هذا الشهر',
-    conversationsActive: 'المحادثات النشطة',
     // AI Settings
     aiEnabled: 'الرد التلقائي بالذكاء الاصطناعي',
     aiEnabledDescription: 'السماح للذكاء الاصطناعي بالرد تلقائيًا على رسائل العملاء',
@@ -145,14 +141,40 @@ const translations = {
 interface WhatsAppAccount {
   id: number;
   phone_number: string;
-  display_phone_number: string;
-  verified_name: string;
-  quality_rating: string;
-  status: 'active' | 'inactive';
-  messages_this_month: number;
-  active_conversations: number;
+  phone_number_id: string;
+  display_name: string;
+  waba_id: string;
+  is_active: boolean;
+  verified_at: string;
+  created_at: string;
 }
 
+// Backend response model
+interface BackendAgentConfig {
+  id: number;
+  customer_id: number;
+  business_name: string;
+  tone: string;
+  behavior_rules: string | null;
+  custom_instructions: string | null;
+  system_prompt: string;
+  ai_enabled: boolean;
+  ai_pause_until: string | null;
+  ai_pause_duration_minutes: number;
+  supported_language: 'english' | 'arabic' | 'both';
+  max_response_length: number;
+  response_delay_seconds: number;
+  email_notifications: boolean;
+  notify_on_new_conversation: boolean;
+  notify_on_inactivity: boolean;
+  inactivity_threshold_minutes: number;
+  business_hours_enabled: boolean;
+  outside_hours_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Frontend state model
 interface AgentConfig {
   ai_enabled: boolean;
   system_prompt: string;
@@ -166,6 +188,25 @@ interface AgentConfig {
   business_hours_enabled: boolean;
   outside_hours_message: string;
 }
+
+// Helper functions to map between frontend and backend formats
+const mapBackendToFrontendLanguage = (lang: string): 'ar' | 'en' | 'auto' => {
+  switch (lang) {
+    case 'arabic': return 'ar';
+    case 'english': return 'en';
+    case 'both': return 'auto';
+    default: return 'auto';
+  }
+};
+
+const mapFrontendToBackendLanguage = (lang: string): string => {
+  switch (lang) {
+    case 'ar': return 'arabic';
+    case 'en': return 'english';
+    case 'auto': return 'both';
+    default: return 'both';
+  }
+};
 
 export default function WhatsAppSettings() {
   const [searchParams] = useSearchParams();
@@ -206,12 +247,24 @@ export default function WhatsAppSettings() {
     try {
       const [accountRes, configRes] = await Promise.all([
         api.get<WhatsAppAccount>(`/api/v1/whatsapp/accounts/${accountId}`),
-        api.get<AgentConfig | null>(`/api/v1/whatsapp/accounts/${accountId}/config`),
+        api.get<BackendAgentConfig | null>(`/api/v1/whatsapp/accounts/${accountId}/config`),
       ]);
       setAccount(accountRes);
-      // Only update config if backend returned one, otherwise keep defaults
+      // Map backend response to frontend state
       if (configRes) {
-        setConfig(prev => ({ ...prev, ...configRes }));
+        setConfig({
+          ai_enabled: configRes.ai_enabled,
+          system_prompt: configRes.system_prompt || '',
+          response_language: mapBackendToFrontendLanguage(configRes.supported_language),
+          max_response_length: configRes.max_response_length,
+          response_delay_seconds: configRes.response_delay_seconds,
+          email_notifications: configRes.email_notifications,
+          notify_on_new_conversation: configRes.notify_on_new_conversation,
+          notify_on_inactivity: configRes.notify_on_inactivity,
+          inactivity_threshold_minutes: configRes.inactivity_threshold_minutes,
+          business_hours_enabled: configRes.business_hours_enabled,
+          outside_hours_message: configRes.outside_hours_message || t.outsideHoursMessageDefault,
+        });
       }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
@@ -235,7 +288,20 @@ export default function WhatsAppSettings() {
 
     setIsSaving(true);
     try {
-      await api.put(`/api/v1/whatsapp/accounts/${accountId}/config`, config);
+      // Map frontend state to backend request format
+      await api.put(`/api/v1/whatsapp/accounts/${accountId}/config`, {
+        ai_enabled: config.ai_enabled,
+        system_prompt: config.system_prompt || null,
+        response_language: config.response_language,
+        max_response_length: config.max_response_length,
+        response_delay_seconds: config.response_delay_seconds,
+        email_notifications: config.email_notifications,
+        notify_on_new_conversation: config.notify_on_new_conversation,
+        notify_on_inactivity: config.notify_on_inactivity,
+        inactivity_threshold_minutes: config.inactivity_threshold_minutes,
+        business_hours_enabled: config.business_hours_enabled,
+        outside_hours_message: config.outside_hours_message || null,
+      });
       toast({
         title: 'Success',
         description: t.saved,
@@ -335,34 +401,23 @@ export default function WhatsAppSettings() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">{t.phoneNumber}</Label>
-                  <p className="font-medium">{account?.display_phone_number}</p>
+                  <p className="font-medium">{account?.phone_number || '-'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.verifiedName}</Label>
-                  <p className="font-medium">{account?.verified_name || '-'}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">{t.qualityRating}</Label>
-                  <Badge variant={account?.quality_rating === 'GREEN' ? 'default' : 'secondary'}>
-                    {account?.quality_rating || 'N/A'}
-                  </Badge>
+                  <p className="font-medium">{account?.display_name || '-'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.status}</Label>
-                  <Badge variant={account?.status === 'active' ? 'default' : 'secondary'}>
-                    {account?.status === 'active' ? t.active : t.inactive}
+                  <Badge variant={account?.is_active ? 'default' : 'secondary'}>
+                    {account?.is_active ? t.active : t.inactive}
                   </Badge>
                 </div>
-              </div>
-              <Separator />
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-2xl font-bold">{account?.messages_this_month || 0}</p>
-                  <p className="text-sm text-muted-foreground">{t.messagesThisMonth}</p>
-                </div>
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-2xl font-bold">{account?.active_conversations || 0}</p>
-                  <p className="text-sm text-muted-foreground">{t.conversationsActive}</p>
+                <div>
+                  <Label className="text-muted-foreground">{t.verifiedAt}</Label>
+                  <p className="font-medium">
+                    {account?.verified_at ? new Date(account.verified_at).toLocaleDateString() : '-'}
+                  </p>
                 </div>
               </div>
             </CardContent>
