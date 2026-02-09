@@ -30,17 +30,22 @@ git clone <YOUR_GIT_URL>
 cd <YOUR_PROJECT_NAME>
 
 # Step 3: Install the necessary dependencies.
-npm i
+bun install
 
 # Step 4: Start the development server with auto-reloading and an instant preview.
-npm run dev
+bun run dev
 
-# Step 5: start buidling the files for the server
-npm run build
+# Step 5: Build the files for the server.
+bun run build
 
-# Step 6: upload the files to the frontend server
+# Step 6: Deploy the build for portal.gmai.sa (React SPA)
 # NOTE: the frontend server may be different from the API server (api.gmai.sa)
-scp -r dist/* root@<FRONTEND_SERVER>:/var/www/gmai.sa/dist/
+# The Nginx config for the portal uses this root:
+#   root /home/lumi/beautyai/frontend/dist;
+rsync -av --delete dist/ root@<FRONTEND_SERVER>:/home/lumi/beautyai/frontend/dist/
+
+# Step 7: Reload Nginx after deploying
+sudo nginx -t && sudo systemctl reload nginx
 ```
 
 **Edit a file directly in GitHub**
@@ -69,7 +74,13 @@ This project is built with:
 
 ## How can I deploy this project?
 
-Simply open [Lovable](https://lovable.dev/projects/063c261f-aea5-4a26-9cff-9d6157e292f2) and click on Share -> Publish.
+For production, the portal is served as a static React build behind Nginx.
+
+- Nginx site file: [config/deploy/nginx/portal.gmai.sa.nginx.conf](config/deploy/nginx/portal.gmai.sa.nginx.conf)
+- Server root: /home/lumi/beautyai/frontend/dist
+- Reload: `sudo nginx -t && sudo systemctl reload nginx`
+
+The legacy Flask UI is deprecated. Do not run `beautyai-webui.service` in production.
 
 ## Can I connect a custom domain to my Lovable project?
 
