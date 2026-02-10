@@ -1,0 +1,9 @@
+ id | conversation_id |  source  |             content              |         created_at         
+----+-----------------+----------+----------------------------------+----------------------------
+  5 |               2 | customer | Hi , this is a test, number 2    | 2026-02-10 18:16:25.261354
+  4 |               2 | customer | Hi, this is a test               | 2026-02-10 18:08:14.22016
+  3 |               3 | customer | Hello from manual webhook test   | 2026-02-10 16:19:42.366769
+  2 |               2 | customer | Test                             | 2026-02-10 02:06:21.768448
+  1 |               1 | customer | Hello AI, this is a test message | 2026-02-02 14:17:54.988865
+(5 rows)
+
