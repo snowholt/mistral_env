@@ -15,6 +15,19 @@ const REFRESH_TOKEN_KEY = 'beautyai_refresh_token';
 const USER_KEY = 'beautyai_user';
 const GUEST_TOKEN_KEY = 'beautyai_guest_token';
 
+export const AUTH_EVENTS = {
+  SESSION_EXPIRED: 'auth:session-expired',
+};
+
+const dispatchSessionExpired = (reason: string): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED, {
+      detail: { reason },
+    })
+  );
+};
+
 // Types
 export interface User {
   id: number;
@@ -225,6 +238,7 @@ class ApiClient {
       }
       // Refresh failed, clear tokens and throw error
       tokenManager.clearTokens();
+      dispatchSessionExpired('refresh_failed');
       // Optional: Dispatch a custom event or let the UI handle the redirect based on cleared tokens
       throw { detail: 'Session expired. Please log in again.', status: 401 };
     }
