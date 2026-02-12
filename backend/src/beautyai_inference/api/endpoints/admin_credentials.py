@@ -40,9 +40,18 @@ from ..schemas.credential_schemas import (
 
 logger = logging.getLogger(__name__)
 
+def disallow_admin_credentials() -> None:
+    """Disable admin credential management endpoints."""
+    raise HTTPException(
+        status_code=status.HTTP_403_FORBIDDEN,
+        detail="Admin credential management is disabled"
+    )
+
+
 admin_credentials_router = APIRouter(
     prefix="/api/v1/admin/credentials",
-    tags=["admin-credentials"]
+    tags=["admin-credentials"],
+    dependencies=[Depends(disallow_admin_credentials)],
 )
 
 
