@@ -9,7 +9,7 @@ import os
 import logging
 import uuid
 from typing import Optional, List
-from datetime import datetime
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, HTTPException, Depends, status, Query
 from pydantic import BaseModel, Field
@@ -2051,6 +2051,76 @@ from ..schemas.credential_schemas import (
 )
 
 
+def _map_token_type(raw_type: Optional[str]) -> Optional[str]:
+    if not raw_type:
+        return None
+    normalized = raw_type.strip().lower()
+    if "system" in normalized:
+        return "System User"
+    if "page" in normalized:
+        return "Page"
+    if "user" in normalized:
+        return "User"
+    return raw_type
+
+
+async def _debug_meta_token(token: str) -> Optional[TokenValidationResult]:
+    if not META_APP_ID or not META_APP_SECRET:
+        return None
+
+    app_access_token = f"{META_APP_ID}|{META_APP_SECRET}"
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.get(
+                f"{META_API_BASE}/debug_token",
+                params={"input_token": token, "access_token": app_access_token},
+            )
+
+        if response.status_code != 200:
+            logger.warning("Meta debug_token failed: %s", response.text)
+            return None
+
+        data = response.json().get("data", {})
+        is_valid = bool(data.get("is_valid"))
+        scopes = data.get("scopes") or []
+
+        if not is_valid:
+            error_msg = (
+                (data.get("error") or {}).get("message")
+                or data.get("error")
+                or "Token is invalid"
+            )
+            return TokenValidationResult(
+                is_valid=False,
+                token_type=_map_token_type(data.get("type")),
+                app_id=str(data.get("app_id")) if data.get("app_id") else None,
+                user_id=str(data.get("user_id")) if data.get("user_id") else None,
+                scopes=scopes,
+                expires_at=None,
+                is_expired=False,
+                error=error_msg,
+            )
+
+        expires_at = None
+        expires_at_raw = data.get("expires_at")
+        if isinstance(expires_at_raw, (int, float)) and expires_at_raw > 0:
+            expires_at = datetime.fromtimestamp(expires_at_raw, tz=timezone.utc).replace(tzinfo=None)
+
+        return TokenValidationResult(
+            is_valid=True,
+            token_type=_map_token_type(data.get("type")),
+            app_id=str(data.get("app_id")) if data.get("app_id") else None,
+            user_id=str(data.get("user_id")) if data.get("user_id") else None,
+            scopes=scopes,
+            expires_at=expires_at,
+            is_expired=bool(data.get("is_expired")) if "is_expired" in data else False,
+            error=None,
+        )
+    except Exception as e:
+        logger.warning("Meta debug_token error: %s", e)
+        return None
+
+
 async def _validate_meta_token(token: str) -> TokenValidationResult:
     """
     Validate a Meta API token by calling the Graph API.
@@ -2058,6 +2128,10 @@ async def _validate_meta_token(token: str) -> TokenValidationResult:
     Returns token type, scopes, expiration, and validity status.
     """
     try:
+        debug_result = await _debug_meta_token(token)
+        if debug_result is not None:
+            return debug_result
+
         async with httpx.AsyncClient(timeout=15.0) as client:
             # Use the token to get info about itself
             response = await client.get(
@@ -2067,6 +2141,10 @@ async def _validate_meta_token(token: str) -> TokenValidationResult:
             
             if response.status_code != 200:
                 error_data = response.json().get("error", {})
+                logger.warning(
+                    "Token /me validation failed: %s",
+                    error_data.get("message") or response.text,
+                )
                 return TokenValidationResult(
                     is_valid=False,
                     error=error_data.get("message", "Token validation failed")
@@ -2085,6 +2163,11 @@ async def _validate_meta_token(token: str) -> TokenValidationResult:
             )
             if wa_response.status_code == 200:
                 scopes.append("whatsapp_business_management")
+            else:
+                logger.info(
+                    "Token scope check for whatsapp_business_management failed: %s",
+                    wa_response.text,
+                )
             
             # Infer token type - System user tokens have long numeric IDs
             token_type = "User"
@@ -2259,6 +2342,12 @@ async def submit_customer_token(
     validation = await _validate_meta_token(request.token)
     
     if not validation.is_valid:
+        logger.warning(
+            "Customer token validation failed for account %s user %s: %s",
+            account_id,
+            current_user.id,
+            validation.error,
+        )
         return CustomerTokenSubmitResponse(
             success=False,
             message=f"Token validation failed: {validation.error}",
@@ -2269,6 +2358,12 @@ async def submit_customer_token(
     
     # Check if token has required scopes
     if "whatsapp_business_management" not in validation.scopes:
+        logger.warning(
+            "Customer token missing whatsapp_business_management scope for account %s user %s: %s",
+            account_id,
+            current_user.id,
+            ",".join(validation.scopes or []),
+        )
         return CustomerTokenSubmitResponse(
             success=False,
             message="Token is missing required WhatsApp Business Management permission",
@@ -2323,9 +2418,13 @@ async def submit_customer_token(
     
     # Audit log
     audit_service = get_audit_service()
+    audit_action = AuditAction.CREDENTIAL_CREATED
+    if account.credential:
+        audit_action = AuditAction.CREDENTIAL_ROTATED
+
     await audit_service.log(
         db=db,
-        action=AuditAction.CREDENTIAL_CREATED if not account.credential else AuditAction.CREDENTIAL_UPDATED,
+        action=audit_action,
         resource_type="meta_credential",
         resource_id=str(credential.id),
         customer_id=account.customer_id,

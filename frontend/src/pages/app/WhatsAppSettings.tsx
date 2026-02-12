@@ -244,6 +244,18 @@ interface TokenStatus {
   credential_type: string | null;
 }
 
+interface TokenValidationResult {
+  is_valid: boolean;
+  error?: string | null;
+}
+
+interface CustomerTokenSubmitResponse {
+  success: boolean;
+  message: string;
+  error_detail?: string | null;
+  validation?: TokenValidationResult | null;
+}
+
 // Backend response model
 interface BackendAgentConfig {
   id: number;
@@ -378,9 +390,17 @@ export default function WhatsAppSettings() {
     
     setIsSubmittingToken(true);
     try {
-      await api.post(`/api/v1/whatsapp/accounts/${accountId}/token`, {
+      const response = await api.post<CustomerTokenSubmitResponse>(`/api/v1/whatsapp/accounts/${accountId}/token`, {
         token: newToken.trim(),
       });
+      if (!response.success) {
+        toast({
+          title: 'Error',
+          description: response.error_detail || response.message || 'Failed to update token',
+          variant: 'destructive',
+        });
+        return;
+      }
       toast({
         title: 'Success',
         description: t.tokenUpdateSuccess,
@@ -405,8 +425,8 @@ export default function WhatsAppSettings() {
     
     setIsValidatingToken(true);
     try {
-      const result = await api.post<{ valid: boolean; error?: string }>(`/api/v1/whatsapp/accounts/${accountId}/token/validate`);
-      if (result.valid) {
+      const result = await api.post<TokenValidationResult>(`/api/v1/whatsapp/accounts/${accountId}/token/validate`);
+      if (result.is_valid) {
         toast({
           title: 'Success',
           description: t.tokenValidSuccess,
