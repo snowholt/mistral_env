@@ -295,6 +295,14 @@ try:
 except ImportError as e:
     logger.warning(f"Admin router not available: {e}")
 
+# Include Admin Credentials router (Meta token management)
+try:
+    from .endpoints.admin_credentials import admin_credentials_router
+    app.include_router(admin_credentials_router, tags=["admin-credentials"])
+    logger.info("✅ Admin Credentials endpoints registered at /api/v1/admin/credentials/*")
+except ImportError as e:
+    logger.warning(f"Admin Credentials router not available: {e}")
+
 # Include Demo Request router
 try:
     from .endpoints.demo_requests import demo_router, guest_auth_router

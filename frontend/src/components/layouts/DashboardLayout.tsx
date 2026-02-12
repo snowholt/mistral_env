@@ -22,6 +22,7 @@ import {
   BookOpen,
   ClipboardList,
   MessageSquare,
+  KeyRound,
 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
@@ -56,6 +57,7 @@ const translations = {
     settings: 'Settings',
     admin: 'Admin',
     customers: 'Customers',
+    credentials: 'Credentials',
     demoRequests: 'Demo Requests',
     metrics: 'Metrics',
     users: 'Users',
@@ -76,6 +78,7 @@ const translations = {
     settings: 'الإعدادات',
     admin: 'الإدارة',
     customers: 'العملاء',
+    credentials: 'بيانات الاعتماد',
     demoRequests: 'طلبات التجربة',
     metrics: 'المقاييس',
     users: 'المستخدمين',
@@ -116,6 +119,7 @@ export default function DashboardLayout() {
 
   const adminNavItems: NavItem[] = [
     { title: t.customers, href: '/app/admin/customers', icon: Users, adminOnly: true },
+    { title: t.credentials, href: '/app/admin/credentials', icon: KeyRound, adminOnly: true },
     { title: t.demoRequests, href: '/app/admin/demo-requests', icon: ClipboardList, adminOnly: true },
     { title: t.metrics, href: '/app/admin/metrics', icon: BarChart3, adminOnly: true },
     { title: t.users, href: '/app/admin/users', icon: Users, adminOnly: true },

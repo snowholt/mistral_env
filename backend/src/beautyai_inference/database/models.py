@@ -431,9 +431,10 @@ class WhatsAppAccount(Base):
     # Credentials - NEW: Reference to encrypted credential vault
     credential_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("meta_credentials.id", ondelete="SET NULL"), nullable=True, index=True)
     
-    # DEPRECATED: Direct access_token storage (will be removed after migration)
+    # DEPRECATED: Direct access_token storage (will be removed after full migration)
     # Use MetaCredentialService.get_token(credential_id) instead
-    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    # Now nullable to support encrypted-only storage
+    access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Display info
     display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
