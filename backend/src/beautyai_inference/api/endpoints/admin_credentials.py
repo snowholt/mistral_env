@@ -254,6 +254,9 @@ async def list_credentials(
     
     # Apply filters
     filters = []
+
+    # Restrict to credentials created by the current admin
+    filters.append(MetaCredential.created_by_user_id == admin.id)
     
     if customer_id:
         filters.append(MetaCredential.customer_id == customer_id)
@@ -280,7 +283,9 @@ async def list_credentials(
         query = query.where(and_(*filters))
     
     # Get total count
-    count_query = select(func.count(MetaCredential.id))
+    count_query = select(func.count(MetaCredential.id)).where(
+        MetaCredential.created_by_user_id == admin.id
+    )
     if customer_id:
         count_query = count_query.where(MetaCredential.customer_id == customer_id)
     if credential_type:
@@ -334,7 +339,10 @@ async def get_credential_detail(
             selectinload(MetaCredential.customer),
             selectinload(MetaCredential.whatsapp_accounts),
         )
-        .where(MetaCredential.id == credential_id)
+        .where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
     )
     credential = result.scalar_one_or_none()
     
@@ -455,7 +463,10 @@ async def update_credential(
             selectinload(MetaCredential.customer),
             selectinload(MetaCredential.whatsapp_accounts),
         )
-        .where(MetaCredential.id == credential_id)
+        .where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
     )
     credential = result.scalar_one_or_none()
     
@@ -489,7 +500,10 @@ async def revoke_credential(
     Sets is_active=False. The credential record is preserved for audit.
     """
     result = await db.execute(
-        select(MetaCredential).where(MetaCredential.id == credential_id)
+        select(MetaCredential).where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
     )
     credential = result.scalar_one_or_none()
     
@@ -547,7 +561,10 @@ async def delete_credential(
     Permanently removes the credential. Prefer revoke for audit trail preservation.
     """
     result = await db.execute(
-        select(MetaCredential).where(MetaCredential.id == credential_id)
+        select(MetaCredential).where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
     )
     credential = result.scalar_one_or_none()
     
@@ -601,6 +618,18 @@ async def validate_credential(
     Decrypts the token and checks if it's still valid with Meta.
     """
     credential_service = get_meta_credential_service()
+
+    ownership_result = await db.execute(
+        select(MetaCredential.id).where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
+    )
+    if not ownership_result.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Credential not found"
+        )
     
     # Get decrypted token
     token = await credential_service.get_token(db, credential_id, user_id=admin.id)
@@ -631,7 +660,10 @@ async def get_credential_audit_log(
     """
     # Verify credential exists
     cred_result = await db.execute(
-        select(MetaCredential).where(MetaCredential.id == credential_id)
+        select(MetaCredential).where(
+            MetaCredential.id == credential_id,
+            MetaCredential.created_by_user_id == admin.id,
+        )
     )
     if not cred_result.scalar_one_or_none():
         raise HTTPException(

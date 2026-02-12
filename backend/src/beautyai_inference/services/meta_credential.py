@@ -93,6 +93,7 @@ class MetaCredentialService:
             credential_type=credential_type,
             encrypted_value=encrypted_value,
             encryption_key_version=key_version,
+            created_by_user_id=user_id,
             scopes=scopes,
             expires_at=expires_at,
             is_active=True,

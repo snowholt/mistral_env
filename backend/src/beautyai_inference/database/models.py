@@ -370,6 +370,14 @@ class MetaCredential(Base):
     # Encrypted token value (binary blob)
     encrypted_value: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
     encryption_key_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    # Ownership
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     
     # Token metadata
     scopes: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String(100)), nullable=True)
@@ -393,6 +401,11 @@ class MetaCredential(Base):
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", back_populates="meta_credentials")
     whatsapp_accounts: Mapped[List["WhatsAppAccount"]] = relationship("WhatsAppAccount", back_populates="credential", lazy="selectin")
+    created_by_user: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+        lazy="selectin",
+    )
     
     def is_expired(self) -> bool:
         """Check if token has expired."""

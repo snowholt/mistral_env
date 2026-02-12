@@ -2158,6 +2158,18 @@ async def get_token_status(
             display_name=account.display_name,
         )
     
+    # Hide credentials not created by the current user
+    if credential.created_by_user_id != current_user.id:
+        return CustomerTokenStatus(
+            has_token=False,
+            status="not_connected",
+            status_label="No Token Connected",
+            status_color="gray",
+            whatsapp_account_id=account.id,
+            phone_number=account.phone_number,
+            display_name=account.display_name,
+        )
+
     # Calculate status
     is_expired = credential.is_expired()
     is_revoked = not credential.is_active
@@ -2376,6 +2388,12 @@ async def revoke_customer_token(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="No token is connected to this account"
         )
+
+    if account.credential and account.credential.created_by_user_id != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Token not found"
+        )
     
     # Revoke credential
     credential_service = get_meta_credential_service(audit_service=get_audit_service())
@@ -2444,6 +2462,12 @@ async def validate_customer_token(
         )
     
     if not account.credential_id:
+        return TokenValidationResult(
+            is_valid=False,
+            error="No token is connected to this account"
+        )
+
+    if account.credential and account.credential.created_by_user_id != current_user.id:
         return TokenValidationResult(
             is_valid=False,
             error="No token is connected to this account"
