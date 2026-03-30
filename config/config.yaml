@@ -1,6 +1,34 @@
 # BeautyAI Configuration
 # Environment: development
 
+# ========== Cluster Configuration (Distributed Architecture) ==========
+cluster:
+  # Mode: standalone (single server), master (coordinates slaves), slave (registers with master)
+  mode: "standalone"  # Options: standalone, master, slave
+  
+  # Redis URL for distributed coordination (required for master/slave modes)
+  redis_url: "redis://localhost:6379/0"
+  
+  # Server identification (auto-generated if not set)
+  server_id: null  # e.g., "gpu-server-1"
+  
+  # Public URL for client redirects (important for cross-network WebRTC)
+  # This is the URL clients will use to connect directly to this server
+  public_url: null  # e.g., "https://voice1.example.com"
+  
+  # Master URL (required for slave mode)
+  master_url: null  # e.g., "https://voice-master.example.com"
+  
+  # LLM Pool configuration
+  llm_pool_size: 1  # Number of LLM instances to load (set to 2 for dual-LLM on 24GB GPU)
+  
+  # Heartbeat settings
+  heartbeat_interval_s: 5.0
+  heartbeat_timeout_s: 15.0
+  
+  # Session TTL for distributed sessions
+  session_ttl_s: 3600  # 1 hour
+
 duplex:
   # TTS Configuration
   tts_model: "edge-tts"

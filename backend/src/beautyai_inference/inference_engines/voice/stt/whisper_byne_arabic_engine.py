@@ -178,10 +178,11 @@ class WhisperByneArabicEngine(BaseWhisperEngine):
             }
             
             # Build generate_kwargs for optimal Arabic transcription
+            # Note: max_new_tokens + decoder_input_ids (4 tokens) must not exceed max_target_positions (448)
             generate_kwargs = {
                 "language": language_for_generation,
                 "task": "transcribe",
-                "max_new_tokens": 448,  # Higher for Arabic (often longer tokenized)
+                "max_new_tokens": 440,  # Leave room for decoder special tokens (was 448, caused overflow)
                 "num_beams": 1,  # Greedy for speed, still good accuracy
                 "do_sample": False,
                 "temperature": 0.0,

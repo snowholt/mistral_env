@@ -503,6 +503,64 @@
             </p>
         </div>
         
+        <!-- TTS TEST SECTION -->
+        <div class="tts-test-section" style="margin-top: 24px; padding: 24px; background: #ffffff; border-radius: 12px; border: 1px solid #e0e0e0; box-shadow: 0 2px 8px rgba(0,0,0,0.08);">
+            <h3 style="margin-top: 0; color: #2c3e50; font-size: 19px; font-weight: 600; margin-bottom: 16px; padding-bottom: 12px; border-bottom: 2px solid #9b59b6;">
+                🔊 TTS Engine Test
+            </h3>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: flex-end; margin-bottom: 16px;">
+                <div style="flex: 1; min-width: 250px;">
+                    <label style="display: block; font-size: 12px; font-weight: 600; color: #7f8c8d; margin-bottom: 6px; text-transform: uppercase;">
+                        Text to Synthesize
+                    </label>
+                    <textarea id="ttsText" style="width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; min-height: 80px; resize: vertical; font-family: inherit;" placeholder="Enter text to convert to speech...">مرحباً! أنا نظام تحويل النص إلى كلام. كيف يمكنني مساعدتك اليوم؟</textarea>
+                </div>
+            </div>
+            
+            <div style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 16px;">
+                <div>
+                    <label style="display: block; font-size: 12px; font-weight: 600; color: #7f8c8d; margin-bottom: 6px;">
+                        TTS Engine
+                    </label>
+                    <select id="ttsEngineSelect" style="padding: 10px 16px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; cursor: pointer; min-width: 200px;">
+                        <option value="edge-tts">🌐 Edge TTS (Cloud)</option>
+                        <option value="saudi-tts">🇸🇦 Saudi XTTS (GPU)</option>
+                        <option value="chatterbox-multilingual">🎭 Chatterbox Multilingual (GPU)</option>
+                    </select>
+                </div>
+                
+                <div>
+                    <label style="display: block; font-size: 12px; font-weight: 600; color: #7f8c8d; margin-bottom: 6px;">
+                        Language
+                    </label>
+                    <select id="ttsLanguageSelect" style="padding: 10px 16px; border-radius: 8px; border: 1px solid #ccc; font-size: 14px; cursor: pointer;">
+                        <option value="ar" selected>🇸🇦 Arabic (ar)</option>
+                        <option value="en">🇺🇸 English (en)</option>
+                        <option value="fr">🇫🇷 French (fr)</option>
+                        <option value="de">🇩🇪 German (de)</option>
+                        <option value="es">🇪🇸 Spanish (es)</option>
+                        <option value="zh">🇨🇳 Chinese (zh)</option>
+                    </select>
+                </div>
+                
+                <div style="display: flex; gap: 8px; align-items: flex-end;">
+                    <button id="generateTTS" onclick="generateTTS()" style="background: #9b59b6; color: white; padding: 10px 20px; border-radius: 8px;">
+                        🎤 Generate Speech
+                    </button>
+                    <button id="playTTS" onclick="playTTSAudio()" disabled style="background: #3498db; color: white; padding: 10px 20px; border-radius: 8px;">
+                        ▶️ Play Audio
+                    </button>
+                </div>
+            </div>
+            
+            <div id="ttsStatus" style="padding: 12px; background: #f8f9fa; border-radius: 8px; font-size: 14px; color: #7f8c8d;">
+                Ready to generate speech. Select an engine and enter text above.
+            </div>
+            
+            <audio id="ttsAudioPlayer" style="display: none;"></audio>
+        </div>
+        
         <div id="log"></div>
     </div>
     
@@ -1143,6 +1201,138 @@ Let's see how clearly the system catches my voice, even with small background so
         
         // Set initial direction
         document.dir = "rtl";
+        
+        // =====================================================================
+        // TTS TEST FUNCTIONS
+        // =====================================================================
+        
+        let ttsAudioUrl = null;
+        
+        async function generateTTS() {
+            const text = document.getElementById('ttsText').value.trim();
+            const engine = document.getElementById('ttsEngineSelect').value;
+            const language = document.getElementById('ttsLanguageSelect').value;
+            const statusEl = document.getElementById('ttsStatus');
+            const generateBtn = document.getElementById('generateTTS');
+            const playBtn = document.getElementById('playTTS');
+            
+            if (!text) {
+                statusEl.innerHTML = '⚠️ Please enter some text to synthesize.';
+                statusEl.style.background = '#fff3cd';
+                return;
+            }
+            
+            // Update UI
+            generateBtn.disabled = true;
+            playBtn.disabled = true;
+            statusEl.innerHTML = `🔄 Generating speech with <strong>${engine}</strong>...`;
+            statusEl.style.background = '#e3f2fd';
+            
+            try {
+                const startTime = Date.now();
+                
+                // Call TTS API endpoint
+                const response = await fetch(`${API}/api/v1/tts/generate`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        text: text,
+                        engine: engine,
+                        language: language
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json().catch(() => ({ detail: response.statusText }));
+                    throw new Error(errorData.detail || `Server error: ${response.status}`);
+                }
+                
+                const data = await response.json();
+                const elapsed = Date.now() - startTime;
+                
+                // Store audio URL for playback
+                if (data.audio_url) {
+                    ttsAudioUrl = data.audio_url.startsWith('http') 
+                        ? data.audio_url 
+                        : `${API}${data.audio_url}`;
+                    
+                    const audioPlayer = document.getElementById('ttsAudioPlayer');
+                    audioPlayer.src = ttsAudioUrl;
+                    
+                    playBtn.disabled = false;
+                    
+                    statusEl.innerHTML = `✅ Generated in <strong>${elapsed}ms</strong> | ` +
+                        `Engine: <strong>${engine}</strong> | ` +
+                        `Duration: <strong>${data.duration_seconds?.toFixed(2) || '?'}s</strong> | ` +
+                        `<a href="${ttsAudioUrl}" download style="color: #3498db;">📥 Download</a>`;
+                    statusEl.style.background = '#d4edda';
+                    
+                    log(`🔊 TTS generated: ${engine}, ${language}, ${elapsed}ms`, 'success');
+                } else if (data.audio_base64) {
+                    // Handle base64 audio response
+                    const audioBlob = base64ToBlob(data.audio_base64, 'audio/wav');
+                    ttsAudioUrl = URL.createObjectURL(audioBlob);
+                    
+                    const audioPlayer = document.getElementById('ttsAudioPlayer');
+                    audioPlayer.src = ttsAudioUrl;
+                    
+                    playBtn.disabled = false;
+                    
+                    statusEl.innerHTML = `✅ Generated in <strong>${elapsed}ms</strong> | ` +
+                        `Engine: <strong>${engine}</strong>`;
+                    statusEl.style.background = '#d4edda';
+                } else {
+                    throw new Error('No audio data in response');
+                }
+                
+            } catch (err) {
+                statusEl.innerHTML = `❌ Error: ${err.message}`;
+                statusEl.style.background = '#f8d7da';
+                log(`❌ TTS generation failed: ${err.message}`, 'error');
+            } finally {
+                generateBtn.disabled = false;
+            }
+        }
+        
+        function playTTSAudio() {
+            const audioPlayer = document.getElementById('ttsAudioPlayer');
+            const playBtn = document.getElementById('playTTS');
+            
+            if (audioPlayer.src) {
+                if (audioPlayer.paused) {
+                    audioPlayer.play();
+                    playBtn.innerHTML = '⏸️ Pause';
+                } else {
+                    audioPlayer.pause();
+                    playBtn.innerHTML = '▶️ Play Audio';
+                }
+            }
+        }
+        
+        // Reset play button when audio ends
+        document.addEventListener('DOMContentLoaded', function() {
+            const audioPlayer = document.getElementById('ttsAudioPlayer');
+            if (audioPlayer) {
+                audioPlayer.addEventListener('ended', function() {
+                    document.getElementById('playTTS').innerHTML = '▶️ Play Audio';
+                });
+            }
+        });
+        
+        function base64ToBlob(base64, contentType = 'audio/wav') {
+            const byteCharacters = atob(base64);
+            const byteArrays = [];
+            for (let offset = 0; offset < byteCharacters.length; offset += 512) {
+                const slice = byteCharacters.slice(offset, offset + 512);
+                const byteNumbers = new Array(slice.length);
+                for (let i = 0; i < slice.length; i++) {
+                    byteNumbers[i] = slice.charCodeAt(i);
+                }
+                const byteArray = new Uint8Array(byteNumbers);
+                byteArrays.push(byteArray);
+            }
+            return new Blob(byteArrays, { type: contentType });
+        }
     </script>
 </body>
 </html>

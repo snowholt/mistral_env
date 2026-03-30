@@ -16,6 +16,15 @@ project_root = Path(__file__).parent
 sys.path.insert(0, str(project_root))
 sys.path.insert(0, str(project_root / "src"))
 
+# Load .env file BEFORE any other imports that depend on environment variables
+from dotenv import load_dotenv
+env_file = project_root / ".env"
+if env_file.exists():
+    load_dotenv(env_file)
+    print(f"✅ Loaded environment from {env_file}")
+else:
+    print(f"⚠️ No .env file found at {env_file}")
+
 try:
     # Configure logging early (idempotent)
     from beautyai_inference.logging.setup import configure_logging

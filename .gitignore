@@ -48,6 +48,7 @@ bun.lockb
 .env.*.local
 backend/.env
 tests/openai_validation/.env
+certs/personaplex/
 
 # =====================
 # IDE & Editor
@@ -112,6 +113,14 @@ dist/
 # =====================
 # Project-Specific Ignores
 # =====================
+# Cache directories
+cache/
+.cache/
+**/.cache/
+backend/cache/
+backend/src/cache/
+config/models/chatterbox/
+
 # RNNoise library (compiled locally)
 backend/rnnoise/
 .backup_deprecated
@@ -137,3 +146,11 @@ test_temp_venv.py
 
 # Old/deprecated folders (cleaned up)
 _website_snapshot/
+
+# Terminal/shell artifacts (junk files from command history)
+ql\ *
+:
+e()
+ycopg2
+yncio
+tomers:*

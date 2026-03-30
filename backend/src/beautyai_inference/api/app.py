@@ -14,6 +14,15 @@ import time
 import os
 from pathlib import Path
 
+# Ensure .env is loaded when app is started directly via uvicorn/systemd.
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parents[3] / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path)
+except Exception:
+    pass
+
 # Logging configured centrally in run_server via configure_logging.
 logger = logging.getLogger(__name__)
 
@@ -36,6 +45,14 @@ try:
 except ImportError as e:
     debug_capture_router_available = False
     logger.warning(f"WebRTC debug capture router not available: {e}")
+
+# Import TTS test router
+try:
+    from .endpoints.tts import router as tts_router
+    tts_router_available = True
+except ImportError as e:
+    tts_router_available = False
+    logger.warning(f"TTS test router not available: {e}")
 
 # Import WhatsApp Manager routers
 try:
@@ -160,41 +177,40 @@ app = FastAPI(
 
 from .middleware.correlation import CorrelationIdMiddleware, WebSocketCorrelationMiddleware
 
-# Add CORS middleware for WebRTC and cross-origin requests
-default_cors_origins = [
-    "https://web.lumidev.ca",
-    "https://api.lumidev.ca",
-    "http://localhost:3000",
-    "http://localhost:5173",
-    "http://127.0.0.1:5173",
-    "https://portal.gmai.sa",
-    "https://dev.gmai.sa",
-]
+# ===========================================
+# CORS Configuration (loaded from .env)
+# ===========================================
+# Default origins for local development
+_DEFAULT_CORS_ORIGINS = (
+    "http://localhost:3000,http://localhost:5173,http://localhost:8080,"
+    "http://127.0.0.1:3000,http://127.0.0.1:5173,http://127.0.0.1:8080,"
+    "https://portal.gmai.sa,https://gmai.sa,https://api.gmai.sa,https://dev.gmai.sa"
+)
 
-allowed_origins_env = os.getenv("CORS_ALLOWED_ORIGINS", "")
-if allowed_origins_env:
-    allowed_origins = [origin.strip() for origin in allowed_origins_env.split(",") if origin.strip()]
-else:
-    allowed_origins = default_cors_origins
-
-# Deduplicate while preserving order
-seen_origins = set()
-filtered_origins = []
-for origin in allowed_origins:
-    if origin not in seen_origins:
-        filtered_origins.append(origin)
-        seen_origins.add(origin)
-
+# Load CORS settings from environment
+cors_origins_str = os.getenv("CORS_ALLOWED_ORIGINS", _DEFAULT_CORS_ORIGINS)
+cors_allow_credentials = os.getenv("CORS_ALLOW_CREDENTIALS", "true").lower() in ("1", "true", "yes")
+cors_allow_methods_str = os.getenv("CORS_ALLOW_METHODS", "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+cors_allow_headers_str = os.getenv("CORS_ALLOW_HEADERS", "*")
 proxy_handles_cors = os.getenv("PROXY_HANDLES_CORS", "0") == "1"
+
+# Parse comma-separated origins, deduplicate while preserving order
+filtered_origins = list(dict.fromkeys(
+    origin.strip() for origin in cors_origins_str.split(",") if origin.strip()
+))
+cors_allow_methods = [m.strip() for m in cors_allow_methods_str.split(",") if m.strip()]
+cors_allow_headers = [h.strip() for h in cors_allow_headers_str.split(",") if h.strip()]
+
 if proxy_handles_cors:
     logger.info("Skipping FastAPI CORS middleware (proxy handles CORS headers)")
 else:
+    logger.info(f"CORS enabled for origins: {filtered_origins}")
     app.add_middleware(
         CORSMiddleware,
         allow_origins=filtered_origins,
-        allow_credentials=True,
-        allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-        allow_headers=["*"],
+        allow_credentials=cors_allow_credentials,
+        allow_methods=cors_allow_methods,
+        allow_headers=cors_allow_headers,
     )
 
 # Correlation / request ID injection
@@ -208,6 +224,14 @@ app.include_router(inference_router)
 app.include_router(config_router)
 app.include_router(system_router)
 app.include_router(debug_router)
+
+# Include cluster management router
+try:
+    from .endpoints.cluster import router as cluster_router
+    app.include_router(cluster_router, tags=["cluster"])
+    logger.info("✅ Cluster management endpoints registered at /cluster/*")
+except ImportError as e:
+    logger.warning(f"Cluster router not available: {e}")
 
 # Include performance dashboard router if available
 if performance_router_available:
@@ -238,6 +262,16 @@ if debug_capture_router_available:
     logger.info("WebRTC debug capture endpoints registered at /api/v1/webrtc/debug/voice-capture")
 else:
     logger.warning("WebRTC debug capture endpoints not registered - module not available")
+
+# Include TTS test router if available
+if tts_router_available:
+    app.include_router(
+        tts_router,
+        tags=["tts"]
+    )
+    logger.info("TTS test endpoints registered at /api/v1/tts")
+else:
+    logger.warning("TTS test endpoints not registered - module not available")
 
 # Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:
@@ -270,6 +304,14 @@ try:
     logger.info("✅ Guest Auth endpoints registered at /api/v1/auth/guest/*")
 except ImportError as e:
     logger.warning(f"Demo Request router not available: {e}")
+
+# Include Demo Appointments router (Voice Demo - Appointment Booking)
+try:
+    from .endpoints.demo_appointments import demo_appointments_router
+    app.include_router(demo_appointments_router, tags=["demo_appointments"])
+    logger.info("✅ Demo Appointments endpoints registered at /api/v1/demo/appointments/*")
+except ImportError as e:
+    logger.warning(f"Demo Appointments router not available: {e}")
 
 # Include Dashboard router
 try:
@@ -499,6 +541,20 @@ async def startup_event():
         logger.warning(f"⚠️ Failed to initialize buffer optimization: {e}")
         logger.info("📊 Continuing without buffer optimization")
     
+    # Initialize cluster coordinator for distributed architecture
+    try:
+        from ..core.cluster_coordinator import initialize_cluster
+        cluster_started = await initialize_cluster()
+        if cluster_started:
+            from ..core.cluster_coordinator import get_cluster_coordinator
+            coordinator = await get_cluster_coordinator()
+            logger.info(f"🌐 Cluster coordinator initialized in {coordinator.config.mode.value} mode")
+        else:
+            logger.info("🌐 Cluster coordinator running in standalone mode")
+    except Exception as e:
+        logger.warning(f"⚠️ Failed to initialize cluster coordinator: {e}")
+        logger.info("🌐 Continuing in standalone mode")
+    
     # Check if model preloading should be skipped (useful for development/testing)
     skip_preload = os.getenv("SKIP_MODEL_PRELOAD", "0") == "1"
     if skip_preload:
@@ -553,6 +609,22 @@ async def shutdown_event():
         logger.info("📊 Buffer optimization system shut down successfully")
     except Exception as e:
         logger.warning(f"⚠️ Error shutting down buffer optimization: {e}")
+    
+    # Shutdown cluster coordinator
+    try:
+        from ..core.cluster_coordinator import shutdown_cluster
+        await shutdown_cluster()
+        logger.info("🌐 Cluster coordinator shut down successfully")
+    except Exception as e:
+        logger.warning(f"⚠️ Error shutting down cluster coordinator: {e}")
+    
+    # Shutdown Redis client
+    try:
+        from ..core.redis_client import shutdown_redis
+        await shutdown_redis()
+        logger.info("🔴 Redis client disconnected")
+    except Exception as e:
+        logger.warning(f"⚠️ Error disconnecting Redis: {e}")
 
 
 @app.get("/")

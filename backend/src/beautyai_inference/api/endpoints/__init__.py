@@ -8,6 +8,7 @@ This package contains all REST API endpoint implementations organized by functio
 - system: System monitoring and status endpoints
 - health: Health check and service status endpoints
 - webrtc_voice: Primary voice-to-voice WebRTC endpoint
+- cluster: Distributed cluster management endpoints
 
 Each module provides FastAPI router definitions that can be included in the main API application.
 """
@@ -17,6 +18,7 @@ from .models import models_router
 from .inference import inference_router
 from .config import config_router
 from .system import system_router
+from .cluster import router as cluster_router
 
 __all__ = [
     'health_router',
@@ -24,6 +26,7 @@ __all__ = [
     'inference_router',
     'config_router',
     'system_router',
+    'cluster_router',
 ]
 
 __version__ = "1.0.0"

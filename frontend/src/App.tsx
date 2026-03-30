@@ -4,6 +4,8 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation } from "react-router-dom";
 import { LanguageProvider } from "@/hooks/useLanguage";
+import { LanguageProvider as LandingLanguageProvider } from "@/contexts/LanguageContext";
+import { ThemeProvider } from "@/contexts/ThemeContext";
 import { AuthProvider } from "@/hooks/useAuth";
 import { ProtectedRoute, PublicRoute } from "@/components/ProtectedRoute";
 import ChatWidget from "@/components/ChatWidget";
@@ -21,6 +23,7 @@ import Register from "./pages/auth/Register";
 import ForgotPassword from "./pages/auth/ForgotPassword";
 import ResetPassword from "./pages/auth/ResetPassword";
 import GuestLogin from "./pages/auth/GuestLogin";
+import VerifyEmail from "./pages/auth/VerifyEmail";
 
 // Dashboard pages
 import DashboardLayout from "@/components/layouts/DashboardLayout";
@@ -33,6 +36,8 @@ import KnowledgeBase from "./pages/app/KnowledgeBase";
 import Billing from "./pages/app/Billing";
 import Settings from "./pages/app/Settings";
 import VoiceDemo from "./pages/app/VoiceDemo";
+import WhatsAppConnect from "./pages/app/WhatsAppConnect";
+import WhatsAppSettings from "./pages/app/WhatsAppSettings";
 
 // Admin pages
 import AdminCustomers from "./pages/app/admin/Customers";
@@ -46,14 +51,14 @@ const queryClient = new QueryClient();
 function PublicChatWidget() {
   const location = useLocation();
   const isPublicPage = !location.pathname.startsWith('/app');
-  
+
   if (!isPublicPage) return null;
-  
+
   return (
     <ChatWidget
       widgetToken="wt_uf7GDPwuw4vBwGYed26_0-yepA32XwjUbjZas1GnRkI"
       apiUrl={import.meta.env.VITE_API_URL || 'https://api.gmai.sa'}
-      primaryColor="#0ea5e9"
+      primaryColor="#00b3a4"
       headerText="مساعد الذكاء الاصطناعي"
       placeholderText="اكتب رسالتك..."
       welcomeMessage="مرحباً! 👋 كيف يمكنني مساعدتك اليوم؟"
@@ -87,6 +92,7 @@ function AppContent() {
         <Route path="/demo/login" element={<GuestLogin />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/reset-password" element={<ResetPassword />} />
+        <Route path="/auth/verify-email" element={<VerifyEmail />} />
 
         {/* Protected Dashboard Routes */}
         <Route path="/app" element={
@@ -97,13 +103,15 @@ function AppContent() {
           <Route index element={<DashboardHome />} />
           <Route path="businesses" element={<Businesses />} />
           <Route path="inbox" element={<Inbox />} />
+          <Route path="whatsapp" element={<WhatsAppConnect />} />
+          <Route path="whatsapp/settings" element={<WhatsAppSettings />} />
           <Route path="agent" element={<AgentSetup />} />
           <Route path="agent-wizard" element={<AgentSetupWizard />} />
           <Route path="knowledge-base" element={<KnowledgeBase />} />
           <Route path="billing" element={<Billing />} />
           <Route path="settings" element={<Settings />} />
           <Route path="demo" element={<VoiceDemo />} />
-          
+
           {/* Admin Routes - Requires admin role */}
           <Route path="admin/customers" element={
             <ProtectedRoute requireAdmin>
@@ -137,18 +145,23 @@ function AppContent() {
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
-    <TooltipProvider>
-      <LanguageProvider>
-        <AuthProvider>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <AppContent />
-          </BrowserRouter>
-        </AuthProvider>
-      </LanguageProvider>
-    </TooltipProvider>
+    <ThemeProvider>
+      <LandingLanguageProvider>
+        <TooltipProvider>
+          <LanguageProvider>
+            <AuthProvider>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter>
+                <AppContent />
+              </BrowserRouter>
+            </AuthProvider>
+          </LanguageProvider>
+        </TooltipProvider>
+      </LandingLanguageProvider>
+    </ThemeProvider>
   </QueryClientProvider>
 );
 
 export default App;
+

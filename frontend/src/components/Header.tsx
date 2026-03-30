@@ -1,14 +1,16 @@
 import { useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Menu, X, Globe } from "lucide-react";
+import { Menu, X, Globe, Sun, Moon } from "lucide-react";
 import { useLanguage } from "@/hooks/useLanguage";
 import { getTranslation } from "@/utils/translations";
 import logo from "@/assets/logo.png";
 import { Link } from "react-router-dom";
+import { useTheme } from "@/contexts/ThemeContext";
 
 const Header = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { language, toggleLanguage, isRTL } = useLanguage();
+  const { theme, toggleTheme } = useTheme();
 
   const navigation = [
     { name: getTranslation("home", language), href: "./#home" },
@@ -44,8 +46,18 @@ const Header = () => {
             ))}
           </nav>
 
-          {/* CTA Button & Language Toggle */}
+          {/* CTA Button, Theme Toggle & Language Toggle */}
           <div className="hidden md:flex items-center space-x-4">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={toggleTheme}
+              className="gap-2"
+              aria-label="Toggle theme"
+            >
+              {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+              {theme === "dark" ? "Light" : "Dark"}
+            </Button>
             <Button 
               variant="ghost" 
               size="sm" 
@@ -93,6 +105,15 @@ const Header = () => {
                 </a>
               ))}
               <div className="pt-4 space-y-2">
+                <Button
+                  variant="ghost"
+                  onClick={toggleTheme}
+                  className="w-full gap-2"
+                  aria-label="Toggle theme"
+                >
+                  {theme === "dark" ? <Sun size={16} /> : <Moon size={16} />}
+                  {theme === "dark" ? "Light" : "Dark"}
+                </Button>
                 <Button 
                   variant="ghost" 
                   onClick={toggleLanguage}

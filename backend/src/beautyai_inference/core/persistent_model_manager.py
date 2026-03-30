@@ -57,6 +57,10 @@ class PersistentModelManager:
                 cls._instance._preload_config = None
                 cls._instance._startup_time = None
                 cls._instance._model_manager = ModelManager()
+                # LLM pool configuration
+                cls._instance._llm_pool_size = 1
+                cls._instance._llm_instance_counter = 0  # For round-robin selection
+                cls._instance._llm_instances = {}  # Dict of instance_id -> model
             return cls._instance
     
     def __init__(self):
@@ -70,6 +74,10 @@ class PersistentModelManager:
         self._preload_config = None
         self._startup_time = None
         self._model_manager = ModelManager()
+        # LLM pool configuration - read from environment
+        self._llm_pool_size = int(os.getenv('LLM_POOL_SIZE', '1'))
+        self._llm_instance_counter = 0  # For round-robin selection
+        self._llm_instances = {}  # Dict of instance_id -> model instance
         self._memory_thresholds = {
             'max_gpu_memory_mb': 20000,  # 20GB max GPU memory
             'warning_threshold_mb': 16000,  # 16GB warning threshold
@@ -297,14 +305,25 @@ class PersistentModelManager:
             return False
     
     async def _preload_llm_model(self, config: Dict[str, Any]) -> bool:
-        """Preload LLM model using ModelManager registry."""
+        """Preload LLM model(s) using ModelManager registry.
+        
+        Supports loading multiple instances based on LLM_POOL_SIZE environment variable
+        or 'instances' field in preload config. Each instance is stored as 'llm:0', 'llm:1', etc.
+        """
         try:
             from ..config.config_manager import AppConfig, ModelRegistry
             from pathlib import Path
             
             # Get model ID from config
             model_id = config.get('model_id', 'qwen3-unsloth-q4ks')
-            self.logger.info(f"Preloading LLM model from registry: {model_id}")
+            
+            # Determine number of instances to load:
+            # Priority: config file 'instances' > LLM_POOL_SIZE env var > default (1)
+            instances_to_load = config.get('instances', self._llm_pool_size)
+            instances_to_load = max(1, min(instances_to_load, 4))  # Clamp between 1-4
+            
+            self.logger.info(f"🔢 Preloading {instances_to_load} LLM instance(s): {model_id}")
+            self.logger.info(f"   (LLM_POOL_SIZE env: {os.getenv('LLM_POOL_SIZE', 'not set')}, config instances: {config.get('instances', 'not set')})")
             
             # Load the model registry
             config_dir = Path(__file__).parent.parent / "config"
@@ -315,22 +334,52 @@ class PersistentModelManager:
                 return False
             
             model_registry = ModelRegistry.load_from_file(registry_file)
-            model_config = model_registry.get_model(model_id)
+            base_model_config = model_registry.get_model(model_id)
             
-            if not model_config:
+            if not base_model_config:
                 self.logger.error(f"Model '{model_id}' not found in registry")
                 return False
             
-            self.logger.info(f"Loaded registry config for {model_id}: engine={model_config.engine_type}, path={getattr(model_config, 'model_path', 'N/A')}")
+            self.logger.info(f"Loaded registry config for {model_id}: engine={base_model_config.engine_type}")
             
-            # Load model using ModelManager
-            model_instance = self._model_manager.load_model(model_config)
-            if model_instance:
-                self._preloaded_models['llm'] = model_instance
-                self.logger.info(f"✅ LLM model preloaded: {model_id}")
+            # Load requested number of instances
+            loaded_count = 0
+            for i in range(instances_to_load):
+                instance_name = f"llm:{i}"
+                self.logger.info(f"   Loading instance {i+1}/{instances_to_load}: {instance_name}")
+                
+                try:
+                    # Create a unique model config for each instance
+                    from copy import deepcopy
+                    instance_config = deepcopy(base_model_config)
+                    instance_config.name = instance_name
+                    
+                    # Load model using ModelManager
+                    model_instance = self._model_manager.load_model(instance_config)
+                    
+                    if model_instance:
+                        self._llm_instances[i] = model_instance
+                        self._preloaded_models[instance_name] = model_instance
+                        loaded_count += 1
+                        self.logger.info(f"   ✅ LLM instance {i} loaded successfully")
+                    else:
+                        self.logger.error(f"   ❌ Failed to load LLM instance {i}")
+                        
+                except Exception as instance_error:
+                    self.logger.error(f"   ❌ Error loading LLM instance {i}: {instance_error}")
+            
+            # Store primary instance as 'llm' for backward compatibility
+            if 0 in self._llm_instances:
+                self._preloaded_models['llm'] = self._llm_instances[0]
+            
+            # Update pool size to actual loaded count
+            self._llm_pool_size = loaded_count
+            
+            if loaded_count > 0:
+                self.logger.info(f"✅ LLM pool ready: {loaded_count}/{instances_to_load} instances loaded")
                 return True
             else:
-                self.logger.error(f"Failed to load LLM model instance: {model_id}")
+                self.logger.error(f"❌ Failed to load any LLM instances")
                 return False
                 
         except Exception as e:
@@ -443,13 +492,37 @@ class PersistentModelManager:
                 self.logger.warning("Failed to preload Whisper model via ensure_whisper_loaded")
             return success
     
-    def get_llm_model(self) -> Optional[Any]:
+    def get_llm_model(self, instance_id: Optional[int] = None) -> Optional[Any]:
         """
         Get persistent LLM model instance.
+        
+        Args:
+            instance_id: Specific instance ID (0, 1, 2, ...) or None for round-robin selection
         
         Returns:
             Persistent LLM model instance or None if not loaded
         """
+        # If specific instance requested
+        if instance_id is not None:
+            if instance_id in self._llm_instances:
+                return self._llm_instances[instance_id]
+            # Fallback to instance 0 if requested instance doesn't exist
+            if 0 in self._llm_instances:
+                self.logger.warning(f"LLM instance {instance_id} not available, using instance 0")
+                return self._llm_instances[0]
+        
+        # Round-robin selection when multiple instances available
+        if self._llm_instances:
+            if len(self._llm_instances) > 1:
+                # Round-robin: cycle through available instances
+                instance_id = self._llm_instance_counter % len(self._llm_instances)
+                self._llm_instance_counter += 1
+                self.logger.debug(f"🔄 Round-robin LLM selection: instance {instance_id} (counter: {self._llm_instance_counter})")
+                return self._llm_instances[instance_id]
+            else:
+                return self._llm_instances[0]
+        
+        # Legacy fallback: check 'llm' key in preloaded_models
         if 'llm' in self._preloaded_models:
             return self._preloaded_models['llm']
         
@@ -481,8 +554,11 @@ class PersistentModelManager:
                     engine = LlamaCppEngine(config)
                     engine.load_model()
                     
-                    # Store for reuse
+                    # Store for reuse as instance 0
+                    self._llm_instances[0] = engine
                     self._preloaded_models['llm'] = engine
+                    self._preloaded_models['llm:0'] = engine
+                    self._llm_pool_size = 1
                     self.logger.info(f"✅ LLM model loaded on-demand: {default_llm}")
                     return engine
         except Exception as e:
@@ -491,6 +567,28 @@ class PersistentModelManager:
             self.logger.error(traceback.format_exc())
         
         return None
+    
+    def get_llm_pool_info(self) -> Dict[str, Any]:
+        """
+        Get information about the LLM pool.
+        
+        Returns:
+            Dictionary with pool size, loaded instances, and selection counter
+        """
+        return {
+            'configured_pool_size': int(os.getenv('LLM_POOL_SIZE', '1')),
+            'actual_pool_size': self._llm_pool_size,
+            'loaded_instances': list(self._llm_instances.keys()),
+            'round_robin_counter': self._llm_instance_counter,
+            'instances_info': {
+                i: {
+                    'name': f'llm:{i}',
+                    'loaded': i in self._llm_instances,
+                    'model_id': getattr(self._llm_instances.get(i), 'model_id', 'unknown') if i in self._llm_instances else None
+                }
+                for i in range(self._llm_pool_size)
+            }
+        }
     
     def get_tts_engine(self) -> Optional[Any]:
         """
@@ -516,14 +614,18 @@ class PersistentModelManager:
         Returns:
             Dictionary with model readiness status
         """
+        llm_ready = len(self._llm_instances) > 0 or 'llm' in self._preloaded_models
         return {
             'whisper': 'whisper' in self._preloaded_models,
-            'llm': 'llm' in self._preloaded_models,
+            'llm': llm_ready,
+            'llm_pool_size': self._llm_pool_size,
+            'llm_instances_loaded': len(self._llm_instances),
             'tts': 'tts' in self._preloaded_models,
-            'all_ready': all(
-                model_type in self._preloaded_models 
-                for model_type in ['whisper', 'llm', 'tts']
-            )
+            'all_ready': all([
+                'whisper' in self._preloaded_models,
+                llm_ready,
+                'tts' in self._preloaded_models
+            ])
         }
     
     async def monitor_memory(self) -> Dict[str, Any]:
@@ -592,8 +694,27 @@ class PersistentModelManager:
         try:
             self.logger.info("🛑 Cleaning up preloaded models...")
             
+            # Cleanup LLM instances first
+            for instance_id, model_instance in self._llm_instances.items():
+                try:
+                    if hasattr(model_instance, 'cleanup'):
+                        model_instance.cleanup()
+                    elif hasattr(model_instance, 'unload_model'):
+                        model_instance.unload_model()
+                    self.logger.info(f"Cleaned up LLM instance {instance_id}")
+                except Exception as e:
+                    self.logger.error(f"Error cleaning up LLM instance {instance_id}: {e}")
+            
+            # Clear LLM instances registry
+            self._llm_instances.clear()
+            self._llm_pool_size = 0
+            self._llm_instance_counter = 0
+            
             # Cleanup each preloaded model
             for model_type, model_instance in self._preloaded_models.items():
+                # Skip llm:X entries as they're already cleaned up above
+                if model_type.startswith('llm:') or model_type == 'llm':
+                    continue
                 try:
                     if hasattr(model_instance, 'cleanup'):
                         model_instance.cleanup()
@@ -628,6 +749,12 @@ class PersistentModelManager:
             'startup_time_seconds': self._startup_time,
             'preloaded_models': list(self._preloaded_models.keys()),
             'preloaded_models_count': len(self._preloaded_models),
+            'llm_pool': {
+                'configured_size': int(os.getenv('LLM_POOL_SIZE', '1')),
+                'actual_size': self._llm_pool_size,
+                'instances_loaded': list(self._llm_instances.keys()),
+                'round_robin_counter': self._llm_instance_counter
+            },
             'memory_thresholds': self._memory_thresholds,
             'configuration_loaded': self._preload_config is not None
         }

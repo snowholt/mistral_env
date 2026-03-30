@@ -1392,6 +1392,39 @@ class AdminInvite(Base):
 
 
 # ============================================================================
+# Security / Auth Logs
+# ============================================================================
+
+
+class OTPVerificationLog(Base):
+    """
+    Audit log for OTP requests and verifications.
+    """
+    __tablename__ = "otp_verification_logs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    user_id: Mapped[int] = mapped_column(Integer, ForeignKey("users.id", ondelete="CASCADE"), index=True)
+
+    email: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    purpose: Mapped[str] = mapped_column(String(50), nullable=False, default="whatsapp_connect")
+    action: Mapped[str] = mapped_column(String(20), nullable=False)  # request | verify
+    success: Mapped[bool] = mapped_column(Boolean, default=False)
+    failure_reason: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+
+    __table_args__ = (
+        Index('ix_otp_logs_user_created', 'user_id', 'created_at'),
+    )
+
+    def __repr__(self) -> str:
+        return f"<OTPVerificationLog(id={self.id}, user_id={self.user_id}, action='{self.action}', success={self.success})>"
+
+
+# ============================================================================
 # Demo Request System
 # ============================================================================
 
@@ -1602,3 +1635,230 @@ class GuestUser(Base):
     
     def __repr__(self) -> str:
         return f"<GuestUser(id={self.id}, email='{self.email}', activated={self.is_activated}, {self.conversations_used}/{self.max_conversations} used)>"
+
+
+# ============================================================================
+# Voice Demo - Appointment Booking System
+# ============================================================================
+
+
+class AppointmentStatus(enum.Enum):
+    """Status of an appointment."""
+    PENDING = "pending"
+    CONFIRMED = "confirmed"
+    CANCELLED = "cancelled"
+    COMPLETED = "completed"
+    NO_SHOW = "no_show"
+
+
+class DemoCustomer(Base):
+    """
+    Customer record for voice demo appointment booking.
+    
+    Stores customer info registered during voice conversations.
+    Separate from the main Customer model to keep demo data isolated.
+    """
+    __tablename__ = "demo_customers"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Customer identity
+    first_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    last_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    phone: Mapped[Optional[str]] = mapped_column(String(50), nullable=True, index=True)
+    email: Mapped[Optional[str]] = mapped_column(String(255), nullable=True, index=True)
+    
+    # Additional info
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    preferred_language: Mapped[str] = mapped_column(String(10), default="ar")  # ar, en
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    # Relationships
+    appointments: Mapped[List["DemoAppointment"]] = relationship(
+        "DemoAppointment", 
+        back_populates="customer", 
+        lazy="selectin",
+        cascade="all, delete-orphan"
+    )
+    
+    def full_name(self) -> str:
+        """Get full name of the customer."""
+        return f"{self.first_name} {self.last_name}"
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "first_name": self.first_name,
+            "last_name": self.last_name,
+            "full_name": self.full_name(),
+            "phone": self.phone,
+            "email": self.email,
+            "preferred_language": self.preferred_language,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+        }
+    
+    def __repr__(self) -> str:
+        return f"<DemoCustomer(id={self.id}, name='{self.full_name()}')>"
+
+
+class DemoTimeSlot(Base):
+    """
+    Available time slots for booking appointments.
+    
+    Pre-populated with available slots that can be booked.
+    """
+    __tablename__ = "demo_time_slots"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Slot details
+    date: Mapped[datetime] = mapped_column(DateTime, nullable=False, index=True)
+    start_time: Mapped[str] = mapped_column(String(10), nullable=False)  # "09:00"
+    end_time: Mapped[str] = mapped_column(String(10), nullable=False)    # "09:30"
+    duration_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    
+    # Capacity
+    max_bookings: Mapped[int] = mapped_column(Integer, default=1)
+    current_bookings: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Status
+    is_available: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    
+    __table_args__ = (
+        Index('ix_demo_slots_date_time', 'date', 'start_time'),
+    )
+    
+    # Relationships
+    appointments: Mapped[List["DemoAppointment"]] = relationship(
+        "DemoAppointment",
+        back_populates="time_slot",
+        lazy="selectin"
+    )
+    
+    def is_bookable(self) -> bool:
+        """Check if slot can be booked."""
+        if not self.is_available:
+            return False
+        if self.current_bookings >= self.max_bookings:
+            return False
+        # Check if slot is in the future
+        slot_datetime = self.date.replace(
+            hour=int(self.start_time.split(":")[0]),
+            minute=int(self.start_time.split(":")[1])
+        )
+        return slot_datetime > datetime.now()
+    
+    def book(self) -> bool:
+        """Attempt to book this slot. Returns True if successful."""
+        if not self.is_bookable():
+            return False
+        self.current_bookings += 1
+        if self.current_bookings >= self.max_bookings:
+            self.is_available = False
+        return True
+    
+    def release(self) -> None:
+        """Release a booking from this slot."""
+        if self.current_bookings > 0:
+            self.current_bookings -= 1
+        if self.current_bookings < self.max_bookings:
+            self.is_available = True
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "date": self.date.strftime("%Y-%m-%d"),
+            "start_time": self.start_time,
+            "end_time": self.end_time,
+            "duration_minutes": self.duration_minutes,
+            "is_available": self.is_bookable(),
+            "slots_remaining": max(0, self.max_bookings - self.current_bookings),
+        }
+    
+    def __repr__(self) -> str:
+        return f"<DemoTimeSlot(id={self.id}, date={self.date.strftime('%Y-%m-%d')}, time={self.start_time}-{self.end_time})>"
+
+
+class DemoAppointment(Base):
+    """
+    Appointment booking for voice demo.
+    
+    Links a customer to a time slot.
+    """
+    __tablename__ = "demo_appointments"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Foreign keys
+    customer_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("demo_customers.id", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    time_slot_id: Mapped[int] = mapped_column(
+        Integer, 
+        ForeignKey("demo_time_slots.id", ondelete="CASCADE"), 
+        nullable=False, 
+        index=True
+    )
+    
+    # Appointment details
+    service_type: Mapped[str] = mapped_column(String(100), default="consultation")
+    status: Mapped[AppointmentStatus] = mapped_column(
+        StringEnumType(AppointmentStatus, name='appointmentstatus'),
+        default=AppointmentStatus.PENDING
+    )
+    
+    # Notes from conversation
+    notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    
+    # Voice session reference
+    voice_session_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Relationships
+    customer: Mapped["DemoCustomer"] = relationship("DemoCustomer", back_populates="appointments")
+    time_slot: Mapped["DemoTimeSlot"] = relationship("DemoTimeSlot", back_populates="appointments")
+    
+    def confirm(self) -> None:
+        """Confirm the appointment."""
+        self.status = AppointmentStatus.CONFIRMED
+        self.confirmed_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    
+    def cancel(self) -> None:
+        """Cancel the appointment and release the slot."""
+        self.status = AppointmentStatus.CANCELLED
+        self.cancelled_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        if self.time_slot:
+            self.time_slot.release()
+    
+    def to_dict(self) -> dict:
+        """Convert to dictionary for API responses."""
+        return {
+            "id": self.id,
+            "customer": self.customer.to_dict() if self.customer else None,
+            "time_slot": self.time_slot.to_dict() if self.time_slot else None,
+            "service_type": self.service_type,
+            "status": self.status.value,
+            "notes": self.notes,
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "confirmed_at": self.confirmed_at.isoformat() if self.confirmed_at else None,
+        }
+    
+    def __repr__(self) -> str:
+        customer_name = self.customer.full_name() if self.customer else "Unknown"
+        return f"<DemoAppointment(id={self.id}, customer='{customer_name}', status={self.status.value})>"

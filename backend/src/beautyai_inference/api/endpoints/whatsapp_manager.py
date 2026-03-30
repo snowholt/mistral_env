@@ -7,6 +7,7 @@ All endpoints are protected and require JWT authentication.
 
 import os
 import logging
+import uuid
 from typing import Optional, List
 from datetime import datetime
 
@@ -22,7 +23,8 @@ from ...database.models import (
     User, Customer, WhatsAppAccount, AgentConfig, 
     Conversation, Message, MessageSource, MessageStatus
 )
-from ...auth.dependencies import get_current_active_user
+from ...auth.dependencies import get_current_active_user, get_current_verified_user
+from ...services.cache import get_redis, RedisClient
 
 logger = logging.getLogger(__name__)
 
@@ -32,6 +34,8 @@ whatsapp_manager_router = APIRouter(prefix="/api/v1/whatsapp", tags=["whatsapp-m
 META_API_BASE = os.getenv("WHATSAPP_API_BASE_URL", "https://graph.facebook.com/v21.0")
 META_APP_ID = os.getenv("META_APP_ID", "")
 META_APP_SECRET = os.getenv("META_APP_SECRET", "")
+
+_SIGNUP_SESSION_TTL_SECONDS = 10 * 60
 
 
 # ============================================
@@ -64,6 +68,19 @@ class MetaSignupCompleteRequest(BaseModel):
     customer_id: int
     code: str  # OAuth authorization code from Meta
     phone_number_id: Optional[str] = None  # Sometimes passed directly
+
+
+class SignupInitResponse(BaseModel):
+    """Response for frontend-compatible signup init."""
+    config_id: str
+    session_id: str
+
+
+class SignupCompleteRequest(BaseModel):
+    """Complete signup from frontend-compatible flow."""
+    code: str
+    session_id: str
+    phone_number_id: Optional[str] = None
 
 
 class WhatsAppAccountResponse(BaseModel):
@@ -146,7 +163,7 @@ class AIControlRequest(BaseModel):
 
 @whatsapp_manager_router.get("/customers", response_model=List[CustomerResponse])
 async def list_customers(
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List all customers (businesses) for the current user."""
@@ -174,7 +191,7 @@ async def list_customers(
 @whatsapp_manager_router.post("/customers", response_model=CustomerResponse)
 async def create_customer(
     request: CustomerCreate,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Create a new customer (business)."""
@@ -203,10 +220,93 @@ async def create_customer(
 # Meta Embedded Signup
 # ============================================
 
+async def _get_or_create_default_customer(
+    current_user: User,
+    db: AsyncSession,
+) -> Customer:
+    result = await db.execute(
+        select(Customer)
+        .where(Customer.user_id == current_user.id)
+        .order_by(Customer.created_at.desc())
+    )
+    customer = result.scalars().first()
+    if customer:
+        return customer
+
+    name = current_user.full_name or current_user.email.split("@")[0]
+    customer = Customer(user_id=current_user.id, name=name, email=current_user.email)
+    db.add(customer)
+    await db.commit()
+    await db.refresh(customer)
+    logger.info(f"Default customer created: {customer.id} for user {current_user.id}")
+    return customer
+
+
+@whatsapp_manager_router.get("/signup/init", response_model=SignupInitResponse)
+async def init_signup(
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+    redis: RedisClient = Depends(get_redis),
+):
+    """
+    Frontend-compatible signup init.
+
+    Returns config_id and a short-lived session_id used by /signup/complete.
+    """
+    config_id = os.getenv("META_CONFIG_ID", "")
+    if not config_id:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="META_CONFIG_ID is not configured",
+        )
+
+    customer = await _get_or_create_default_customer(current_user, db)
+    session_id = uuid.uuid4().hex
+    await redis.set_json(
+        f"whatsapp_signup_session:{session_id}",
+        {"customer_id": customer.id, "user_id": current_user.id},
+        expire=_SIGNUP_SESSION_TTL_SECONDS,
+    )
+
+    return {"config_id": config_id, "session_id": session_id}
+
+
+@whatsapp_manager_router.post("/signup/complete", response_model=WhatsAppAccountResponse)
+async def complete_signup(
+    request: SignupCompleteRequest,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+    redis: RedisClient = Depends(get_redis),
+):
+    """Frontend-compatible signup completion."""
+    session_key = f"whatsapp_signup_session:{request.session_id}"
+    session_data = await redis.get_json(session_key)
+    if not session_data:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Signup session expired or invalid",
+        )
+
+    if session_data.get("user_id") != current_user.id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Signup session does not belong to current user",
+        )
+
+    customer_id = int(session_data.get("customer_id"))
+    await redis.delete(session_key)
+
+    meta_request = MetaSignupCompleteRequest(
+        customer_id=customer_id,
+        code=request.code,
+        phone_number_id=request.phone_number_id,
+    )
+    return await complete_meta_signup(meta_request, current_user, db)
+
 @whatsapp_manager_router.post("/meta/init-signup")
 async def init_meta_signup(
     request: MetaSignupInitRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -247,7 +347,7 @@ async def init_meta_signup(
 @whatsapp_manager_router.post("/meta/complete-signup", response_model=WhatsAppAccountResponse)
 async def complete_meta_signup(
     request: MetaSignupCompleteRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -346,7 +446,7 @@ async def complete_meta_signup(
 @whatsapp_manager_router.get("/accounts", response_model=List[WhatsAppAccountResponse])
 async def list_whatsapp_accounts(
     customer_id: Optional[int] = None,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List WhatsApp accounts for user's customers."""
@@ -384,7 +484,7 @@ async def list_whatsapp_accounts(
 @whatsapp_manager_router.post("/agents/configure", response_model=AgentConfigResponse)
 async def configure_agent(
     request: AgentConfigRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -469,7 +569,7 @@ async def configure_agent(
 @whatsapp_manager_router.get("/agents/config/{customer_id}", response_model=AgentConfigResponse)
 async def get_agent_config(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get agent configuration for a customer."""
@@ -509,7 +609,7 @@ async def get_agent_config(
 async def control_ai(
     customer_id: int,
     request: AIControlRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Control AI (pause/resume) for a customer's agent."""
@@ -560,7 +660,7 @@ async def list_conversations(
     status_filter: Optional[str] = Query(None, pattern="^(active|archived|blocked)$"),
     limit: int = Query(50, ge=1, le=100),
     offset: int = Query(0, ge=0),
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """List conversations for user's customers."""
@@ -612,7 +712,7 @@ async def get_conversation_messages(
     conversation_id: int,
     limit: int = Query(50, ge=1, le=200),
     before_id: Optional[int] = None,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """Get messages for a conversation (paginated)."""
@@ -670,7 +770,7 @@ async def get_conversation_messages(
 async def send_manual_message(
     conversation_id: int,
     request: SendMessageRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -924,7 +1024,7 @@ class WizardConfigResponse(BaseModel):
 @whatsapp_manager_router.post("/agents/wizard", response_model=WizardConfigResponse)
 async def configure_agent_wizard(
     request: WizardConfigRequest,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1140,7 +1240,7 @@ async def configure_agent_wizard(
 @whatsapp_manager_router.get("/agents/wizard/{customer_id}", response_model=WizardConfigResponse)
 async def get_agent_wizard_config(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
@@ -1214,7 +1314,7 @@ async def get_agent_wizard_config(
 @whatsapp_manager_router.get("/agents/wizard/{customer_id}/details")
 async def get_agent_wizard_details(
     customer_id: int,
-    current_user: User = Depends(get_current_active_user),
+    current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
     """
