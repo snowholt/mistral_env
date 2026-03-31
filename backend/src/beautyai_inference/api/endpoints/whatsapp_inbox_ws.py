@@ -199,9 +199,14 @@ async def inbox_websocket(
     - {"type": "pong"}
     - {"type": "error", "message": "..."}
     """
+    client_host = websocket.client.host if websocket.client else "unknown"
+    client_port = websocket.client.port if websocket.client else "unknown"
+    logger.info(f"Inbox WS connection attempt from {client_host}:{client_port}")
+
     # Verify JWT token
     payload = verify_token(token, TokenType.ACCESS)
     if not payload:
+        logger.warning(f"Inbox WS auth failed from {client_host}:{client_port}")
         await websocket.close(code=4001, reason="Invalid or expired token")
         return
     
@@ -241,10 +246,12 @@ async def inbox_websocket(
                     "message": "Invalid JSON"
                 })
     
-    except WebSocketDisconnect:
-        logger.debug(f"WebSocket disconnected normally: user {user_id}")
+    except WebSocketDisconnect as e:
+        logger.info(
+            f"Inbox WS disconnected: user {conn_info.user_id}, code {e.code}"
+        )
     except Exception as e:
-        logger.error(f"WebSocket error: {e}")
+        logger.exception(f"Inbox WS error: user {conn_info.user_id}, error {e}")
     finally:
         inbox_manager.disconnect(conn_info)
 

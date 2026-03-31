@@ -41,6 +41,7 @@ import WhatsAppSettings from "./pages/app/WhatsAppSettings";
 
 // Admin pages
 import AdminCustomers from "./pages/app/admin/Customers";
+import AdminCredentialsDisabled from "./pages/app/admin/AdminCredentialsDisabled";
 import AdminMetrics from "./pages/app/admin/Metrics";
 import AdminUsers from "./pages/app/admin/Users";
 import AdminDemoRequests from "./pages/app/admin/DemoRequests";
@@ -131,6 +132,11 @@ function AppContent() {
           <Route path="admin/users" element={
             <ProtectedRoute requireAdmin>
               <AdminUsers />
+            </ProtectedRoute>
+          } />
+          <Route path="admin/credentials" element={
+            <ProtectedRoute requireAdmin>
+              <AdminCredentialsDisabled />
             </ProtectedRoute>
           } />
         </Route>

@@ -28,7 +28,7 @@ import {
   ArrowLeft,
   Phone,
 } from 'lucide-react';
-import { api, tokenManager } from '@/lib/api';
+import { api, authApi, tokenManager } from '@/lib/api';
 import { useAuth } from '@/hooks/useAuth';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useToast } from '@/components/ui/use-toast';
@@ -142,11 +142,21 @@ export default function Inbox() {
   const reconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // WebSocket connection
-  const connectWebSocket = useCallback(() => {
+  const connectWebSocket = useCallback(async () => {
     const token = tokenManager.getAccessToken();
     if (!token) return;
 
-    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/ws/inbox?token=${token}`;
+    try {
+      await authApi.getMe();
+    } catch (error) {
+      console.warn('[Inbox WS] Auth check failed, skipping connect:', error);
+      return;
+    }
+
+    const freshToken = tokenManager.getAccessToken();
+    if (!freshToken) return;
+
+    const wsUrl = `${window.location.protocol === 'https:' ? 'wss:' : 'ws:'}//${window.location.host}/api/v1/whatsapp/inbox/ws?token=${encodeURIComponent(freshToken)}`;
     
     try {
       wsRef.current = new WebSocket(wsUrl);
@@ -376,7 +386,7 @@ export default function Inbox() {
   // Effects
   useEffect(() => {
     fetchConversations();
-    connectWebSocket();
+    void connectWebSocket();
 
     return () => {
       wsRef.current?.close();

@@ -5,7 +5,7 @@
  */
 
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-import { authApi, tokenManager, guestApi, User, ApiError } from '@/lib/api';
+import { authApi, tokenManager, guestApi, User, ApiError, AUTH_EVENTS } from '@/lib/api';
 
 interface GuestUser {
   id: number;
@@ -125,6 +125,26 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
 
     initAuth();
+  }, []);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      tokenManager.clearTokens();
+      localStorage.removeItem('isGuest');
+      setState({
+        user: null,
+        guestUser: null,
+        isAuthenticated: false,
+        isGuest: false,
+        isLoading: false,
+        isAdmin: false,
+      });
+    };
+
+    window.addEventListener(AUTH_EVENTS.SESSION_EXPIRED, handleSessionExpired as EventListener);
+    return () => {
+      window.removeEventListener(AUTH_EVENTS.SESSION_EXPIRED, handleSessionExpired as EventListener);
+    };
   }, []);
 
   const login = useCallback(async (email: string, password: string) => {

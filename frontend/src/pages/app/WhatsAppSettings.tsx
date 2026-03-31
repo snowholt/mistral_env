@@ -34,10 +34,33 @@ import {
   CheckCircle2,
   AlertCircle,
   Volume2,
+  KeyRound,
+  ShieldCheck,
+  ShieldOff,
+  AlertTriangle,
+  Copy,
 } from 'lucide-react';
 import { api } from '@/lib/api';
 import { useLanguage } from '@/hooks/useLanguage';
 import { useToast } from '@/components/ui/use-toast';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 
 const translations = {
   en: {
@@ -47,16 +70,15 @@ const translations = {
     aiSettings: 'AI Agent',
     notifications: 'Notifications',
     businessHours: 'Business Hours',
+    tokenSettings: 'Token',
     // Overview
     accountInfo: 'Account Information',
     phoneNumber: 'Phone Number',
     verifiedName: 'Verified Name',
-    qualityRating: 'Quality Rating',
+    verifiedAt: 'Verified At',
     status: 'Status',
     active: 'Active',
     inactive: 'Inactive',
-    messagesThisMonth: 'Messages this month',
-    conversationsActive: 'Active conversations',
     // AI Settings
     aiEnabled: 'AI Auto-Response',
     aiEnabledDescription: 'Allow AI to automatically respond to customer messages',
@@ -82,6 +104,35 @@ const translations = {
     businessHoursDescription: 'AI responds differently outside business hours',
     outsideHoursMessage: 'Outside Hours Message',
     outsideHoursMessageDefault: 'Thank you for your message. Our business hours are Sunday-Thursday 9AM-6PM. We will respond during business hours.',
+    // Token Settings
+    tokenManagement: 'API Token Management',
+    tokenManagementDescription: 'Manage your Meta System User token for WhatsApp integration',
+    tokenStatus: 'Token Status',
+    tokenConnected: 'Connected',
+    tokenNotConnected: 'Not Connected',
+    tokenRevoked: 'Revoked',
+    tokenExpired: 'Expired',
+    tokenPrefix: 'Token Prefix',
+    tokenLastUsed: 'Last Used',
+    tokenUsageCount: 'API Calls',
+    tokenNever: 'Never',
+    updateToken: 'Update Token',
+    revokeToken: 'Revoke Token',
+    validateToken: 'Validate Token',
+    submitToken: 'Submit Token',
+    tokenPlaceholder: 'Paste your System User token here...',
+    tokenHelp: 'You can generate a System User token from the Meta Business Suite. System User tokens are permanent and recommended for production use.',
+    tokenUpdateSuccess: 'Token updated successfully',
+    tokenRevokeSuccess: 'Token revoked successfully',
+    tokenValidSuccess: 'Token is valid and working',
+    tokenValidFailed: 'Token validation failed',
+    tokenRevokeConfirm: 'Are you sure you want to revoke this token? Your WhatsApp integration will stop working until you provide a new token.',
+    getTokenInstructions: 'How to get a System User Token',
+    getTokenStep1: '1. Go to Meta Business Suite → Settings → Business Settings',
+    getTokenStep2: '2. Navigate to Users → System Users',
+    getTokenStep3: '3. Create a System User or use an existing one',
+    getTokenStep4: '4. Click "Generate new token" and select the WhatsApp permissions',
+    getTokenStep5: '5. Copy the generated token and paste it here',
     // Actions
     save: 'Save Changes',
     saving: 'Saving...',
@@ -97,16 +148,15 @@ const translations = {
     aiSettings: 'وكيل الذكاء الاصطناعي',
     notifications: 'الإشعارات',
     businessHours: 'ساعات العمل',
+    tokenSettings: 'الرمز',
     // Overview
     accountInfo: 'معلومات الحساب',
     phoneNumber: 'رقم الهاتف',
     verifiedName: 'الاسم المُوثّق',
-    qualityRating: 'تقييم الجودة',
+    verifiedAt: 'تاريخ التوثيق',
     status: 'الحالة',
     active: 'نشط',
     inactive: 'غير نشط',
-    messagesThisMonth: 'الرسائل هذا الشهر',
-    conversationsActive: 'المحادثات النشطة',
     // AI Settings
     aiEnabled: 'الرد التلقائي بالذكاء الاصطناعي',
     aiEnabledDescription: 'السماح للذكاء الاصطناعي بالرد تلقائيًا على رسائل العملاء',
@@ -132,6 +182,35 @@ const translations = {
     businessHoursDescription: 'الذكاء الاصطناعي يرد بشكل مختلف خارج ساعات العمل',
     outsideHoursMessage: 'رسالة خارج ساعات العمل',
     outsideHoursMessageDefault: 'شكرًا على رسالتك. ساعات عملنا من الأحد إلى الخميس 9 صباحًا - 6 مساءً. سنرد خلال ساعات العمل.',
+    // Token Settings
+    tokenManagement: 'إدارة رمز API',
+    tokenManagementDescription: 'إدارة رمز مستخدم النظام من Meta لتكامل واتساب',
+    tokenStatus: 'حالة الرمز',
+    tokenConnected: 'متصل',
+    tokenNotConnected: 'غير متصل',
+    tokenRevoked: 'ملغى',
+    tokenExpired: 'منتهي الصلاحية',
+    tokenPrefix: 'بادئة الرمز',
+    tokenLastUsed: 'آخر استخدام',
+    tokenUsageCount: 'استدعاءات API',
+    tokenNever: 'أبداً',
+    updateToken: 'تحديث الرمز',
+    revokeToken: 'إلغاء الرمز',
+    validateToken: 'التحقق من الرمز',
+    submitToken: 'إرسال الرمز',
+    tokenPlaceholder: 'الصق رمز مستخدم النظام هنا...',
+    tokenHelp: 'يمكنك إنشاء رمز مستخدم النظام من Meta Business Suite. رموز مستخدم النظام دائمة ومُوصى بها للاستخدام الإنتاجي.',
+    tokenUpdateSuccess: 'تم تحديث الرمز بنجاح',
+    tokenRevokeSuccess: 'تم إلغاء الرمز بنجاح',
+    tokenValidSuccess: 'الرمز صالح ويعمل',
+    tokenValidFailed: 'فشل التحقق من الرمز',
+    tokenRevokeConfirm: 'هل أنت متأكد من إلغاء هذا الرمز؟ سيتوقف تكامل واتساب عن العمل حتى تقدم رمزًا جديدًا.',
+    getTokenInstructions: 'كيفية الحصول على رمز مستخدم النظام',
+    getTokenStep1: '1. اذهب إلى Meta Business Suite ← الإعدادات ← إعدادات الأعمال',
+    getTokenStep2: '2. انتقل إلى المستخدمين ← مستخدمي النظام',
+    getTokenStep3: '3. أنشئ مستخدم نظام أو استخدم مستخدمًا موجودًا',
+    getTokenStep4: '4. انقر على "إنشاء رمز جديد" وحدد أذونات واتساب',
+    getTokenStep5: '5. انسخ الرمز المُنشأ والصقه هنا',
     // Actions
     save: 'حفظ التغييرات',
     saving: 'جاري الحفظ...',
@@ -145,14 +224,64 @@ const translations = {
 interface WhatsAppAccount {
   id: number;
   phone_number: string;
-  display_phone_number: string;
-  verified_name: string;
-  quality_rating: string;
-  status: 'active' | 'inactive';
-  messages_this_month: number;
-  active_conversations: number;
+  phone_number_id: string;
+  display_name: string;
+  waba_id: string;
+  is_active: boolean;
+  verified_at: string;
+  created_at: string;
 }
 
+interface TokenStatus {
+  has_token: boolean;
+  is_active: boolean;
+  is_revoked: boolean;
+  is_expired: boolean;
+  token_prefix: string | null;
+  expires_at: string | null;
+  last_used_at: string | null;
+  use_count: number;
+  credential_type: string | null;
+}
+
+interface TokenValidationResult {
+  is_valid: boolean;
+  error?: string | null;
+}
+
+interface CustomerTokenSubmitResponse {
+  success: boolean;
+  message: string;
+  error_detail?: string | null;
+  validation?: TokenValidationResult | null;
+}
+
+// Backend response model
+interface BackendAgentConfig {
+  id: number;
+  customer_id: number;
+  business_name: string;
+  tone: string;
+  behavior_rules: string | null;
+  custom_instructions: string | null;
+  system_prompt: string;
+  ai_enabled: boolean;
+  ai_pause_until: string | null;
+  ai_pause_duration_minutes: number;
+  supported_language: 'english' | 'arabic' | 'both';
+  max_response_length: number;
+  response_delay_seconds: number;
+  email_notifications: boolean;
+  notify_on_new_conversation: boolean;
+  notify_on_inactivity: boolean;
+  inactivity_threshold_minutes: number;
+  business_hours_enabled: boolean;
+  outside_hours_message: string | null;
+  created_at: string;
+  updated_at: string;
+}
+
+// Frontend state model
 interface AgentConfig {
   ai_enabled: boolean;
   system_prompt: string;
@@ -166,6 +295,25 @@ interface AgentConfig {
   business_hours_enabled: boolean;
   outside_hours_message: string;
 }
+
+// Helper functions to map between frontend and backend formats
+const mapBackendToFrontendLanguage = (lang: string): 'ar' | 'en' | 'auto' => {
+  switch (lang) {
+    case 'arabic': return 'ar';
+    case 'english': return 'en';
+    case 'both': return 'auto';
+    default: return 'auto';
+  }
+};
+
+const mapFrontendToBackendLanguage = (lang: string): string => {
+  switch (lang) {
+    case 'ar': return 'arabic';
+    case 'en': return 'english';
+    case 'auto': return 'both';
+    default: return 'both';
+  }
+};
 
 export default function WhatsAppSettings() {
   const [searchParams] = useSearchParams();
@@ -192,24 +340,164 @@ export default function WhatsAppSettings() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [hasChanges, setHasChanges] = useState(false);
+  
+  // Token management state
+  const [tokenStatus, setTokenStatus] = useState<TokenStatus | null>(null);
+  const [isLoadingToken, setIsLoadingToken] = useState(false);
+  const [tokenDialogOpen, setTokenDialogOpen] = useState(false);
+  const [revokeDialogOpen, setRevokeDialogOpen] = useState(false);
+  const [newToken, setNewToken] = useState('');
+  const [isSubmittingToken, setIsSubmittingToken] = useState(false);
+  const [isValidatingToken, setIsValidatingToken] = useState(false);
+  const [isRevokingToken, setIsRevokingToken] = useState(false);
 
   useEffect(() => {
     if (accountId) {
       fetchAccountAndConfig();
+      fetchTokenStatus();
     } else {
       setIsLoading(false);
     }
   }, [accountId]);
+
+  const fetchTokenStatus = async () => {
+    if (!accountId) return;
+    setIsLoadingToken(true);
+    try {
+      const status = await api.get<TokenStatus>(`/api/v1/whatsapp/accounts/${accountId}/token-status`);
+      setTokenStatus(status);
+    } catch (error) {
+      console.error('Failed to fetch token status:', error);
+      // Set default status if endpoint not found
+      setTokenStatus({
+        has_token: false,
+        is_active: false,
+        is_revoked: false,
+        is_expired: false,
+        token_prefix: null,
+        expires_at: null,
+        last_used_at: null,
+        use_count: 0,
+        credential_type: null,
+      });
+    } finally {
+      setIsLoadingToken(false);
+    }
+  };
+
+  const handleSubmitToken = async () => {
+    if (!accountId || !newToken.trim()) return;
+    
+    setIsSubmittingToken(true);
+    try {
+      const response = await api.post<CustomerTokenSubmitResponse>(`/api/v1/whatsapp/accounts/${accountId}/token`, {
+        token: newToken.trim(),
+      });
+      if (!response.success) {
+        toast({
+          title: 'Error',
+          description: response.error_detail || response.message || 'Failed to update token',
+          variant: 'destructive',
+        });
+        return;
+      }
+      toast({
+        title: 'Success',
+        description: t.tokenUpdateSuccess,
+      });
+      setNewToken('');
+      setTokenDialogOpen(false);
+      fetchTokenStatus();
+    } catch (error: any) {
+      console.error('Failed to submit token:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to update token',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSubmittingToken(false);
+    }
+  };
+
+  const handleValidateToken = async () => {
+    if (!accountId) return;
+    
+    setIsValidatingToken(true);
+    try {
+      const result = await api.post<TokenValidationResult>(`/api/v1/whatsapp/accounts/${accountId}/token/validate`);
+      if (result.is_valid) {
+        toast({
+          title: 'Success',
+          description: t.tokenValidSuccess,
+        });
+      } else {
+        toast({
+          title: 'Warning',
+          description: result.error || t.tokenValidFailed,
+          variant: 'destructive',
+        });
+      }
+    } catch (error: any) {
+      console.error('Failed to validate token:', error);
+      toast({
+        title: 'Error',
+        description: error.message || t.tokenValidFailed,
+        variant: 'destructive',
+      });
+    } finally {
+      setIsValidatingToken(false);
+    }
+  };
+
+  const handleRevokeToken = async () => {
+    if (!accountId) return;
+    
+    setIsRevokingToken(true);
+    try {
+      await api.delete(`/api/v1/whatsapp/accounts/${accountId}/token`);
+      toast({
+        title: 'Success',
+        description: t.tokenRevokeSuccess,
+      });
+      setRevokeDialogOpen(false);
+      fetchTokenStatus();
+    } catch (error: any) {
+      console.error('Failed to revoke token:', error);
+      toast({
+        title: 'Error',
+        description: error.message || 'Failed to revoke token',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsRevokingToken(false);
+    }
+  };
 
   const fetchAccountAndConfig = async () => {
     setIsLoading(true);
     try {
       const [accountRes, configRes] = await Promise.all([
         api.get<WhatsAppAccount>(`/api/v1/whatsapp/accounts/${accountId}`),
-        api.get<AgentConfig>(`/api/v1/whatsapp/accounts/${accountId}/config`),
+        api.get<BackendAgentConfig | null>(`/api/v1/whatsapp/accounts/${accountId}/config`),
       ]);
       setAccount(accountRes);
-      setConfig(configRes);
+      // Map backend response to frontend state
+      if (configRes) {
+        setConfig({
+          ai_enabled: configRes.ai_enabled,
+          system_prompt: configRes.system_prompt || '',
+          response_language: mapBackendToFrontendLanguage(configRes.supported_language),
+          max_response_length: configRes.max_response_length,
+          response_delay_seconds: configRes.response_delay_seconds,
+          email_notifications: configRes.email_notifications,
+          notify_on_new_conversation: configRes.notify_on_new_conversation,
+          notify_on_inactivity: configRes.notify_on_inactivity,
+          inactivity_threshold_minutes: configRes.inactivity_threshold_minutes,
+          business_hours_enabled: configRes.business_hours_enabled,
+          outside_hours_message: configRes.outside_hours_message || t.outsideHoursMessageDefault,
+        });
+      }
     } catch (error) {
       console.error('Failed to fetch settings:', error);
       toast({
@@ -232,7 +520,20 @@ export default function WhatsAppSettings() {
 
     setIsSaving(true);
     try {
-      await api.put(`/api/v1/whatsapp/accounts/${accountId}/config`, config);
+      // Map frontend state to backend request format
+      await api.put(`/api/v1/whatsapp/accounts/${accountId}/config`, {
+        ai_enabled: config.ai_enabled,
+        system_prompt: config.system_prompt || null,
+        response_language: config.response_language,
+        max_response_length: config.max_response_length,
+        response_delay_seconds: config.response_delay_seconds,
+        email_notifications: config.email_notifications,
+        notify_on_new_conversation: config.notify_on_new_conversation,
+        notify_on_inactivity: config.notify_on_inactivity,
+        inactivity_threshold_minutes: config.inactivity_threshold_minutes,
+        business_hours_enabled: config.business_hours_enabled,
+        outside_hours_message: config.outside_hours_message || null,
+      });
       toast({
         title: 'Success',
         description: t.saved,
@@ -320,6 +621,10 @@ export default function WhatsAppSettings() {
             <Clock className="h-4 w-4 mr-2" />
             {t.businessHours}
           </TabsTrigger>
+          <TabsTrigger value="token">
+            <KeyRound className="h-4 w-4 mr-2" />
+            {t.tokenSettings}
+          </TabsTrigger>
         </TabsList>
 
         {/* Overview Tab */}
@@ -332,34 +637,23 @@ export default function WhatsAppSettings() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <Label className="text-muted-foreground">{t.phoneNumber}</Label>
-                  <p className="font-medium">{account?.display_phone_number}</p>
+                  <p className="font-medium">{account?.phone_number || '-'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.verifiedName}</Label>
-                  <p className="font-medium">{account?.verified_name || '-'}</p>
-                </div>
-                <div>
-                  <Label className="text-muted-foreground">{t.qualityRating}</Label>
-                  <Badge variant={account?.quality_rating === 'GREEN' ? 'default' : 'secondary'}>
-                    {account?.quality_rating || 'N/A'}
-                  </Badge>
+                  <p className="font-medium">{account?.display_name || '-'}</p>
                 </div>
                 <div>
                   <Label className="text-muted-foreground">{t.status}</Label>
-                  <Badge variant={account?.status === 'active' ? 'default' : 'secondary'}>
-                    {account?.status === 'active' ? t.active : t.inactive}
+                  <Badge variant={account?.is_active ? 'default' : 'secondary'}>
+                    {account?.is_active ? t.active : t.inactive}
                   </Badge>
                 </div>
-              </div>
-              <Separator />
-              <div className="grid grid-cols-2 gap-4">
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-2xl font-bold">{account?.messages_this_month || 0}</p>
-                  <p className="text-sm text-muted-foreground">{t.messagesThisMonth}</p>
-                </div>
-                <div className="p-4 bg-muted rounded-lg">
-                  <p className="text-2xl font-bold">{account?.active_conversations || 0}</p>
-                  <p className="text-sm text-muted-foreground">{t.conversationsActive}</p>
+                <div>
+                  <Label className="text-muted-foreground">{t.verifiedAt}</Label>
+                  <p className="font-medium">
+                    {account?.verified_at ? new Date(account.verified_at).toLocaleDateString() : '-'}
+                  </p>
                 </div>
               </div>
             </CardContent>
@@ -541,7 +835,195 @@ export default function WhatsAppSettings() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {/* Token Management Tab */}
+        <TabsContent value="token">
+          <Card>
+            <CardHeader>
+              <CardTitle>{t.tokenManagement}</CardTitle>
+              <CardDescription>{t.tokenManagementDescription}</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              {isLoadingToken ? (
+                <div className="flex items-center justify-center h-32">
+                  <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
+                </div>
+              ) : (
+                <>
+                  {/* Token Status Card */}
+                  <div className="border rounded-lg p-4">
+                    <div className="flex items-center justify-between mb-4">
+                      <Label className="text-base font-medium">{t.tokenStatus}</Label>
+                      {tokenStatus?.has_token ? (
+                        tokenStatus.is_revoked ? (
+                          <Badge variant="destructive">
+                            <ShieldOff className="h-3 w-3 mr-1" />
+                            {t.tokenRevoked}
+                          </Badge>
+                        ) : tokenStatus.is_expired ? (
+                          <Badge variant="outline" className="text-orange-600 border-orange-300">
+                            <AlertTriangle className="h-3 w-3 mr-1" />
+                            {t.tokenExpired}
+                          </Badge>
+                        ) : (
+                          <Badge variant="default" className="bg-green-600">
+                            <ShieldCheck className="h-3 w-3 mr-1" />
+                            {t.tokenConnected}
+                          </Badge>
+                        )
+                      ) : (
+                        <Badge variant="secondary">
+                          <AlertCircle className="h-3 w-3 mr-1" />
+                          {t.tokenNotConnected}
+                        </Badge>
+                      )}
+                    </div>
+
+                    {tokenStatus?.has_token && (
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <Label className="text-muted-foreground">{t.tokenPrefix}</Label>
+                          <p className="font-mono bg-muted px-2 py-1 rounded mt-1">
+                            {tokenStatus.token_prefix}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">{t.tokenUsageCount}</Label>
+                          <p className="font-medium mt-1">{tokenStatus.use_count.toLocaleString()}</p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">{t.tokenLastUsed}</Label>
+                          <p className="font-medium mt-1">
+                            {tokenStatus.last_used_at
+                              ? new Date(tokenStatus.last_used_at).toLocaleDateString()
+                              : t.tokenNever}
+                          </p>
+                        </div>
+                        <div>
+                          <Label className="text-muted-foreground">Type</Label>
+                          <p className="font-medium mt-1 capitalize">
+                            {tokenStatus.credential_type?.replace(/_/g, ' ') || '-'}
+                          </p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Actions */}
+                  <div className="flex gap-3">
+                    <Button onClick={() => setTokenDialogOpen(true)}>
+                      <KeyRound className="h-4 w-4 mr-2" />
+                      {tokenStatus?.has_token ? t.updateToken : t.submitToken}
+                    </Button>
+                    {tokenStatus?.has_token && !tokenStatus.is_revoked && (
+                      <>
+                        <Button 
+                          variant="outline" 
+                          onClick={handleValidateToken}
+                          disabled={isValidatingToken}
+                        >
+                          {isValidatingToken ? (
+                            <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                          ) : (
+                            <RefreshCw className="h-4 w-4 mr-2" />
+                          )}
+                          {t.validateToken}
+                        </Button>
+                        <Button 
+                          variant="destructive" 
+                          onClick={() => setRevokeDialogOpen(true)}
+                        >
+                          <ShieldOff className="h-4 w-4 mr-2" />
+                          {t.revokeToken}
+                        </Button>
+                      </>
+                    )}
+                  </div>
+
+                  <Separator />
+
+                  {/* Instructions */}
+                  <div className="bg-muted/50 rounded-lg p-4">
+                    <h4 className="font-medium mb-3">{t.getTokenInstructions}</h4>
+                    <ol className="space-y-2 text-sm text-muted-foreground">
+                      <li>{t.getTokenStep1}</li>
+                      <li>{t.getTokenStep2}</li>
+                      <li>{t.getTokenStep3}</li>
+                      <li>{t.getTokenStep4}</li>
+                      <li>{t.getTokenStep5}</li>
+                    </ol>
+                    <p className="text-sm text-muted-foreground mt-4">
+                      {t.tokenHelp}
+                    </p>
+                  </div>
+                </>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
+
+      {/* Update Token Dialog */}
+      <Dialog open={tokenDialogOpen} onOpenChange={setTokenDialogOpen}>
+        <DialogContent className="max-w-lg">
+          <DialogHeader>
+            <DialogTitle>
+              {tokenStatus?.has_token ? t.updateToken : t.submitToken}
+            </DialogTitle>
+            <DialogDescription>
+              {t.tokenHelp}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div>
+              <Label htmlFor="new-token">System User Token</Label>
+              <Textarea
+                id="new-token"
+                placeholder={t.tokenPlaceholder}
+                value={newToken}
+                onChange={(e) => setNewToken(e.target.value)}
+                className="font-mono text-sm mt-2"
+                rows={4}
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setTokenDialogOpen(false)}>
+              Cancel
+            </Button>
+            <Button
+              onClick={handleSubmitToken}
+              disabled={isSubmittingToken || !newToken.trim()}
+            >
+              {isSubmittingToken && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t.submitToken}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Revoke Token Confirmation */}
+      <AlertDialog open={revokeDialogOpen} onOpenChange={setRevokeDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t.revokeToken}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {t.tokenRevokeConfirm}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-red-600 hover:bg-red-700"
+              onClick={handleRevokeToken}
+              disabled={isRevokingToken}
+            >
+              {isRevokingToken && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
+              {t.revokeToken}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
