@@ -15,6 +15,19 @@ const REFRESH_TOKEN_KEY = 'beautyai_refresh_token';
 const USER_KEY = 'beautyai_user';
 const GUEST_TOKEN_KEY = 'beautyai_guest_token';
 
+export const AUTH_EVENTS = {
+  SESSION_EXPIRED: 'auth:session-expired',
+};
+
+const dispatchSessionExpired = (reason: string): void => {
+  if (typeof window === 'undefined') return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_EVENTS.SESSION_EXPIRED, {
+      detail: { reason },
+    })
+  );
+};
+
 // Types
 export interface User {
   id: number;
@@ -132,16 +145,21 @@ class ApiClient {
     }
 
     // Handle errors
-    let errorDetail = 'An error occurred';
+    let errorDetail: string | object = 'An error occurred';
     try {
       const errorData = await response.json();
+      // Preserve full detail array for 422 validation errors
       errorDetail = errorData.detail || errorData.message || errorDetail;
+      // Debug: log full error response for 422
+      if (response.status === 422) {
+        console.error('[API] 422 Validation Error:', JSON.stringify(errorData, null, 2));
+      }
     } catch {
       errorDetail = response.statusText;
     }
 
     const error: ApiError = {
-      detail: errorDetail,
+      detail: typeof errorDetail === 'string' ? errorDetail : JSON.stringify(errorDetail),
       status: response.status,
     };
 
@@ -220,6 +238,7 @@ class ApiClient {
       }
       // Refresh failed, clear tokens and throw error
       tokenManager.clearTokens();
+      dispatchSessionExpired('refresh_failed');
       // Optional: Dispatch a custom event or let the UI handle the redirect based on cleared tokens
       throw { detail: 'Session expired. Please log in again.', status: 401 };
     }

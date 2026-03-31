@@ -1,0 +1,926 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PersonaPlex - Voice Chat</title>
+    <script src="https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/recorder.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/decoderWorker.min.js"></script>
+    <style>
+        :root {
+            --nvidia-green: #76b900;
+            --nvidia-dark: #1a1a1a;
+        }
+        
+        * { box-sizing: border-box; }
+        
+        body { 
+            font-family: 'Segoe UI', sans-serif; 
+            max-width: 700px; 
+            margin: 0 auto; 
+            padding: 20px; 
+            background: linear-gradient(135deg, #1a1a1a 0%, #2d2d2d 100%);
+            color: #fff;
+            min-height: 100vh;
+        }
+        
+        .container { 
+            background: rgba(255,255,255,0.05); 
+            padding: 25px; 
+            border-radius: 16px; 
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        
+        h1 { 
+            color: var(--nvidia-green); 
+            margin-bottom: 5px;
+            font-size: 1.8em;
+        }
+        
+        .subtitle { color: #888; margin-bottom: 20px; font-size: 0.9em; }
+        
+        .status-bar { 
+            display: flex; 
+            align-items: center;
+            gap: 12px; 
+            padding: 12px 16px; 
+            background: rgba(0,0,0,0.3); 
+            border-radius: 10px; 
+            margin-bottom: 20px;
+        }
+        
+        .status-dot { 
+            width: 12px; height: 12px; border-radius: 50%; 
+            transition: all 0.3s;
+        }
+        .status-dot.disconnected { background: #666; }
+        .status-dot.connecting { background: #fbbc04; animation: pulse 1s infinite; }
+        .status-dot.connected { background: var(--nvidia-green); box-shadow: 0 0 10px var(--nvidia-green); }
+        .status-dot.speaking { background: #9c27b0; animation: pulse 0.5s infinite; }
+        .status-dot.error { background: #ea4335; }
+        
+        @keyframes pulse { 
+            0%, 100% { opacity: 1; transform: scale(1); } 
+            50% { opacity: 0.6; transform: scale(0.9); } 
+        }
+
+        .config-section {
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        
+        .config-section h3 {
+            color: var(--nvidia-green);
+            margin: 0 0 12px 0;
+            font-size: 0.95em;
+            text-transform: uppercase;
+        }
+        
+        .config-row {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 12px;
+        }
+        
+        label { display: block; color: #aaa; font-size: 0.8em; margin-bottom: 4px; }
+        
+        select, textarea {
+            width: 100%;
+            padding: 10px;
+            border-radius: 6px;
+            border: 1px solid rgba(255,255,255,0.2);
+            background: rgba(0,0,0,0.4);
+            color: #fff;
+            font-size: 14px;
+        }
+
+        input[type="range"] {
+            width: 100%;
+        }
+
+        .range-value {
+            color: #ddd;
+            font-weight: 600;
+            margin-left: 6px;
+        }
+        
+        textarea { min-height: 70px; resize: vertical; font-family: inherit; }
+        
+        select:focus, textarea:focus { outline: none; border-color: var(--nvidia-green); }
+
+        .controls { 
+            display: flex; gap: 12px; margin-bottom: 20px; flex-wrap: wrap;
+        }
+        
+        button { 
+            padding: 14px 28px; 
+            border: none; 
+            border-radius: 8px; 
+            cursor: pointer; 
+            font-weight: 600; 
+            font-size: 15px;
+            transition: all 0.2s;
+        }
+        
+        .btn-primary { background: var(--nvidia-green); color: #000; }
+        .btn-primary:hover { background: #8cd000; transform: translateY(-1px); }
+        .btn-primary:disabled { background: #444; color: #888; cursor: not-allowed; }
+        
+        .btn-danger { background: #ea4335; color: white; }
+        .btn-danger:hover { background: #ff5a4d; }
+        
+        .btn-secondary { background: rgba(255,255,255,0.1); color: #fff; border: 1px solid rgba(255,255,255,0.2); }
+        .btn-secondary:hover { background: rgba(255,255,255,0.2); }
+
+        /* Voice Visualization */
+        .voice-viz {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        
+        .voice-channel {
+            flex: 1;
+            background: rgba(0,0,0,0.3);
+            padding: 15px;
+            border-radius: 10px;
+            text-align: center;
+        }
+        
+        .channel-label { font-size: 0.85em; color: #888; margin-bottom: 10px; }
+        
+        .waveform {
+            height: 60px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 3px;
+            overflow: hidden;
+        }
+        
+        .waveform-bar {
+            width: 4px;
+            background: var(--nvidia-green);
+            border-radius: 2px;
+            transition: height 0.05s ease;
+        }
+        
+        .waveform.speaking .waveform-bar { background: #9c27b0; }
+
+        /* Transcript */
+        .transcript {
+            background: rgba(0,0,0,0.4);
+            border-radius: 10px;
+            padding: 15px;
+            min-height: 200px;
+            max-height: 350px;
+            overflow-y: auto;
+            margin-bottom: 20px;
+        }
+        
+        .transcript-item {
+            padding: 8px 12px;
+            margin-bottom: 8px;
+            border-radius: 8px;
+            font-size: 0.95em;
+            line-height: 1.4;
+        }
+        
+        .transcript-item.user {
+            background: rgba(118, 185, 0, 0.2);
+            margin-left: 20%;
+            text-align: right;
+        }
+        
+        .transcript-item.assistant {
+            background: rgba(255,255,255,0.1);
+            margin-right: 20%;
+        }
+        
+        .transcript-item.system {
+            background: rgba(255,255,255,0.05);
+            text-align: center;
+            color: #888;
+            font-size: 0.85em;
+        }
+
+        /* Stats */
+        .stats {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 10px;
+            font-size: 0.85em;
+        }
+        
+        .stat-card {
+            background: rgba(0,0,0,0.3);
+            padding: 12px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        .stat-value { font-size: 1.3em; font-weight: bold; color: var(--nvidia-green); }
+        .stat-label { color: #888; font-size: 0.8em; margin-top: 2px; }
+        
+        .hidden { display: none !important; }
+        
+        /* Scrollbar */
+        .transcript::-webkit-scrollbar { width: 6px; }
+        .transcript::-webkit-scrollbar-track { background: rgba(0,0,0,0.2); border-radius: 3px; }
+        .transcript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🎤 PersonaPlex Voice Chat</h1>
+        <p class="subtitle">Full-duplex conversational AI - speak naturally, interrupt anytime</p>
+        
+        <div class="status-bar">
+            <div id="statusDot" class="status-dot disconnected"></div>
+            <span id="statusText">Not connected</span>
+            <span id="serverInfo" style="margin-left: auto; font-size: 0.85em; color: #666;"></span>
+        </div>
+
+        <!-- Config (shown when disconnected) -->
+        <div class="config-section" id="configSection">
+            <h3>⚙️ Configuration</h3>
+            
+            <div class="config-row">
+                <div>
+                    <label>Voice</label>
+                    <select id="voiceSelect">
+                        <optgroup label="Natural Female">
+                            <option value="NATF2.pt" selected>NATF2 - Best Female</option>
+                            <option value="NATF0.pt">NATF0</option>
+                            <option value="NATF1.pt">NATF1</option>
+                            <option value="NATF3.pt">NATF3</option>
+                        </optgroup>
+                        <optgroup label="Natural Male">
+                            <option value="NATM1.pt">NATM1 - Best Male</option>
+                            <option value="NATM0.pt">NATM0</option>
+                            <option value="NATM2.pt">NATM2</option>
+                            <option value="NATM3.pt">NATM3</option>
+                        </optgroup>
+                        <optgroup label="Variety">
+                            <option value="VARF0.pt">VARF0</option>
+                            <option value="VARF1.pt">VARF1</option>
+                            <option value="VARM0.pt">VARM0</option>
+                            <option value="VARM1.pt">VARM1</option>
+                        </optgroup>
+                    </select>
+                </div>
+                <div>
+                    <label>Preset</label>
+                    <select id="presetSelect" onchange="updatePrompt()">
+                        <option value="assistant">🧑‍🏫 Teacher</option>
+                        <option value="casual">💬 Casual</option>
+                        <option value="playful_gf">💖 Playful Girlfriend</option>
+                        <option value="beauty">💄 Beauty Consultant</option>
+                        <option value="bank">🏦 Bank Agent</option>
+                        <option value="medical">🏥 Medical Office</option>
+                    </select>
+                </div>
+            </div>
+            
+            <div>
+                <label>Text Prompt (Persona)</label>
+                <textarea id="textPrompt">You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.</textarea>
+            </div>
+
+            <div class="config-row" style="margin-top: 12px;">
+                <div>
+                    <label>Text Temperature <span class="range-value" id="textTempVal">0.70</span></label>
+                    <input id="textTemp" type="range" min="0.2" max="1.2" step="0.05" value="0.70" data-target="textTempVal" oninput="updateRange(this)">
+                </div>
+                <div>
+                    <label>Audio Temperature <span class="range-value" id="audioTempVal">0.80</span></label>
+                    <input id="audioTemp" type="range" min="0.2" max="1.2" step="0.05" value="0.80" data-target="audioTempVal" oninput="updateRange(this)">
+                </div>
+            </div>
+
+            <div class="config-row">
+                <div>
+                    <label>Text Top-K <span class="range-value" id="textTopkVal">25</span></label>
+                    <input id="textTopk" type="range" min="5" max="100" step="5" value="25" data-target="textTopkVal" oninput="updateRange(this)">
+                </div>
+                <div>
+                    <label>Audio Top-K <span class="range-value" id="audioTopkVal">250</span></label>
+                    <input id="audioTopk" type="range" min="50" max="500" step="10" value="250" data-target="audioTopkVal" oninput="updateRange(this)">
+                </div>
+            </div>
+        </div>
+
+        <!-- Controls -->
+        <div class="controls">
+            <button id="connectBtn" class="btn-primary" onclick="connect()">
+                🎤 Start Conversation
+            </button>
+            <button id="disconnectBtn" class="btn-danger hidden" onclick="disconnect()">
+                🛑 End Conversation
+            </button>
+        </div>
+
+        <!-- Voice Visualization (shown when connected) -->
+        <div class="voice-viz hidden" id="voiceViz">
+            <div class="voice-channel">
+                <div class="channel-label">👤 You</div>
+                <div class="waveform" id="userWaveform"></div>
+            </div>
+            <div class="voice-channel">
+                <div class="channel-label">🤖 AI</div>
+                <div class="waveform" id="aiWaveform"></div>
+            </div>
+        </div>
+
+        <!-- Transcript -->
+        <div class="transcript" id="transcript">
+            <div class="transcript-item system">Click "Start Conversation" to begin voice chat with PersonaPlex</div>
+        </div>
+
+        <!-- Stats -->
+        <div class="stats">
+            <div class="stat-card">
+                <div class="stat-value" id="latencyStat">-</div>
+                <div class="stat-label">Latency</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="durationStat">0:00</div>
+                <div class="stat-label">Duration</div>
+            </div>
+            <div class="stat-card">
+                <div class="stat-value" id="turnsStat">0</div>
+                <div class="stat-label">Turns</div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ========== State ==========
+        let socket = null;
+        let audioContext = null;
+        let recorder = null;
+        let workletNode = null;
+        let isConnected = false;
+        let startTime = null;
+        let turns = 0;
+        let decoderWorker = null;
+        let decoderReady = false;
+        let handshakeReceived = false;
+        let statsInterval = null;
+        
+        const PRESETS = {
+            assistant: {
+                prompt: "You are a wise and friendly teacher. Answer questions or provide advice in a clear and engaging way.",
+                textTemp: 0.7,
+                audioTemp: 0.8,
+                textTopk: 25,
+                audioTopk: 250
+            },
+            casual: {
+                prompt: "You enjoy having a good conversation.",
+                textTemp: 0.8,
+                audioTemp: 0.85,
+                textTopk: 30,
+                audioTopk: 250
+            },
+            playful_gf: {
+                prompt: "You are Layla, my playful, funny, and affectionate girlfriend. You tease lightly, joke often, and keep the vibe warm and flirty without being intense. You ask curious questions, react with cute banter, and keep the chat lively. You respect boundaries, avoid possessive language, and keep things wholesome and fun.",
+                textTemp: 0.95,
+                audioTemp: 1.0,
+                textTopk: 50,
+                audioTopk: 300
+            },
+            beauty: {
+                prompt: "You are Layla, a friendly beauty consultant at a skincare clinic. Help with skincare advice and product recommendations.",
+                textTemp: 0.75,
+                audioTemp: 0.85,
+                textTopk: 30,
+                audioTopk: 250
+            },
+            bank: {
+                prompt: "You work for First Neuron Bank. Your name is Sanni. Help customers with their banking questions.",
+                textTemp: 0.65,
+                audioTemp: 0.75,
+                textTopk: 20,
+                audioTopk: 220
+            },
+            medical: {
+                prompt: "You work for Dr. Jones's medical office, receiving calls to record information for new patients.",
+                textTemp: 0.65,
+                audioTemp: 0.75,
+                textTopk: 20,
+                audioTopk: 220
+            }
+        };
+
+        function encodeMessage(message) {
+            switch (message.type) {
+                case 'handshake':
+                    return new Uint8Array([0x00, 0x00, 0x00]);
+                case 'audio':
+                    return new Uint8Array([0x01, ...message.data]);
+                case 'text':
+                    return new Uint8Array([0x02, ...new TextEncoder().encode(message.data)]);
+                case 'control':
+                    return new Uint8Array([0x03, message.action]);
+                case 'metadata':
+                    return new Uint8Array([0x04, ...new TextEncoder().encode(JSON.stringify(message.data))]);
+                case 'error':
+                    return new Uint8Array([0x05, ...new TextEncoder().encode(message.data)]);
+                case 'ping':
+                    return new Uint8Array([0x06]);
+                default:
+                    return new Uint8Array([]);
+            }
+        }
+
+        function decodeMessage(data) {
+            const type = data[0];
+            const payload = data.slice(1);
+            switch (type) {
+                case 0x00:
+                    return { type: 'handshake' };
+                case 0x01:
+                    return { type: 'audio', data: payload };
+                case 0x02:
+                    return { type: 'text', data: new TextDecoder().decode(payload) };
+                case 0x03:
+                    return { type: 'control', data: payload[0] };
+                case 0x04:
+                    return { type: 'metadata', data: JSON.parse(new TextDecoder().decode(payload)) };
+                case 0x05:
+                    return { type: 'error', data: new TextDecoder().decode(payload) };
+                case 0x06:
+                    return { type: 'ping' };
+                default:
+                    return { type: 'unknown', data: payload };
+            }
+        }
+
+        function createWarmupBosPage() {
+            const opusHead = new Uint8Array([
+                0x4F, 0x70, 0x75, 0x73, 0x48, 0x65, 0x61, 0x64,
+                0x01,
+                0x01,
+                0x38, 0x01,
+                0x80, 0xBB, 0x00, 0x00,
+                0x00, 0x00,
+                0x00,
+            ]);
+
+            const pageHeader = new Uint8Array([
+                0x4F, 0x67, 0x67, 0x53,
+                0x00,
+                0x02,
+                0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+                0x01, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x00, 0x00, 0x00, 0x00,
+                0x01,
+                0x13,
+            ]);
+
+            const bosPage = new Uint8Array(pageHeader.length + opusHead.length);
+            bosPage.set(pageHeader, 0);
+            bosPage.set(opusHead, pageHeader.length);
+            return bosPage;
+        }
+
+        function initDecoderWorker(worker, sampleRate) {
+            return new Promise((resolve) => {
+                worker.postMessage({
+                    command: 'init',
+                    bufferLength: Math.round(960 * sampleRate / 24000),
+                    decoderSampleRate: 24000,
+                    outputBufferSampleRate: sampleRate,
+                    resampleQuality: 0,
+                });
+
+                setTimeout(() => {
+                    worker.postMessage({
+                        command: 'decode',
+                        pages: createWarmupBosPage(),
+                    });
+                }, 100);
+
+                setTimeout(resolve, 1000);
+            });
+        }
+
+        async function setupDecoderWorker(sampleRate) {
+            if (decoderWorker) {
+                return;
+            }
+            decoderWorker = new Worker('/api/v1/personaplex/assets/decoderWorker.min.js');
+            decoderWorker.onmessage = (event) => {
+                if (!event.data || !event.data[0]) {
+                    return;
+                }
+                workletNode.port.postMessage({ type: 'audio', frame: event.data[0] });
+            };
+            decoderWorker.onerror = (event) => {
+                console.error('Decoder worker error:', event.message);
+                addTranscript('system', '❌ Audio decoder error.');
+            };
+            await initDecoderWorker(decoderWorker, sampleRate);
+            decoderReady = true;
+            tryStartConversation();
+        }
+        
+        // ========== UI Updates ==========
+        function updateRange(el) {
+            const targetId = el.dataset.target;
+            const target = document.getElementById(targetId);
+            if (!target) return;
+            const value = parseFloat(el.value);
+            if (el.id.includes('Temp')) {
+                target.textContent = value.toFixed(2);
+            } else {
+                target.textContent = String(Math.round(value));
+            }
+        }
+
+        function setRangeValue(id, value) {
+            const el = document.getElementById(id);
+            if (!el) return;
+            el.value = value;
+            updateRange(el);
+        }
+
+        function updatePrompt() {
+            const presetKey = document.getElementById('presetSelect').value;
+            const preset = PRESETS[presetKey] || PRESETS.assistant;
+            document.getElementById('textPrompt').value = preset.prompt;
+            setRangeValue('textTemp', preset.textTemp);
+            setRangeValue('audioTemp', preset.audioTemp);
+            setRangeValue('textTopk', preset.textTopk);
+            setRangeValue('audioTopk', preset.audioTopk);
+        }
+
+        async function tryStartConversation() {
+            if (isConnected || !handshakeReceived || !decoderReady) {
+                return;
+            }
+            isConnected = true;
+            startTime = Date.now();
+            turns = 0;
+
+            setStatus('connected', 'Connected - Speak now!');
+            addTranscript('system', '🎤 Connected! Start speaking...');
+
+            document.getElementById('configSection').classList.add('hidden');
+            document.getElementById('voiceViz').classList.remove('hidden');
+            document.getElementById('connectBtn').classList.add('hidden');
+            document.getElementById('disconnectBtn').classList.remove('hidden');
+
+            initWaveforms();
+            await startRecording();
+
+            if (statsInterval) {
+                clearInterval(statsInterval);
+            }
+            statsInterval = setInterval(updateStats, 1000);
+        }
+        
+        function setStatus(status, text) {
+            const dot = document.getElementById('statusDot');
+            dot.className = 'status-dot ' + status;
+            document.getElementById('statusText').textContent = text;
+        }
+        
+        function addTranscript(role, text) {
+            const transcript = document.getElementById('transcript');
+            const item = document.createElement('div');
+            item.className = 'transcript-item ' + role;
+            item.textContent = text;
+            transcript.appendChild(item);
+            transcript.scrollTop = transcript.scrollHeight;
+        }
+        
+        function updateStats() {
+            if (startTime) {
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const mins = Math.floor(elapsed / 60);
+                const secs = elapsed % 60;
+                document.getElementById('durationStat').textContent = `${mins}:${secs.toString().padStart(2, '0')}`;
+            }
+            document.getElementById('turnsStat').textContent = turns;
+        }
+        
+        // Create waveform bars
+        function initWaveforms() {
+            ['userWaveform', 'aiWaveform'].forEach(id => {
+                const wf = document.getElementById(id);
+                wf.innerHTML = '';
+                for (let i = 0; i < 20; i++) {
+                    const bar = document.createElement('div');
+                    bar.className = 'waveform-bar';
+                    bar.style.height = '4px';
+                    wf.appendChild(bar);
+                }
+            });
+        }
+        
+        function updateWaveform(id, levels) {
+            const wf = document.getElementById(id);
+            const bars = wf.querySelectorAll('.waveform-bar');
+            bars.forEach((bar, i) => {
+                const level = levels[i % levels.length] || 0;
+                bar.style.height = Math.max(4, level * 50) + 'px';
+            });
+        }
+
+        // ========== Audio Worklet Processor (inline) ==========
+        const processorCode = `
+            class MoshiProcessor extends AudioWorkletProcessor {
+                constructor() {
+                    super();
+                    this.buffer = [];
+                    this.bufferIndex = 0;
+                    this.playing = false;
+                    
+                    this.port.onmessage = (e) => {
+                        if (e.data.type === 'audio') {
+                            const frame = e.data.frame;
+                            if (frame && frame.length) {
+                                for (let i = 0; i < frame.length; i++) {
+                                    this.buffer.push(frame[i]);
+                                }
+                                if (this.buffer.length > 4800 && !this.playing) {
+                                    this.playing = true;
+                                }
+                            }
+                        } else if (e.data.type === 'reset') {
+                            this.buffer = [];
+                            this.bufferIndex = 0;
+                            this.playing = false;
+                        }
+                    };
+                }
+                
+                process(inputs, outputs, parameters) {
+                    const output = outputs[0][0];
+                    if (!output) return true;
+                    
+                    if (this.playing && this.buffer.length > 0) {
+                        for (let i = 0; i < output.length; i++) {
+                            if (this.buffer.length > 0) {
+                                output[i] = this.buffer.shift();
+                            } else {
+                                output[i] = 0;
+                            }
+                        }
+                        this.port.postMessage({ type: 'playing', bufferSize: this.buffer.length });
+                    } else {
+                        output.fill(0);
+                    }
+                    
+                    return true;
+                }
+            }
+            registerProcessor('moshi-processor', MoshiProcessor);
+        `;
+
+        // ========== Opus Decoder Worker ==========
+        function initDecoder() {
+            // We'll use the browser's built-in decoding via MediaSource or manual decoding
+            // For simplicity, PersonaPlex sends raw PCM in Float32 after Opus decode on server
+            // Actually, PersonaPlex sends Opus-encoded frames that need decoding
+            
+            // Create an offline decoder using AudioContext.decodeAudioData
+            // But that's async and slow. Let's use a simpler approach:
+            // PersonaPlex's audio-processor.ts expects raw Float32 samples
+            // The server sends Opus OGG packets via WebSocket binary messages
+        }
+
+        // ========== Connection ==========
+        async function connect() {
+            const host = window.location.hostname;
+            const port = 8998;
+            const voice = document.getElementById('voiceSelect').value;
+            const textPrompt = document.getElementById('textPrompt').value;
+            const textTemp = document.getElementById('textTemp').value;
+            const audioTemp = document.getElementById('audioTemp').value;
+            const textTopk = Math.round(Number(document.getElementById('textTopk').value));
+            const audioTopk = Math.round(Number(document.getElementById('audioTopk').value));
+            
+            // Build WebSocket URL with params
+            const wsUrl = new URL(`wss://${host}:${port}/api/chat`);
+            wsUrl.searchParams.set('text_prompt', textPrompt);
+            wsUrl.searchParams.set('voice_prompt', voice);
+            wsUrl.searchParams.set('text_temperature', String(textTemp));
+            wsUrl.searchParams.set('text_topk', String(textTopk));
+            wsUrl.searchParams.set('audio_temperature', String(audioTemp));
+            wsUrl.searchParams.set('audio_topk', String(audioTopk));
+            wsUrl.searchParams.set('pad_mult', '1');
+            wsUrl.searchParams.set('repetition_penalty', '1.1');
+            wsUrl.searchParams.set('repetition_penalty_context', '64');
+            wsUrl.searchParams.set('text_seed', String(Math.floor(Math.random() * 1000000)));
+            wsUrl.searchParams.set('audio_seed', String(Math.floor(Math.random() * 1000000)));
+            
+            setStatus('connecting', 'Connecting...');
+            addTranscript('system', 'Connecting to PersonaPlex...');
+            handshakeReceived = false;
+            decoderReady = false;
+            
+            try {
+                // Initialize audio context
+                audioContext = new AudioContext({ sampleRate: 48000 });
+                await audioContext.resume();
+                
+                // Register worklet processor
+                const blob = new Blob([processorCode], { type: 'application/javascript' });
+                const url = URL.createObjectURL(blob);
+                await audioContext.audioWorklet.addModule(url);
+                URL.revokeObjectURL(url);
+                
+                // Create worklet node
+                workletNode = new AudioWorkletNode(audioContext, 'moshi-processor');
+                workletNode.connect(audioContext.destination);
+                
+                workletNode.port.onmessage = (e) => {
+                    if (e.data.type === 'playing') {
+                        // Update AI waveform based on buffer activity
+                        const level = Math.min(1, e.data.bufferSize / 4800);
+                        updateWaveform('aiWaveform', Array(20).fill(level * Math.random()));
+                    }
+                };
+                
+                await setupDecoderWorker(audioContext.sampleRate);
+
+                // Connect WebSocket
+                socket = new WebSocket(wsUrl.toString());
+                socket.binaryType = 'arraybuffer';
+                
+                socket.onopen = () => {
+                    setStatus('connecting', 'Waiting for handshake...');
+                    addTranscript('system', '🔗 Socket open. Waiting for handshake...');
+                };
+                
+                socket.onmessage = (event) => {
+                    const dataArray = new Uint8Array(event.data);
+                    const message = decodeMessage(dataArray);
+                    if (message.type === 'handshake') {
+                        handshakeReceived = true;
+                        setStatus('connecting', 'Handshake received...');
+                        tryStartConversation();
+                        return;
+                    }
+                    if (message.type === 'text') {
+                        addTranscript('assistant', message.data);
+                        turns++;
+                        return;
+                    }
+                    if (message.type === 'audio') {
+                        handleAudioData(message.data);
+                        return;
+                    }
+                    if (message.type === 'error') {
+                        addTranscript('system', '❌ ' + message.data);
+                        return;
+                    }
+                };
+                
+                socket.onclose = () => {
+                    disconnect();
+                };
+                
+                socket.onerror = (e) => {
+                    console.error('WebSocket error:', e);
+                    setStatus('error', 'Connection error');
+                    addTranscript('system', '❌ Connection error. Make sure PersonaPlex server is running.');
+                };
+                
+            } catch (e) {
+                console.error('Connection failed:', e);
+                setStatus('error', 'Failed to connect');
+                addTranscript('system', '❌ Failed: ' + e.message);
+            }
+        }
+        
+        async function startRecording() {
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ 
+                    audio: {
+                        sampleRate: 24000,
+                        channelCount: 1,
+                        echoCancellation: true,
+                        noiseSuppression: true
+                    } 
+                });
+                
+                // Use opus-recorder if available, otherwise MediaRecorder
+                if (typeof Recorder !== 'undefined') {
+                    recorder = new Recorder({
+                        encoderPath: 'https://cdn.jsdelivr.net/npm/opus-recorder@8.0.5/dist/encoderWorker.min.js',
+                        encoderSampleRate: 24000,
+                        encoderFrameSize: 20,
+                        maxFramesPerPage: 2,
+                        numberOfChannels: 1,
+                        streamPages: true,
+                        mediaTrackConstraints: { audio: true }
+                    });
+                    
+                    recorder.ondataavailable = (data) => {
+                        if (socket && socket.readyState === WebSocket.OPEN && data) {
+                            const payload = data instanceof Uint8Array ? data : new Uint8Array(data);
+                            socket.send(encodeMessage({ type: 'audio', data: payload }));
+                        }
+                        // Update user waveform
+                        updateWaveform('userWaveform', Array(20).fill().map(() => Math.random() * 0.5 + 0.2));
+                    };
+                    
+                    await recorder.start();
+                } else {
+                    // Fallback: use MediaRecorder with webm/opus
+                    recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' });
+                    recorder.ondataavailable = async (e) => {
+                        if (e.data.size > 0 && socket && socket.readyState === WebSocket.OPEN) {
+                            const buffer = await e.data.arrayBuffer();
+                            const payload = new Uint8Array(buffer);
+                            socket.send(encodeMessage({ type: 'audio', data: payload }));
+                        }
+                    };
+                    recorder.start(40); // 40ms chunks
+                }
+                
+                addTranscript('system', '🎤 Microphone active');
+                
+            } catch (e) {
+                console.error('Mic access failed:', e);
+                addTranscript('system', '❌ Microphone access denied. Please allow microphone access.');
+                setStatus('error', 'Mic access denied');
+            }
+        }
+        
+        function handleAudioData(payload) {
+            if (!decoderWorker) {
+                return;
+            }
+            const data = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+            decoderWorker.postMessage(
+                {
+                    command: 'decode',
+                    pages: data,
+                },
+                [data.buffer]
+            );
+        }
+        
+        function disconnect() {
+            isConnected = false;
+            handshakeReceived = false;
+            decoderReady = false;
+            if (statsInterval) {
+                clearInterval(statsInterval);
+                statsInterval = null;
+            }
+            
+            if (recorder) {
+                try { recorder.stop(); } catch (e) {}
+                recorder = null;
+            }
+            
+            if (socket) {
+                socket.close();
+                socket = null;
+            }
+
+            if (decoderWorker) {
+                decoderWorker.terminate();
+                decoderWorker = null;
+            }
+            
+            if (workletNode) {
+                workletNode.disconnect();
+                workletNode = null;
+            }
+            
+            if (audioContext) {
+                audioContext.close();
+                audioContext = null;
+            }
+            
+            setStatus('disconnected', 'Disconnected');
+            addTranscript('system', '👋 Conversation ended');
+            
+            // Reset UI
+            document.getElementById('configSection').classList.remove('hidden');
+            document.getElementById('voiceViz').classList.add('hidden');
+            document.getElementById('connectBtn').classList.remove('hidden');
+            document.getElementById('disconnectBtn').classList.add('hidden');
+        }
+        
+        // Init on load
+        window.onload = () => {
+            initWaveforms();
+            updatePrompt();
+        };
+    </script>
+</body>
+</html>

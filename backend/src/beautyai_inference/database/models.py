@@ -324,15 +324,106 @@ class Customer(Base):
     # Relationships
     user: Mapped[Optional["User"]] = relationship("User", back_populates="customers")
     whatsapp_accounts: Mapped[List["WhatsAppAccount"]] = relationship("WhatsAppAccount", back_populates="customer", lazy="selectin")
+    meta_credentials: Mapped[List["MetaCredential"]] = relationship("MetaCredential", back_populates="customer", lazy="selectin")
     agent_config: Mapped[Optional["AgentConfig"]] = relationship("AgentConfig", back_populates="customer", uselist=False, lazy="selectin")
     subscription: Mapped[Optional["Subscription"]] = relationship("Subscription", back_populates="customer", uselist=False, lazy="selectin")
     knowledge_bases: Mapped[List["KnowledgeBase"]] = relationship("KnowledgeBase", back_populates="customer", lazy="selectin")
     widget_tokens: Mapped[List["WidgetToken"]] = relationship("WidgetToken", back_populates="customer", lazy="selectin")
     usage_events: Mapped[List["UsageEvent"]] = relationship("UsageEvent", back_populates="customer", lazy="noload")
     webchat_sessions: Mapped[List["WebChatSession"]] = relationship("WebChatSession", back_populates="customer", lazy="noload")
+    audit_logs: Mapped[List["AuditLog"]] = relationship("AuditLog", back_populates="customer", lazy="noload")
     
     def __repr__(self) -> str:
         return f"<Customer(id={self.id}, name='{self.name}')>"
+
+
+class CredentialType(enum.Enum):
+    """Types of Meta API credentials."""
+    USER_TOKEN = "user_token"           # User access token from OAuth flow
+    SYSTEM_USER_TOKEN = "system_user_token"  # System user token (long-lived)
+    PAGE_TOKEN = "page_token"           # Page access token
+
+
+class MetaCredential(Base):
+    """
+    Encrypted storage for Meta API tokens.
+    
+    Provides secure, encrypted storage for sensitive Meta API credentials
+    with support for key rotation via versioning.
+    
+    Security features:
+    - Encrypted at rest using Fernet (AES-128-CBC + HMAC-SHA256)
+    - Key version tracking for rotation support
+    - Audit logging on access (via MetaCredentialService)
+    """
+    __tablename__ = "meta_credentials"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    customer_id: Mapped[int] = mapped_column(Integer, ForeignKey("customers.id", ondelete="CASCADE"), nullable=False, index=True)
+    
+    # Credential type
+    credential_type: Mapped[CredentialType] = mapped_column(
+        StringEnumType(CredentialType, name='credentialtype'),
+        default=CredentialType.USER_TOKEN
+    )
+    
+    # Encrypted token value (binary blob)
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    encryption_key_version: Mapped[int] = mapped_column(Integer, default=1)
+
+    # Ownership
+    created_by_user_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    
+    # Token metadata
+    scopes: Mapped[Optional[List[str]]] = mapped_column(ARRAY(String(100)), nullable=True)
+    expires_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    
+    # Usage tracking
+    last_used_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
+    use_count: Mapped[int] = mapped_column(Integer, default=0)
+    
+    # Status
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+    
+    __table_args__ = (
+        Index('ix_meta_credentials_customer_type', 'customer_id', 'credential_type'),
+    )
+    
+    # Relationships
+    customer: Mapped["Customer"] = relationship("Customer", back_populates="meta_credentials")
+    whatsapp_accounts: Mapped[List["WhatsAppAccount"]] = relationship("WhatsAppAccount", back_populates="credential", lazy="selectin")
+    created_by_user: Mapped[Optional["User"]] = relationship(
+        "User",
+        foreign_keys=[created_by_user_id],
+        lazy="selectin",
+    )
+    
+    def is_expired(self) -> bool:
+        """Check if token has expired."""
+        if not self.expires_at:
+            return False
+        return datetime.now(timezone.utc).replace(tzinfo=None) > self.expires_at
+    
+    def is_valid(self) -> bool:
+        """Check if credential is valid for use."""
+        return self.is_active and not self.is_expired()
+    
+    def record_use(self) -> None:
+        """Record that the credential was used."""
+        self.last_used_at = datetime.now(timezone.utc).replace(tzinfo=None)
+        self.use_count += 1
+    
+    def __repr__(self) -> str:
+        return f"<MetaCredential(id={self.id}, type={self.credential_type.value}, active={self.is_active})>"
 
 
 class WhatsAppAccount(Base):
@@ -350,8 +441,13 @@ class WhatsAppAccount(Base):
     phone_number_id: Mapped[str] = mapped_column(String(100), nullable=False, index=True)
     waba_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # WhatsApp Business Account ID
     
-    # Credentials
-    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    # Credentials - NEW: Reference to encrypted credential vault
+    credential_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("meta_credentials.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # DEPRECATED: Direct access_token storage (will be removed after full migration)
+    # Use MetaCredentialService.get_token(credential_id) instead
+    # Now nullable to support encrypted-only storage
+    access_token: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     # Display info
     display_name: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
@@ -365,6 +461,7 @@ class WhatsAppAccount(Base):
     
     # Relationships
     customer: Mapped["Customer"] = relationship("Customer", back_populates="whatsapp_accounts")
+    credential: Mapped[Optional["MetaCredential"]] = relationship("MetaCredential", back_populates="whatsapp_accounts", lazy="selectin")
     conversations: Mapped[List["Conversation"]] = relationship("Conversation", back_populates="whatsapp_account", lazy="selectin")
     
     def __repr__(self) -> str:
@@ -428,6 +525,20 @@ class AgentConfig(Base):
     # Wizard completion tracking
     wizard_completed: Mapped[bool] = mapped_column(Boolean, default=False)
     wizard_current_step: Mapped[int] = mapped_column(Integer, default=1)
+    
+    # WhatsApp settings page fields (AI response behavior)
+    max_response_length: Mapped[int] = mapped_column(Integer, default=500)
+    response_delay_seconds: Mapped[int] = mapped_column(Integer, default=2)
+    
+    # Notification settings
+    email_notifications: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_new_conversation: Mapped[bool] = mapped_column(Boolean, default=True)
+    notify_on_inactivity: Mapped[bool] = mapped_column(Boolean, default=False)
+    inactivity_threshold_minutes: Mapped[int] = mapped_column(Integer, default=30)
+    
+    # Business hours settings
+    business_hours_enabled: Mapped[bool] = mapped_column(Boolean, default=False)
+    outside_hours_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
     
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
@@ -1422,6 +1533,60 @@ class OTPVerificationLog(Base):
 
     def __repr__(self) -> str:
         return f"<OTPVerificationLog(id={self.id}, user_id={self.user_id}, action='{self.action}', success={self.success})>"
+
+
+class AuditLog(Base):
+    """
+    Security and compliance audit trail.
+    
+    Tracks sensitive operations for security auditing and compliance:
+    - Credential access/creation/revocation
+    - Authentication events
+    - Configuration changes
+    - Data exports
+    
+    Example actions:
+    - "credential.accessed" - Token was decrypted and used
+    - "credential.created" - New credential stored
+    - "credential.revoked" - Credential deactivated
+    - "whatsapp.account.connected" - New WABA connected
+    - "auth.login.success" / "auth.login.failed"
+    """
+    __tablename__ = "audit_logs"
+    
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    
+    # Context (both nullable for system-level events)
+    customer_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("customers.id", ondelete="SET NULL"), nullable=True, index=True)
+    user_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("users.id", ondelete="SET NULL"), nullable=True, index=True)
+    
+    # Event details
+    action: Mapped[str] = mapped_column(String(100), nullable=False, index=True)  # e.g., "credential.accessed"
+    resource_type: Mapped[str] = mapped_column(String(100), nullable=False)       # e.g., "meta_credential"
+    resource_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True) # e.g., "123"
+    
+    # Additional context
+    details: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)          # Extra event data (renamed from 'metadata' - reserved in SQLAlchemy)
+    
+    # Request context
+    ip_address: Mapped[Optional[str]] = mapped_column(String(45), nullable=True)   # IPv6 compatible
+    user_agent: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    request_id: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)  # For request correlation
+    
+    # Timestamps
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), index=True)
+    
+    __table_args__ = (
+        Index('ix_audit_logs_customer_created', 'customer_id', 'created_at'),
+        Index('ix_audit_logs_action_created', 'action', 'created_at'),
+    )
+    
+    # Relationships
+    customer: Mapped[Optional["Customer"]] = relationship("Customer", back_populates="audit_logs")
+    user: Mapped[Optional["User"]] = relationship("User")
+    
+    def __repr__(self) -> str:
+        return f"<AuditLog(id={self.id}, action='{self.action}', resource={self.resource_type}/{self.resource_id})>"
 
 
 # ============================================================================
