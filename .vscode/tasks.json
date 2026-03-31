@@ -1,0 +1,422 @@
+// Enhanced VS Code tasks for BeautyAI with icons and improved functionality
+// - Added Unicode icons for better visual identification
+// - Enhanced monitoring and analysis capabilities
+// - Fixed background task handling issues
+// NOTE: Comments are allowed in VS Code tasks.json
+{
+    "version": "2.0.0",
+    "tasks": [
+        // =============================
+        // 🚀 SERVICE MANAGEMENT - API
+        // =============================
+        {
+            "label": "🚀 Service: API - Start",
+            "type": "shell",
+            "command": "sudo systemctl start beautyai-api.service",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🛑 Service: API - Stop",
+            "type": "shell",
+            "command": "sudo systemctl stop beautyai-api.service || true",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📊 Service: API - Status",
+            "type": "shell",
+            "command": "sudo systemctl status beautyai-api.service --no-pager -l",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📝 Service: API - Journal (Follow)",
+            "type": "shell",
+            "command": "bash -c 'cd /home/lumi/beautyai && sudo journalctl -u beautyai-api.service -f --since=now 2>&1 | tee reports/logs/journal_backend_service.log'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated",
+                "clear": true,
+                "focus": false,
+                "close": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📝 Service: PABX - Journal (Follow)",
+            "type": "shell",
+            "command": "bash -c 'cd /home/lumi/beautyai && sudo journalctl -u pabx-backend -f --since=now 2>&1 | tee pabx/logs/system/journal_pabx_backend.log'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated",
+                "clear": true,
+                "focus": false,
+                "close": false
+            },
+            "problemMatcher": []
+        },
+
+        // =============================
+        // 🌐 SERVICE MANAGEMENT - WEBUI
+        // =============================
+        {
+            "label": "🚀 Service: WebUI - Start",
+            "type": "shell",
+            "command": "sudo systemctl start beautyai-webui.service",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🛑 Service: WebUI - Stop",
+            "type": "shell",
+            "command": "sudo systemctl stop beautyai-webui.service || true",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📊 Service: WebUI - Status",
+            "type": "shell",
+            "command": "sudo systemctl status beautyai-webui.service --no-pager -l",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+
+        // =============================
+        // 🔧 DEV DIRECT RUN MODE
+        // =============================
+        {
+            "label": "🔥 Dev: Run API (direct uvicorn script)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && export VOICE_STREAMING_ENABLED=1 VOICE_STREAMING_PHASE4=1 VOICE_LANGGRAPH_ENABLED=1 && python backend/run_server.py",
+            "group": { "kind": "build", "isDefault": true },
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated", 
+                "clear": true,
+                "focus": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "🔪 Dev: Kill Direct API Processes",
+            "type": "shell",
+            "command": "pkill -f 'python backend/run_server.py' || echo 'No API processes found to kill'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🔬 Dev: Run API (MINIMAL MODE - 16kHz)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && export VOICE_STREAMING_ENABLED=1 VOICE_STREAMING_PHASE4=1 VOICE_MINIMAL_MODE=1 && python backend/run_server.py",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated", 
+                "clear": true,
+                "focus": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "📋 Dev: Tail Uvicorn Live (Direct Mode)",
+            "type": "shell",
+            "command": "timeout 300 tail -n 100 -f backend/uvicorn.log || echo 'Log tail stopped after 5 minutes'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🧹 Dev: Clear Uvicorn Log File",
+            "type": "shell",
+            "command": "> backend/uvicorn.log && echo 'Uvicorn log file cleared'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+
+        // =============================
+        // 🧪 STREAMING TESTS
+        // =============================
+        {
+            "label": "🧪 Test: Streaming - Single PCM (Q1 Arabic)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && python tests/streaming/ws_replay_pcm.py --file voice_tests/input_test_questions/pcm/q1.pcm --language ar --fast",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "🧪 Test: Streaming - Pytest Suite",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && pytest -v tests/streaming/",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": [
+                "$python",
+                {
+                    "owner": "pytest",
+                    "pattern": {
+                        "regexp": "^(.*):(\\d+): (.*)$",
+                        "file": 1,
+                        "line": 2,
+                        "message": 3
+                    }
+                }
+            ]
+        },
+
+        // =============================
+        // 🔍 ENHANCED MONITORING & ANALYSIS
+        // =============================
+        {
+            "label": "🔍 Monitor: Service Analysis (Quick)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && python3 tools/service_analyzer.py --summary",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true,
+                "focus": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "🔍 Monitor: Service Analysis (Detailed)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && python3 tools/service_analyzer.py --analyze --lines 500",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "📋 Monitor: Capture Service Logs",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && python3 tools/capture_service_logs.py --lines 300 --status",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": "$python"
+        },
+        {
+            "label": "📺 Monitor: Follow Logs (5min timeout)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && timeout 300 python3 tools/capture_service_logs.py --follow || echo 'Log follow stopped after 5 minutes'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+
+        // =============================
+        // 🛠️ UTILITY TASKS
+        // =============================
+        {
+            "label": "🧹 Utility: Clear All Logs",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && rm -f logs/service/*.log logs/service/*.json backend/uvicorn.log && echo 'All logs cleared'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🧹 Utility: Clear logs/ Directory (Keep Empty JSONL)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && find logs -type f -name '*.log' -delete && find logs -type f -name '*.jsonl' -exec truncate -s 0 {} \\; && echo '✅ logs/ cleared: .log files deleted, .jsonl files emptied'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always",
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "📊 Utility: Show Log Files",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && echo '=== Service Logs ===' && ls -la logs/service/ 2>/dev/null || echo 'No service logs found' && echo '=== Backend Logs ===' && ls -la backend/uvicorn.log backend/logs/ 2>/dev/null || echo 'No backend logs found'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🔄 Utility: Restart API Service",
+            "type": "shell",
+            "command": "sudo systemctl stop beautyai-api.service || true && sleep 2 && sudo systemctl start beautyai-api.service && echo 'API service restarted'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🔄 Utility: Restart WebUI Service",
+            "type": "shell",
+            "command": "sudo systemctl stop beautyai-webui.service || true && sleep 2 && sudo systemctl start beautyai-webui.service && echo 'WebUI service restarted'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+
+        {
+            "label": "🗑️ Remove the audio files",
+            "type": "shell",
+            "command": "rm -f backend/logs/webrtc/debug_captures/* backend/logs/webrtc/vad_debug/* && echo 'Audio files removed'",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+
+        },
+
+        // =============================
+        // 🤖 PERSONAPLEX FULL-DUPLEX S2S
+        // =============================
+        {
+            "label": "🤖 PersonaPlex: Unload Models (Free VRAM)",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && curl -X POST http://localhost:8000/api/v1/admin/unload-all-models -s | python -m json.tool",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🤖 PersonaPlex: Start Server",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && curl -X POST http://localhost:8000/api/v1/personaplex/start -H 'Content-Type: application/json' -d '{\"voice_prompt\": \"NATF2\", \"cpu_offload\": true}' -s | python -m json.tool",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🤖 PersonaPlex: Stop Server",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && curl -X POST http://localhost:8000/api/v1/personaplex/stop -s | python -m json.tool",
+            "group": "build",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🤖 PersonaPlex: Check Status",
+            "type": "shell",
+            "command": "cd /home/lumi/beautyai && source backend/venv/bin/activate && curl http://localhost:8000/api/v1/personaplex/status -s | python -m json.tool",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🤖 PersonaPlex: Open WebUI",
+            "type": "shell",
+            "command": "xdg-open http://localhost:8000/test_personaplex.html 2>/dev/null || echo 'Open http://localhost:8000/test_personaplex.html in your browser'",
+            "group": "test",
+            "presentation": { 
+                "reveal": "silent",
+                "showReuseMessage": false
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "🧠 PersonaPlex: GPU Memory Status",
+            "type": "shell",
+            "command": "nvidia-smi --query-gpu=name,memory.used,memory.total,memory.free,utilization.gpu --format=csv",
+            "group": "test",
+            "presentation": { 
+                "reveal": "always", 
+                "panel": "shared",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+
+    ]
+}

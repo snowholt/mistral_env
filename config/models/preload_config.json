@@ -67,6 +67,27 @@
       "enabled": false,
       "description": "ResembleAI Chatterbox Multilingual - 23 languages, zero-shot voice cloning (~4GB VRAM). Set enabled=true to load on startup.",
       "note": "Alternative GPU TTS engine. Enable this and set language_routing to use for ar/en."
+    },
+    "personaplex": {
+      "model_id": "personaplex-7b",
+      "model_source": "nvidia/PersonaPlex",
+      "device": "cuda",
+      "priority": 99,
+      "engine_type": "personaplex",
+      "server_port": 8998,
+      "cpu_offload": true,
+      "enabled": false,
+      "voice_prompt": "NATF2",
+      "text_prompt": "assistant",
+      "target_latency_ms": 500,
+      "description": "NVIDIA PersonaPlex 7B - Full-duplex speech-to-speech model with natural turn-taking (~14GB VRAM, ~9GB with cpu_offload). Runs as subprocess, not in-process.",
+      "note": "PersonaPlex requires exclusive GPU. Use /api/v1/personaplex/start endpoint to launch subprocess. Set cpu_offload=true for GPUs with <14GB VRAM.",
+      "requirements": {
+        "min_vram_gb": 9,
+        "recommended_vram_gb": 14,
+        "hf_token_required": true,
+        "ssl_certs_required": true
+      }
     }
   },
   "language_routing": {

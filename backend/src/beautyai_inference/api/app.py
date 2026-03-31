@@ -273,6 +273,14 @@ if tts_router_available:
 else:
     logger.warning("TTS test endpoints not registered - module not available")
 
+# Include PersonaPlex full-duplex S2S router
+try:
+    from .endpoints.personaplex_voice import personaplex_router
+    app.include_router(personaplex_router, tags=["personaplex"])
+    logger.info("✅ PersonaPlex endpoints registered at /api/v1/personaplex/*")
+except ImportError as e:
+    logger.warning(f"PersonaPlex router not available: {e}")
+
 # Include Auth router (moved from /api/v1/whatsapp/auth to /api/v1/auth for clarity)
 if whatsapp_routers_available:
     app.include_router(auth_router, tags=["auth"])
@@ -442,6 +450,7 @@ async def serve_lean_capture_test_page():
 
 
 @app.get("/test_lean.html", response_class=HTMLResponse)
+@app.get("/api/test_lean.html", response_class=HTMLResponse)
 async def serve_lean_test_page():
     """Serve the lean WebRTC test page."""
     try:
@@ -459,6 +468,50 @@ async def serve_lean_test_page():
         raise HTTPException(status_code=404, detail="Lean test page not found")
     except Exception as e:
         logger.error(f"Error serving lean test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/test_personaplex.html", response_class=HTMLResponse)
+@app.get("/api/test_personaplex.html", response_class=HTMLResponse)
+async def serve_personaplex_test_page():
+    """Serve the PersonaPlex full-duplex S2S test page."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        test_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "test_personaplex.html"
+        
+        if not test_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"PersonaPlex test page not found at {test_page_path}")
+        
+        with open(test_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="PersonaPlex test page not found")
+    except Exception as e:
+        logger.error(f"Error serving PersonaPlex test page: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/personaplex_voice.html", response_class=HTMLResponse)
+@app.get("/api/personaplex_voice.html", response_class=HTMLResponse)
+async def serve_personaplex_voice_page():
+    """Serve the PersonaPlex integrated voice chat page."""
+    try:
+        backend_root = Path(__file__).resolve().parents[4]
+        voice_page_path = backend_root / "backend" / "src" / "beautyai_inference" / "api" / "static" / "personaplex_voice.html"
+        
+        if not voice_page_path.exists():
+            raise HTTPException(status_code=404, detail=f"PersonaPlex voice page not found at {voice_page_path}")
+        
+        with open(voice_page_path, 'r', encoding='utf-8') as f:
+            content = f.read()
+        
+        return HTMLResponse(content=content)
+    except FileNotFoundError:
+        raise HTTPException(status_code=404, detail="PersonaPlex voice page not found")
+    except Exception as e:
+        logger.error(f"Error serving PersonaPlex voice page: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
     logger.warning("WebRTC voice endpoints not registered - check aiortc installation")
